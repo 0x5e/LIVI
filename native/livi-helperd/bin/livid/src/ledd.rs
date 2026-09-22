@@ -6,10 +6,11 @@ pub fn run(_args: Vec<String>) -> i32 {
     }
 }
 
-// livi-ledd — single-pixel RGB LED driver for the LIVI-Link (V821B) dongle.
+// livi-ledd — RGB LED driver for the LIVI-Link dongles.
 //
-// Drives a WS2812-style chip via /dev/spidev1.0 (3-bit-per-bit encoding at
-// ~2.4 MHz). State inputs are file existence under /tmp/livi/led/. Config
+// Drives WS2812-style chips via /dev/spidev1.0 (4-bit-per-bit encoding at
+// ~3.1 MHz). One pixel on V821B, a chain of three on AX520 (the count comes from the
+// board's device tree). State inputs are file existence under /tmp/livi/led/. Config
 // (WLAN color + brightness) lives in /etc/livi/led.toml.
 //
 // Wifi and bluetooth share the one pixel the way two LEDs would, their colours added:
@@ -18,7 +19,9 @@ pub fn run(_args: Vec<String>) -> i32 {
 //   bt-connected    → blue solid, on top of the wifi state
 //   bt-paging       → pulsing blue, over the wifi state
 // Ahead of both:
-//   flash-mode      → red+blue alternating (~2 Hz)
+//   flash-error     → red solid, a write or its check failed: do not unplug, do not reboot into it
+//   flash-mode      → red+blue alternating (~2 Hz), a partition is being written
+//   flash-done      → green solid, everything is written and verified: safe to unplug or reboot
 //   iap2-active     → off
 //
 // Brightness = 0 turns the LED off entirely (no separate toggle needed).
@@ -32,6 +35,8 @@ use std::thread;
 use std::time::{Duration, Instant};
 
 const SPI_DEV: &str = "/dev/spidev1.0";
+// Chain length, a big-endian u32 on the spidev node. Boards without the property have one LED.
+const LED_COUNT_PROP: &str = "/sys/bus/spi/devices/spi1.0/of_node/livi,led-count";
 // /etc/ is on read-only squashfs; the runtime config lives on tmpfs.
 // rcS seeds it from /etc/livi/led.toml at boot; changes made via the web
 // UI are lost on reboot until we add a writable partition.
@@ -139,6 +144,8 @@ struct State {
     bt_connected: bool,
     iap2_active: bool,
     flash_mode: bool,
+    flash_done: bool,
+    flash_error: bool,
     // `touch /tmp/livi/led/wbtest` forces full white so all three channels light at once —
     // the only way to eyeball the white balance. `rm` it to return to normal.
     wbtest: bool,
@@ -152,6 +159,8 @@ impl State {
             bt_connected: exists("bt-connected"),
             iap2_active:  exists("iap2-active"),
             flash_mode:   exists("flash-mode"),
+            flash_done:   exists("flash-done"),
+            flash_error:  exists("flash-error"),
             wbtest:       exists("wbtest"),
         }
     }
@@ -188,6 +197,8 @@ fn wifi_client() -> bool {
 #[derive(Clone, Copy)]
 struct Rgb(u8, u8, u8);
 const OFF: Rgb = Rgb(0, 0, 0);
+const RED: Rgb = Rgb(255, 0, 0);
+const GREEN: Rgb = Rgb(0, 255, 0);
 const BLUE: Rgb = Rgb(0, 0, 255);
 
 const WHITE: Rgb = Rgb(255, 255, 255);
@@ -209,9 +220,13 @@ fn render(state: &State, cfg: &Config, tick: u64) -> Rgb {
     // Steady once a station is on the AP, blinking while it waits for one.
     let wifi = if state.client || slow_on { cfg.status } else { OFF };
 
-    let base = if state.flash_mode {
+    let base = if state.flash_error {
+        RED
+    } else if state.flash_mode {
         // Alternating red / blue every ~250 ms
-        if slow_on { Rgb(255, 0, 0) } else { BLUE }
+        if slow_on { RED } else { BLUE }
+    } else if state.flash_done {
+        GREEN
     } else if state.iap2_active {
         OFF
     } else if state.bt_connected {
@@ -278,8 +293,16 @@ fn encode_pixel(c: Rgb, out: &mut [u8; 12]) {
     encode_byte(c.2, &mut tmp); out[8..12].copy_from_slice(&tmp); // B
 }
 
+fn led_count() -> usize {
+    fs::read(LED_COUNT_PROP)
+        .ok()
+        .and_then(|b| <[u8; 4]>::try_from(b.as_slice()).ok())
+        .map_or(1, |b| u32::from_be_bytes(b).clamp(1, 16) as usize)
+}
+
 struct Spi {
     file: fs::File,
+    leds: usize,
 }
 
 impl Spi {
@@ -295,11 +318,11 @@ impl Spi {
             let hz: u32 = SPI_HZ;
             check(libc::ioctl(fd, SPI_IOC_WR_MAX_SPEED_HZ as _, &hz as *const u32))?;
         }
-        Ok(Self { file })
+        Ok(Self { file, leds: led_count() })
     }
 
     fn write_pixel(&mut self, c: Rgb) -> std::io::Result<()> {
-        // [25 leading zeros | 12 data | 25 trailing zeros]
+        // [25 leading zeros | 12 data per LED, all the same colour | 25 trailing zeros]
         // 25 bytes at 3.2 MHz = ~62 µs low — more than the WS2812 reset
         // threshold (≥50 µs). The LEADING gap forces the chip into a
         // clean reset-done state right before our data (killing any
@@ -307,10 +330,12 @@ impl Spi {
         // stretch the first bit's high pulse and light G at 128); the
         // TRAILING gap latches the pixel and survives whatever the SPI
         // hardware does with MOSI while CS is deasserted.
-        let mut buf = [0u8; 25 + 12 + 25];
+        let mut buf = vec![0u8; 25 + 12 * self.leds + 25];
         let mut px = [0u8; 12];
         encode_pixel(c, &mut px);
-        buf[25..37].copy_from_slice(&px);
+        for led in buf[25..25 + 12 * self.leds].as_chunks_mut::<12>().0 {
+            *led = px;
+        }
         self.file.write_all(&buf)?;
         Ok(())
     }

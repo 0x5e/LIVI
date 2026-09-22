@@ -11,12 +11,24 @@ use std::sync::OnceLock;
 /// The firmware writes this dongle offers; several can be live at once. Default is none.
 #[derive(Default)]
 pub struct Flash {
-    /// A `.lfwb` bundle written across NOR mtd partitions, magic-checked and CRC-compared.
-    pub mtd: bool,
+    /// The partitions a `.lfwb` bundle is written to, magic-checked and CRC-compared. Empty when
+    /// this dongle takes no bundle.
+    pub mtd: Vec<MtdSlot>,
     /// Update the running stack from its gzipped binary — no partition erase.
     pub stack: Option<Stack>,
     /// Restore a full rootfs image (e.g. the stock firmware backup), sha256- and size-gated.
     pub rootfs: Option<Rootfs>,
+    /// Run after a bundle is written and verified. If it fails the dongle does not reboot.
+    pub check: Option<String>,
+}
+
+/// One bundle image type and where it goes. The size is the partition's: a larger payload would
+/// run into the next one.
+pub struct MtdSlot {
+    pub typ: u8,
+    pub node: String,
+    pub magic: Vec<u8>,
+    pub size: u64,
 }
 
 /// Where the stack `.gz` lands on jffs2 and how the launcher is re-run to pick it up.
@@ -91,13 +103,6 @@ use std::time::Duration;
 // Kept under web/ (not assets/): the Mac↔build-host sync skips any assets/ directory, which
 // would leave the build host compiling a stale or missing page.
 const INDEX_HTML: &str = include_str!("../web/index.html");
-
-// mtd slot sizes must match the on-flash partition layout. If a flash payload
-// exceeds the slot, refuse — the write would corrupt the neighbouring partition.
-const MTD1_SIZE: u64 = 0x0031_0000; // 3.06 MiB — kernel + DTB bootimg
-const MTD3_SIZE: u64 = 0x0048_0000; // 4.5  MiB — squashfs rootfs
-// mtd0 (u-boot + OpenSBI) is intentionally NOT in this table. We never flash it
-// from a running system; a bad write there requires FEL recovery.
 
 fn serve_forever() -> std::io::Result<()> {
     let port = caps().port;
@@ -175,15 +180,14 @@ fn route(rmethod: &str, rpath: &str, body: Option<&[u8]>, clen: u64)
         }
     }
     // One upload endpoint; the dongle picks the write from what it offers and what the file is.
-    let has_flash = c.flash.mtd || c.flash.stack.is_some() || c.flash.rootfs.is_some();
+    let has_flash = !c.flash.mtd.is_empty() || c.flash.stack.is_some() || c.flash.rootfs.is_some();
     if has_flash && (method, path) == ("POST", "/api/flash") {
         return flash_dispatch(c, query, body, clen);
     }
-    if c.flash.mtd {
-        match (method, path) {
-            ("POST", "/api/flash/mtd1") => return flash("mtdblock1", MTD1_SIZE, b"ANDROID!", body, clen),
-            ("POST", "/api/flash/mtd3") => return flash("mtdblock3", MTD3_SIZE, b"hsqs", body, clen),
-            _ => {}
+    if method == "POST" {
+        let typ = path.strip_prefix("/api/flash/mtd").and_then(|n| n.parse::<u8>().ok());
+        if let Some(slot) = typ.and_then(|t| c.flash.mtd.iter().find(|s| s.typ == t)) {
+            return flash(&c.flash, slot, body, clen);
         }
     }
 
@@ -206,7 +210,7 @@ fn caps_json() -> String {
     let f = &caps().flash;
     format!(
         r#"{{"flash":{{"mtd":{},"stack":{},"rootfs":{}}},"led":{}}}"#,
-        f.mtd, f.stack.is_some(), f.rootfs.is_some(), caps().led
+        !f.mtd.is_empty(), f.stack.is_some(), f.rootfs.is_some(), caps().led
     )
 }
 
@@ -288,8 +292,8 @@ fn flash_dispatch(c: &WebCaps, query: &str, body: Option<&[u8]>, clen: u64)
     -> (&'static str, &'static str, Vec<u8>)
 {
     let Some(data) = body else { return (S_400, T_JSON, err_json("empty body")); };
-    if c.flash.mtd && data.starts_with(BUNDLE_MAGIC) {
-        return flash_bundle(body, clen);
+    if !c.flash.mtd.is_empty() && data.starts_with(BUNDLE_MAGIC) {
+        return flash_bundle(&c.flash, body, clen);
     }
     if let Some(s) = c.flash.stack.as_ref().filter(|_| data.starts_with(&[0x1f, 0x8b])) {
         return flash_stack(&s.install_to, &s.restart, query, body, clen);
@@ -300,9 +304,10 @@ fn flash_dispatch(c: &WebCaps, query: &str, body: Option<&[u8]>, clen: u64)
     (S_400, T_JSON, err_json("this upload matches no firmware this dongle can write"))
 }
 
-fn flash(node: &str, slot_size: u64, magic: &[u8], body: Option<&[u8]>, clen: u64)
+fn flash(f: &Flash, slot: &MtdSlot, body: Option<&[u8]>, clen: u64)
     -> (&'static str, &'static str, Vec<u8>)
 {
+    let (node, slot_size, magic) = (slot.node.as_str(), slot.size, slot.magic.as_slice());
     let Some(data) = body else {
         return (S_400, T_JSON, err_json("empty body"));
     };
@@ -333,16 +338,14 @@ fn flash(node: &str, slot_size: u64, magic: &[u8], body: Option<&[u8]>, clen: u6
         )));
     }
 
-    // Tell livi-ledd we're flashing → red/blue alternating blink.
-    // Cleared on any failure below; reboot itself clears the whole tmpfs.
-    let _ = fs::create_dir_all("/tmp/livi/led");
-    let _ = fs::write("/tmp/livi/led/flash-mode", b"");
+    // Tell livi-ledd we're flashing → red/blue alternating blink, until the write is verified.
+    led_flash_running();
 
     // Write, then fsync so the block driver commits the NOR erase+program.
     let path = format!("/dev/{node}");
     write_progress(node, 0, data.len(), "write");
     if let Err(e) = write_chunked(&path, data, node) {
-        let _ = fs::remove_file("/tmp/livi/led/flash-mode");
+        led_flash_error();
         write_progress(node, 0, data.len(), "error");
         return (S_500, T_JSON, err_json(&format!("write /dev/{node}: {e}")));
     }
@@ -352,16 +355,22 @@ fn flash(node: &str, slot_size: u64, magic: &[u8], body: Option<&[u8]>, clen: u6
     // partition in whatever state it is in (bricked), but at least we do
     // NOT reboot into it — the caller learns and can FEL-recover instead.
     write_progress(node, data.len(), data.len(), "verify");
-    match verify_flash(&path, data) {
+    match verify_flash(&raw_mtd(node), data) {
         Ok(()) => {
+            if let Err(e) = post_write_check(f) {
+                led_flash_error();
+                write_progress(node, data.len(), data.len(), "error");
+                return (S_500, T_JSON, err_json(&e));
+            }
             write_progress(node, data.len(), data.len(), "done");
+            led_flash_done();
             reboot_after(Duration::from_millis(500));
             (S_200, T_JSON, ok_json(&format!(
                 "wrote {} B to /dev/{node}, verified, rebooting", data.len()
             )))
         }
         Err(e) => {
-            let _ = fs::remove_file("/tmp/livi/led/flash-mode");
+            led_flash_error();
             write_progress(node, data.len(), data.len(), "error");
             (S_500, T_JSON, err_json(&format!(
                 "verify /dev/{node} failed after write: {e} — DO NOT reboot, use FEL to restore"
@@ -390,7 +399,7 @@ struct ImageDesc {
     payload_offset: usize,
 }
 
-fn flash_bundle(body: Option<&[u8]>, clen: u64) -> (&'static str, &'static str, Vec<u8>) {
+fn flash_bundle(f: &Flash, body: Option<&[u8]>, clen: u64) -> (&'static str, &'static str, Vec<u8>) {
     let Some(data) = body else {
         return (S_400, T_JSON, err_json("empty body"));
     };
@@ -443,41 +452,59 @@ fn flash_bundle(body: Option<&[u8]>, clen: u64) -> (&'static str, &'static str, 
         }
     }
 
-    // Signal LED flash-mode across the whole operation.
-    let _ = fs::create_dir_all("/tmp/livi/led");
-    let _ = fs::write("/tmp/livi/led/flash-mode", b"");
+    // Every image is checked before the first one is written. A bundle this dongle cannot take in full (a type it has
+    // no slot for, an image too big, a wrong header) must not leave the flash half rewritten.
+    for d in descs.iter() {
+        let Some(slot) = f.mtd.iter().find(|s| s.typ == d.typ) else {
+            return (S_400, T_JSON, err_json(&format!("image type {} is not for this dongle, nothing written", d.typ)));
+        };
+        let slice = &data[d.payload_offset .. d.payload_offset + d.length as usize];
+        if (d.length as u64) > slot.size {
+            return (S_400, T_JSON, err_json(&format!(
+                "image type {} ({}) is {} B, exceeds slot {} B, nothing written", d.typ, slot.node, d.length, slot.size
+            )));
+        }
+        if !slice.starts_with(slot.magic.as_slice()) {
+            return (S_400, T_JSON, err_json(&format!(
+                "image type {} payload magic mismatch for {}, nothing written", d.typ, slot.node
+            )));
+        }
+    }
+
+    // Signal LED flash-mode across the whole operation: red and blue alternating until the last image is verified.
+    led_flash_running();
 
     // Walk images: skip if the on-flash content already matches, else write+verify.
     let mut wrote_any = false;
     let mut report: Vec<String> = Vec::new();
     for d in descs.iter() {
-        let (node, magic, slot_size) = match d.typ {
-            1 => ("mtdblock1", &b"ANDROID!"[..], MTD1_SIZE),
-            3 => ("mtdblock3", &b"hsqs"[..],     MTD3_SIZE),
-            other => {
-                let _ = fs::remove_file("/tmp/livi/led/flash-mode");
-                return (S_400, T_JSON, err_json(&format!("unknown image type {}", other)));
-            }
+        let Some(slot) = f.mtd.iter().find(|s| s.typ == d.typ) else {
+            led_flash_error();
+            return (S_400, T_JSON, err_json(&format!("image type {} is not for this dongle", d.typ)));
         };
+        let (node, magic, slot_size) = (slot.node.as_str(), slot.magic.as_slice(), slot.size);
         let slice = &data[d.payload_offset .. d.payload_offset + d.length as usize];
 
         if (d.length as u64) > slot_size {
-            let _ = fs::remove_file("/tmp/livi/led/flash-mode");
+            led_flash_error();
             return (S_400, T_JSON, err_json(&format!(
                 "image type {} ({}) is {} B, exceeds slot {} B", d.typ, node, d.length, slot_size
             )));
         }
         if !slice.starts_with(magic) {
-            let _ = fs::remove_file("/tmp/livi/led/flash-mode");
+            led_flash_error();
             return (S_400, T_JSON, err_json(&format!(
                 "image type {} payload magic mismatch for {}", d.typ, node
             )));
         }
 
         let path = format!("/dev/{node}");
+        // What's on the chip is read through the character device: the block device answers from the page
+        // cache, so a read-back through it agrees with what was just written whether it reached the chip or not.
+        let raw = raw_mtd(node);
         // Compare against what's already on flash.
         write_progress(node, 0, d.length as usize, "compare");
-        let same = flash_matches(&path, slice).unwrap_or(false);
+        let same = flash_matches(&raw, slice).unwrap_or(false);
         if same {
             report.push(format!("{} unchanged", node));
             write_progress(node, d.length as usize, d.length as usize, "unchanged");
@@ -487,29 +514,78 @@ fn flash_bundle(body: Option<&[u8]>, clen: u64) -> (&'static str, &'static str, 
         // Different — write + verify.
         write_progress(node, 0, d.length as usize, "write");
         if let Err(e) = write_chunked(&path, slice, node) {
-            let _ = fs::remove_file("/tmp/livi/led/flash-mode");
+            led_flash_error();
             write_progress(node, 0, d.length as usize, "error");
             return (S_500, T_JSON, err_json(&format!("write /dev/{node}: {e}")));
         }
         write_progress(node, d.length as usize, d.length as usize, "verify");
-        if let Err(e) = verify_flash(&path, slice) {
-            let _ = fs::remove_file("/tmp/livi/led/flash-mode");
+        if let Err(e) = verify_flash(&raw, slice) {
+            led_flash_error();
             write_progress(node, d.length as usize, d.length as usize, "error");
             return (S_500, T_JSON, err_json(&format!(
-                "verify /dev/{node} failed: {e} — DO NOT reboot, use FEL to restore"
+                "verify {raw} failed: {e} — DO NOT reboot, do not unplug, the chip does not hold what was written"
             )));
         }
         wrote_any = true;
         report.push(format!("{} written", node));
     }
 
+    if wrote_any
+        && let Err(e) = post_write_check(f)
+    {
+        write_progress("bundle", data.len(), data.len(), "error");
+        return (S_500, T_JSON, err_json(&format!("{}, but {e}", report.join(", "))));
+    }
     write_progress("bundle", data.len(), data.len(), "done");
     if wrote_any {
+        // Only now, with every image verified and the check behind it, the LEDs say it is over.
+        led_flash_done();
         reboot_after(Duration::from_millis(500));
         (S_200, T_JSON, ok_json(&format!("{}, rebooting", report.join(", "))))
     } else {
-        let _ = fs::remove_file("/tmp/livi/led/flash-mode");
+        led_flash_clear();
         (S_200, T_JSON, ok_json("Up-to-date"))
+    }
+}
+
+fn post_write_check(f: &Flash) -> Result<(), String> {
+    let Some(cmd) = &f.check else { return Ok(()) };
+    match Command::new("sh").arg("-c").arg(cmd).status() {
+        Ok(st) if st.success() => Ok(()),
+        _ => {
+            led_flash_error();
+            Err(format!("{cmd} failed after the write, not rebooting"))
+        }
+    }
+}
+
+const LED_DIR: &str = "/tmp/livi/led";
+
+// The state the LEDs show while a partition is being written, one file each under /tmp/livi/led:
+//   flash-mode  red/blue alternating, from before the first byte until the last image is verified
+//   flash-done  steady green, everything is on the chip and verified: safe to unplug or reboot
+//   flash-error steady red, a write or its check failed: do not unplug, do not reboot into it
+// Reboot clears the tmpfs, and where it does not work yet the state stays until the plug is pulled.
+fn led_flash_set(state: Option<&str>) {
+    let _ = fs::create_dir_all(LED_DIR);
+    for f in ["flash-mode", "flash-done", "flash-error"] {
+        let _ = fs::remove_file(format!("{LED_DIR}/{f}"));
+    }
+    if let Some(name) = state {
+        let _ = fs::write(format!("{LED_DIR}/{name}"), b"");
+    }
+}
+fn led_flash_running() { led_flash_set(Some("flash-mode")) }
+fn led_flash_done() { led_flash_set(Some("flash-done")) }
+fn led_flash_error() { led_flash_set(Some("flash-error")) }
+/// Nothing was written after all: back to the normal display.
+fn led_flash_clear() { led_flash_set(None) }
+
+/// The unbuffered character device of an MTD block node: `mtdblock6` is `/dev/mtd6`.
+fn raw_mtd(node: &str) -> String {
+    match node.strip_prefix("mtdblock") {
+        Some(n) => format!("/dev/mtd{n}"),
+        None => format!("/dev/{node}"),
     }
 }
 
@@ -1032,3 +1108,15 @@ const S_500: &str = "500 Internal Server Error";
 const T_HTML: &str = "text/html; charset=utf-8";
 const T_JSON: &str = "application/json";
 const T_TEXT: &str = "text/plain; charset=utf-8";
+
+#[cfg(test)]
+mod tests {
+    use super::raw_mtd;
+
+    #[test]
+    fn a_block_node_is_read_back_through_its_character_device() {
+        assert_eq!(raw_mtd("mtdblock6"), "/dev/mtd6");
+        assert_eq!(raw_mtd("mtdblock12"), "/dev/mtd12");
+        assert_eq!(raw_mtd("mtd6"), "/dev/mtd6");
+    }
+}

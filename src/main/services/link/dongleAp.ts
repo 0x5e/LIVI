@@ -10,7 +10,7 @@ const HOST = 'livi-link.local'
 const LINK_SUBNET = '10.10.10.'
 /** The access point answers here, the Bluetooth accessory on its own port. */
 const PORT = 5001
-const BT_PORT = 5002
+const BT_PORT = 5005
 /** Applying waits for the radio, and a 5 GHz start spends the first seconds scanning. */
 const APPLY_MS = 30_000
 const PROBE_MS = 1500

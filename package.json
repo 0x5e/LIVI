@@ -60,30 +60,30 @@
     "protobufjs": "^8.8.0",
     "react-i18next": "^17.0.15",
     "react-router": "^8.4.0",
-    "socket.io": "^4.8.3",
+    "socket.io": "^4.8.4",
     "zustand": "^5.0.15"
   },
   "devDependencies": {
     "@biomejs/biome": "^2.5.14",
     "@testing-library/jest-dom": "^7.0.1",
     "@testing-library/react": "^16.3.3",
-    "@types/node": "^26.6.2",
+    "@types/node": "^26.6.3",
     "@types/react": "^19.3.0",
     "@types/react-dom": "^19.3.0",
     "@vitejs/plugin-react": "^6.1.1",
-    "@vitest/coverage-v8": "^5.0.1",
+    "@vitest/coverage-v8": "^5.0.2",
     "electron": "^44.4.5",
     "electron-builder": "^26.15.3",
     "esbuild": "^0.28.2",
     "globals": "^17.12.0",
     "husky": "^9.1.7",
     "jsdom": "^30.1.1",
-    "lint-staged": "^17.5.1",
+    "lint-staged": "^17.6.0",
     "react": "^19.3.0",
     "react-dom": "^19.3.0",
     "typescript": "^7.0.2",
-    "vite": "^8.3.0",
+    "vite": "^8.3.1",
     "vite-plugin-electron": "^1.1.2",
-    "vitest": "^5.0.1"
+    "vitest": "^5.0.2"
   }
 }

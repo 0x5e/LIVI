@@ -1,7 +1,7 @@
-//! livi-web — the dongle web UI + control API, shared by both dongles (V821B/riscv32 and
-//! cpc200/i.MX6). The page and the HTTP server are identical; only the hardware-specific parts
-//! differ and come in as `WebCaps` from each dongle's binary: which interfaces to read, whether
-//! a controllable LED is present, and how a flash write is actually performed.
+//! livi-web — the dongle web UI + control API, shared by every LIVI Link board (V821B, AX520,
+//! i.MX6UL). The page and the HTTP server are identical; only the hardware-specific parts differ
+//! and come in as `WebCaps` from livid: which interfaces to read, whether a controllable LED is
+//! present, and how a flash write is actually performed.
 //!
 //! Routes: GET / (index.html), GET /api/{status,wifi,bt,led,caps,flash/status},
 //! POST /api/{led,flash,reboot}. The flash + led routes answer 404 when the caps disable them.
@@ -14,10 +14,6 @@ pub struct Flash {
     /// The partitions a `.lfwb` bundle is written to, magic-checked and CRC-compared. Empty when
     /// this dongle takes no bundle.
     pub mtd: Vec<MtdSlot>,
-    /// Update the running stack from its gzipped binary — no partition erase.
-    pub stack: Option<Stack>,
-    /// Restore a full rootfs image (e.g. the stock firmware backup), sha256- and size-gated.
-    pub rootfs: Option<Rootfs>,
     /// Run after a bundle is written and verified. If it fails the dongle does not reboot.
     pub check: Option<String>,
 }
@@ -29,31 +25,25 @@ pub struct MtdSlot {
     pub node: String,
     pub magic: Vec<u8>,
     pub size: u64,
+    /// For a partition the bootloader does not take the image for as it is.
+    pub stage: Option<Stage>,
+    /// Runs before a changed image is written, nothing is written when it fails.
+    pub before_write: Option<fn() -> Result<(), String>>,
 }
 
-/// Where the stack `.gz` lands on jffs2 and how the launcher is re-run to pick it up.
-pub struct Stack {
-    pub install_to: String,
-    pub restart: String,
-}
-
-/// The flash script and the partition it writes.
-pub struct Rootfs {
-    pub script: String,
-    pub partition: String,
-}
+/// Builds what goes on a partition from the image and what the partition holds now.
+pub type Stage = fn(&[u8], &[u8]) -> Result<Vec<u8>, String>;
 
 /// What differs between the dongles the shared server runs on.
 pub struct WebCaps {
-    /// Human label shown in the Device card, e.g. "CPC200-CCPA" or "V821B + AIC8800D80".
+    /// Human label shown in the Device card, e.g. "i.MX6ULL + IW416" or "V821B + AIC8800D80".
     pub model: String,
     /// The directory under assets/livi-link this dongle's firmware is published in.
     pub target: String,
     pub port: u16,
     /// The AP interface whose SSID/MAC/rates the WiFi card shows (e.g. "wlan0").
     pub wifi_iface: String,
-    /// The bridge whose forwarding table names the AP's clients; None counts via nl80211
-    /// (the cpc200 bridges with l2fwd and has no br0).
+    /// The bridge whose forwarding table names the AP's clients; None counts them via nl80211.
     pub bridge: Option<String>,
     /// The host-facing interface whose MAC stands in as the dongle's address.
     pub host_iface: String,
@@ -167,8 +157,7 @@ fn route(rmethod: &str, rpath: &str, body: Option<&[u8]>, clen: u64)
     -> (&'static str, &'static str, Vec<u8>)
 {
     let c = caps();
-    // The path may carry a query (?sha=… for the rootfs flash); match on the path, keep the query.
-    let (path, query) = rpath.split_once('?').unwrap_or((rpath, ""));
+    let path = rpath.split_once('?').map_or(rpath, |(p, _)| p);
     let method = rmethod;
 
     // LED section only when a controllable LED daemon is present.
@@ -179,14 +168,15 @@ fn route(rmethod: &str, rpath: &str, body: Option<&[u8]>, clen: u64)
             _ => {}
         }
     }
-    // One upload endpoint; the dongle picks the write from what it offers and what the file is.
-    let has_flash = !c.flash.mtd.is_empty() || c.flash.stack.is_some() || c.flash.rootfs.is_some();
-    if has_flash && (method, path) == ("POST", "/api/flash") {
-        return flash_dispatch(c, query, body, clen);
+    if !c.flash.mtd.is_empty() && (method, path) == ("POST", "/api/flash") {
+        return flash_dispatch(c, body, clen);
     }
     if method == "POST" {
         let typ = path.strip_prefix("/api/flash/mtd").and_then(|n| n.parse::<u8>().ok());
         if let Some(slot) = typ.and_then(|t| c.flash.mtd.iter().find(|s| s.typ == t)) {
+            if slot.stage.is_some() || slot.before_write.is_some() {
+                return (S_400, T_JSON, err_json(&format!("{} takes its image only from a bundle", slot.node)));
+            }
             return flash(&c.flash, slot, body, clen);
         }
     }
@@ -205,103 +195,20 @@ fn route(rmethod: &str, rpath: &str, body: Option<&[u8]>, clen: u64)
     }
 }
 
-/// What the page shows: which sections are live and which firmware writes this dongle offers.
+/// What the page shows: which sections are live and whether this dongle takes firmware.
 fn caps_json() -> String {
-    let f = &caps().flash;
-    format!(
-        r#"{{"flash":{{"mtd":{},"stack":{},"rootfs":{}}},"led":{}}}"#,
-        !f.mtd.is_empty(), f.stack.is_some(), f.rootfs.is_some(), caps().led
-    )
+    format!(r#"{{"flash":{{"mtd":{}}},"led":{}}}"#, !caps().flash.mtd.is_empty(), caps().led)
 }
 
-/// cpc200/i.MX6 flash: write the uploaded rootfs image to a staging file, then hand it to
-/// flash-image.sh with the client-supplied sha256, which re-checks size + hash before it erases.
-/// No FEL here, so the script is the guard — we never write the partition ourselves.
-fn flash_rootfs(script: &str, partition: &str, query: &str, body: Option<&[u8]>, clen: u64)
+/// The single upload endpoint takes a `.lfwb` bundle.
+fn flash_dispatch(c: &WebCaps, body: Option<&[u8]>, clen: u64)
     -> (&'static str, &'static str, Vec<u8>)
 {
     let Some(data) = body else { return (S_400, T_JSON, err_json("empty body")); };
-    if clen == 0 || (data.len() as u64) != clen {
-        return (S_400, T_JSON, err_json("content-length mismatch"));
-    }
-    let sha = query.split('&').find_map(|kv| kv.strip_prefix("sha=")).unwrap_or("");
-    if sha.len() != 64 || !sha.bytes().all(|b| b.is_ascii_hexdigit()) {
-        return (S_400, T_JSON, err_json("missing/!64-hex ?sha= — refusing an unguarded flash"));
-    }
-    let img = "/tmp/restore.img";
-    if let Err(e) = fs::write(img, data) {
-        return (S_500, T_JSON, err_json(&format!("stage {img}: {e}")));
-    }
-    let _ = fs::create_dir_all("/tmp/livi/led");
-    let _ = fs::write("/tmp/livi/led/flash-mode", b"");
-    // flash-image.sh stages its own tools to tmpfs, blinks, writes, verifies and reboots.
-    match Command::new("/bin/sh").arg(script).arg(partition).arg(sha).arg(img).spawn() {
-        Ok(_) => (S_200, T_JSON, ok_json(&format!(
-            "flashing {partition} via {script}; the dongle reboots on success"
-        ))),
-        Err(e) => {
-            let _ = fs::remove_file("/tmp/livi/led/flash-mode");
-            (S_500, T_JSON, err_json(&format!("spawn {script}: {e}")))
-        }
-    }
-}
-
-/// Stack update: the uploaded gzip is the relay-stack binary. Write it to its home on jffs2, then
-/// re-run the launcher so it unpacks and relinks — no partition erase, no full reboot.
-fn flash_stack(install_to: &str, restart: &str, query: &str, body: Option<&[u8]>, clen: u64)
-    -> (&'static str, &'static str, Vec<u8>)
-{
-    let Some(data) = body else { return (S_400, T_JSON, err_json("empty body")); };
-    if clen == 0 || (data.len() as u64) != clen {
-        return (S_400, T_JSON, err_json("content-length mismatch"));
-    }
-    if data.len() < 512 || !data.starts_with(&[0x1f, 0x8b]) {
-        return (S_400, T_JSON, err_json("not a gzip — expected the stack .gz"));
-    }
-    let _ = fs::create_dir_all("/tmp/livi/led");
-    let _ = fs::write("/tmp/livi/led/flash-mode", b"");
-    // Write beside the target and rename, so the launcher never sees a half-written file.
-    let tmp = format!("{install_to}.new");
-    if let Err(e) = write_sync(&tmp, data) {
-        let _ = fs::remove_file("/tmp/livi/led/flash-mode");
-        return (S_500, T_JSON, err_json(&format!("write {tmp}: {e}")));
-    }
-    // A stack that does not unpack leaves a dongle with no web UI to fix it from.
-    if let Some(want) = query.split('&').find_map(|kv| kv.strip_prefix("sha=")) {
-        let got = Command::new("sha256sum").arg(&tmp).output().ok()
-            .and_then(|o| String::from_utf8(o.stdout).ok())
-            .and_then(|s| s.split_whitespace().next().map(str::to_owned));
-        if got.as_deref() != Some(want) {
-            let _ = fs::remove_file(&tmp);
-            let _ = fs::remove_file("/tmp/livi/led/flash-mode");
-            return (S_400, T_JSON, err_json("sha256 mismatch, nothing installed"));
-        }
-    }
-    if let Err(e) = fs::rename(&tmp, install_to) {
-        let _ = fs::remove_file("/tmp/livi/led/flash-mode");
-        return (S_500, T_JSON, err_json(&format!("install {install_to}: {e}")));
-    }
-    // The restart takes this httpd down with it, so the response must go out first.
-    restart_after(Duration::from_millis(500), restart.to_string());
-    (S_200, T_JSON, ok_json(&format!("installed {} B; restarting the stack", data.len())))
-}
-
-/// The single upload endpoint: routes by what this dongle offers and what the file is — a `.lfwb`
-/// bundle ("LFWB"), a gzipped stack (1f 8b), else a full rootfs image.
-fn flash_dispatch(c: &WebCaps, query: &str, body: Option<&[u8]>, clen: u64)
-    -> (&'static str, &'static str, Vec<u8>)
-{
-    let Some(data) = body else { return (S_400, T_JSON, err_json("empty body")); };
-    if !c.flash.mtd.is_empty() && data.starts_with(BUNDLE_MAGIC) {
+    if data.starts_with(BUNDLE_MAGIC) {
         return flash_bundle(&c.flash, body, clen);
     }
-    if let Some(s) = c.flash.stack.as_ref().filter(|_| data.starts_with(&[0x1f, 0x8b])) {
-        return flash_stack(&s.install_to, &s.restart, query, body, clen);
-    }
-    if let Some(r) = &c.flash.rootfs {
-        return flash_rootfs(&r.script, &r.partition, query, body, clen);
-    }
-    (S_400, T_JSON, err_json("this upload matches no firmware this dongle can write"))
+    (S_400, T_JSON, err_json("not a LIVI Link firmware bundle (.lfwb)"))
 }
 
 fn flash(f: &Flash, slot: &MtdSlot, body: Option<&[u8]>, clen: u64)
@@ -383,7 +290,7 @@ fn flash(f: &Flash, slot: &MtdSlot, body: Option<&[u8]>, clen: u64)
 // Firmware bundle (.lfwb): a single file carrying mtd1 + mtd3 (and future
 // slots). On upload the dongle keeps the whole thing in RAM, then for each
 // image compares CRC32 against what's currently on that partition and only
-// writes if it actually differs. See scripts/livi-link/pack-bundle.sh.
+// writes if it actually differs. See scripts/livi-link/common/pack-bundle.sh.
 // ---------------------------------------------------------------------------
 
 const BUNDLE_MAGIC: &[u8; 4] = b"LFWB";
@@ -453,7 +360,8 @@ fn flash_bundle(f: &Flash, body: Option<&[u8]>, clen: u64) -> (&'static str, &'s
     }
 
     // Every image is checked before the first one is written. A bundle this dongle cannot take in full (a type it has
-    // no slot for, an image too big, a wrong header) must not leave the flash half rewritten.
+    // no slot for, an image too big, a wrong header, one that does not stage) must not leave the flash half rewritten.
+    let mut staged: Vec<Option<Vec<u8>>> = Vec::with_capacity(descs.len());
     for d in descs.iter() {
         let Some(slot) = f.mtd.iter().find(|s| s.typ == d.typ) else {
             return (S_400, T_JSON, err_json(&format!("image type {} is not for this dongle, nothing written", d.typ)));
@@ -469,6 +377,17 @@ fn flash_bundle(f: &Flash, body: Option<&[u8]>, clen: u64) -> (&'static str, &'s
                 "image type {} payload magic mismatch for {}, nothing written", d.typ, slot.node
             )));
         }
+        let Some(stage) = slot.stage else {
+            staged.push(None);
+            continue;
+        };
+        let raw = raw_mtd(&slot.node);
+        match fs::read(&raw).map_err(|e| format!("read {raw}: {e}")).and_then(|now| stage(slice, &now)) {
+            Ok(part) => staged.push(Some(part)),
+            Err(e) => return (S_400, T_JSON, err_json(&format!(
+                "image type {} for {}: {e}, nothing written", d.typ, slot.node
+            ))),
+        }
     }
 
     // Signal LED flash-mode across the whole operation: red and blue alternating until the last image is verified.
@@ -477,7 +396,7 @@ fn flash_bundle(f: &Flash, body: Option<&[u8]>, clen: u64) -> (&'static str, &'s
     // Walk images: skip if the on-flash content already matches, else write+verify.
     let mut wrote_any = false;
     let mut report: Vec<String> = Vec::new();
-    for d in descs.iter() {
+    for (d, staged) in descs.iter().zip(&staged) {
         let Some(slot) = f.mtd.iter().find(|s| s.typ == d.typ) else {
             led_flash_error();
             return (S_400, T_JSON, err_json(&format!("image type {} is not for this dongle", d.typ)));
@@ -498,30 +417,41 @@ fn flash_bundle(f: &Flash, body: Option<&[u8]>, clen: u64) -> (&'static str, &'s
             )));
         }
 
+        let image = staged.as_deref().unwrap_or(slice);
+        let len = image.len();
         let path = format!("/dev/{node}");
         // What's on the chip is read through the character device: the block device answers from the page
         // cache, so a read-back through it agrees with what was just written whether it reached the chip or not.
         let raw = raw_mtd(node);
         // Compare against what's already on flash.
-        write_progress(node, 0, d.length as usize, "compare");
-        let same = flash_matches(&raw, slice).unwrap_or(false);
+        write_progress(node, 0, len, "compare");
+        let same = flash_matches(&raw, image).unwrap_or(false);
         if same {
             report.push(format!("{} unchanged", node));
-            write_progress(node, d.length as usize, d.length as usize, "unchanged");
+            write_progress(node, len, len, "unchanged");
             continue;
         }
 
-        // Different — write + verify.
-        write_progress(node, 0, d.length as usize, "write");
-        if let Err(e) = write_chunked(&path, slice, node) {
+        if let Some(before) = slot.before_write
+            && let Err(e) = before()
+        {
             led_flash_error();
-            write_progress(node, 0, d.length as usize, "error");
+            write_progress(node, 0, len, "error");
+            report.push(format!("{node}: {e}, not written"));
+            return (S_500, T_JSON, err_json(&report.join(", ")));
+        }
+
+        // Different — write + verify.
+        write_progress(node, 0, len, "write");
+        if let Err(e) = write_chunked(&path, image, node) {
+            led_flash_error();
+            write_progress(node, 0, len, "error");
             return (S_500, T_JSON, err_json(&format!("write /dev/{node}: {e}")));
         }
-        write_progress(node, d.length as usize, d.length as usize, "verify");
-        if let Err(e) = verify_flash(&raw, slice) {
+        write_progress(node, len, len, "verify");
+        if let Err(e) = verify_flash(&raw, image) {
             led_flash_error();
-            write_progress(node, d.length as usize, d.length as usize, "error");
+            write_progress(node, len, len, "error");
             return (S_500, T_JSON, err_json(&format!(
                 "verify {raw} failed: {e} — DO NOT reboot, do not unplug, the chip does not hold what was written"
             )));
@@ -633,15 +563,6 @@ fn write_chunked(path: &str, data: &[u8], node: &str) -> std::io::Result<()> {
     Ok(())
 }
 
-/// Write a whole file and flush it to storage.
-fn write_sync(path: &str, data: &[u8]) -> std::io::Result<()> {
-    let mut f = fs::OpenOptions::new().write(true).create(true).truncate(true).open(path)?;
-    f.write_all(data)?;
-    f.sync_all()?;
-    unsafe { libc::sync(); }
-    Ok(())
-}
-
 fn write_progress(node: &str, written: usize, total: usize, phase: &str) {
     let _ = fs::create_dir_all("/tmp/livi");
     let _ = fs::write(
@@ -699,19 +620,6 @@ fn reboot_after(delay: Duration) {
         unsafe {
             libc::reboot(libc::LINUX_REBOOT_CMD_RESTART);
         }
-    });
-}
-
-/// Re-runs the stack launcher detached, after the response has been sent — it takes this httpd
-/// with it, so it must outlive the process.
-fn restart_after(delay: Duration, cmd: String) {
-    thread::spawn(move || {
-        thread::sleep(delay);
-        unsafe { libc::sync(); }
-        let _ = Command::new("/bin/sh")
-            .arg("-c")
-            .arg(format!("setsid {cmd} </dev/null >/tmp/livi/stack-restart.log 2>&1 &"))
-            .status();
     });
 }
 
@@ -787,8 +695,8 @@ fn wifi_json() -> String {
         }
     }
     let mac = read_trim(&format!("/sys/class/net/{iface}/address"));
-    // Clients from the bridge forwarding table where there is a bridge (V821B/br0), else via an
-    // nl80211 station dump (cpc200 bridges with l2fwd, no br0).
+    // Clients from the bridge forwarding table where there is a bridge, else via an nl80211
+    // station dump.
     let clients = match caps().bridge.as_deref() {
         Some(br) => bridge_port_clients(br, iface),
         None => livi_wifi::station_count(iface),
@@ -1076,7 +984,12 @@ fn fmt_meminfo() -> String {
             }
         }
     }
-    format!("{} KiB used / {} KiB total", total_kb.saturating_sub(avail_kb), total_kb)
+    mem_text(total_kb, avail_kb)
+}
+
+fn mem_text(total_kb: u64, avail_kb: u64) -> String {
+    let mb = |kb: u64| (kb + 512) / 1024;
+    format!("{} MB used / {} MB total", mb(total_kb.saturating_sub(avail_kb)), mb(total_kb))
 }
 
 fn js(s: &str) -> String {
@@ -1111,12 +1024,17 @@ const T_TEXT: &str = "text/plain; charset=utf-8";
 
 #[cfg(test)]
 mod tests {
-    use super::raw_mtd;
+    use super::{mem_text, raw_mtd};
 
     #[test]
     fn a_block_node_is_read_back_through_its_character_device() {
         assert_eq!(raw_mtd("mtdblock6"), "/dev/mtd6");
         assert_eq!(raw_mtd("mtdblock12"), "/dev/mtd12");
         assert_eq!(raw_mtd("mtd6"), "/dev/mtd6");
+    }
+
+    #[test]
+    fn memory_reads_in_whole_megabytes() {
+        assert_eq!(mem_text(123_940, 112_276), "11 MB used / 121 MB total");
     }
 }

@@ -1,5 +1,5 @@
 //! Shared LIVI-Link mDNS: wire format + interface-tracking daemon.
-//! Used by CPC200 (bin/livi-link, argv[0]=mdnsd) and V821B (bin/livi-netd).
+//! Used by livid's netd on every LIVI Link board.
 pub mod wire;
 pub mod daemon;
 

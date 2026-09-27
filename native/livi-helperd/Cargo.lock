@@ -9,6 +9,17 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "320119579fcad9c21884f5c4861d16174d0e06250625266f50fe6898340abefa"
 
 [[package]]
+name = "aes"
+version = "0.9.3"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "35f0f96ce78e38c3dc6d8948aa8163d06385be74000f3c7a95bf1eef35d3ea32"
+dependencies = [
+ "cipher",
+ "cpubits",
+ "cpufeatures 0.3.1",
+]
+
+[[package]]
 name = "android_system_properties"
 version = "0.1.6"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -309,6 +320,16 @@ dependencies = [
 ]
 
 [[package]]
+name = "cipher"
+version = "0.5.2"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "e8cf2a2c93cd704877c0858356ed03480ff301ee950b43f1cbe4573b088bfa6c"
+dependencies = [
+ "crypto-common 0.2.2",
+ "inout",
+]
+
+[[package]]
 name = "cmake"
 version = "0.1.58"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -353,6 +374,12 @@ name = "core-foundation-sys"
 version = "0.8.7"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "773648b94d0e5d620f64f280777445740e61fe701025087ec8b57f45c791888b"
+
+[[package]]
+name = "cpubits"
+version = "0.1.1"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "15b85f9c39137c3a891689859392b1bd49812121d0d61c9caf00d46ed5ce06ae"
 
 [[package]]
 name = "cpufeatures"
@@ -1010,6 +1037,14 @@ dependencies = [
 ]
 
 [[package]]
+name = "imx6ul-uboot"
+version = "0.1.0"
+dependencies = [
+ "aes",
+ "flate2",
+]
+
+[[package]]
 name = "indexmap"
 version = "2.14.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -1017,6 +1052,15 @@ checksum = "d466e9454f08e4a911e14806c24e16fba1b4c121d1ea474396f396069cf949d9"
 dependencies = [
  "equivalent",
  "hashbrown",
+]
+
+[[package]]
+name = "inout"
+version = "0.2.2"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "4250ce6452e92010fdf7268ccc5d14faa80bb12fc741938534c58f16804e03c7"
+dependencies = [
+ "hybrid-array",
 ]
 
 [[package]]
@@ -1139,9 +1183,7 @@ version = "0.1.0"
 dependencies = [
  "futures-util",
  "libc",
- "livi-session-io",
  "nusb",
- "serde_json",
  "tokio",
 ]
 
@@ -1176,24 +1218,11 @@ dependencies = [
 ]
 
 [[package]]
-name = "livi-link"
-version = "0.1.0"
-dependencies = [
- "iap2-mfi",
- "iap2-usbmux",
- "libc",
- "livi-btd",
- "livi-iapd",
- "livi-mdns",
- "livi-web",
- "livi-wifi",
-]
-
-[[package]]
 name = "livi-link-provision"
 version = "0.1.0"
 dependencies = [
  "backhand",
+ "imx6ul-uboot",
  "md-5",
  "serde",
  "serde_json",
@@ -1266,6 +1295,7 @@ name = "livid"
 version = "0.1.0"
 dependencies = [
  "iap2-mfi",
+ "imx6ul-uboot",
  "libc",
  "livi-btd",
  "livi-iapd",

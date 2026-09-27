@@ -105,46 +105,6 @@ impl Shell {
         (out.len() >= 32).then(|| out[out.len() - 32..].to_string())
     }
 
-    /// Which of `paths` exist on the device, in the order given.
-    pub fn exists(&self, paths: &[String]) -> Result<Vec<String>, String> {
-        if paths.is_empty() {
-            return Ok(Vec::new());
-        }
-        let out = self.sh(&format!(
-            "for p in {}; do [ -e \"$p\" ] && echo \"$p\"; done",
-            paths.join(" ")
-        ))?;
-        let found: Vec<&str> = out.split_whitespace().collect();
-        Ok(paths.iter().filter(|p| found.contains(&p.as_str())).cloned().collect())
-    }
-
-    /// Byte size per path, for the paths `ls` can see.
-    pub fn sizes(&self, paths: &[String]) -> Result<Vec<(String, u64)>, String> {
-        if paths.is_empty() {
-            return Ok(Vec::new());
-        }
-        let out = self.sh(&format!(
-            "ls -la {} 2>/dev/null | awk '{{print $5, $NF}}'",
-            paths.join(" ")
-        ))?;
-        let mut sizes = Vec::new();
-        for line in out.lines() {
-            let mut parts = line.split_whitespace();
-            if let (Some(size), Some(path), None) = (parts.next(), parts.next(), parts.next())
-                && let Ok(size) = size.parse::<u64>()
-            {
-                sizes.push((path.to_string(), size));
-            }
-        }
-        Ok(sizes)
-    }
-
-    /// Free space on the rootfs in KiB, `None` if `df` did not answer as expected.
-    pub fn df_avail_k(&self) -> Result<Option<u64>, String> {
-        let out = self.sh("df -k / | tail -1")?;
-        Ok(out.split_whitespace().nth(3).and_then(|v| v.parse().ok()))
-    }
-
     /// Whether something accepts connections on that port.
     pub fn port_open(&self, port: u16) -> bool {
         self.socket_addr(port)
@@ -205,6 +165,12 @@ impl Shell {
     }
 }
 
+/// Hex like `md5sum` prints it, what `push` compares against.
+pub fn md5_hex(data: &[u8]) -> String {
+    use md5::{Digest, Md5};
+    Md5::digest(data).iter().map(|b| format!("{b:02x}")).collect()
+}
+
 fn would_block(e: &std::io::Error) -> bool {
     matches!(e.kind(), std::io::ErrorKind::WouldBlock | std::io::ErrorKind::TimedOut)
 }
@@ -252,6 +218,11 @@ fn between(lines: &[String]) -> Option<String> {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn hashes_like_md5sum() {
+        assert_eq!(md5_hex(b"abc"), "900150983cd24fb0d6963f7d28e17f72");
+    }
 
     #[test]
     fn refuses_telnet_options_and_drops_nuls() {

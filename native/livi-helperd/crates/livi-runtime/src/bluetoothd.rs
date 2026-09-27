@@ -1,7 +1,5 @@
-// bluetoothd host setup: --noplugin=sap,midi,hostname (sap squats RFCOMM channel 8, the AA slot;
-// BLE MIDI takes a 128-bit UUID slot in the CarPlay EIR; hostname rewrites the class from the
-// chassis type, and a desktop turns into a computer the iPhone never lists) and the car-kit device
-// class.
+// bluetoothd host setup: --noplugin=sap,midi (sap squats RFCOMM channel 8, the AA slot;
+// BLE MIDI takes a 128-bit UUID slot in the CarPlay EIR) and the car-kit device class.
 
 const BT_CLASS: &str = "0x200418";
 
@@ -57,7 +55,7 @@ mod linux {
     use super::with_class;
     use std::path::Path;
 
-    const DISABLED_PLUGINS: &str = "sap,midi,hostname";
+    const DISABLED_PLUGINS: &str = "sap,midi";
 
     const DROPIN_DIR: &str = "/etc/systemd/system/bluetooth.service.d";
     const DROPIN_CFG: &str = "/etc/systemd/system/bluetooth.service.d/livi-no-sap.conf";

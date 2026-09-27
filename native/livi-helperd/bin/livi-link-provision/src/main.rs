@@ -1,36 +1,26 @@
 // Provisions a dongle as LIVI Link without a UI. The app drives the same crate.
-// Host: $LIVI_LINK_HOST (default 10.10.10.1). The stack it installs is baked into this binary.
-// A dongle of a project without a ready-made bootstrap gets one made from the vendor's own update
-// for it, downloaded on the way. $LIVI_LINK_OTA names a file to use instead, for a machine that
-// cannot reach the vendor's server.
+// Host: $LIVI_LINK_HOST (default 10.10.10.1). The LIVI Link bundles it installs are baked into
+// this binary. A dongle of a project without a ready-made bootstrap gets one made from the
+// vendor's own update for it, downloaded on the way. $LIVI_LINK_OTA names a file to use instead,
+// for a machine that cannot reach the vendor's server.
 
 mod bootstrap;
 
 use std::path::{Path, PathBuf};
-use std::time::Duration;
+use std::time::{Duration, Instant};
 
 use livi_link_provision::dongle::arm::ax520;
-use livi_link_provision::dongle::arm::imx6ul::payload::parts;
 use livi_link_provision::dongle::arm::imx6ul::shell::{self, DEFAULT_HOST, Shell};
-use livi_link_provision::dongle::arm::imx6ul::{Plan, Report, Status, apply, mtd, plan, verify};
+use livi_link_provision::dongle::arm::imx6ul::{self, boot, mtd};
 use livi_link_provision::dongle::hook;
+use livi_link_provision::dongle::link;
 use livi_link_provision::dongle::probe::{Family, Probe};
 use livi_link_provision::dongle::riscv::v821b;
 use livi_link_provision::dongle::web::HostInfo;
 
-const LEGACY_HOST: &str = "192.168.50.2";
-
-/// The address to talk to. What the caller names wins, then the current one, then the old one.
+/// The address to talk to, the caller's or the one every LIVI Link dongle and the USB bootstrap use.
 fn pick_host() -> String {
-    if let Ok(host) = std::env::var("LIVI_LINK_HOST") {
-        return host;
-    }
-    for host in [DEFAULT_HOST, LEGACY_HOST] {
-        if Shell::new(host).port_open(shell::TELNET_PORT) {
-            return host.to_string();
-        }
-    }
-    DEFAULT_HOST.to_string()
+    std::env::var("LIVI_LINK_HOST").unwrap_or_else(|_| DEFAULT_HOST.to_string())
 }
 
 fn main() -> std::process::ExitCode {
@@ -78,26 +68,8 @@ fn run_imx6ul(args: &[String]) -> Result<bool, String> {
     let Some(command) = args.first().map(String::as_str) else {
         return Err(usage().to_string());
     };
-    let sh = Shell::new(&match command {
-        "plan" | "apply" | "verify" | "backup" | "push" | "sh" => pick_host(),
-        _ => DEFAULT_HOST.to_string(),
-    });
+    let sh = Shell::new(&pick_host());
     match command {
-        "plan" => plan(&sh).map(|p| {
-            print_plan(&p);
-            true
-        }),
-        "apply" => {
-            let reboot = args.iter().any(|a| a == "--reboot");
-            apply(&sh, reboot, &|line| println!("== {line}")).map(|r| {
-                print_report(&r);
-                r.ok()
-            })
-        }
-        "verify" => verify(&sh).map(|r| {
-            print_report(&r);
-            r.ok()
-        }),
         "backup" => {
             let dir = args.get(1).map(PathBuf::from).unwrap_or_else(backup_dir);
             mtd::backup(&sh, &dir, &|line| println!("== {line}")).map(|dir| {
@@ -109,7 +81,7 @@ fn run_imx6ul(args: &[String]) -> Result<bool, String> {
             [local, remote] => std::fs::read(local)
                 .map_err(|e| format!("{local}: {e}"))
                 .and_then(|data| {
-                    let md5 = livi_link_provision::dongle::arm::imx6ul::payload::md5_hex(&data);
+                    let md5 = shell::md5_hex(&data);
                     sh.push(&data, remote, shell::PUSH_PORT, &md5).map(|()| {
                         println!("pushed {} bytes to {remote} ({md5})", data.len());
                         true
@@ -117,6 +89,51 @@ fn run_imx6ul(args: &[String]) -> Result<bool, String> {
                 }),
             _ => Err("usage: push <local> <remote>".to_string()),
         },
+        "kernel" => match &args[1..] {
+            [zimage, rest @ ..] if rest.iter().all(|a| a == "--write") => {
+                let data = std::fs::read(zimage).map_err(|e| format!("{zimage}: {e}"))?;
+                let plan = boot::prepare(&sh, &data, &backup_dir(), &report)?;
+                println!(
+                    "== zImage {} of {} bytes U-Boot reads, staging at {:#x}",
+                    data.len(),
+                    plan.layout.kernel_len,
+                    plan.layout.staging
+                );
+                println!(
+                    "== {}",
+                    if plan.unchanged {
+                        "kernel partition already holds this, only the conversion is left"
+                    } else {
+                        "kernel partition differs and will be written"
+                    }
+                );
+                if rest.is_empty() {
+                    println!("== dry run, add --write to write and reboot");
+                    return Ok(true);
+                }
+                boot::install(&sh, &plan, &report).map(|()| true)
+            }
+            _ => Err("usage: kernel <zImage> [--write]".to_string()),
+        },
+        "flash" => match &args[1..] {
+            [lfwb, rest @ ..] if rest.iter().all(|a| a == "--write") => {
+                let data = std::fs::read(lfwb).map_err(|e| format!("{lfwb}: {e}"))?;
+                if rest.is_empty() {
+                    let bundle = boot::read_bundle(&data)?;
+                    let size = |i: &Option<Vec<u8>>| i.as_ref().map_or("none".into(), |d| format!("{} B", d.len()));
+                    println!("== bundle: kernel {}, rootfs {}", size(&bundle.kernel), size(&bundle.rootfs));
+                    println!("== the dongle runs: {:?}", imx6ul::running(&sh)?);
+                    if let Some(kernel) = &bundle.kernel {
+                        boot::prepare(&sh, kernel, &backup_dir(), &report)?;
+                    }
+                    println!("== dry run, add --write to install");
+                    return Ok(true);
+                }
+                imx6ul::install(&sh, &data, &backup_dir(), &report).map(|()| true)
+            }
+            _ => Err("usage: flash <lfwb> [--write]".to_string()),
+        },
+        "provision" => imx6ul_provision(args.get(1).map(Path::new)).map(|()| true),
         "bootstrap" => bootstrap::boot_hook().map(|()| {
             println!("bootstrap written, replug the dongle to start its shell");
             true
@@ -261,7 +278,7 @@ fn menu() -> std::process::ExitCode {
         };
         println!("\nLIVI Link provisioning tool v{VERSION}");
         if stock_usb {
-            println!("Detected: CPC200-CCPA (stock, on USB — no shell yet)");
+            println!("Detected: i.MX6UL dongle in stock firmware, on USB (no shell yet)");
         } else {
             println!("Detected: {}", detected.label());
         }
@@ -278,15 +295,14 @@ fn menu() -> std::process::ExitCode {
                 }
                 None => println!("  1  open this dongle (patches the vendor's update for it, then looks at what it is)"),
             },
+            Detected::LiviLink { target, .. } if target == link::EARLIER_IMX6UL_TARGET => {
+                println!("  1  move to the current LIVI Link firmware (backup current firmware first)");
+            }
             Detected::LiviLink { .. } => {
                 println!("  1  update LIVI Link");
             }
-            Detected::Imx6ul { host } => {
-                let sh = Shell::new(host);
-                match action(&sh) {
-                    Some(what) => println!("  1  {what} LIVI Link"),
-                    None => println!("  r  reinstall LIVI Link"),
-                }
+            Detected::Imx6ul { .. } => {
+                println!("  1  install LIVI Link (backup current firmware first)");
             }
             Detected::Nothing if stock_usb => {
                 println!("  1  bootstrap + install LIVI Link (over USB)");
@@ -315,33 +331,22 @@ fn menu() -> std::process::ExitCode {
                     (Err(e), _) => Err(e),
                 }
             }
-            ("1", Detected::Imx6ul { host }) => {
-                let sh = Shell::new(host);
-                if action(&sh).is_some() {
-                    match install(&sh) {
-                        Ok(()) => return std::process::ExitCode::SUCCESS,
-                        Err(e) => Err(e),
-                    }
-                } else {
-                    Err("nothing to install".into())
-                }
-            }
-            ("r", Detected::Imx6ul { host }) => {
-                let sh = Shell::new(host);
-                if action(&sh).is_none() {
-                    match install(&sh) {
-                        Ok(()) => return std::process::ExitCode::SUCCESS,
-                        Err(e) => Err(e),
-                    }
-                } else {
-                    Err("nothing to reinstall".into())
-                }
-            }
-            ("1", Detected::Nothing) if stock_usb => match install(&Shell::new(DEFAULT_HOST)) {
+            ("1", Detected::Imx6ul { .. }) => match imx6ul_provision(None) {
                 Ok(()) => return std::process::ExitCode::SUCCESS,
                 Err(e) => Err(e),
             },
-            ("1", Detected::LiviLink { .. }) => match install(&Shell::new(DEFAULT_HOST)) {
+            ("1", Detected::Nothing) if stock_usb => match imx6ul_provision(None) {
+                Ok(()) => return std::process::ExitCode::SUCCESS,
+                Err(e) => Err(e),
+            },
+            // It runs on the vendor firmware and has its shell, the install takes it from there.
+            ("1", Detected::LiviLink { target, .. }) if target == link::EARLIER_IMX6UL_TARGET => {
+                match imx6ul_provision(None) {
+                    Ok(()) => return std::process::ExitCode::SUCCESS,
+                    Err(e) => Err(e),
+                }
+            }
+            ("1", Detected::LiviLink { .. }) => match update_livi_link() {
                 Ok(()) => return std::process::ExitCode::SUCCESS,
                 Err(e) => Err(e),
             },
@@ -354,30 +359,17 @@ fn menu() -> std::process::ExitCode {
     }
 }
 
-/// Whether this tool would change the dongle's firmware, and what that would be called.
-fn action(sh: &Shell) -> Option<&'static str> {
-    use livi_link_provision::dongle::arm::imx6ul::payload;
-    if is_stock(sh).unwrap_or(true) {
-        return Some("install");
-    }
-    let installed = installed_version(sh)?;
-    let ours = payload::current_version();
-    (payload::parts(&installed).1 != payload::parts(&ours).1).then_some("update")
-}
-
-/// The version on the dongle, if it carries one.
-fn installed_version(sh: &Shell) -> Option<String> {
-    let out = sh
-        .sh(&format!("cat {} 2>/dev/null", livi_link_provision::dongle::arm::imx6ul::payload::VERSION_FILE))
-        .unwrap_or_default()
-        .trim()
-        .to_string();
-    (!out.is_empty()).then_some(out)
-}
-
-/// The whole job in one go: a shell if the dongle has none, then the backup, then the install.
-/// It refuses to strip a dongle whose original is not saved, because that is the way back.
-fn install(sh: &Shell) -> Result<(), String> {
+/// A stock i.MX6UL dongle, or one in our rescue system, to LIVI Link: a shell if it has none, the
+/// backup of the vendor firmware and the install, then it waits until LIVI Link answers.
+fn imx6ul_provision(lfwb: Option<&Path>) -> Result<(), String> {
+    let bundle = match lfwb {
+        Some(path) => std::fs::read(path).map_err(|e| format!("{}: {e}", path.display()))?,
+        None => link::bundle("imx6ul_iw416")
+            .ok_or("no LIVI Link firmware baked in, this is a local build without CI assets")?
+            .to_vec(),
+    };
+    let host = pick_host();
+    let sh = Shell::new(&host);
     // A stock dongle offers the host no network, so the bootstrap rides into the next boot.
     if !sh.port_open(shell::TELNET_PORT) {
         println!("== this dongle has no way in yet, so it needs one unplug and plug back in");
@@ -385,92 +377,76 @@ fn install(sh: &Shell) -> Result<(), String> {
         bootstrap::boot_hook()?;
         ask("unplug the dongle, plug it back in, then press enter")?;
         println!("== waiting, it takes about half a minute after the dongle has booted");
-        wait_for_shell(sh)?;
+        wait_for_shell(&sh)?;
     }
     // Whoever put it there, it goes before the backup, so the image is the dongle's own again.
     if sh.sh(&format!("[ -e {} ] && echo yes || echo no", bootstrap::BOOT_HOOK))?.trim() == "yes" {
-        sh.push(
-            bootstrap::carrier_body().as_bytes(),
-            bootstrap::CARRIER,
-            shell::PUSH_PORT,
-            &livi_link_provision::dongle::arm::imx6ul::payload::md5_hex(bootstrap::carrier_body().as_bytes()),
-        )?;
+        let carrier = bootstrap::carrier_body().as_bytes();
+        sh.push(carrier, bootstrap::CARRIER, shell::PUSH_PORT, &shell::md5_hex(carrier))?;
         sh.sh(&format!("chmod 755 {}; rm -f {}; sync", bootstrap::CARRIER, bootstrap::BOOT_HOOK))?;
         println!("== bootstrap removed again");
     }
-
-    // From here on the dongle is being written to and must not be unplugged, so it says so.
-    let blinking = blink(sh);
-
-    // Only while the dongle is untouched. A backup of an already installed one is worthless and
-    // would sit next to the real one, inviting a restore of the wrong image.
-    if is_stock(sh)? {
-        let dir = mtd::backup(sh, &backup_dir(), &report)?;
-        println!("== backup in {}", livi_link_provision::tilde(&dir));
-    } else {
-        println!("== already installed, keeping the backup from the first time");
-    }
-
-    // Installed over whichever way in we had, but afterwards the dongle is LIVI Link and answers
-    // over USB, so the restart and the check happen there.
-    apply(sh, false, &report)?;
-    drop(blinking);
-    report("rebooting");
-    sh.sh("sync; (sleep 1; reboot) >/dev/null 2>&1 &")?;
-    std::thread::sleep(Duration::from_secs(5));
-    let link = Shell::new(DEFAULT_HOST);
-    wait_for_shell(&link)?;
-    let outcome = verify(&link)?;
-    print_report(&outcome);
-    if outcome.ok() {
-        let now = installed_version(&link).unwrap_or_else(|| "?".into());
-        println!("\n== done, the dongle runs LIVI Link {} and is safe to unplug", parts(&now).0);
-        Ok(())
-    } else {
-        Err("the dongle did not come back as expected".into())
-    }
+    imx6ul::install(&sh, &bundle, &backup_dir(), &report)?;
+    let now = wait_for_livi_link(&host)?;
+    println!("\n== done, the dongle runs LIVI Link {} ({}) and is safe to unplug", now.version, now.build);
+    Ok(())
 }
 
-/// Alternates the two LEDs, the signal the vendor's updater gives while it writes. It runs
-/// detached on the dongle and is stopped again however the install ends.
-struct Blink<'a>(&'a Shell);
-
-/// The loop itself. One line, because the shell on the dongle reads commands by line.
-const BLINK_LOOP: &str = "echo $$ > /tmp/livi-blink.pid; \
-                for g in 2 9; do \
-                  [ -e /sys/class/gpio/gpio$g ] || echo $g > /sys/class/gpio/export; \
-                  echo out > /sys/class/gpio/gpio$g/direction; \
-                done; \
-                while :; do \
-                  echo 0 > /sys/class/gpio/gpio2/value; echo 1 > /sys/class/gpio/gpio9/value; sleep 0.25; \
-                  echo 1 > /sys/class/gpio/gpio2/value; echo 0 > /sys/class/gpio/gpio9/value; sleep 0.25; \
-                done";
-
-fn blink(sh: &Shell) -> Blink<'_> {
-    let _ = sh.sh(&format!("setsid sh -c '{BLINK_LOOP}' </dev/null >/dev/null 2>&1 &"));
-    Blink(sh)
-}
-
-impl Drop for Blink<'_> {
-    fn drop(&mut self) {
-        // By its pid, because a pattern would match the shell that does the killing. Then back to
-        // the steady red of normal operation.
-        let _ = self.0.sh(
-            "kill $(cat /tmp/livi-blink.pid 2>/dev/null) 2>/dev/null; rm -f /tmp/livi-blink.pid; \
-             echo 1 > /sys/class/gpio/gpio9/value 2>/dev/null; \
-             echo 0 > /sys/class/gpio/gpio2/value 2>/dev/null",
-        );
+/// Updates a dongle that runs LIVI Link the way its web page does, with the bundle this tool
+/// carries for its board.
+fn update_livi_link() -> Result<(), String> {
+    let host = pick_host();
+    let before = link::status(&host).ok_or("the dongle does not answer as LIVI Link")?;
+    let bundle = link::bundle(&before.target)
+        .ok_or_else(|| format!("this tool carries no firmware for {}", before.target))?;
+    println!("== {} runs {} ({}), uploading {} bytes", before.model, before.version, before.build, bundle.len());
+    let done = match link::update(&host, bundle) {
+        Ok(done) => done,
+        Err(e) => {
+            let typ = link::refused(&e).ok_or(e)?;
+            if before.target == "imx6ul_iw416" {
+                println!("== the firmware on the dongle does not take this bundle yet, installing it from the rescue system");
+                return imx6ul_provision(None);
+            }
+            println!("== the firmware on the dongle does not take image type {typ} yet, the rest of the bundle brings one that does");
+            let first = link::update(&host, &link::without(bundle, typ)?)?;
+            println!("== {first}");
+            if first.contains("rebooting") {
+                back_after_reboot(&host)?;
+            }
+            println!("== uploading the whole bundle");
+            link::update(&host, bundle)?
+        }
+    };
+    println!("== {done}");
+    if done.contains("rebooting") {
+        let now = back_after_reboot(&host)?;
+        println!("\n== done, the dongle runs LIVI Link {} ({})", now.version, now.build);
     }
+    Ok(())
 }
 
-/// Whether the dongle still boots the vendor's script rather than ours.
-fn is_stock(sh: &Shell) -> Result<bool, String> {
-    let out = sh.sh(&format!(
-        "grep -q '{}' {} 2>/dev/null && echo ours || echo stock",
-        livi_link_provision::dongle::arm::imx6ul::payload::BRINGUP_MARKER,
-        livi_link_provision::dongle::arm::imx6ul::payload::BRINGUP_REMOTE
-    ))?;
-    Ok(out.trim() == "stock")
+/// After an update that reboots: gone first, so the system that is going down does not count as
+/// back, then up again.
+fn back_after_reboot(host: &str) -> Result<link::Status, String> {
+    let gone = Instant::now();
+    while link::status(host).is_some() && gone.elapsed() < Duration::from_secs(30) {
+        std::thread::sleep(Duration::from_secs(1));
+    }
+    wait_for_livi_link(host)
+}
+
+/// Until the dongle answers as LIVI Link. On the i.MX6UL a new kernel takes a U-Boot conversion and
+/// two starts.
+fn wait_for_livi_link(host: &str) -> Result<link::Status, String> {
+    let start = Instant::now();
+    while start.elapsed() < Duration::from_secs(240) {
+        if let Some(status) = link::status(host) {
+            return Ok(status);
+        }
+        std::thread::sleep(Duration::from_secs(2));
+    }
+    Err("the dongle did not come back as LIVI Link within four minutes".into())
 }
 
 /// Waits for the shell the bootstrap brings up.
@@ -499,7 +475,7 @@ fn report(line: &str) {
 
 fn usage() -> &'static str {
     "usage: livi-link-provision [detect]
-  dongle arm imx6ul  plan | apply [--reboot] | verify | backup [dir] | push <local> <remote> | sh 'CMD' | bootstrap | usbscan
+  dongle arm imx6ul  provision [lfwb] | flash <lfwb> [--write] | kernel <zImage> [--write] | backup [dir] | push <local> <remote> | sh 'CMD' | bootstrap | usbscan
   dongle arm ax520   info | install-shell | verify-hw | selftest [N] | backup [dir] | flash <lfwb> | provision [lfwb]
   dongle riscv v821b info | install-shell | verify-hw | selftest [N] | backup [dir] | flash <lfwb> | provision [lfwb]"
 }
@@ -517,44 +493,6 @@ fn backup_dir() -> PathBuf {
             .join("LIVI")
     };
     base.join("dongle-backup")
-}
-
-fn print_plan(p: &Plan) {
-    println!("== dongle: {}", p.identity);
-    println!("== rootfs free: {}", kib(p.free_k));
-    let raw_k: u64 = p.delete.iter().map(|(_, size)| size / 1024).sum();
-    println!("== ballast to delete ({} files, {raw_k}K raw):", p.delete.len());
-    for (path, size) in &p.delete {
-        println!("   {:>8}K  {path}", size / 1024);
-    }
-    if !p.keep_libs.is_empty() {
-        println!("== ballast libs kept — referenced by a kept ELF:");
-        for lib in &p.keep_libs {
-            println!("   keep      {lib}");
-        }
-    }
-    println!("== files:");
-    for f in &p.files {
-        println!("   {:<7} {:>7}K  {}", f.status.label(), f.bytes / 1024, f.remote);
-    }
-    let todo = p.files.iter().filter(|f| f.status != Status::Current).count();
-    println!("== to push: {todo} files, {}K", p.push_k());
-}
-
-fn print_report(r: &Report) {
-    for check in &r.checks {
-        println!("   {}  {}", if check.ok { "ok " } else { "BAD" }, check.what);
-    }
-    println!(
-        "   pair records: {}",
-        if r.pair_records.is_empty() { "(none)" } else { &r.pair_records }
-    );
-    println!("   rootfs free: {}", kib(r.free_k));
-    println!("{}", if r.ok() { "== VERIFIED" } else { "== PROBLEMS — see BAD lines above" });
-}
-
-fn kib(v: Option<u64>) -> String {
-    v.map(|k| format!("{k}K")).unwrap_or_else(|| "unknown".into())
 }
 
 /// Only the V821B and the AX520 have a LIVI Link image, every other dongle stops at the bind-shell.
@@ -738,14 +676,4 @@ fn ax520_provision(lfwb: Option<&PathBuf>) -> Result<(), String> {
     }
     println!("provision complete — dongle rebooting into LIVI Link");
     Ok(())
-}
-
-#[cfg(test)]
-mod tests {
-    #[test]
-    fn the_blink_loop_stays_on_one_line() {
-        assert!(!super::BLINK_LOOP.contains('\n'));
-        assert!(!super::BLINK_LOOP.contains('\''));
-        assert!(super::BLINK_LOOP.contains("gpio2/value"));
-    }
 }

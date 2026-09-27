@@ -56,7 +56,7 @@ jobs:
           set -euo pipefail
           rustup toolchain install stable --profile minimal --component clippy
           rustup default stable
-          rustup target add armv7-unknown-linux-gnueabihf
+          rustup target add armv7-unknown-linux-musleabihf
           rustc --version
 
       - name: Cache cargo
@@ -84,7 +84,6 @@ jobs:
           sudo apt-get update
           sudo apt-get install -y --no-install-recommends \
               build-essential pkg-config libudev1 ca-certificates \
-              gcc-arm-linux-gnueabihf libc6-dev-armhf-cross \
               libgstreamer1.0-dev libgstreamer-plugins-base1.0-dev \
               cmake libwayland-dev libxkbcommon-dev
           sudo rm -rf /var/lib/apt/lists/*
@@ -102,10 +101,7 @@ jobs:
 
       - name: Check the dongle stack (armv7)
         working-directory: native/livi-helperd
-        env:
-          CARGO_TARGET_ARMV7_UNKNOWN_LINUX_GNUEABIHF_LINKER: arm-linux-gnueabihf-gcc
-          RUSTFLAGS: -C target-feature=+crt-static
-        run: cargo clippy -p livi-link --target armv7-unknown-linux-gnueabihf -- -D warnings
+        run: cargo clippy -p livid --target armv7-unknown-linux-musleabihf -- -D warnings
 
       - name: Check the compositor (clippy)
         working-directory: native/livi-compositor/rust

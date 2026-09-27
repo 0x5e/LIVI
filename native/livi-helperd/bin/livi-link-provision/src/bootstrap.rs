@@ -11,8 +11,8 @@ const TYPE_SEND_FILE: u32 = 0x99;
 pub const CARRIER: &str = "/etc/profile";
 pub const BOOT_HOOK: &str = "/script/livi-boot.sh";
 
-const BOOTSTRAP: &str = include_str!("../../livi-link/scripts/bootstrap.sh");
-const CARRIER_BODY: &str = include_str!("../../livi-link/scripts/profile");
+const BOOTSTRAP: &str = include_str!("../scripts/bootstrap.sh");
+const CARRIER_BODY: &str = include_str!("../scripts/profile");
 const HOOK_LINE: &str = "\ncase \"$0\" in */rcS) sh /script/livi-boot.sh ;; esac\n";
 
 /// The geometry the dongle wants before it accepts messages.
@@ -148,14 +148,12 @@ mod tests {
         assert_eq!(u32::from_le_bytes(p[24..].try_into().unwrap()), 2); // work mode CarPlay
     }
 
-    /// The host names the interface on first sight and keeps that name, so both bring-ups have to
-    /// announce the same product.
+    /// The host names the interface on first sight and keeps that name, so the bootstrap announces
+    /// the product our own system announces.
     #[test]
-    fn the_bootstrap_announces_what_the_installed_stack_announces() {
-        let bringup = include_str!("../../livi-link/scripts/livi-bringup.sh");
-        for line in ["printf f-io.dev > \"$A/iManufacturer\"", "printf 'LIVI Link' > \"$A/iProduct\""] {
-            assert!(BOOTSTRAP.contains(line), "bootstrap.sh is missing: {line}");
-            assert!(bringup.contains(line), "livi-bringup.sh is missing: {line}");
-        }
+    fn the_bootstrap_announces_the_product_our_system_announces() {
+        let ours = include_str!("../../../../../scripts/livi-link/common/initramfs/net-up");
+        assert!(BOOTSTRAP.contains("printf 'LIVI Link' > \"$A/iProduct\""));
+        assert!(ours.contains("echo \"LIVI Link\" > $G/strings/0x409/product"));
     }
 }

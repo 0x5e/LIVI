@@ -73,6 +73,8 @@ struct Wanted {
     channel: Option<u32>,
     width: Option<u32>,
     passphrase: Option<String>,
+    /// Some(false) once the radio turned 802.11ac down, so a saved config does not ask again.
+    ac: Option<bool>,
 }
 
 enum Cmd<'a> {
@@ -244,7 +246,7 @@ fn config(base: &str, wanted: &Wanted, vht: bool) -> String {
              vendor_elements={ie}\nassocresp_elements={ie}\n",
             band(channel)
         ));
-        if vht && band(channel) == "a" {
+        if vht && wanted.ac != Some(false) && band(channel) == "a" {
             match vht_centre(channel).filter(|_| width >= 80) {
                 Some(centre) => out.push_str(&format!(
                     "ieee80211ac=1\nvht_capab=[SHORT-GI-80]\nvht_oper_chwidth=1\n\
@@ -324,7 +326,7 @@ fn apply(ap: &mut Ap, wanted: &Wanted) -> Result<(), String> {
 
     let previous = ap.config.clone();
     stop(ap);
-    if let Err(refused) = start(ap, &next) {
+    if let Err(refused) = start_weakening(ap, &next) {
         // Gone, so the newest live file is always the one the radio runs on.
         let _ = std::fs::remove_file(&next);
         stop(ap);
@@ -381,6 +383,7 @@ fn settings_of(text: &str) -> Wanted {
             20
         }),
         passphrase: value("wpa_passphrase"),
+        ac: Some(value("ieee80211ac").as_deref() == Some("1")),
     }
 }
 
@@ -390,7 +393,74 @@ fn on(ap: &mut Ap) -> Result<(), String> {
     }
     let _ = Command::new("ifconfig").args([IFACE, "up"]).status();
     let config = ap.config.clone();
-    start(ap, &config)
+    start_weakening(ap, &config)
+}
+
+/// Starts hostapd on `path`, and when the radio refuses, on what `weaker` makes of it, until one
+/// runs. The file then holds the config the radio runs on. Radios differ in what they do (802.11ac,
+/// 40 MHz, 5 GHz at all, and what the regulatory domain allows), so nothing is assumed up front.
+fn start_weakening(ap: &mut Ap, path: &std::path::Path) -> Result<(), String> {
+    let refused = match start(ap, path) {
+        Ok(()) => return Ok(()),
+        Err(refused) => refused,
+    };
+    let mut text = std::fs::read_to_string(path).map_err(|e| format!("{}: {e}", path.display()))?;
+    while let Some((next, step)) = weaker(&text) {
+        eprintln!("[wifid] radio refused ({refused}), trying {step}");
+        stop(ap);
+        std::fs::write(path, &next).map_err(|e| format!("{}: {e}", path.display()))?;
+        if start(ap, path).is_ok() {
+            return Ok(());
+        }
+        text = next;
+    }
+    Err(refused)
+}
+
+/// One step less than `config` asks of the radio: 80 MHz to 40, then 802.11ac off, then 40 MHz to
+/// 20, then 5 GHz to 2.4 GHz. None when there is nothing left to give up.
+fn weaker(config: &str) -> Option<(String, &'static str)> {
+    let value = |key: &str| {
+        config
+            .lines()
+            .rfind(|line| setting(line) == Some(key))
+            .and_then(|line| line.split_once('='))
+            .map(|(_, value)| value.trim().to_string())
+    };
+    let channel: u32 = value("channel")?.parse().ok()?;
+    let mut lines: Vec<String> = config.lines().map(str::to_string).collect();
+    let mut set = |key: &str, to: Option<&str>| {
+        let had = lines.iter().any(|line| setting(line) == Some(key));
+        lines.retain(|line| setting(line) != Some(key));
+        if let Some(to) = to.filter(|_| had) {
+            lines.push(format!("{key}={to}"));
+        }
+    };
+    let step = if value("vht_oper_chwidth").as_deref() == Some("1") {
+        set("vht_oper_chwidth", Some("0"));
+        set("vht_oper_centr_freq_seg0_idx", None);
+        set("vht_capab", None);
+        "40 MHz"
+    } else if value("ieee80211ac").as_deref() == Some("1") {
+        for key in ["ieee80211ac", "vht_capab", "vht_oper_chwidth", "vht_oper_centr_freq_seg0_idx"] {
+            set(key, None);
+        }
+        "802.11n"
+    } else if value("ht_capab").is_some_and(|c| c.contains("[HT40")) {
+        set("ht_capab", Some("[SHORT-GI-20]"));
+        "20 MHz"
+    } else if band(channel) == "a" {
+        let ie = apple_ie(6);
+        set("hw_mode", Some("g"));
+        set("channel", Some("6"));
+        set("ht_capab", Some("[SHORT-GI-20]"));
+        set("vendor_elements", Some(ie.as_str()));
+        set("assocresp_elements", Some(ie.as_str()));
+        "2.4 GHz channel 6"
+    } else {
+        return None;
+    };
+    Some((lines.join("\n") + "\n", step))
 }
 
 fn off(ap: &mut Ap) {
@@ -623,6 +693,36 @@ mod tests {
         let out = lines(&out);
         assert!(!out.iter().any(|l| l.starts_with("ieee80211ac") || l.starts_with("vht_")));
         assert!(out.contains(&"ht_capab=[SHORT-GI-20][SHORT-GI-40][HT40+]"));
+    }
+
+    #[test]
+    fn a_refusing_radio_is_asked_for_less_step_by_step() {
+        let mut text = config(BASE, &wanted(36, Some(80)), true);
+        let mut steps = Vec::new();
+        while let Some((next, step)) = weaker(&text) {
+            steps.push(step);
+            text = next;
+        }
+        assert_eq!(steps, ["40 MHz", "802.11n", "20 MHz", "2.4 GHz channel 6"]);
+        let ie = format!("vendor_elements={}", apple_ie(6));
+        let out = lines(&text);
+        assert!(out.contains(&"hw_mode=g"));
+        assert!(out.contains(&"channel=6"));
+        assert!(out.contains(&"ht_capab=[SHORT-GI-20]"));
+        assert!(out.contains(&ie.as_str()));
+        assert!(!out.iter().any(|l| l.starts_with("ieee80211ac") || l.starts_with("vht_")));
+        assert!(out.contains(&"wpa_passphrase=livilink"));
+    }
+
+    #[test]
+    fn a_config_the_radio_ran_without_ac_is_saved_without_it() {
+        let live = config(BASE, &wanted(36, Some(80)), true);
+        let (forty, _) = weaker(&live).unwrap();
+        let (n, _) = weaker(&forty).unwrap();
+        let saved = config(BASE, &settings_of(&n), true);
+        let saved = lines(&saved);
+        assert!(!saved.iter().any(|l| l.starts_with("ieee80211ac") || l.starts_with("vht_")));
+        assert!(saved.contains(&"ht_capab=[SHORT-GI-20][SHORT-GI-40][HT40+]"));
     }
 
     #[test]

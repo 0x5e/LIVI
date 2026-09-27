@@ -419,20 +419,8 @@ async fn serve() -> Result<(), Box<dyn std::error::Error>> {
         println!("[helperd] Android Auto USB watcher started");
     }
     if std::env::var("LIVI_DONGLE").unwrap_or_else(|_| "1".into()) != "0" {
-        let events = aa_events.clone();
         let mfi_link_state = mfi_link.clone();
-        tokio::spawn(livi_dongle::run(
-            move |on, _serial| mfi_link_state.set_on_bus(on),
-            move |socket, a| {
-                events.push_json(
-                    serde_json::json!({
-                        "event": "dongle-upload", "socket": socket, "serial": a.serial,
-                        "product": a.product, "version": a.version, "name": a.name
-                    })
-                    .to_string(),
-                );
-            },
-        ));
+        tokio::spawn(livi_dongle::run(move |on, _serial| mfi_link_state.set_on_bus(on)));
         println!("[helperd] dongle watcher started");
     }
     let mpris = match bt::start_media_player(&conn, &adapter, aa_events.clone()).await {

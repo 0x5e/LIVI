@@ -1,9 +1,6 @@
 // Ported from bin/livi-bt-up/src/main.rs — see livid dispatcher in main.rs.
 pub fn run(_args: Vec<String>) -> i32 {
-    // ExitCode is opaque; the module either loops forever (returning implicitly)
-    // or calls std::process::exit on setup failure. Treat any normal return as 0.
-    let _ = livid_main();
-    0
+    livid_main()
 }
 
 // livi-bt-up — ioctl(HCIDEVUP) then ioctl(HCIGETDEVINFO) so hci0 opens and we can
@@ -34,12 +31,12 @@ struct HciDevInfo {
     _rest: [u8; 128],
 }
 
-fn livid_main() -> std::process::ExitCode {
+fn livid_main() -> i32 {
     let dev: libc::c_int = std::env::args().nth(1).and_then(|s| s.parse().ok()).unwrap_or(0);
     let sock = unsafe { libc::socket(AF_BLUETOOTH, libc::SOCK_RAW, BTPROTO_HCI) };
     if sock < 0 {
         eprintln!("livi-bt-up: socket(AF_BLUETOOTH): {}", std::io::Error::last_os_error());
-        return 1.into();
+        return 1;
     }
 
     // 1) Bring hci up (idempotent — EALREADY is fine).
@@ -49,7 +46,7 @@ fn livid_main() -> std::process::ExitCode {
         if e.raw_os_error() != Some(libc::EALREADY) {
             eprintln!("livi-bt-up: HCIDEVUP hci{dev}: {e}");
             unsafe { libc::close(sock); }
-            return 1.into();
+            return 1;
         }
     }
 
@@ -60,7 +57,7 @@ fn livid_main() -> std::process::ExitCode {
     unsafe { libc::close(sock); }
     if r < 0 {
         eprintln!("livi-bt-up: HCIGETDEVINFO hci{dev}: {}", std::io::Error::last_os_error());
-        return 2.into();
+        return 2;
     }
 
     // bdaddr is stored little-endian; MAC address strings are printed big-endian.
@@ -84,5 +81,5 @@ fn livid_main() -> std::process::ExitCode {
     if let Ok(mut f) = fs::File::create("/tmp/livi/bt-mac") {
         let _ = writeln!(f, "{mac}");
     }
-    0.into()
+    0
 }

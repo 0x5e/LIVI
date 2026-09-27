@@ -1,5 +1,5 @@
-//! Partition images. The original rootfs exists exactly once, on the device, so `apply` reads it
-//! off before it strips anything.
+//! Partition images. The vendor firmware exists exactly once, on the device, so the install reads
+//! all of it off before it writes anything.
 
 use std::io::Read;
 use std::net::TcpStream;
@@ -15,6 +15,7 @@ use super::shell::{PUSH_PORT, Shell};
 const READ_SLICE: Duration = Duration::from_secs(30);
 const HASH_TIMEOUT: Duration = Duration::from_secs(240);
 
+#[derive(Clone)]
 pub struct Partition {
     pub name: String,
     pub device: String,
@@ -107,13 +108,9 @@ pub fn backup(sh: &Shell, root: &Path, progress: &dyn Fn(&str)) -> Result<PathBu
     let model = if model.is_empty() { "dongle".to_string() } else { model };
     let firmware = if firmware.is_empty() { "unknown".to_string() } else { firmware };
 
-    let state = match sh.sh(&format!(
-        "grep -q '{}' {} 2>/dev/null && echo livi-link || echo stock",
-        super::payload::BRINGUP_MARKER,
-        super::payload::BRINGUP_REMOTE
-    )) {
-        Ok(s) if s.trim() == "livi-link" => "livi-link",
-        _ => "stock",
+    let state = match super::running(sh) {
+        Ok(super::Running::Vendor) | Err(_) => "stock",
+        Ok(_) => "livi-link",
     };
     let dir = root.join(format!("{model}-{firmware}-{state}-{}", stamp()));
     std::fs::create_dir_all(&dir).map_err(|e| format!("{}: {e}", crate::tilde(&dir)))?;
@@ -150,7 +147,7 @@ pub fn sha256_hex(data: &[u8]) -> String {
 }
 
 /// UTC timestamp for the directory name; falls back to seconds since the epoch.
-fn stamp() -> String {
+pub(crate) fn stamp() -> String {
     std::process::Command::new("date")
         .args(["-u", "+%Y%m%dT%H%M%SZ"])
         .output()

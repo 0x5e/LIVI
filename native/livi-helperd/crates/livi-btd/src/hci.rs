@@ -1,5 +1,5 @@
-//! `hciconfig hciN up|down` without hciconfig: the same ioctls on a raw HCI socket. The
-//! V821B rootfs ships no bluez, and the CPC200 no longer needs its copy either.
+//! `hciconfig hciN up|down` without hciconfig: the same ioctls on a raw HCI socket. No LIVI Link
+//! rootfs ships bluez.
 
 #[cfg(target_os = "linux")]
 mod imp {

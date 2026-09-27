@@ -13,6 +13,7 @@ mod bt_up;
 mod btd;
 mod config;
 mod iapd;
+mod imx6ul;
 mod ledd;
 mod mfid;
 mod netd;
@@ -23,13 +24,13 @@ mod wifid;
 /// by its devicetree. Flashing stays off where the partition layout is not wired up.
 fn web_caps() -> livi_web::WebCaps {
     let compatible = std::fs::read("/sys/firmware/devicetree/base/compatible").unwrap_or_default();
-    let ax520 = compatible.windows(b"axera,ax520".len()).any(|w| w == b"axera,ax520");
+    let has = |c: &[u8]| compatible.windows(c.len()).any(|w| w == c);
     let slot = |typ, node: &str, magic: &[u8], size| livi_web::MtdSlot {
-        typ, node: node.into(), magic: magic.to_vec(), size,
+        typ, node: node.into(), magic: magic.to_vec(), size, stage: None, before_write: None,
     };
     // The bundle types are the MTD numbers. The bootloader partition is never in the table, a bad
-    // write there needs the flash off the board (AX520) or FEL (V821B).
-    let (model, target, led, flash) = if ax520 {
+    // write there needs the flash off the board (AX520, i.MX6UL) or FEL (V821B).
+    let (model, target, led, flash) = if has(b"axera,ax520") {
         ("AX520 + AIC8800D80", "ax520_aic8800d80", true, livi_web::Flash {
             mtd: vec![
                 slot(3, "mtdblock3", &[0x56, 0x19, 0x05, 0x27], 0x30_0000), // little-endian uImage
@@ -40,6 +41,19 @@ fn web_caps() -> livi_web::WebCaps {
             ],
             // The loader after the bootrom reads the flash in quad mode and needs QE set.
             check: Some("/usr/sbin/sfc-sr".into()),
+        })
+    } else if has(b"livi,link-imx6ull") {
+        ("i.MX6ULL + IW416", "imx6ul_iw416", false, livi_web::Flash {
+            mtd: vec![
+                // The vendor U-Boot decrypts the head of the kernel with a key only the SoC holds,
+                // the zImage goes in as staging blocks it converts on its next start.
+                livi_web::MtdSlot {
+                    stage: Some(imx6ul::stage_kernel),
+                    before_write: Some(imx6ul::erase_env),
+                    ..slot(2, "mtdblock2", b"", 0x34_0000)
+                },
+                slot(3, "mtdblock3", b"hsqs", 0xc6_0000),
+            ],
             ..Default::default()
         })
     } else {

@@ -12,7 +12,7 @@ use std::time::Duration;
 
 use backhand::{FilesystemReader, FilesystemWriter, InnerNode, NodeHeader};
 
-use crate::dongle::arm::imx6ul::payload::md5_hex;
+use crate::dongle::arm::imx6ul::shell::md5_hex;
 
 /// A file that stands in for the download, for a machine that never sees the vendor's server.
 pub const OTA_FILE_ENV: &str = "LIVI_LINK_OTA";

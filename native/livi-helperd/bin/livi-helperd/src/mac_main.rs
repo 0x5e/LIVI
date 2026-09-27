@@ -373,17 +373,8 @@ pub fn run() -> ExitCode {
         ));
         println!("[helperd] Android Auto USB watcher started");
         let link = LinkPresence::new();
-        let events = aa_events.clone();
         let link_state = link.clone();
-        tokio::spawn(livi_dongle::run(move |on, _serial| link_state.set_on_bus(on), move |socket, a| {
-            events.push_json(
-                serde_json::json!({
-                    "event": "dongle-upload", "socket": socket, "serial": a.serial,
-                    "product": a.product, "version": a.version, "name": a.name
-                })
-                .to_string(),
-            );
-        }));
+        tokio::spawn(livi_dongle::run(move |on, _serial| link_state.set_on_bus(on)));
         println!("[helperd] dongle watcher started");
 
         start_carplay_seam(link);

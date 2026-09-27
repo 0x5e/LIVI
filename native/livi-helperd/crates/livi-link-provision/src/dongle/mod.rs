@@ -1,6 +1,7 @@
 pub mod arm;
 pub mod hook;
 pub mod lfwb;
+pub mod link;
 pub mod ota;
 pub mod probe;
 pub mod riscv;

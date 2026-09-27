@@ -184,28 +184,16 @@ const ledBri   = document.getElementById('led-brightness');
 const ledBriV  = document.getElementById('led-brightness-val');
 const ledMsg = document.getElementById('status-msg');
 
-// Which sections this dongle offers. flash is an object of the writes it supports:
-// mtd (a .lfwb bundle), stack (upload the .gz), rootfs (restore a full image).
+// Which sections this dongle offers. flash.mtd: it takes a .lfwb bundle.
 let CAPS = { flash: {}, led: false };
 (async () => {
   try {
     CAPS = await (await fetch('/api/caps')).json();
     if (CAPS.led) document.getElementById('sec-led').hidden = false;
-    const f = CAPS.flash || {};
-    if (f.mtd || f.stack || f.rootfs) {
+    if ((CAPS.flash || {}).mtd) {
       document.getElementById('sec-flash').hidden = false;
-      const slot = document.getElementById('flash-slot');
-      const name = document.getElementById('flash-name');
-      if (f.stack || f.rootfs) {
-        const bits = [];
-        if (f.stack)  bits.push('.gz firmware update');
-        if (f.rootfs) bits.push('.img firmware restore');
-        slot.textContent = 'firmware';
-        name.textContent = bits.join(' · ');
-      } else {
-        slot.textContent = '.lfwb';
-        name.textContent = 'firmware bundle';
-      }
+      document.getElementById('flash-slot').textContent = '.lfwb';
+      document.getElementById('flash-name').textContent = 'firmware bundle';
     }
   } catch {}
 })();
@@ -257,7 +245,7 @@ function say(txt, cls) {
 const bar = document.getElementById('status-progress');
 function fmtKB(n) { return (n/1024).toFixed(0) + ' KiB'; }
 
-async function flashFile(file, sha) {
+async function flashFile(file) {
   say(`Uploading ${fmtKB(file.size)}…`);
   bar.hidden = false; bar.value = 0;
 
@@ -319,21 +307,8 @@ async function flashFile(file, sha) {
   });
   xhr.addEventListener('error', () => { bar.hidden = true; say('network error during upload', 'err'); });
   xhr.addEventListener('abort', () => { bar.hidden = true; say('upload aborted', 'err'); });
-  // One endpoint; the dongle routes by the file. A .lfwb bundle and a gzipped stack carry their
-  // own integrity, a raw rootfs image does not — so the browser hashes that and the dongle rechecks.
-  const head = new Uint8Array(await file.slice(0, 4).arrayBuffer());
-  const selfChecked = (head[0] === 0x1f && head[1] === 0x8b) ||
-                      (head[0] === 0x4c && head[1] === 0x46 && head[2] === 0x57 && head[3] === 0x42);
-  let url = sha ? '/api/flash?sha=' + sha : '/api/flash';
-  if (!sha && !selfChecked) {
-    say('Hashing image…');
-    try {
-      const dig = await crypto.subtle.digest('SHA-256', await file.arrayBuffer());
-      const sha = [...new Uint8Array(dig)].map(b => b.toString(16).padStart(2, '0')).join('');
-      url = '/api/flash?sha=' + sha;
-    } catch (e) { bar.hidden = true; say('sha256 failed: ' + e, 'err'); return; }
-  }
-  xhr.open('POST', url);
+  // The bundle carries a CRC per image, the dongle checks them before it writes anything.
+  xhr.open('POST', '/api/flash');
   xhr.setRequestHeader('Content-Type', 'application/octet-stream');
   xhr.send(file);
 }
@@ -439,7 +414,7 @@ otaInstall.addEventListener('click', async () => {
       const sha = [...new Uint8Array(dig)].map(b => b.toString(16).padStart(2, '0')).join('');
       if (sha !== fw.sha256) throw new Error('download does not match its sha256');
     }
-    await flashFile(blob, fw.sha256);
+    await flashFile(blob);
   } catch (e) {
     say('update failed: ' + (e.message || e), 'err');
   } finally {

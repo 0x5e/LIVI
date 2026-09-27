@@ -5,6 +5,7 @@ edition.workspace = true
 
 [dependencies]
 backhand = { version = "0.25", default-features = false, features = ["xz", "xz-static", "gzip", "error-strings"] }
+imx6ul-uboot = { path = "../imx6ul-uboot" }
 md-5 = "0.11"
 sha2 = "0.11"
 serde = { version = "1", features = ["derive"] }

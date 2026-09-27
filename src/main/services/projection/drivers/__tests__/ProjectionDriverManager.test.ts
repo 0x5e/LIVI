@@ -197,12 +197,6 @@ describe('ProjectionDriverManager', () => {
     expect(spies.handlers.onClusterVideoCodec).toHaveBeenCalledWith('h265')
   })
 
-  test('exposes the dongle uploader, idle until a stock dongle is on the bus', () => {
-    const { deps } = buildDeps()
-    const mgr = new ProjectionDriverManager(deps)
-    expect(mgr.getDongleUpload().available).toBe(false)
-  })
-
   test('routing to the already-routed target is a no-op', () => {
     const { deps, spies } = buildDeps()
     const mgr = new ProjectionDriverManager(deps)

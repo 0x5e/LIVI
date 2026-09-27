@@ -9,8 +9,7 @@ pub fn run(_args: Vec<String>) -> i32 {
 // livi-netd — DHCPv4 server for the LIVI-Link (V821B) dongle.
 //
 // - Serves DHCPv4 on the given interface: pool 10.10.10.100..149, gw/DNS = 10.10.10.1.
-// - Delegates mDNS announce/response to the shared livi-mdns daemon (same code
-//   powers CPC200's mdnsd, so we don't drift).
+// - Delegates mDNS announce/response to the shared livi-mdns daemon.
 //
 // Usage: livi-netd <iface> [server-ip] [pool-start] [pool-end] [hostname]
 

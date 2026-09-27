@@ -7,6 +7,7 @@ fn main() {
     for lfwb in [
         "../../../../assets/livi-link/v821b_aic8800d80/livi-link-v821b.lfwb",
         "../../../../assets/livi-link/ax520_aic8800d80/livi-link-ax520.lfwb",
+        "../../../../assets/livi-link/imx6ul_iw416/livi-link-imx6ull.lfwb",
     ] {
         let path = Path::new(lfwb);
         if !path.exists() {

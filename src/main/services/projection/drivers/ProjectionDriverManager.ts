@@ -1,4 +1,3 @@
-import { DongleUpload } from '@main/services/link/dongleUpload'
 import type { Config } from '@shared/types'
 import type { AaMediaSinkDeps } from '../driver/aa/AaEventBridge'
 import { AaManager, type HelperSessionSource } from '../driver/aa/AaManager'
@@ -47,7 +46,6 @@ export type DriverManagerDeps = {
 }
 
 export class ProjectionDriverManager {
-  readonly dongleUpload = new DongleUpload()
   private aaManager: AaManager | null = null
   private cpManager: CpManager | null = null
   private routed: IPhoneDriver | null = null
@@ -65,10 +63,6 @@ export class ProjectionDriverManager {
 
   getCpManager(): CpManager | null {
     return this.cpManager
-  }
-
-  getDongleUpload(): DongleUpload {
-    return this.dongleUpload
   }
 
   route(target: IPhoneDriver | null): void {
@@ -99,12 +93,10 @@ export class ProjectionDriverManager {
 
   attachHelper(helper: HelperSessionSource | undefined): void {
     this.ensureAaManager().attachHelper(helper)
-    this.dongleUpload.attachHelper(helper)
   }
 
   detachHelper(): void {
     this.aaManager?.detachHelper()
-    this.dongleUpload.detachHelper()
   }
 
   stopAaWireless(): void {

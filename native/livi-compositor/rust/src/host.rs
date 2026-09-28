@@ -23,7 +23,9 @@ use smithay_client_toolkit::reexports::client::protocol::wl_touch::WlTouch;
 use smithay_client_toolkit::reexports::client::{Connection, Proxy, QueueHandle};
 use smithay_client_toolkit::registry::{ProvidesRegistryState, RegistryState};
 use smithay_client_toolkit::seat::keyboard::{KeyboardHandler, KeyEvent, Keysym, Modifiers};
-use smithay_client_toolkit::seat::pointer::{PointerEvent, PointerEventKind, PointerHandler};
+use smithay_client_toolkit::seat::pointer::{
+    CursorIcon, PointerEvent, PointerEventKind, PointerHandler, ThemeSpec, ThemedPointer,
+};
 use smithay_client_toolkit::seat::touch::TouchHandler;
 use smithay_client_toolkit::seat::{Capability, SeatHandler as SctkSeatHandler, SeatState as SctkSeatState};
 use smithay_client_toolkit::shell::xdg::window::{
@@ -31,6 +33,7 @@ use smithay_client_toolkit::shell::xdg::window::{
 };
 use smithay_client_toolkit::shell::xdg::XdgShell;
 use smithay_client_toolkit::shell::WaylandSurface;
+use smithay_client_toolkit::shm::{Shm, ShmHandler as SctkShmHandler};
 
 use crate::state::LiviState;
 
@@ -61,10 +64,12 @@ pub struct HostState {
     pub pointer_pos: (f64, f64),           // layout coords
     pub pointer_screen: Option<usize>,
     pub keyboard: Option<WlKeyboard>,
-    pub pointer: Option<WlPointer>,
+    pub pointer: Option<ThemedPointer>,
+    pub shm: Option<Shm>,
+    /// What the inner client wants the pointer to look like, None while it hides it.
+    pub cursor: Option<CursorIcon>,
     pub touch: Option<WlTouch>,
     pub has_touch_cap: bool,
-    pub pointer_seen: bool,
     pub last_pointer_serial: u32,
     pub host_seat: Option<CWlSeat>,
     pub touch_positions: Vec<(i32, f64, f64)>,
@@ -91,9 +96,10 @@ impl HostState {
             pointer_screen: None,
             keyboard: None,
             pointer: None,
+            shm: None,
+            cursor: None,
             touch: None,
             has_touch_cap: false,
-            pointer_seen: false,
             last_pointer_serial: 0,
             host_seat: None,
             touch_positions: Vec::new(),
@@ -179,6 +185,7 @@ pub fn init(state: &mut LiviState, handle: &LoopHandle<'static, LiviState>) {
     let sctk_seats = SctkSeatState::new(&globals, &qh);
     let sctk_compositor = SctkCompositorState::bind(&globals, &qh).expect("host wl_compositor");
     let xdg_shell = XdgShell::bind(&globals, &qh).expect("host xdg_wm_base");
+    let shm = Shm::bind(&globals, &qh).expect("host wl_shm");
 
     let display_ptr = conn.backend().display_ptr() as *mut std::ffi::c_void;
     let egl_display =
@@ -228,6 +235,7 @@ pub fn init(state: &mut LiviState, handle: &LoopHandle<'static, LiviState>) {
     state.host.sctk_seats = Some(sctk_seats);
     state.host.sctk_compositor = Some(sctk_compositor);
     state.host.xdg_shell = Some(xdg_shell);
+    state.host.shm = Some(shm);
     state.host.egl_display = Some(egl_display);
     state.host.egl_context = Some(egl_context);
     state.host.renderer = Some(renderer);
@@ -672,7 +680,12 @@ impl SctkSeatHandler for LiviState {
         let seats = self.host.sctk_seats.as_mut().unwrap();
         match capability {
             Capability::Pointer => {
-                self.host.pointer = seats.get_pointer(qh, &seat).ok();
+                let surface = self.host.sctk_compositor.as_ref().map(|c| c.create_surface(qh));
+                self.host.pointer = surface.zip(self.host.shm.as_ref()).and_then(|(surface, shm)| {
+                    seats
+                        .get_pointer_with_theme(qh, &seat, shm.wl_shm(), surface, ThemeSpec::System)
+                        .ok()
+                });
                 self.seat.add_pointer();
             }
             Capability::Keyboard => {
@@ -721,7 +734,7 @@ impl PointerHandler for LiviState {
                 PointerEventKind::Enter { serial } => {
                     self.host.last_pointer_serial = serial;
                     self.host.pointer_screen = screen_idx;
-                    self.host.pointer_seen = true;
+                    apply_cursor(self);
                 }
                 PointerEventKind::Leave { .. } => {
                     self.host.pointer_screen = None;
@@ -837,8 +850,28 @@ impl ProvidesRegistryState for LiviState {
     smithay_client_toolkit::registry_handlers![SctkOutputState, SctkSeatState];
 }
 
+impl SctkShmHandler for LiviState {
+    fn shm_state(&mut self) -> &mut Shm {
+        self.host.shm.as_mut().unwrap()
+    }
+}
+
+/// Shows on the host what the inner client asked for.
+pub fn apply_cursor(state: &LiviState) {
+    let (Some(pointer), Some(conn)) = (state.host.pointer.as_ref(), state.host.conn.as_ref()) else {
+        return;
+    };
+    // Refused until the pointer has entered one of our windows, the enter applies it again.
+    let _ = match state.host.cursor {
+        Some(icon) => pointer.set_cursor(conn, icon),
+        None => pointer.hide_cursor(),
+    };
+    let _ = conn.flush();
+}
+
 smithay_client_toolkit::delegate_compositor!(LiviState);
 smithay_client_toolkit::delegate_output!(LiviState);
+smithay_client_toolkit::delegate_shm!(LiviState);
 smithay_client_toolkit::delegate_seat!(LiviState);
 smithay_client_toolkit::delegate_keyboard!(LiviState);
 smithay_client_toolkit::delegate_pointer!(LiviState);

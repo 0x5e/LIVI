@@ -13,6 +13,7 @@ use smithay::reexports::wayland_server::backend::ClientData;
 use smithay::reexports::wayland_server::{Display, DisplayHandle};
 use smithay::utils::{Logical, Point};
 use smithay::wayland::compositor::CompositorState;
+use smithay::wayland::cursor_shape::CursorShapeManagerState;
 use smithay::wayland::dmabuf::DmabufState;
 use smithay::wayland::selection::data_device::DataDeviceState;
 use smithay::wayland::shell::xdg::decoration::XdgDecorationState;
@@ -123,6 +124,7 @@ pub struct LiviState {
     pub shm_state: ShmState,
     pub dmabuf_state: DmabufState,
     pub _viewporter_state: ViewporterState,
+    pub _cursor_shape_state: CursorShapeManagerState,
 
     pub output_app_id: String,
     pub screens: Vec<Screen>,
@@ -170,6 +172,7 @@ impl LiviState {
         let shm_state = ShmState::new::<Self>(&dh, vec![]);
         let dmabuf_state = DmabufState::new();
         let viewporter_state = ViewporterState::new::<Self>(&dh);
+        let cursor_shape_state = CursorShapeManagerState::new::<Self>(&dh);
 
         // Wayland server socket the inner UI + gst-host connect to.
         let source = ListeningSocketSource::new_auto().expect("wayland socket");
@@ -239,6 +242,7 @@ impl LiviState {
             shm_state,
             dmabuf_state,
             _viewporter_state: viewporter_state,
+            _cursor_shape_state: cursor_shape_state,
             output_app_id,
             screens,
             toplevels: Vec::new(),

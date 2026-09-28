@@ -3,6 +3,7 @@
 //! seat, shm/dmabuf and viewporter.
 
 use smithay::backend::renderer::utils::on_commit_buffer_handler;
+use smithay::input::pointer::{CursorIcon, CursorImageStatus};
 use smithay::input::{Seat, SeatHandler, SeatState};
 use smithay::reexports::wayland_protocols::xdg::decoration::zv1::server::zxdg_toplevel_decoration_v1::Mode as DecoMode;
 use smithay::reexports::wayland_protocols::xdg::shell::server::xdg_toplevel::State as XdgState;
@@ -25,6 +26,7 @@ use smithay::wayland::shell::xdg::{
     PopupSurface, PositionerState, ToplevelSurface, XdgShellHandler, XdgShellState,
 };
 use smithay::wayland::shm::{ShmHandler, ShmState};
+use smithay::wayland::tablet_manager::TabletSeatHandler;
 
 use crate::state::{Kind, LiviState, TopLevel};
 
@@ -405,11 +407,14 @@ impl SeatHandler for LiviState {
         &mut self.seat_state
     }
 
-    fn cursor_image(
-        &mut self,
-        _seat: &Seat<Self>,
-        _image: smithay::input::pointer::CursorImageStatus,
-    ) {
+    fn cursor_image(&mut self, _seat: &Seat<Self>, image: CursorImageStatus) {
+        self.host.cursor = match image {
+            CursorImageStatus::Hidden => None,
+            CursorImageStatus::Named(icon) => Some(icon),
+            // A client-drawn image is not passed on, the host draws its own arrow.
+            CursorImageStatus::Surface(_) => Some(CursorIcon::Default),
+        };
+        crate::host::apply_cursor(self);
     }
 
     fn focus_changed(&mut self, _seat: &Seat<Self>, _focused: Option<&WlSurface>) {}
@@ -427,6 +432,7 @@ impl DataDeviceHandler for LiviState {
 
 impl ClientDndGrabHandler for LiviState {}
 impl ServerDndGrabHandler for LiviState {}
+impl TabletSeatHandler for LiviState {}
 
 impl ShmHandler for LiviState {
     fn shm_state(&self) -> &ShmState {
@@ -459,6 +465,7 @@ smithay::delegate_compositor!(LiviState);
 smithay::delegate_xdg_shell!(LiviState);
 smithay::delegate_xdg_decoration!(LiviState);
 smithay::delegate_seat!(LiviState);
+smithay::delegate_cursor_shape!(LiviState);
 smithay::delegate_data_device!(LiviState);
 smithay::delegate_shm!(LiviState);
 smithay::delegate_dmabuf!(LiviState);

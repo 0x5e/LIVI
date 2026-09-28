@@ -37,31 +37,34 @@ describe('theme module', () => {
     document.dispatchEvent(ev)
   }
 
+  const hidden = () => document.documentElement.classList.contains('cursor-hidden')
+
   test('initCursorHider reveals pointer on real mouse movement, hides after inactivity', async () => {
     vi.useFakeTimers({ shouldAdvanceTime: true })
     const notify = vi.fn()
     ;(window as any).app = { notifyUserActivity: notify }
 
-    const main = document.createElement('div')
-    main.id = 'main'
-    document.body.appendChild(main)
-    const btn = document.createElement('button')
-    btn.className = 'MuiButtonBase-root'
-    document.body.appendChild(btn)
-
     initCursorHider()
-    expect(document.body.style.cursor).toBe('none')
+    expect(hidden()).toBe(true)
 
     pointerMove('mouse', 100, 100)
-    expect(document.body.style.cursor).toBe('none')
+    expect(hidden()).toBe(true)
 
     pointerMove('mouse', 150, 150)
     expect(notify).toHaveBeenCalled()
-    expect(document.body.style.cursor).toBe('default')
+    expect(hidden()).toBe(false)
 
     vi.advanceTimersByTime(3000)
-    expect(document.body.style.cursor).toBe('none')
+    expect(hidden()).toBe(true)
     vi.useRealTimers()
+  })
+
+  test('initCursorHider hides the pointer on elements that mount later, too', () => {
+    initCursorHider()
+    initCursorHider()
+    const rules = document.querySelectorAll('style#cursor-hider')
+    expect(rules).toHaveLength(1)
+    expect(rules[0].textContent).toContain('html.cursor-hidden *')
   })
 
   test('initCursorHider keeps pointer hidden on touch', async () => {
@@ -72,7 +75,7 @@ describe('theme module', () => {
     pointerMove('touch', 10, 10)
     pointerMove('touch', 50, 50)
     expect(notify).toHaveBeenCalled()
-    expect(document.body.style.cursor).toBe('none')
+    expect(hidden()).toBe(true)
   })
 
   test('initUiBreatheClock writes css variable', async () => {
@@ -185,7 +188,7 @@ describe('theme module', () => {
     initCursorHider()
     pointerMove('mouse', 200, 200)
     pointerMove('mouse', 200, 260)
-    expect(document.body.style.cursor).toBe('default')
+    expect(hidden()).toBe(false)
 
     vi.useRealTimers()
   })

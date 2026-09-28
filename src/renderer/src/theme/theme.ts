@@ -610,22 +610,19 @@ export function initCursorHider() {
   let timer: ReturnType<typeof setTimeout>
   let lastX: number | null = null
   let lastY: number | null = null
-  const setCursor = (value: string) => {
-    const elems = [
-      document.body,
-      document.getElementById('main'),
-      ...Array.from(
-        document.querySelectorAll<HTMLElement>(
-          '.MuiTabs-root, .MuiTab-root, .MuiButtonBase-root, .MuiSvgIcon-root'
-        )
-      )
-    ].filter((el): el is HTMLElement => el !== null)
-    elems.forEach((el) => el.style.setProperty('cursor', value, 'important'))
+  if (!document.getElementById('cursor-hider')) {
+    const style = document.createElement('style')
+    style.id = 'cursor-hider'
+    // Covers elements that mount while the pointer is hidden, too.
+    style.textContent = 'html.cursor-hidden, html.cursor-hidden * { cursor: none !important; }'
+    document.head.appendChild(style)
   }
+  const hide = (hidden: boolean) =>
+    document.documentElement.classList.toggle('cursor-hidden', hidden)
   function reset() {
     clearTimeout(timer)
-    setCursor('default')
-    timer = setTimeout(() => setCursor('none'), inactivityMs)
+    hide(false)
+    timer = setTimeout(() => hide(true), inactivityMs)
   }
   // Touch emits synthetic mouse events, only a real mouse reveals the pointer
   document.addEventListener('pointermove', (e) => {
@@ -636,7 +633,7 @@ export function initCursorHider() {
     lastY = e.clientY
     if (moved) reset()
   })
-  setCursor('none')
+  hide(true)
 }
 
 // CarPlay-style LED

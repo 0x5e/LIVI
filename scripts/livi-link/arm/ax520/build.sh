@@ -57,8 +57,7 @@ grep -q 'subdir-y += axera' "$KDIR/arch/arm/boot/dts/Makefile" \
   || echo 'subdir-y += axera' >> "$KDIR/arch/arm/boot/dts/Makefile"
 
 # ---------------------------------------------------------------------------
-# 2) AIC8800 driver: same radxa full SDK as V821B (keeps Allwinner/sunxi
-#    support and ships aic_btsdio — irrelevant for us, harmless).
+# 2) AIC8800 driver: radxa SDK, Bluetooth through aic_btsdio.
 # ---------------------------------------------------------------------------
 AIC_ORG=${AIC_ORG:-https://github.com/radxa-pkg/aic8800}
 AIC_REF=${AIC_REF:-516e3b087763d80c44f5e3b6d2dd63e0d925c91d}
@@ -297,10 +296,14 @@ make ARCH=arm CROSS_COMPILE="$CROSS_COMPILE" olddefconfig
 # stay at its default "n" (it already is; aicsdio.c's own CONFIG_PLATFORM_ALLWINNER guard around
 # the sunxi_mmc_rescan_card() call then correctly compiles out on this platform).
 
-# CONFIG_SDIO_BT is a vendor Makefile variable (aic8800_fdrv/Makefile), not a Kconfig symbol.
-# Off here: the module's Bluetooth sits on a UART on this board, and the HCI reset over the SDIO
-# function makes the firmware assert, which takes WiFi down with it.
-sed -i 's/^CONFIG_SDIO_BT=.*/CONFIG_SDIO_BT=n/' "$DRV/aic8800_fdrv/Makefile" 2>/dev/null || true
+# aic8800_bsp tells the firmware which port Bluetooth uses, so bsp and fdrv both need SDIO BT on.
+# With fdrv alone the firmware stays on UART and asserts on the first HCI reset.
+for mk in "$DRV/aic8800_bsp/Makefile" "$DRV/aic8800_fdrv/Makefile"; do
+  sed -i 's|^\([[:space:]]*export[[:space:]]*\)\?CONFIG_SDIO_BT[[:space:]]*=.*|CONFIG_SDIO_BT = y|' "$mk"
+done
+grep -q '^CONFIG_SDIO_BT = y' "$DRV/aic8800_bsp/Makefile" && grep -q '^CONFIG_SDIO_BT = y' "$DRV/aic8800_fdrv/Makefile" \
+  || { log "CONFIG_SDIO_BT not found in the AIC8800 Makefiles"; exit 6; }
+sed -i 's|#define AICBT_DBG_FLAG\([[:space:]]\{1,\}\)1|#define AICBT_DBG_FLAG\10|' "$DRV/aic8800_fdrv/aic_btsdio.h"
 
 # ---------------------------------------------------------------------------
 # 4) Build

@@ -9,7 +9,7 @@ board_init() { :; }
 
 board_early() { :; }
 
-# WiFi power as on V821B: the module enable (GPIO0_24, stock ly,dev wifi_en_gpio) goes high first.
+# WiFi power: the module enable (GPIO0_24) goes high first.
 # "high" as the direction sets the level together with the output, so the pin never drives low: low on
 # this pin reset the whole board once. Only then the SDIO controller comes on (an overlay), and the
 # polled slot finds the module.

@@ -13,10 +13,10 @@ BUNDLE=$OUT/livi-link-ax520.lfwb
 BUNDLE_IMAGES=("3:$OUT/livi-link-ax520-boot.uimg" "6:$ROOTFS_IMG")
 
 FW_SRC=$TOP/radxa-aic8800/src/SDIO/driver_fw/fw/aic8800D80
-# What the driver actually request_firmware()s on this board (stock dmesg), plus
-# the u04 patch pair and the two config texts, which are tiny.
+# What the driver request_firmware()s with Bluetooth over SDIO, plus the u04 patch pair and
+# the two config texts, which are tiny.
 FW_FILES="aic_powerlimit_8800d80.txt aic_userconfig_8800d80.txt
-          fmacfw_8800d80_h_u02.bin fw_adid_8800d80_u02.bin
+          fmacfwbt_8800d80_h_u02.bin fw_adid_8800d80_u02.bin
           fw_patch_8800d80_u02.bin fw_patch_8800d80_u02_ext0.bin fw_patch_8800d80_u04.bin
           fw_patch_table_8800d80_u02.bin fw_patch_table_8800d80_u04.bin"
 

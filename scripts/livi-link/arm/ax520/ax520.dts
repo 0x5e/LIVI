@@ -4,8 +4,8 @@
  * stock kernel. No clock controller or pinctrl driver exists, so clocks are fixed and the pins stay
  * as muboot left them. UART, GIC, timer, USB, the SPI flash, GPIO and SPI1 (the RGB LED) are on,
  * each seen to work. sdio0 is an overlay that rcS applies once it has switched the WiFi module on
- * (GPIO0_24 high, as the stock "ly,dev" wifi_en_gpio and the V821B rcS do): a problem there then
- * stops rcS, which the initramfs recovery shell gets around, and not the kernel.
+ * (GPIO0_24 high): a problem there then stops rcS, which the initramfs recovery shell gets around,
+ * and not the kernel.
  */
 /dts-v1/;
 
@@ -278,8 +278,8 @@
 			status = "okay";
 		};
 
-		/* Stock "ly-led-rgb": three WS2812-type LEDs in one chain on MOSI, driven by livid's LED daemon through
-		 * spidev exactly as on V821B. The SSI input clock is 100 MHz. */
+		/* Three WS2812-type LEDs in one chain on MOSI, driven by livid's LED daemon through spidev.
+		 * The SSI input clock is 100 MHz. */
 		spi1: spi@9010000 {
 			compatible = "snps,dw-apb-ssi";
 			reg = <0x09010000 0x1000>;

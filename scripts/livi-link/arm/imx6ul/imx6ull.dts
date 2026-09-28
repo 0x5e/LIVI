@@ -207,7 +207,7 @@
 				reg = <0x380000 0xc60000>;
 			};
 
-			/* livid's saved settings, found by this name like on the other boards. */
+			/* livid's saved settings, livid finds them by this name. */
 			partition@fe0000 {
 				label = "customer";
 				reg = <0xfe0000 0x10000>;

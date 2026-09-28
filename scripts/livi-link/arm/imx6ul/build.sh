@@ -45,9 +45,9 @@ log "make allnoconfig"
 cd "$KDIR"
 make ARCH=arm allnoconfig >/dev/null
 
-# Built from allnoconfig like the AX520: only what the board, the boot path, the two ways in and the
-# rootfs need. No cpufreq: the CPU keeps the clock U-Boot set. Bluetooth and the crypto it selects do
-# not fit into the bytes U-Boot reads, they are modules in the rootfs.
+# Built from allnoconfig: only what the board, the boot path, the two ways in and the rootfs need.
+# No cpufreq: the CPU keeps the clock U-Boot set. Bluetooth and the crypto it selects do not fit
+# into the bytes U-Boot reads, they are modules in the rootfs.
 log "layer the LIVI i.MX6ULL config onto allnoconfig"
 ./scripts/config \
   --enable MMU \

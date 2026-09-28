@@ -321,7 +321,8 @@ fn start_carplay_seam(link: Arc<LinkPresence>) {
         bcast,
     ) {
         Ok(b) => {
-            // Held for the life of the process, so its publisher is ended when we end.
+            // Held for the life of the process. A static is never dropped, so `bonjour::stop`
+            // ends its publisher.
             let _ = BONJOUR.set(b);
             println!(
                 "[helperd] CarPlay receiver seam ready (cp-bt.sock + bonjour :{})",
@@ -379,7 +380,9 @@ pub fn run() -> ExitCode {
 
         start_carplay_seam(link);
 
-        let _ = tokio::signal::ctrl_c().await;
+        crate::shutdown_signal().await;
+        println!("[helperd] shutting down");
+        livi_runtime::bonjour::stop();
     });
     ExitCode::SUCCESS
 }

@@ -50,14 +50,26 @@ const PUBLISHER: &str = if cfg!(target_os = "macos") {
     "avahi-publish-service"
 };
 
-/// Ends publishers left over from an earlier run, so one service is announced once.
-fn reap_publishers() {
-    let pattern = format!("{PUBLISHER}.*{AIRPLAY_SERVICE}");
+/// Ends processes an earlier run left behind that match `pattern`.
+fn reap(pattern: &str) {
     let _ = std::process::Command::new(crate::sys::tool("pkill"))
-        .args(["-f", &pattern])
+        .args(["-f", pattern])
         .stdout(std::process::Stdio::null())
         .stderr(std::process::Stdio::null())
         .status();
+}
+
+/// The dns-sd processes running for us. They do not end when we do, so `stop` ends them, and
+/// `None` afterwards keeps new ones from starting.
+#[cfg(target_os = "macos")]
+static DNS_SD: Mutex<Option<Vec<u32>>> = Mutex::new(Some(Vec::new()));
+
+/// Ends every dns-sd this helper started, on the way out.
+#[cfg(target_os = "macos")]
+pub fn stop() {
+    for pid in DNS_SD.lock().unwrap().take().unwrap_or_default() {
+        unsafe { libc::kill(pid as i32, libc::SIGTERM) };
+    }
 }
 
 impl Drop for Bonjour {
@@ -78,7 +90,10 @@ impl Bonjour {
     ) -> std::io::Result<Self> {
         // A helper that was killed leaves its publisher behind, and every restart would add
         // another announcement of the same service. Clear those before adding ours.
-        reap_publishers();
+        reap(&format!("{PUBLISHER}.*{AIRPLAY_SERVICE}"));
+        // Its browse too, which never ends on its own.
+        #[cfg(target_os = "macos")]
+        reap(&format!("dns-sd.*{CARPLAY_CTRL}"));
         let txt = txt_records(&device_id, &source_version, &pk, &pi);
         // macOS advertises through mDNSResponder (dns-sd); Linux through avahi.
         #[cfg(target_os = "macos")]
@@ -91,11 +106,15 @@ impl Bonjour {
                 airplay_port.to_string(),
             ];
             args.extend(txt);
-            Command::new(crate::sys::tool("dns-sd"))
+            let publisher = Command::new(crate::sys::tool("dns-sd"))
                 .args(&args)
                 .stdout(Stdio::null())
                 .stderr(Stdio::null())
-                .spawn()?
+                .spawn()?;
+            if let Some(pids) = DNS_SD.lock().unwrap().as_mut() {
+                pids.extend(publisher.id());
+            }
+            publisher
         };
         #[cfg(not(target_os = "macos"))]
         let publisher = {
@@ -372,13 +391,22 @@ fn dns_sd_run(args: &[&str], secs: u64) -> Vec<String> {
     use std::io::BufRead;
     use std::process::{Command, Stdio};
     let mut out = Vec::new();
-    let Ok(mut child) = Command::new(crate::sys::tool("dns-sd"))
-        .args(args)
-        .stdout(Stdio::piped())
-        .stderr(Stdio::null())
-        .spawn()
-    else {
-        return out;
+    // Started under the lock, so `stop` either ends it or it is never started.
+    let mut child = {
+        let mut running = DNS_SD.lock().unwrap();
+        let Some(pids) = running.as_mut() else {
+            return out;
+        };
+        let Ok(child) = Command::new(crate::sys::tool("dns-sd"))
+            .args(args)
+            .stdout(Stdio::piped())
+            .stderr(Stdio::null())
+            .spawn()
+        else {
+            return out;
+        };
+        pids.push(child.id());
+        child
     };
     if let Some(stdout) = child.stdout.take() {
         let pid = child.id();
@@ -394,6 +422,9 @@ fn dns_sd_run(args: &[&str], secs: u64) -> Vec<String> {
         }
     }
     let _ = child.wait();
+    if let Some(pids) = DNS_SD.lock().unwrap().as_mut() {
+        pids.retain(|&p| p != child.id());
+    }
     out
 }
 

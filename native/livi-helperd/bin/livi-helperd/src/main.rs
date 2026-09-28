@@ -23,6 +23,22 @@ const SWITCHES: &[&str] = &[
     "--wifi-ap",
 ];
 
+/// Ctrl-C or the TERM systemd/Electron sends when LIVI stops.
+#[cfg(any(target_os = "linux", target_os = "macos"))]
+async fn shutdown_signal() {
+    let mut term = match tokio::signal::unix::signal(tokio::signal::unix::SignalKind::terminate()) {
+        Ok(s) => s,
+        Err(_) => {
+            let _ = tokio::signal::ctrl_c().await;
+            return;
+        }
+    };
+    tokio::select! {
+        _ = tokio::signal::ctrl_c() => {}
+        _ = term.recv() => {}
+    }
+}
+
 fn unknown_switch<I: Iterator<Item = String>>(args: I) -> Option<String> {
     args.take_while(|a| a.starts_with("--"))
         .find(|a| !SWITCHES.contains(&a.as_str()))

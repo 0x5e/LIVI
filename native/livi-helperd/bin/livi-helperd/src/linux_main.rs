@@ -501,7 +501,7 @@ async fn serve() -> Result<(), Box<dyn std::error::Error>> {
 
     loop {
         tokio::select! {
-            _ = shutdown_signal() => {
+            _ = crate::shutdown_signal() => {
                 println!("[helperd] shutting down");
                 bt::set_discoverable(&conn, &adapter, false).await;
                 iap2_usbmux::restore_all_default_config();
@@ -550,21 +550,6 @@ async fn serve() -> Result<(), Box<dyn std::error::Error>> {
                 tokio::spawn(pump_artwork(art_rx, bcast.clone(), ident));
             }
         }
-    }
-}
-
-/// Ctrl-C or the TERM systemd/Electron sends when LIVI stops.
-async fn shutdown_signal() {
-    let mut term = match tokio::signal::unix::signal(tokio::signal::unix::SignalKind::terminate()) {
-        Ok(s) => s,
-        Err(_) => {
-            let _ = tokio::signal::ctrl_c().await;
-            return;
-        }
-    };
-    tokio::select! {
-        _ = tokio::signal::ctrl_c() => {}
-        _ = term.recv() => {}
     }
 }
 

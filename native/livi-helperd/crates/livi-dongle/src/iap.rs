@@ -39,14 +39,14 @@ static CARRIED: std::sync::Mutex<Vec<std::os::fd::OwnedFd>> = std::sync::Mutex::
 
 /// Keeps a second handle on this socket, and lets go of the ones that have ended.
 fn carry(stream: &TcpStream) {
-    use std::os::fd::{AsRawFd, FromRawFd, OwnedFd};
-    let copy = unsafe { libc::dup(stream.as_raw_fd()) };
-    if copy < 0 {
+    use std::os::fd::AsFd;
+    // A plain dup() is inherited by every child we start, which then holds the dongle's session.
+    let Ok(copy) = stream.as_fd().try_clone_to_owned() else {
         return;
-    }
+    };
     let mut carried = CARRIED.lock().unwrap();
     carried.retain(alive);
-    carried.push(unsafe { OwnedFd::from_raw_fd(copy) });
+    carried.push(copy);
 }
 
 /// Whether anything still runs on this socket. A peek takes nothing away from the session.

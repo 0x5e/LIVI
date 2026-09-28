@@ -6,7 +6,7 @@ use iap2_mfi::{I2cCoprocessor, NcmCoprocessor, NoCoprocessor};
 use std::sync::Arc;
 
 use livi_runtime::bonjour::Bonjour;
-use livi_runtime::bringup::{CpConfig, run_accessory};
+use livi_runtime::bringup::{AskOnAir, CpConfig, run_accessory};
 use livi_runtime::bt;
 use livi_runtime::driver::{spawn_link, spawn_link_stream};
 use livi_runtime::ident::{Identity, Transport};
@@ -238,10 +238,9 @@ async fn serve() -> Result<(), Box<dyn std::error::Error>> {
     let name = dc.string("carName", "LIVI_CP_NAME", "LIVI");
     let ssid = name.clone();
     let wifi_iface = ap_iface(&dc);
-    let ap_mac = (dc.string("wifiInterface", "LIVI_WIFI_IFACE", "wlan0")
-        == livi_dongle::link::CHOICE)
-        .then(livi_dongle::ap::mac)
-        .flatten();
+    let dongle_ap =
+        dc.string("wifiInterface", "LIVI_WIFI_IFACE", "wlan0") == livi_dongle::link::CHOICE;
+    let ap_mac = dongle_ap.then(livi_dongle::ap::mac).flatten();
     let cp = CpConfig {
         wifi_iface: wifi_iface.clone(),
         ssid: ssid.clone(),
@@ -259,6 +258,7 @@ async fn serve() -> Result<(), Box<dyn std::error::Error>> {
             500u16,
         ),
         ap_mac: ap_mac.clone(),
+        ap_on_air: dongle_ap.then_some(livi_dongle::ap::on_air as AskOnAir),
     };
     let pk = std::env::var("LIVI_CP_PK").unwrap_or_default();
     let pi = std::env::var("LIVI_CP_PI").unwrap_or_default();

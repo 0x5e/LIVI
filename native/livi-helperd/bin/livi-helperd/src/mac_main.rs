@@ -58,6 +58,7 @@ fn cp_config() -> (CpConfig, Identity) {
     let pi = env_s("LIVI_CP_PI", "");
     let cp = CpConfig {
         ap_mac: None,
+        ap_on_air: None,
         wifi_iface: String::new(),
         ssid: name.clone(),
         passphrase: env_s("LIVI_PASSPHRASE", "12345678"),

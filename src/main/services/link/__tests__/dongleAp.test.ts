@@ -50,6 +50,7 @@ import {
   dongleApMac,
   dongleApPresent,
   dongleStatus,
+  drifted,
   noteDongleStatus,
   reconcileDongleAp,
   releaseDongle
@@ -151,6 +152,38 @@ describe('what the dongle is told', () => {
     const bare = { ...config, wifiInterface: DONGLE_LINK, carName: '', wifiPassword: '' } as Config
     expect(commandsFor(bare)).toContain('set ssid LIVI')
     expect(commandsFor(bare)).toContain('set passphrase 12345678')
+  })
+})
+
+describe('what counts as drift', () => {
+  const chosen = { ...config, wifiInterface: DONGLE_LINK, wifiChannelWidth: 80 } as Config
+  const agreeing = { state: 'on', ssid: 'Volvo', country_code: 'DE', channel: '44', width: '80' }
+
+  it('leaves a dongle alone that carries our name and country', () => {
+    expect(drifted(agreeing, chosen)).toBe(false)
+  })
+
+  it('lets the dongle narrow channel and width on its own', () => {
+    expect(drifted({ ...agreeing, channel: '6', width: '20' }, chosen)).toBe(false)
+  })
+
+  it('tells it again when it carries another name', () => {
+    expect(drifted({ ...agreeing, ssid: 'LIVI mbp' }, chosen)).toBe(true)
+  })
+
+  it('tells it again when it runs under another country', () => {
+    expect(drifted({ ...agreeing, country_code: 'US' }, chosen)).toBe(true)
+  })
+
+  it('reads a lower case country the way the dongle keeps it', () => {
+    const lower = { ...chosen, country: 'de' } as Config
+    expect(drifted(agreeing, lower)).toBe(false)
+    expect(commandsFor(lower)).toContain('set country DE')
+  })
+
+  it('only minds on or off while something else is the access point', () => {
+    expect(drifted({ state: 'off', ssid: 'other' }, config)).toBe(false)
+    expect(drifted({ state: 'on' }, config)).toBe(true)
   })
 })
 

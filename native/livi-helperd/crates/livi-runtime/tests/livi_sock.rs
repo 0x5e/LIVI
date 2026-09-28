@@ -37,6 +37,7 @@ fn config(path: &str) -> LiviSockConfig {
         },
         cp: CpConfig {
             ap_mac: None,
+            ap_on_air: None,
             wifi_iface: "none0".into(),
             ssid: "LIVI".into(),
             passphrase: "12345678".into(),

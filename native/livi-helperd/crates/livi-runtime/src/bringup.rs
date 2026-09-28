@@ -1,7 +1,8 @@
 use std::path::Path;
-use std::time::{Duration, Instant};
+use std::time::Duration;
 
 use tokio::sync::mpsc;
+use tokio::time::Instant;
 
 use iap2_csm::CsmMessage;
 use iap2_csm::messages::authentication::*;
@@ -38,7 +39,11 @@ pub struct CpConfig {
     pub available_current_ma: u16,
     /// The access point's MAC when it is not this host's, so the phone is told the right one.
     pub ap_mac: Option<String>,
+    /// Asks an access point that is not this host's for the SSID and channel it is on air with.
+    pub ap_on_air: Option<AskOnAir>,
 }
+
+pub type AskOnAir = fn() -> Option<(String, u8)>;
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum BringupEvent {
@@ -249,7 +254,7 @@ fn wifi_config(cp: &CpConfig) -> AccessoryWiFiConfigurationInformation {
     }
 }
 
-fn carplay_start_session(cp: &CpConfig) -> Option<CarPlayStartSession> {
+fn carplay_start_session(cp: &CpConfig, live: OnAir) -> Option<CarPlayStartSession> {
     if cp.transport == Transport::Wired {
         // The link-local the phone connects to: the A/V interface's.
         let fe80 = net::wlan_link_local(cp.av_iface.as_deref()?)?;
@@ -267,7 +272,7 @@ fn carplay_start_session(cp: &CpConfig) -> Option<CarPlayStartSession> {
         });
     }
     let fe80 = net::wlan_link_local(&cp.wifi_iface)?;
-    let (live_ssid, live_channel) = net::ap_ssid_channel(&cp.wifi_iface);
+    let (live_ssid, live_channel) = live;
     let ssid = live_ssid
         .filter(|s| !s.is_empty())
         .unwrap_or_else(|| cp.ssid.clone());
@@ -293,24 +298,54 @@ fn carplay_start_session(cp: &CpConfig) -> Option<CarPlayStartSession> {
 const AP_WAIT: Duration = Duration::from_secs(30);
 const AP_POLL: Duration = Duration::from_millis(250);
 
-/// The answer names an SSID and a channel, so it waits until they are on air.
-async fn wait_for_ap(iface: &str) {
-    if iface.is_empty() || !Path::new(&format!("/sys/class/net/{iface}")).exists() {
-        return;
+/// The SSID and channel the access point is on air with.
+type OnAir = (Option<String>, Option<u8>);
+
+async fn on_air(cp: &CpConfig) -> OnAir {
+    match cp.ap_on_air {
+        Some(ask) => match tokio::task::spawn_blocking(ask).await {
+            Ok(Some((ssid, channel))) => (Some(ssid), Some(channel)),
+            _ => (None, None),
+        },
+        None => net::ap_ssid_channel(&cp.wifi_iface),
     }
-    if net::ap_ssid_channel(iface).0.is_some() {
-        return;
+}
+
+/// The answer names an SSID and a channel, so it waits until they are on air and returns them.
+async fn wait_for_ap(cp: &CpConfig) -> OnAir {
+    let iface = &cp.wifi_iface;
+    let remote = cp.ap_on_air.is_some();
+    if !remote && (iface.is_empty() || !Path::new(&format!("/sys/class/net/{iface}")).exists()) {
+        return (None, None);
     }
-    println!("[cp] waiting for the access point on {iface}");
+    // A remote access point may still run what it had before ours was set.
+    let up = |live: &OnAir| match live {
+        (Some(ssid), Some(_)) => !remote || *ssid == cp.ssid,
+        _ => false,
+    };
+    let mut live = on_air(cp).await;
+    if up(&live) {
+        return live;
+    }
+    let what = if remote {
+        "the dongle's access point".to_string()
+    } else {
+        format!("the access point on {iface}")
+    };
+    println!("[cp] waiting for {what}");
     let deadline = Instant::now() + AP_WAIT;
     while Instant::now() < deadline {
         tokio::time::sleep(AP_POLL).await;
-        if let (Some(ssid), Some(channel)) = net::ap_ssid_channel(iface) {
-            println!("[cp] access point up: {ssid} on channel {channel}");
-            return;
+        live = on_air(cp).await;
+        if up(&live) {
+            if let (Some(ssid), Some(channel)) = &live {
+                println!("[cp] access point up: {ssid} on channel {channel}");
+            }
+            return live;
         }
     }
-    println!("[cp] access point on {iface} stayed down, answering anyway");
+    println!("[cp] {what} stayed down, answering anyway");
+    live
 }
 
 /// Runs the accessory side of a wireless CarPlay session: identification, MFi auth,
@@ -419,10 +454,12 @@ pub async fn run_accessory<C: ControlChannel, A: AsyncAuth>(
                 let _ = events.send(BringupEvent::WifiConfigSent).await;
             }
             0x4300 => {
-                if cp.transport != Transport::Wired {
-                    wait_for_ap(&cp.wifi_iface).await;
-                }
-                match carplay_start_session(&cp) {
+                let live = if cp.transport == Transport::Wired {
+                    (None, None)
+                } else {
+                    wait_for_ap(&cp).await
+                };
+                match carplay_start_session(&cp, live) {
                     Some(start) => {
                         // Logs the phone's offer and our answer.
                         match CarPlayAvailability::decode(&frame) {
@@ -495,4 +532,45 @@ async fn send_status<C: ControlChannel>(ch: &mut C, status: &VehicleStatus) -> b
         range_warning: status.range_warning,
     };
     ch.send(msg.encode()).await.is_ok()
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn dongle_ap(ask: AskOnAir) -> CpConfig {
+        CpConfig {
+            wifi_iface: "usb0".into(),
+            ssid: "LIVI".into(),
+            passphrase: "12345678".into(),
+            channel: 36,
+            security_type: SecurityType::WpaWpa2,
+            airplay_port: 7000,
+            source_version: "950.7.1".into(),
+            public_key: String::new(),
+            transport: Transport::Wireless,
+            av_iface: None,
+            available_current_ma: 500,
+            ap_mac: None,
+            ap_on_air: Some(ask),
+        }
+    }
+
+    #[tokio::test]
+    async fn a_dongle_carrying_our_ssid_is_not_waited_for() {
+        let live = wait_for_ap(&dongle_ap(|| Some(("LIVI".into(), 6)))).await;
+        assert_eq!(live, (Some("LIVI".into()), Some(6)));
+    }
+
+    #[tokio::test(start_paused = true)]
+    async fn a_dongle_on_another_ssid_is_answered_with_what_it_carries() {
+        let live = wait_for_ap(&dongle_ap(|| Some(("old".into(), 36)))).await;
+        assert_eq!(live, (Some("old".into()), Some(36)));
+    }
+
+    #[tokio::test(start_paused = true)]
+    async fn a_silent_dongle_leaves_our_own_values() {
+        let live = wait_for_ap(&dongle_ap(|| None)).await;
+        assert_eq!(live, (None, None));
+    }
 }

@@ -66,6 +66,9 @@ function talk(commands: string[], timeoutMs = APPLY_MS, port = PORT): Promise<st
   })
 }
 
+const ssidOf = (config: Config): string => config.carName || 'LIVI'
+const countryOf = (config: Config): string => (config.country || 'DE').toUpperCase()
+
 /** Full configuration */
 export function commandsFor(config: Config): string[] {
   if (config.wifiInterface !== DONGLE_LINK) {
@@ -73,8 +76,8 @@ export function commandsFor(config: Config): string[] {
     return ['off']
   }
   return [
-    `set ssid ${config.carName || 'LIVI'}`,
-    `set country ${config.country || 'DE'}`,
+    `set ssid ${ssidOf(config)}`,
+    `set country ${countryOf(config)}`,
     `set channel ${config.wifiChannel || 36}`,
     `set width ${config.wifiChannelWidth || 40}`,
     `set passphrase ${config.wifiPassword || '12345678'}`,
@@ -161,6 +164,15 @@ let reconciling = false
 let lastDriftAt = 0
 let lastTryAt = 0
 
+export function drifted(status: Record<string, string>, config: Config): boolean {
+  const chosen = config.wifiInterface === DONGLE_LINK
+  if ((status.state === 'on') !== chosen) return true
+  // Not channel and width: the dongle narrows those itself when its radio refuses them.
+  return (
+    chosen && (status.ssid !== ssidOf(config).trim() || status.country_code !== countryOf(config))
+  )
+}
+
 /** Fed with every status poll. */
 export function noteDongleStatus(status: Record<string, string> | null): void {
   if (!status) {
@@ -170,8 +182,7 @@ export function noteDongleStatus(status: Record<string, string> | null): void {
   }
   if (!wanted || reconciling) return
   if (!told && Date.now() - lastTryAt < DRIFT_RETRY_MS) return
-  const drifted = (status.state === 'on') !== (wanted.wifiInterface === DONGLE_LINK)
-  if (told && !(drifted && Date.now() - lastDriftAt > DRIFT_RETRY_MS)) return
+  if (told && !(drifted(status, wanted) && Date.now() - lastDriftAt > DRIFT_RETRY_MS)) return
   if (told) lastDriftAt = Date.now()
   void reconcileDongleAp(wanted)
 }

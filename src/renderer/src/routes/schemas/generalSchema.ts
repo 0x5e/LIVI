@@ -37,17 +37,41 @@ async function loadWifiCountryCodes(): Promise<SelectOption[]> {
   return list.map((c) => ({ value: c, label: c }))
 }
 
+const DONGLE_LINK = 'livi-link'
+
+/** The dongle's entry says when that radio is switched off there. */
+function adapterOption(value: string, switchedOn: boolean | null | undefined): SelectOption {
+  if (value !== DONGLE_LINK) return { value, label: value }
+  if (switchedOn === false) {
+    return { value, label: 'LIVI Link (off)', labelKey: 'settings.dongleSwitchedOff' }
+  }
+  return { value, label: 'LIVI Link' }
+}
+
 async function loadWifiInterfaces(): Promise<SelectOption[]> {
-  const list = await window.app?.listWifiInterfaces?.()
+  const [list, radios] = await Promise.all([
+    window.app?.listWifiInterfaces?.(),
+    window.app?.dongleRadios?.()
+  ])
   if (!Array.isArray(list)) return []
-  return list.map((i) => ({ value: i, label: i === 'livi-link' ? 'LIVI Link' : i }))
+  return list.map((i) => adapterOption(i, radios?.wifi))
 }
 
 async function loadBtAdapters(): Promise<SelectOption[]> {
-  const list = await window.app?.listBtAdapters?.()
+  const [list, radios] = await Promise.all([
+    window.app?.listBtAdapters?.(),
+    window.app?.dongleRadios?.()
+  ])
   if (!Array.isArray(list)) return []
-  return list.map((i) => ({ value: i, label: i === 'livi-link' ? 'LIVI Link' : i }))
+  return list.map((i) => adapterOption(i, radios?.bt))
 }
+
+/** Picking the dongle switches that radio on, also when it is the one picked already. */
+const switchDongleOn =
+  (radio: 'wifi' | 'bt') =>
+  (value: string | number): void => {
+    if (value === DONGLE_LINK) void window.app?.switchDongleRadio?.(radio, true)
+  }
 
 export const generalSchema: SettingsNode<Config> = {
   route: 'general',
@@ -196,6 +220,7 @@ export const generalSchema: SettingsNode<Config> = {
               displayValue: true,
               options: [],
               loadOptions: loadWifiInterfaces,
+              onPick: switchDongleOn('wifi'),
               page: {
                 title: 'Wi-Fi Interface',
                 labelTitle: 'settings.wifiInterface'
@@ -227,6 +252,7 @@ export const generalSchema: SettingsNode<Config> = {
           displayValue: true,
           options: [],
           loadOptions: loadBtAdapters,
+          onPick: switchDongleOn('bt'),
           page: {
             title: 'Bluetooth Interface',
             labelTitle: 'settings.btAdapter'

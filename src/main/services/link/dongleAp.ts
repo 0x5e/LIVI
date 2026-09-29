@@ -69,12 +69,14 @@ function talk(commands: string[], timeoutMs = APPLY_MS, port = PORT): Promise<st
 const ssidOf = (config: Config): string => config.carName || 'LIVI'
 const countryOf = (config: Config): string => (config.country || 'DE').toUpperCase()
 
-/** Full configuration */
-export function commandsFor(config: Config): string[] {
-  if (config.wifiInterface !== DONGLE_LINK) {
-    // Its radio would only sit next to the one actually in use.
-    return ['off']
-  }
+/** The access point's settings, while it is the chosen one and switched on. Whether it is on is kept
+ *  on the dongle and changes only on its page or when an adapter is picked. */
+export function commandsFor(config: Config, status: Record<string, string>): string[] {
+  if (config.wifiInterface !== DONGLE_LINK || status['wifi-enabled'] === 'off') return []
+  return settingsFor(config)
+}
+
+function settingsFor(config: Config): string[] {
   return [
     `set ssid ${ssidOf(config)}`,
     `set country ${countryOf(config)}`,
@@ -114,21 +116,32 @@ function attached(): boolean {
     .some((address) => address?.address.startsWith(LINK_SUBNET))
 }
 
+function parse(answers: string[]): Record<string, string> {
+  const out: Record<string, string> = {}
+  for (const line of answers) {
+    const sp = line.indexOf(' ')
+    if (sp > 0) out[line.slice(0, sp)] = line.slice(sp + 1).trim()
+  }
+  return out
+}
+
 /** One status snapshot as a flat map of the dongle's `key value` lines, or null if it is not
  *  on the network / did not answer. Used by the link-speed monitor. */
 export async function dongleStatus(): Promise<Record<string, string> | null> {
   if (!attached()) return null
   try {
-    const answers = await talk(['status'], PROBE_MS)
-    const out: Record<string, string> = {}
-    for (const line of answers) {
-      const sp = line.indexOf(' ')
-      if (sp > 0) out[line.slice(0, sp)] = line.slice(sp + 1).trim()
-    }
-    return out
+    return parse(await talk(['status'], PROBE_MS))
   } catch {
     return null
   }
+}
+
+export type DongleRadios = { wifi: boolean | null; bt: boolean | null }
+
+/** Whether the dongle's radios are switched on, null for a dongle that did not answer. */
+export function radiosOf(status: Record<string, string> | null): DongleRadios {
+  if (!status) return { wifi: null, bt: null }
+  return { wifi: status['wifi-enabled'] !== 'off', bt: status['bt-enabled'] !== 'off' }
 }
 
 /** Whether a LIVI Link is on the network and ready to be configured. */
@@ -165,12 +178,10 @@ let lastDriftAt = 0
 let lastTryAt = 0
 
 export function drifted(status: Record<string, string>, config: Config): boolean {
-  const chosen = config.wifiInterface === DONGLE_LINK
-  if ((status.state === 'on') !== chosen) return true
+  if (config.wifiInterface !== DONGLE_LINK || status['wifi-enabled'] === 'off') return false
+  if (status.state !== 'on') return true
   // Not channel and width: the dongle narrows those itself when its radio refuses them.
-  return (
-    chosen && (status.ssid !== ssidOf(config).trim() || status.country_code !== countryOf(config))
-  )
+  return status.ssid !== ssidOf(config).trim() || status.country_code !== countryOf(config)
 }
 
 /** Fed with every status poll. */
@@ -187,7 +198,7 @@ export function noteDongleStatus(status: Record<string, string> | null): void {
   void reconcileDongleAp(wanted)
 }
 
-/** Hands the dongle its settings when it is the chosen AP, and silences it when it is not. */
+/** Hands the dongle its settings when it is the chosen AP and switched on. */
 export async function reconcileDongleAp(config: Config): Promise<void> {
   wanted = config
   if (!attached() || reconciling) return
@@ -202,30 +213,56 @@ export async function reconcileDongleAp(config: Config): Promise<void> {
 async function reconcile(config: Config): Promise<void> {
   lastTryAt = Date.now()
   let heard = true
+  let status: Record<string, string> = {}
   try {
-    const answers = await talk([...commandsFor(config), 'status'])
-    apMac =
-      answers
-        .find((line) => line.startsWith('mac '))
-        ?.slice(4)
-        .trim() || apMac
+    status = parse(await talk(['status']))
+    const commands = commandsFor(config, status)
+    if (commands.length > 0) status = parse(await talk([...commands, 'status']))
+    apMac = status.mac || apMac
   } catch (err) {
     // Nothing local depends on the dongle, so a refusal is noted and the rest goes on.
     heard = false
     report('access point', err)
   }
-  // The dongle's own Bluetooth stays off until it is told otherwise, so this has to arrive.
-  try {
-    await talk(btCommandsFor(config), APPLY_MS, BT_PORT)
-  } catch (err) {
-    heard = false
-    report('bluetooth', err)
+  // The accessory only runs while the dongle's Bluetooth is switched on.
+  if (status['bt-enabled'] !== 'off') {
+    try {
+      await talk(btCommandsFor(config), APPLY_MS, BT_PORT)
+    } catch (err) {
+      heard = false
+      report('bluetooth', err)
+    }
   }
   told = heard
 }
 
-/** Switches off what LIVI switched on. */
-export async function releaseDongle(): Promise<void> {
+export type DongleRadio = 'wifi' | 'bt'
+
+/** Switches one of the dongle's radios, kept there across a boot. Wi-Fi switched on gets the access
+ *  point's settings right away. */
+export async function switchDongle(radio: DongleRadio, on: boolean, config: Config): Promise<void> {
   if (!attached()) return
-  await Promise.allSettled([talk(['off'], PROBE_MS), talk(['off'], PROBE_MS, BT_PORT)])
+  const commands =
+    radio === 'wifi' ? (on ? ['on', ...settingsFor(config)] : ['off']) : [on ? 'bt on' : 'bt off']
+  try {
+    await talk(commands)
+  } catch (err) {
+    report(radio === 'wifi' ? 'access point' : 'bluetooth', err)
+    return
+  }
+  // The accessory learns its part once the controller is up.
+  if (radio === 'bt' && on) await reconcileDongleAp(config)
+}
+
+/** Picking the dongle as an adapter switches that radio on, picking another one switches it off. */
+export function followAdapterChoice(before: Config, next: Config): void {
+  const adapters: [DongleRadio, 'wifiInterface' | 'btAdapter'][] = [
+    ['wifi', 'wifiInterface'],
+    ['bt', 'btAdapter']
+  ]
+  for (const [radio, key] of adapters) {
+    if (before[key] === next[key]) continue
+    if (next[key] === DONGLE_LINK) void switchDongle(radio, true, next)
+    else if (before[key] === DONGLE_LINK) void switchDongle(radio, false, next)
+  }
 }

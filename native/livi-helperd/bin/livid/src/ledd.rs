@@ -14,7 +14,8 @@ pub fn run(_args: Vec<String>) -> i32 {
 // Drives WS2812-style chips via /dev/spidev1.0 (4-bit-per-bit encoding at
 // ~3.1 MHz). One pixel on V821B, a chain of three on AX520 (the count comes from the
 // board's device tree). A board without a pixel (i.MX6UL) has a red status LED and a blue
-// one under /sys/class/leds instead. State inputs are file existence under /tmp/livi/led/.
+// one under /sys/class/leds instead. State inputs are file existence under /tmp/livi/led/
+// and the radio switches in /tmp/livi/radio.conf.
 // Config (WLAN color + brightness) lives in /etc/livi/led.toml.
 //
 // Wifi and bluetooth share the one pixel the way two LEDs would, their colours added:
@@ -22,6 +23,7 @@ pub fn run(_args: Vec<String>) -> i32 {
 //   waiting         → wlan-color blinking (no client on the AP yet)
 //   bt-connected    → blue solid, on top of the wifi state
 //   bt-paging       → pulsing blue, over the wifi state
+//   switched off    → that radio's part stays dark
 // Ahead of both:
 //   flash-error     → red solid, a write or its check failed: do not unplug, do not reboot into it
 //   flash-mode      → red+blue alternating (~2 Hz), a partition is being written
@@ -37,6 +39,8 @@ use std::path::Path;
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::thread;
 use std::time::{Duration, Instant};
+
+use livi_wifi::radio::{self, Radio};
 
 const SPI_DEV: &str = "/dev/spidev1.0";
 const LEDS_DIR: &str = "/sys/class/leds";
@@ -151,14 +155,53 @@ fn parse_rgb(s: &str) -> Option<Rgb> {
 }
 
 // ---------------------------------------------------------------------------
-// State (from /tmp/livi/led/*)
+// State (from /tmp/livi/led/* and the radio switches)
 // ---------------------------------------------------------------------------
+
+#[derive(Default, Clone, Copy, Debug, PartialEq, Eq)]
+enum Wifi {
+    Off,
+    #[default]
+    Waiting,
+    Client,
+}
+
+impl Wifi {
+    fn of(switched_on: bool, client: bool) -> Self {
+        match (switched_on, client) {
+            (false, _) => Self::Off,
+            (true, true) => Self::Client,
+            (true, false) => Self::Waiting,
+        }
+    }
+}
+
+#[derive(Default, Clone, Copy, Debug, PartialEq, Eq)]
+enum Bt {
+    Off,
+    #[default]
+    Idle,
+    Paging,
+    Connected,
+}
+
+impl Bt {
+    // The switch goes first: Bluetooth switched off mid-page or mid-connection can leave
+    // bt-paging or bt-connected behind.
+    fn of(switched_on: bool, connected: bool, paging: bool) -> Self {
+        match (switched_on, connected, paging) {
+            (false, _, _) => Self::Off,
+            (true, true, _) => Self::Connected,
+            (true, false, true) => Self::Paging,
+            (true, false, false) => Self::Idle,
+        }
+    }
+}
 
 #[derive(Default, Clone, Copy)]
 struct State {
-    client: bool,
-    bt_paging: bool,
-    bt_connected: bool,
+    wifi: Wifi,
+    bt: Bt,
     iap2_active: bool,
     flash_mode: bool,
     flash_done: bool,
@@ -171,9 +214,8 @@ struct State {
 impl State {
     fn read() -> Self {
         Self {
-            client: wifi_client(),
-            bt_paging: exists("bt-paging"),
-            bt_connected: exists("bt-connected"),
+            wifi: Wifi::of(radio::enabled(Radio::Wifi), wifi_client()),
+            bt: Bt::of(radio::enabled(Radio::Bt), exists("bt-connected"), exists("bt-paging")),
             iap2_active: exists("iap2-active"),
             flash_mode: exists("flash-mode"),
             flash_done: exists("flash-done"),
@@ -230,8 +272,7 @@ fn render(state: &State, cfg: &Config, tick: u64) -> Rgb {
 
     let (slow_on, blitz_on) = (slow_on(tick), blitz_on(tick));
 
-    // Steady once a station is on the AP, blinking while it waits for one.
-    let wifi = if state.client || slow_on { cfg.status } else { OFF };
+    let wifi = if wifi_lit(state.wifi, slow_on) { cfg.status } else { OFF };
 
     let base = if state.flash_error {
         RED
@@ -242,14 +283,14 @@ fn render(state: &State, cfg: &Config, tick: u64) -> Rgb {
         GREEN
     } else if state.iap2_active {
         OFF
-    } else if state.bt_connected {
-        add(wifi, BLUE)
-    } else if state.bt_paging {
-        // The pulse replaces the colour rather than adding to it: a status colour with
-        // blue in it would swallow an added pulse.
-        if blitz_on { BLUE } else { wifi }
     } else {
-        wifi
+        match state.bt {
+            Bt::Connected => add(wifi, BLUE),
+            // The pulse replaces the colour rather than adding to it: a status colour with
+            // blue in it would swallow an added pulse.
+            Bt::Paging if blitz_on => BLUE,
+            Bt::Paging | Bt::Idle | Bt::Off => wifi,
+        }
     };
 
     // Convert 0-100 % to a u8 gain factor (0-255) for scale().
@@ -273,7 +314,21 @@ fn render_pair(state: &State, cfg: &Config, tick: u64) -> (bool, bool) {
     } else if state.iap2_active {
         (false, false)
     } else {
-        (state.client || slow, state.bt_connected || (state.bt_paging && blitz_on(tick)))
+        let bt = match state.bt {
+            Bt::Connected => true,
+            Bt::Paging => blitz_on(tick),
+            Bt::Idle | Bt::Off => false,
+        };
+        (wifi_lit(state.wifi, slow), bt)
+    }
+}
+
+/// Steady once a station is on the AP, blinking while it waits for one.
+fn wifi_lit(wifi: Wifi, blink_on: bool) -> bool {
+    match wifi {
+        Wifi::Client => true,
+        Wifi::Waiting => blink_on,
+        Wifi::Off => false,
     }
 }
 
@@ -511,29 +566,33 @@ mod tests {
         render_pair(&state, &Config::default(), tick)
     }
 
+    fn pixel(state: State, tick: u64) -> (u8, u8, u8) {
+        let c = render(&state, &Config::default(), tick);
+        (c.0, c.1, c.2)
+    }
+
     fn over_a_second(state: State, led: fn((bool, bool)) -> bool) -> Vec<bool> {
         (0..TICK_HZ).map(|t| led(pair(state, t))).collect()
+    }
+
+    fn with(wifi: Wifi, bt: Bt) -> State {
+        State { wifi, bt, ..Default::default() }
     }
 
     #[test]
     fn two_leds_show_wifi_on_red_and_bluetooth_on_blue() {
         let waiting = over_a_second(State::default(), |p| p.0);
         assert!(waiting.contains(&true) && waiting.contains(&false));
-        assert_eq!(pair(State { client: true, ..Default::default() }, 13), (true, false));
-        assert_eq!(
-            pair(State { client: true, bt_connected: true, ..Default::default() }, 13),
-            (true, true)
-        );
-        let paging =
-            over_a_second(State { client: true, bt_paging: true, ..Default::default() }, |p| p.1);
+        assert_eq!(pair(with(Wifi::Client, Bt::Idle), 13), (true, false));
+        assert_eq!(pair(with(Wifi::Client, Bt::Connected), 13), (true, true));
+        let paging = over_a_second(with(Wifi::Client, Bt::Paging), |p| p.1);
         assert!(paging.contains(&true) && paging.contains(&false));
     }
 
     #[test]
     fn two_leds_alternate_while_flashing_and_red_stays_on_a_failed_write() {
         for t in 0..TICK_HZ {
-            let (red, blue) =
-                pair(State { flash_mode: true, client: true, ..Default::default() }, t);
+            let (red, blue) = pair(State { flash_mode: true, ..with(Wifi::Client, Bt::Idle) }, t);
             assert_ne!(red, blue);
         }
         assert_eq!(
@@ -543,9 +602,42 @@ mod tests {
     }
 
     #[test]
+    fn the_switch_goes_ahead_of_what_the_radio_reports() {
+        assert_eq!(Wifi::of(false, true), Wifi::Off);
+        assert_eq!(Wifi::of(true, false), Wifi::Waiting);
+        assert_eq!(Wifi::of(true, true), Wifi::Client);
+        assert_eq!(Bt::of(false, true, true), Bt::Off);
+        assert_eq!(Bt::of(true, true, true), Bt::Connected);
+        assert_eq!(Bt::of(true, false, true), Bt::Paging);
+        assert_eq!(Bt::of(true, false, false), Bt::Idle);
+    }
+
+    #[test]
+    fn a_switched_off_radio_stays_dark() {
+        let wifi_off = with(Wifi::Off, Bt::Idle);
+        assert!((0..TICK_HZ).all(|t| pixel(wifi_off, t) == (0, 0, 0) && !pair(wifi_off, t).0));
+
+        let bt_off = with(Wifi::Client, Bt::Off);
+        assert_eq!(pixel(bt_off, 13), pixel(with(Wifi::Client, Bt::Idle), 13));
+        assert_eq!(pair(bt_off, 13), (true, false));
+
+        let both_off = with(Wifi::Off, Bt::Off);
+        assert!(
+            (0..TICK_HZ)
+                .all(|t| pixel(both_off, t) == (0, 0, 0) && pair(both_off, t) == (false, false))
+        );
+    }
+
+    #[test]
+    fn a_failed_write_shows_with_both_radios_off() {
+        let failed = State { flash_error: true, ..with(Wifi::Off, Bt::Off) };
+        assert_ne!(pixel(failed, 0).0, 0);
+        assert_eq!(pair(failed, 0), (true, false));
+    }
+
+    #[test]
     fn brightness_zero_turns_both_off() {
         let cfg = Config { brightness_pct: 0, ..Config::default() };
-        let state = State { client: true, bt_connected: true, ..Default::default() };
-        assert_eq!(render_pair(&state, &cfg, 0), (false, false));
+        assert_eq!(render_pair(&with(Wifi::Client, Bt::Connected), &cfg, 0), (false, false));
     }
 }

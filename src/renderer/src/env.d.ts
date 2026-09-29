@@ -169,6 +169,8 @@ declare global {
       listWifiCountryCodes(): Promise<string[]>
       listWifiInterfaces(): Promise<string[]>
       listBtAdapters(): Promise<string[]>
+      dongleRadios(): Promise<{ wifi: boolean | null; bt: boolean | null }>
+      switchDongleRadio(radio: 'wifi' | 'bt', on: boolean): Promise<void>
       getLatestRelease(): Promise<{
         version?: string
         url?: string

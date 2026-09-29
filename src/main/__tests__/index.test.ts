@@ -79,6 +79,7 @@ vi.mock('@main/services/projection/driver/helper/helperSudoers', () => ({
 }))
 vi.mock('@main/services/link/dongleAp', () => ({
   DONGLE_LINK: 'livi-link',
+  followAdapterChoice: vi.fn(),
   reconcileDongleAp: vi.fn(() => Promise.resolve())
 }))
 vi.mock('@main/services/projection/driver/helper/wifiApUnit', () => ({
@@ -471,17 +472,20 @@ describe('main index bootstrap', () => {
     await bootIndex()
     const { configEvents } = await import('@main/ipc/utils')
     const { reconcileWifiAp } = await import('@main/services/projection/driver/helper/wifiApUnit')
-    const { reconcileDongleAp } = await import('@main/services/link/dongleAp')
+    const { followAdapterChoice, reconcileDongleAp } = await import('@main/services/link/dongleAp')
     ;(reconcileWifiAp as Mock).mockClear()
     ;(reconcileDongleAp as Mock).mockClear()
+    ;(followAdapterChoice as Mock).mockClear()
 
     configEvents.emit('changed', { huVolume: 0.9 })
     expect(reconcileWifiAp).not.toHaveBeenCalled()
     expect(reconcileDongleAp).not.toHaveBeenCalled()
+    expect(followAdapterChoice).not.toHaveBeenCalled()
 
     configEvents.emit('changed', { huVolume: 0.9, wifiChannel: 48 })
     expect(reconcileWifiAp).toHaveBeenCalled()
     expect(reconcileDongleAp).toHaveBeenCalled()
+    expect(followAdapterChoice).toHaveBeenCalled()
   })
 
   test('unlinked head-unit volume stops the system mixer monitor', async () => {

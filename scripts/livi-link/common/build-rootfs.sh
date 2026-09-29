@@ -38,10 +38,10 @@ for a in $BB_USR_SBIN_APPLETS;  do ln -sf ../../bin/busybox "$WORK/usr/sbin/$a";
 log "overlay: common/rootfs, then the board's rootfs (init, inittab, rcS, board.sh, ...)"
 cp -a "$COMMON/rootfs/." "$WORK/"
 [[ -d $HERE/rootfs ]] && cp -a "$HERE/rootfs/." "$WORK/"
-chmod 755 "$WORK/init" "$WORK/etc/init.d/rcS"
+chmod 755 "$WORK/init" "$WORK/etc/init.d/rcS" "$WORK/usr/bin/livi-radio"
 need "$WORK/etc/livi/board.sh" "every board needs rootfs/etc/livi/board.sh"
 # A syntax error there stops init or rcS before the ways in are up.
-for s in init etc/init.d/rcS etc/livi/board.sh; do
+for s in init etc/init.d/rcS etc/livi/board.sh usr/bin/livi-radio; do
   sh -n "$WORK/$s" || { log "syntax error in /$s"; exit 4; }
 done
 

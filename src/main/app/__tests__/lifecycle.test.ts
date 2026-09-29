@@ -3,10 +3,6 @@ import { createMainWindow, getMainWindow } from '@main/window/createWindow'
 import { app, BrowserWindow } from 'electron'
 import type { Mock, MockInstance } from 'vitest'
 
-vi.mock('@main/services/link/dongleAp', () => ({
-  releaseDongle: vi.fn(async () => {})
-}))
-
 vi.mock('@main/window/createWindow', () => ({
   createMainWindow: vi.fn(),
   getMainWindow: vi.fn(() => null)

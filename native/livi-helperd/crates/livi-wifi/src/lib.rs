@@ -3,6 +3,7 @@
 //! nl80211 channel-listing (`listing`, `ap_state`, `regulatory_country`)
 //! plus a shared wifid server for the LIVI dongles (see [`server`]).
 
+pub mod radio;
 #[cfg(target_os = "linux")]
 pub mod server;
 

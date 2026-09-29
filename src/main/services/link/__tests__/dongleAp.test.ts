@@ -51,9 +51,11 @@ import {
   dongleApPresent,
   dongleStatus,
   drifted,
+  followAdapterChoice,
   noteDongleStatus,
+  radiosOf,
   reconcileDongleAp,
-  releaseDongle
+  switchDongle
 } from '../dongleAp'
 
 const config = {
@@ -93,8 +95,14 @@ function on(platform: NodeJS.Platform, run: () => void): void {
 }
 
 describe('what the dongle is told', () => {
-  it('silences it while something else is the access point', () => {
-    expect(commandsFor(config)).toEqual(['off'])
+  it('leaves the switch alone while something else is the access point', () => {
+    expect(commandsFor(config, {})).toEqual([])
+  })
+
+  it('leaves a dongle alone whose Wi-Fi is switched off', () => {
+    expect(
+      commandsFor({ ...config, wifiInterface: DONGLE_LINK }, { 'wifi-enabled': 'off' })
+    ).toEqual([])
   })
 
   it('follows the bluetooth setting, not the wifi one', () => {
@@ -113,7 +121,7 @@ describe('what the dongle is told', () => {
 
   it('falls back to defaults where the settings are empty', () => {
     const bare = { wifiInterface: DONGLE_LINK } as Config
-    expect(commandsFor(bare)).toEqual([
+    expect(commandsFor(bare, {})).toEqual([
       'set ssid LIVI',
       'set country DE',
       'set channel 36',
@@ -136,7 +144,9 @@ describe('what the dongle is told', () => {
 
   it('hands over the settings once it is the access point', () => {
     expect(
-      commandsFor({ ...config, wifiInterface: DONGLE_LINK, wifiChannelWidth: 80 } as Config)
+      commandsFor({ ...config, wifiInterface: DONGLE_LINK, wifiChannelWidth: 80 } as Config, {
+        'wifi-enabled': 'on'
+      })
     ).toEqual([
       'set ssid Volvo',
       'set country DE',
@@ -150,8 +160,8 @@ describe('what the dongle is told', () => {
 
   it('stands in for a setting that was left empty', () => {
     const bare = { ...config, wifiInterface: DONGLE_LINK, carName: '', wifiPassword: '' } as Config
-    expect(commandsFor(bare)).toContain('set ssid LIVI')
-    expect(commandsFor(bare)).toContain('set passphrase 12345678')
+    expect(commandsFor(bare, {})).toContain('set ssid LIVI')
+    expect(commandsFor(bare, {})).toContain('set passphrase 12345678')
   })
 })
 
@@ -178,34 +188,62 @@ describe('what counts as drift', () => {
   it('reads a lower case country the way the dongle keeps it', () => {
     const lower = { ...chosen, country: 'de' } as Config
     expect(drifted(agreeing, lower)).toBe(false)
-    expect(commandsFor(lower)).toContain('set country DE')
+    expect(commandsFor(lower, {})).toContain('set country DE')
   })
 
-  it('only minds on or off while something else is the access point', () => {
+  it('never minds a dongle that is not the access point', () => {
     expect(drifted({ state: 'off', ssid: 'other' }, config)).toBe(false)
-    expect(drifted({ state: 'on' }, config)).toBe(true)
+    expect(drifted({ state: 'on' }, config)).toBe(false)
+  })
+
+  it('leaves a dongle alone that was switched off', () => {
+    expect(drifted({ 'wifi-enabled': 'off', state: 'off' }, chosen)).toBe(false)
+  })
+
+  it('tells it again when its access point went down while switched on', () => {
+    expect(drifted({ ...agreeing, state: 'off' }, chosen)).toBe(true)
   })
 })
 
 describe('talking to the dongle', () => {
-  it('sends the next command only after the one before was taken', async () => {
-    const done = reconcileDongleAp(config)
-    const socket = sockets[0]
+  it('asks first, and sends the next command only after the one before was taken', async () => {
+    const done = reconcileDongleAp({ ...config, wifiInterface: DONGLE_LINK })
+    await answer(sockets[0], 1, 'wifi-enabled on\nok\n')
+    expect(sockets[0].sent).toEqual(['status\n'])
+    await settle(1)
+    const socket = sockets[1]
     await answer(socket, 1)
-    await answer(socket, 2, 'mac 02:50:43:02:ff:01\nok\n')
+    expect(socket.sent).toEqual(['set ssid Volvo\n', 'set country DE\n'])
+    for (let n = 2; n <= 8; n++)
+      await answer(socket, n, n === 8 ? 'mac 02:50:43:02:ff:01\nok\n' : 'ok\n')
+    await settle(2)
+    await answer(sockets[2], 1)
+    await done
+    expect(socket.sent.at(-2)).toBe('save\n')
+    expect(socket.sent.at(-1)).toBe('status\n')
+    expect(socket.destroyed).toBe(true)
+  })
+
+  it('only asks while something else is the access point', async () => {
+    const done = reconcileDongleAp(config)
+    await answer(sockets[0], 1, 'state on\nok\n')
     await settle(1)
     await answer(sockets[1], 1)
     await done
-    expect(socket.sent).toEqual(['off\n', 'status\n'])
+    expect(sockets[0].sent).toEqual(['status\n'])
     expect(sockets[1].sent).toEqual(['off\n'])
-    expect(socket.destroyed).toBe(true)
+  })
+
+  it('leaves the accessory alone while the dongle has Bluetooth switched off', async () => {
+    const done = reconcileDongleAp(config)
+    await answer(sockets[0], 1, 'bt-enabled off\nok\n')
+    await done
+    expect(sockets).toHaveLength(1)
   })
 
   it('remembers the access point MAC the state carries', async () => {
     const done = reconcileDongleAp(config)
-    const socket = sockets[0]
-    await answer(socket, 1)
-    await answer(socket, 2, 'state on\nmac 02:50:43:02:ff:01\nok\n')
+    await answer(sockets[0], 1, 'state on\nmac 02:50:43:02:ff:01\nok\n')
     await settle(1)
     await answer(sockets[1], 1)
     await done
@@ -214,16 +252,14 @@ describe('talking to the dongle', () => {
 
   it('keeps the MAC it had when a state carries none', async () => {
     const first = reconcileDongleAp(config)
-    await answer(sockets[0], 1)
-    await answer(sockets[0], 2, 'mac 02:50:43:02:ff:01\nok\n')
+    await answer(sockets[0], 1, 'mac 02:50:43:02:ff:01\nok\n')
     await settle(1)
     await answer(sockets[1], 1)
     await first
 
     sockets.length = 0
     const again = reconcileDongleAp(config)
-    await answer(sockets[0], 1)
-    await answer(sockets[0], 2, 'state on\nok\n')
+    await answer(sockets[0], 1, 'state on\nok\n')
     await settle(1)
     await answer(sockets[1], 1)
     await again
@@ -233,10 +269,12 @@ describe('talking to the dongle', () => {
   it('gives up on a refusal instead of carrying on', async () => {
     const warn = vi.spyOn(console, 'warn').mockImplementation(() => {})
     const done = reconcileDongleAp({ ...config, wifiInterface: DONGLE_LINK })
-    const socket = sockets[0]
-    await answer(socket, 1, 'error channel is out of range\n')
+    await answer(sockets[0], 1)
     await settle(1)
-    await answer(sockets[1], 1)
+    const socket = sockets[1]
+    await answer(socket, 1, 'error channel is out of range\n')
+    await settle(2)
+    await answer(sockets[2], 1)
     await done
     expect(socket.sent).toEqual(['set ssid Volvo\n'])
     expect(warn.mock.calls[0]?.[1]).toContain('channel is out of range')
@@ -287,15 +325,6 @@ describe('talking to the dongle', () => {
     warn.mockRestore()
   })
 
-  it('switches both radios off when a dongle is plugged in', async () => {
-    const done = releaseDongle()
-    for (let i = 0; i < 50 && sockets.length < 2; i++) await Promise.resolve()
-    expect(sockets).toHaveLength(2)
-    sockets.forEach((s) => s.emit('error', new Error('done')))
-    await done
-    expect(createConnection).toHaveBeenCalled()
-  })
-
   it('a link that closes after it failed is finished only once', async () => {
     const probe = dongleApPresent()
     for (let i = 0; i < 50 && sockets.length === 0; i++) await Promise.resolve()
@@ -323,7 +352,6 @@ describe('talking to the dongle', () => {
   it('says nothing at all while no dongle is plugged in', async () => {
     networkInterfaces.mockReturnValue({ wlan0: [{ address: '192.168.1.20' }] })
     await reconcileDongleAp(config)
-    await releaseDongle()
     expect(await dongleApPresent()).toBe(false)
     expect(createConnection).not.toHaveBeenCalled()
   })
@@ -332,10 +360,20 @@ describe('talking to the dongle', () => {
 describe('a dongle that shows up after the settings went out', () => {
   async function takeReconcile(): Promise<void> {
     await settle(0)
-    await answer(sockets[0], 1)
-    await answer(sockets[0], 2, 'state off\nok\n')
+    await answer(sockets[0], 1, 'state off\nok\n')
     await settle(1)
     await answer(sockets[1], 1)
+    for (let i = 0; i < 50; i++) await Promise.resolve()
+  }
+
+  /** A reconcile while the dongle is the access point: status, its settings, the accessory. */
+  async function takeChosen(): Promise<void> {
+    await settle(0)
+    await answer(sockets[0], 1, 'wifi-enabled on\nstate off\nok\n')
+    await settle(1)
+    for (let n = 1; n <= 8; n++) await answer(sockets[1], n)
+    await settle(2)
+    await answer(sockets[2], 1)
     for (let i = 0; i < 50; i++) await Promise.resolve()
   }
 
@@ -348,10 +386,10 @@ describe('a dongle that shows up after the settings went out', () => {
     networkInterfaces.mockReturnValue({ ncm0: [{ address: '10.10.10.100' }] })
     noteDongleStatus({ state: 'on' })
     await takeReconcile()
-    expect(sockets[0].sent).toEqual(['off\n', 'status\n'])
+    expect(sockets[0].sent).toEqual(['status\n'])
 
     sockets.length = 0
-    noteDongleStatus({ state: 'off' })
+    noteDongleStatus({ state: 'on' })
     await Promise.resolve()
     expect(sockets.length).toBe(0)
   })
@@ -361,8 +399,7 @@ describe('a dongle that shows up after the settings went out', () => {
     noteDongleStatus(null)
     noteDongleStatus({ state: 'off' })
     await settle(0)
-    await answer(sockets[0], 1)
-    await answer(sockets[0], 2, 'state off\nok\n')
+    await answer(sockets[0], 1, 'state off\nok\n')
     await settle(1)
     sockets[1].emit('error', new Error('ECONNREFUSED'))
     for (let i = 0; i < 50; i++) await Promise.resolve()
@@ -390,30 +427,34 @@ describe('a dongle that shows up after the settings went out', () => {
     noteDongleStatus({ state: 'on' })
     await Promise.resolve()
     expect(sockets.length).toBe(1)
-    await answer(sockets[0], 1)
-    await answer(sockets[0], 2, 'state off\nok\n')
+    await answer(sockets[0], 1, 'state off\nok\n')
     await settle(1)
     await answer(sockets[1], 1)
     for (let i = 0; i < 50; i++) await Promise.resolve()
     await first
   })
 
-  it('tells it again when it drifted off on its own', async () => {
-    networkInterfaces.mockReturnValue({ ncm0: [{ address: '10.10.10.100' }] })
-    noteDongleStatus(null)
-    noteDongleStatus({ state: 'on' })
-    await takeReconcile()
+  it('tells it again when its access point went down on its own', async () => {
+    const chosen = { ...config, wifiInterface: DONGLE_LINK } as Config
+    const first = reconcileDongleAp(chosen)
+    await takeChosen()
+    await first
 
-    // It agrees now, so a matching status is left alone.
+    // It agrees, so a matching status is left alone.
     sockets.length = 0
-    noteDongleStatus({ state: 'off' })
+    noteDongleStatus({ 'wifi-enabled': 'on', state: 'on', ssid: 'Volvo', country_code: 'DE' })
     await Promise.resolve()
     expect(sockets.length).toBe(0)
 
-    // Its own access point came up again, which is worth another word.
-    noteDongleStatus({ state: 'on' })
-    await takeReconcile()
-    expect(sockets[0].sent).toEqual(['off\n', 'status\n'])
+    // Switched off on its own page, which is nothing to put right.
+    noteDongleStatus({ 'wifi-enabled': 'off', state: 'off' })
+    await Promise.resolve()
+    expect(sockets.length).toBe(0)
+
+    // Its access point went down while it is switched on, which is worth another word.
+    noteDongleStatus({ 'wifi-enabled': 'on', state: 'off' })
+    await takeChosen()
+    expect(sockets[1].sent[0]).toBe('set ssid Volvo\n')
   })
 
   it('is told again after it was gone', async () => {
@@ -425,7 +466,51 @@ describe('a dongle that shows up after the settings went out', () => {
     noteDongleStatus(null)
     noteDongleStatus({ state: 'on' })
     await takeReconcile()
-    expect(sockets[0].sent).toEqual(['off\n', 'status\n'])
+    expect(sockets[0].sent).toEqual(['status\n'])
+  })
+})
+
+describe("switching the dongle's radios", () => {
+  const chosen = { ...config, wifiInterface: DONGLE_LINK } as Config
+
+  it('switches Wi-Fi on and hands over the settings right away', async () => {
+    const done = switchDongle('wifi', true, chosen)
+    for (let n = 1; n <= 8; n++) await answer(sockets[0], n)
+    await done
+    expect(sockets[0].sent.slice(0, 2)).toEqual(['on\n', 'set ssid Volvo\n'])
+    expect(sockets[0].sent.at(-1)).toBe('save\n')
+  })
+
+  it('switches Bluetooth off with one order', async () => {
+    const done = switchDongle('bt', false, config)
+    await answer(sockets[0], 1)
+    await done
+    expect(sockets[0].sent).toEqual(['bt off\n'])
+    expect(sockets).toHaveLength(1)
+  })
+
+  it('switches a radio on when the dongle is picked, and off when another adapter is', async () => {
+    followAdapterChoice(config, chosen)
+    await settle(0)
+    expect(sockets[0].sent[0]).toBe('on\n')
+    sockets[0].emit('error', new Error('done'))
+
+    sockets.length = 0
+    followAdapterChoice({ ...config, btAdapter: DONGLE_LINK } as Config, config)
+    await settle(0)
+    expect(sockets[0].sent).toEqual(['bt off\n'])
+    sockets[0].emit('error', new Error('done'))
+  })
+
+  it('leaves the radios alone when the adapters stay', async () => {
+    followAdapterChoice(chosen, { ...chosen, carName: 'Saab' } as Config)
+    for (let i = 0; i < 50; i++) await Promise.resolve()
+    expect(createConnection).not.toHaveBeenCalled()
+  })
+
+  it('reads the switches from the status, off only where the dongle says so', () => {
+    expect(radiosOf(null)).toEqual({ wifi: null, bt: null })
+    expect(radiosOf({ 'wifi-enabled': 'off' })).toEqual({ wifi: false, bt: true })
   })
 })
 

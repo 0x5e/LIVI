@@ -9,7 +9,14 @@ import { registerIpcHandle } from '@main/ipc/register'
 import { releaseFeedUrl, runNumberFromTitle } from '@main/ipc/update/feed'
 import { pickAssetForPlatform } from '@main/ipc/update/pickAsset'
 import { configEvents, saveSettings } from '@main/ipc/utils'
-import { DONGLE_LINK, dongleApPresent } from '@main/services/link/dongleAp'
+import {
+  DONGLE_LINK,
+  type DongleRadio,
+  dongleApPresent,
+  dongleStatus,
+  radiosOf,
+  switchDongle
+} from '@main/services/link/dongleAp'
 import { GhRelease, runtimeStateProps } from '@main/types'
 import { currentKiosk } from '@main/window/utils'
 import type { Config } from '@shared/types'
@@ -56,6 +63,18 @@ export function registerSettingsIpc(runtimeState: runtimeStateProps) {
     const all = (await dongleApPresent()) ? [...local, DONGLE_LINK] : local
     console.log(`[settings] bluetooth adapters: ${all.join(', ') || 'none'}`)
     return all
+  })
+
+  registerIpcHandle('app:dongleRadios', async () => radiosOf(await dongleStatus()))
+
+  // Picking the dongle again where it is picked already switches that radio back on. A new pick
+  // changes the config, and that switches it on its own.
+  registerIpcHandle('app:switchDongleRadio', async (_evt, radio: DongleRadio, on: boolean) => {
+    if (radio !== 'wifi' && radio !== 'bt') return
+    const picked =
+      radio === 'wifi' ? runtimeState.config.wifiInterface : runtimeState.config.btAdapter
+    if (picked !== DONGLE_LINK) return
+    await switchDongle(radio, on === true, runtimeState.config)
   })
 
   registerIpcHandle('app:getLatestRelease', async () => {

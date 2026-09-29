@@ -2,6 +2,7 @@
 //!   channels | status | on | off | apply | save
 //!   set <ssid|country|channel|passphrase> <value>
 //!   bt on | bt off
+//! `on`, `off` and `bt` are kept on the dongle, a boot brings back what was switched last.
 //! Responses end in `ok\n` or `error <reason>\n`.
 
 use std::io::{BufRead, BufReader, Write};
@@ -10,6 +11,7 @@ use std::process::{Child, Command, Stdio};
 use std::time::Duration;
 
 use crate::listing;
+use crate::radio::{self, Radio};
 
 pub const PORT: u16 = 5001;
 const RADIO_TRIES: u32 = 40;
@@ -21,6 +23,8 @@ const HOSTAPD: &str = "/usr/sbin/hostapd";
 const IFACE: &str = "wlan0";
 const BT: &str = "hci0";
 const BT_DEV: u16 = 0;
+/// Loads the driver and brings hci0 up with btd and iapd, for what a boot left out.
+const LIVI_RADIO: &str = "/usr/bin/livi-radio";
 
 /// The hostapd instance the daemon manages, with the paths it works on.
 pub type OnSave = Box<dyn Fn() + Send + Sync>;
@@ -118,11 +122,15 @@ pub fn serve<S: std::io::Read + Write>(io: &mut S, ap: &mut Ap) {
                 wanted = Wanted::default();
                 answer
             }
-            Cmd::On => match on(ap) {
-                Ok(()) => "ok\n".into(),
-                Err(e) => format!("error {e}\n"),
-            },
+            Cmd::On => {
+                keep(ap, Radio::Wifi, true);
+                match on(ap) {
+                    Ok(()) => "ok\n".into(),
+                    Err(e) => format!("error {e}\n"),
+                }
+            }
             Cmd::Off => {
+                keep(ap, Radio::Wifi, false);
                 off(ap);
                 "ok\n".into()
             }
@@ -130,10 +138,13 @@ pub fn serve<S: std::io::Read + Write>(io: &mut S, ap: &mut Ap) {
                 Ok(()) => "ok\n".into(),
                 Err(e) => format!("error {e}\n"),
             },
-            Cmd::Bt(up) => match bluetooth(up) {
-                Ok(()) => "ok\n".into(),
-                Err(e) => format!("error {e}\n"),
-            },
+            Cmd::Bt(up) => {
+                keep(ap, Radio::Bt, up);
+                match bluetooth(up) {
+                    Ok(()) => "ok\n".into(),
+                    Err(e) => format!("error {e}\n"),
+                }
+            }
             Cmd::Empty => continue,
             Cmd::Unknown(what) => format!("error unknown command {what}\n"),
         };
@@ -314,6 +325,9 @@ fn ht40(channel: u32) -> &'static str {
 }
 
 fn apply(ap: &mut Ap, wanted: &Wanted) -> Result<(), String> {
+    if !radio::enabled(Radio::Wifi) {
+        return Err("wifi is switched off".into());
+    }
     await_radio()?;
     let base =
         std::fs::read_to_string(&ap.base).map_err(|e| format!("{}: {e}", ap.base.display()))?;
@@ -394,6 +408,8 @@ fn on(ap: &mut Ap) -> Result<(), String> {
     if running() {
         return Ok(());
     }
+    driver();
+    await_radio()?;
     let _ = Command::new("ifconfig").args([IFACE, "up"]).status();
     let config = ap.config.clone();
     start_weakening(ap, &config)
@@ -473,9 +489,44 @@ fn off(ap: &mut Ap) {
 }
 
 fn bluetooth(up: bool) -> Result<(), String> {
-    let (what, result) =
-        if up { ("up", livi_btd::hci::up(BT_DEV)) } else { ("down", livi_btd::hci::down(BT_DEV)) };
-    result.map_err(|e| format!("{BT} would not go {what}: {e}"))
+    if !up {
+        // btd first: while a host tunnels, it holds hci0 and hci0 will not go down.
+        livi_radio("bt-off", "btd and iapd would not stop")?;
+        return livi_btd::hci::down(BT_DEV).map_err(|e| format!("{BT} would not go down: {e}"));
+    }
+    driver();
+    // A boot with Bluetooth off started neither btd nor iapd, they only run once hci0 is up.
+    livi_radio("bt", &format!("{BT} would not come up"))
+}
+
+fn livi_radio(command: &str, failed: &str) -> Result<(), String> {
+    match Command::new(LIVI_RADIO).arg(command).status() {
+        Ok(status) if status.success() => Ok(()),
+        Ok(_) => Err(failed.into()),
+        Err(e) => Err(format!("{LIVI_RADIO}: {e}")),
+    }
+}
+
+/// Stores what was switched, so the next boot brings back the same.
+fn keep(ap: &Ap, radio: Radio, on: bool) {
+    match radio::set(radio, on) {
+        Ok(true) => {
+            if let Some(cb) = ap.on_save.as_ref() {
+                cb();
+            }
+        }
+        Ok(false) => {}
+        Err(e) => eprintln!("[wifid] {}: {e}", radio::PATH),
+    }
+}
+
+/// With WiFi and Bluetooth both off at boot nothing loaded the driver.
+fn driver() {
+    let loaded = std::path::Path::new(&format!("/sys/class/net/{IFACE}")).exists()
+        || std::path::Path::new(&format!("/sys/class/bluetooth/{BT}")).exists();
+    if !loaded {
+        let _ = Command::new(LIVI_RADIO).arg("driver").status();
+    }
 }
 
 fn bt_up() -> bool {
@@ -509,6 +560,12 @@ fn status(ap: &Ap) -> String {
     let mut out = String::new();
     out.push_str(if running() { "state on\n" } else { "state off\n" });
     out.push_str(if bt_up() { "bt on\n" } else { "bt off\n" });
+    let switch = |radio| if radio::enabled(radio) { "on" } else { "off" };
+    out.push_str(&format!(
+        "wifi-enabled {}\nbt-enabled {}\n",
+        switch(Radio::Wifi),
+        switch(Radio::Bt)
+    ));
     if let Ok(mac) = std::fs::read_to_string(format!("/sys/class/net/{IFACE}/address")) {
         out.push_str(&format!("mac {}\n", mac.trim()));
     }

@@ -227,6 +227,10 @@ const appApi = {
   listWifiCountryCodes: (): Promise<string[]> => ipcRenderer.invoke('app:listWifiCountryCodes'),
   listWifiInterfaces: (): Promise<string[]> => ipcRenderer.invoke('app:listWifiInterfaces'),
   listBtAdapters: (): Promise<string[]> => ipcRenderer.invoke('app:listBtAdapters'),
+  dongleRadios: (): Promise<{ wifi: boolean | null; bt: boolean | null }> =>
+    ipcRenderer.invoke('app:dongleRadios'),
+  switchDongleRadio: (radio: 'wifi' | 'bt', on: boolean): Promise<void> =>
+    ipcRenderer.invoke('app:switchDongleRadio', radio, on),
   getLatestRelease: (): Promise<{ version?: string; url?: string }> =>
     ipcRenderer.invoke('app:getLatestRelease'),
   performUpdate: (imageUrl?: string): Promise<void> =>

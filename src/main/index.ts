@@ -23,7 +23,7 @@ import {
 import { ensureWireplumberBtRoles } from '@main/services/audio/wireplumberBtRoles'
 import { customProxy } from '@main/services/custom/CustomProxy'
 import { checkAndInstallGvfsGuard, startPhoneSuppression } from '@main/services/gvfsPhoneGuard'
-import { reconcileDongleAp } from '@main/services/link/dongleAp'
+import { followAdapterChoice, reconcileDongleAp } from '@main/services/link/dongleAp'
 import { startLinkSpeedMonitor } from '@main/services/link/linkSpeed'
 import { checkMissingPackages } from '@main/services/packageCheck'
 import { checkAndInstallHelperSudoers } from '@main/services/projection/driver/helper/helperSudoers'
@@ -106,11 +106,14 @@ app.whenReady().then(async () => {
   ]
   const linkSettings = (c: Config): string => linkKeys.map((k) => String(c[k])).join('|')
   let told = linkSettings(runtimeState.config)
+  let before = runtimeState.config
   configEvents.on('changed', (next: Config) => {
     void customProxy.start(next.customUrl)
     const now = linkSettings(next)
     if (now === told) return
     told = now
+    followAdapterChoice(before, next)
+    before = next
     void reconcileWifiAp(next)
     void reconcileDongleAp(next)
   })

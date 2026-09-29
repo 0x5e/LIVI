@@ -92,6 +92,8 @@ use std::process::Command;
 use std::thread;
 use std::time::Duration;
 
+use livi_wifi::radio::{self, Radio};
+
 // Kept under web/ (not assets/): the Mac↔build-host sync skips any assets/ directory, which
 // would leave the build host compiling a stale or missing page.
 const INDEX_HTML: &str = include_str!("../web/index.html");
@@ -204,7 +206,9 @@ fn route(
         ("GET", "/") | ("GET", "/index.html") => (S_200, T_HTML, INDEX_HTML.as_bytes().to_vec()),
         ("GET", "/api/status") => (S_200, T_JSON, status_json().into_bytes()),
         ("GET", "/api/wifi") => (S_200, T_JSON, wifi_json().into_bytes()),
+        ("POST", "/api/wifi") => switch_radio(body, Radio::Wifi),
         ("GET", "/api/bt") => (S_200, T_JSON, bt_json().into_bytes()),
+        ("POST", "/api/bt") => switch_radio(body, Radio::Bt),
         ("GET", "/api/caps") => (S_200, T_JSON, caps_json().into_bytes()),
         ("GET", "/api/flash/status") => (S_200, T_JSON, flash_status_json().into_bytes()),
         ("GET", "/api/update") => (S_200, T_JSON, update_json().into_bytes()),
@@ -759,14 +763,22 @@ fn bt_json() -> String {
         .unwrap_or_default();
     }
     let present = std::path::Path::new(&format!("/sys/class/bluetooth/{bt}")).exists();
-    let state = if !present {
+    let enabled = radio::enabled(Radio::Bt);
+    let state = if !enabled {
+        "switched off"
+    } else if !present {
         "not present"
     } else if mac.is_empty() {
         "up, MAC unknown"
     } else {
         "up"
     };
-    format!(r#"{{"name":"{}","mac":"{}","state":"{}"}}"#, js(&name), js(&mac), js(state))
+    format!(
+        r#"{{"enabled":{enabled},"name":"{}","mac":"{}","state":"{}"}}"#,
+        js(&name),
+        js(&mac),
+        js(state)
+    )
 }
 
 const HOSTAPD_BASE: &str = "/tmp/livi/hostapd.conf.saved";
@@ -824,7 +836,8 @@ fn wifi_json() -> String {
         .parse::<u64>()
         .unwrap_or(0);
     format!(
-        r#"{{"ssid":"{}","mac":"{}","band":"{}","channel":"{}","width":{},"clients":{},"downrate":{},"uprate":{},"downbytes":{},"upbytes":{}}}"#,
+        r#"{{"enabled":{},"ssid":"{}","mac":"{}","band":"{}","channel":"{}","width":{},"clients":{},"downrate":{},"uprate":{},"downbytes":{},"upbytes":{}}}"#,
+        radio::enabled(Radio::Wifi),
         js(&ssid),
         js(&mac),
         js(&band),
@@ -1044,6 +1057,47 @@ fn set_update(body: Option<&[u8]>) -> (&'static str, &'static str, Vec<u8>) {
     }
     persist_config();
     (S_200, T_JSON, ok_json("update channel saved"))
+}
+
+/// Switches through wifid, the one place that does, so the page and a host take the same path.
+fn switch_radio(body: Option<&[u8]>, radio: Radio) -> (&'static str, &'static str, Vec<u8>) {
+    let Some(s) = body.and_then(|b| std::str::from_utf8(b).ok()) else {
+        return (S_400, T_JSON, err_json("empty body"));
+    };
+    let on = match json_num(s.trim(), "enabled").as_deref() {
+        Some("1") => true,
+        Some("0") => false,
+        _ => return (S_400, T_JSON, err_json("enabled must be 0 or 1")),
+    };
+    let command = match (radio, on) {
+        (Radio::Wifi, true) => "on",
+        (Radio::Wifi, false) => "off",
+        (Radio::Bt, true) => "bt on",
+        (Radio::Bt, false) => "bt off",
+    };
+    if let Err(e) = wifid(command) {
+        return (S_500, T_JSON, err_json(&e));
+    }
+    let json = match radio {
+        Radio::Wifi => wifi_json(),
+        Radio::Bt => bt_json(),
+    };
+    (S_200, T_JSON, json.into_bytes())
+}
+
+fn wifid(command: &str) -> Result<(), String> {
+    let addr = SocketAddr::from(([127, 0, 0, 1], livi_wifi::server::PORT));
+    let mut stream = TcpStream::connect_timeout(&addr, Duration::from_secs(2))
+        .map_err(|e| format!("wifid: {e}"))?;
+    // Bringing the AP or hci0 up takes a while.
+    let _ = stream.set_read_timeout(Some(Duration::from_secs(30)));
+    stream.write_all(format!("{command}\n").as_bytes()).map_err(|e| format!("wifid: {e}"))?;
+    let mut line = String::new();
+    BufReader::new(stream).read_line(&mut line).map_err(|e| format!("wifid: {e}"))?;
+    match line.trim() {
+        "ok" => Ok(()),
+        other => Err(other.strip_prefix("error ").unwrap_or(other).to_string()),
+    }
 }
 
 fn kick_ledd() {

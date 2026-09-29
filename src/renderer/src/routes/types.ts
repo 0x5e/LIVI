@@ -65,6 +65,8 @@ export type SelectNode = BaseFieldNode & {
   loadOptions?: () => Promise<SelectOption[]>
   // Companion config path that mirrors the picked option's label
   labelPath?: string
+  // Every tap on an option, also on the one already picked
+  onPick?: (value: string | number) => void
 }
 
 export type ToggleNode = BaseFieldNode & {

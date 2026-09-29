@@ -140,7 +140,7 @@ describe('spawning', () => {
     expect(sup.running).toBe(false)
   })
 
-  test('kills stale helpers (python-era and rust) before spawning, sparing the AP unit', async () => {
+  test('kills a stale helper before spawning, sparing the AP unit', async () => {
     devBinOnly()
     const mockedExec = execFileSync as Mock
     mockedExec.mockReturnValue('1234\n')
@@ -148,12 +148,11 @@ describe('spawning', () => {
     const { HelperSupervisor } = await load(false)
     const sup = new HelperSupervisor()
     sup.start(CONFIG)
-    for (const pattern of ['livi-helper\\.py', 'driver/livi-helperd$']) {
-      expect(mockedExec).toHaveBeenCalledWith('pgrep', ['-f', pattern], expect.anything())
-      expect(mockedExec).toHaveBeenCalledWith('sudo', ['-n', 'pkill', '-f', pattern], {
-        stdio: 'ignore'
-      })
-    }
+    const pattern = 'driver/livi-helperd$'
+    expect(mockedExec).toHaveBeenCalledWith('pgrep', ['-f', pattern], expect.anything())
+    expect(mockedExec).toHaveBeenCalledWith('sudo', ['-n', 'pkill', '-f', pattern], {
+      stdio: 'ignore'
+    })
     expect(warn).toHaveBeenCalledWith(expect.stringContaining('stale helper'))
     warn.mockRestore()
     // execFileSync is module-mocked and not reset per test; restore its default.

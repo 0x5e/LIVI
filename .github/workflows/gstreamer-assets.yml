@@ -227,7 +227,7 @@ jobs:
 
               apt-get update
               apt-get install -y --no-install-recommends \
-                bash coreutils findutils file python3 dpkg-dev patchelf ca-certificates
+                bash coreutils findutils file dpkg-dev patchelf ca-certificates
 
               scripts/gstreamer/build-backport-linux.sh
 
@@ -290,7 +290,7 @@ jobs:
 
               apt-get update
               apt-get install -y --no-install-recommends \
-                bash coreutils findutils file python3 dpkg-dev patchelf ca-certificates
+                bash coreutils findutils file dpkg-dev patchelf ca-certificates
 
               APPLY_PATCHES=1 scripts/gstreamer/build-backport-linux.sh
 

@@ -240,6 +240,69 @@ require_running_kernel() {
   fi
 }
 
+# Each step checks for its own mark, so an already patched tree is left alone.
+# The replacements stay quoted, bash 5.2 would otherwise expand every & to the match.
+patch_vc4_hdmi() {
+  local f="$1" LC_ALL=C src orig a o n
+
+  src="$(cat "$f"; printf x)"
+  src="${src%x}"
+  orig="$src"
+
+  if [[ "$src" != *livi_mode* ]]; then
+    a=$'\tret = drm_edid_connector_add_modes(connector);\n'
+    if [[ "$src" != *"$a"* ]]; then
+      echo "get_modes anchor not found, vc4 layout changed" >&2
+      exit 2
+    fi
+    printf -v n '%s\n' \
+      $'\t{' \
+      $'\t\tstruct drm_display_mode *livi_mode;' \
+      '' \
+      $'\t\tlist_for_each_entry(livi_mode, &connector->probed_modes, head)' \
+      $'\t\t\tif (livi_mode->clock && livi_mode->clock < 25000)' \
+      $'\t\t\t\tlivi_mode->flags |= DRM_MODE_FLAG_DBLCLK;' \
+      $'\t}'
+    src="${src/"$a"/"$a$n"}"
+  fi
+
+  if [[ "$src" != *"mode->clock < 12500 ? 4 : 2"* ]]; then
+    o=$'\tu32 pixel_rep = (mode->flags & DRM_MODE_FLAG_DBLCLK) ? 2 : 1;\n'
+    if [[ "$src" != *"$o"* ]]; then
+      echo "pixel_rep anchor not found, vc4 layout changed" >&2
+      exit 2
+    fi
+    printf -v n '%s\n' \
+      $'\tu32 pixel_rep = (mode->flags & DRM_MODE_FLAG_DBLCLK) ?' \
+      $'\t\t(mode->clock < 12500 ? 4 : 2) : 1;'
+    src="${src//"$o"/"$n"}"
+  fi
+
+  if [[ "$src" != *livi_ret* ]]; then
+    o=$'\treturn drm_atomic_helper_connector_hdmi_check(connector, state);\n'
+    if [[ "$src" != *"$o"* ]]; then
+      echo "atomic_check anchor not found, vc4 layout changed" >&2
+      exit 2
+    fi
+    printf -v n '%s\n' \
+      $'\tint livi_ret = drm_atomic_helper_connector_hdmi_check(connector, state);' \
+      '' \
+      $'\tif (!livi_ret && new_state->hdmi.tmds_char_rate &&' \
+      $'\t    new_state->hdmi.tmds_char_rate < 25000000)' \
+      $'\t\tnew_state->hdmi.tmds_char_rate *= 2;' \
+      '' \
+      $'\treturn livi_ret;'
+    src="${src/"$o"/"$n"}"
+  fi
+
+  if [[ "$src" == "$orig" ]]; then
+    echo "   already patched"
+    return 0
+  fi
+  printf '%s' "$src" > "$f"
+  echo "   patched (get_modes + pixel_rep 4x + tmds_char_rate x4)"
+}
+
 # Patch vc4_hdmi.c, build only the vc4 module, install it for the running kernel.
 build_vc4() {
   local kver done_marker f built moddir target ext new_vm run_vm base lv
@@ -281,60 +344,7 @@ build_vc4() {
   fi
 
   echo "→ Patching vc4_hdmi.c (DBLCLK <25MHz, 4x pixel_rep <12.5MHz, clock x4)"
-  python3 - "$f" <<'PY'
-import sys
-path = sys.argv[1]
-src = open(path).read()
-orig = src
-
-if "livi_mode" not in src:
-    a = "\tret = drm_edid_connector_add_modes(connector);\n"
-    if a not in src:
-        sys.stderr.write("get_modes anchor not found, vc4 layout changed\n"); sys.exit(2)
-    src = src.replace(a, a + (
-        "\t{\n"
-        "\t\tstruct drm_display_mode *livi_mode;\n"
-        "\n"
-        "\t\tlist_for_each_entry(livi_mode, &connector->probed_modes, head)\n"
-        "\t\t\tif (livi_mode->clock && livi_mode->clock < 25000)\n"
-        "\t\t\t\tlivi_mode->flags |= DRM_MODE_FLAG_DBLCLK;\n"
-        "\t}\n"
-    ), 1)
-
-if "mode->clock < 12500 ? 4 : 2" not in src:
-    o = "\tu32 pixel_rep = (mode->flags & DRM_MODE_FLAG_DBLCLK) ? 2 : 1;\n"
-    if o not in src:
-        sys.stderr.write("pixel_rep anchor not found, vc4 layout changed\n"); sys.exit(2)
-    src = src.replace(o, (
-        "\tu32 pixel_rep = (mode->flags & DRM_MODE_FLAG_DBLCLK) ?\n"
-        "\t\t(mode->clock < 12500 ? 4 : 2) : 1;\n"
-    ))
-
-if "livi_ret" not in src:
-    o = "\treturn drm_atomic_helper_connector_hdmi_check(connector, state);\n"
-    if o not in src:
-        sys.stderr.write("atomic_check anchor not found, vc4 layout changed\n"); sys.exit(2)
-    src = src.replace(o, (
-        "\tint livi_ret = drm_atomic_helper_connector_hdmi_check(connector, state);\n"
-        "\n"
-        "\tif (!livi_ret && new_state->hdmi.tmds_char_rate &&\n"
-        "\t    new_state->hdmi.tmds_char_rate < 25000000)\n"
-        "\t\tnew_state->hdmi.tmds_char_rate *= 2;\n"
-        "\n"
-        "\treturn livi_ret;\n"
-    ), 1)
-
-import re
-src = re.sub(
-    r"\t/\* LIVI HDMI-PR: the shared HDMI helper[\s\S]*?tmds_char_rate \*= 2;\n\n",
-    "", src)
-
-if src != orig:
-    open(path, "w").write(src)
-    print("   patched (get_modes + pixel_rep 4x + tmds_char_rate x4)")
-else:
-    print("   already patched")
-PY
+  patch_vc4_hdmi "$f"
 
   echo "→ Preparing module build"
   make -C "$KSRC" LOCALVERSION="$lv" modules_prepare

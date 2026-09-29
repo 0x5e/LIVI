@@ -37,15 +37,14 @@ function stageHelperBin(src: string): string {
 // The end anchor spares the AP service, which runs the same binary as --wifi-ap.
 function killStaleHelpers(): void {
   if (process.platform !== 'linux') return
-  for (const pattern of ['livi-helper\\.py', 'driver/livi-helperd$']) {
-    try {
-      const out = execFileSync('pgrep', ['-f', pattern], { encoding: 'utf8' }).trim()
-      if (!out) continue
-      console.warn(`[helper] stopping a stale helper instance (${pattern})`)
-      execFileSync('sudo', ['-n', 'pkill', '-f', pattern], { stdio: 'ignore' })
-    } catch {
-      /* nothing to clean up, or no passwordless sudo for it */
-    }
+  const pattern = 'driver/livi-helperd$'
+  try {
+    const out = execFileSync('pgrep', ['-f', pattern], { encoding: 'utf8' }).trim()
+    if (!out) return
+    console.warn(`[helper] stopping a stale helper instance (${pattern})`)
+    execFileSync('sudo', ['-n', 'pkill', '-f', pattern], { stdio: 'ignore' })
+  } catch {
+    /* nothing to clean up, or no passwordless sudo for it */
   }
 }
 

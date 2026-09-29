@@ -439,20 +439,25 @@ livi_disable_wifi_powersave() {
   printf '[connection]\nwifi.powersave = 2\n' | sudo tee "$LIVI_NM_POWERSAVE_FILE" >/dev/null
 }
 
+# The installer edits the app config with jq. The app never needs it, so it is not in packages.txt.
+livi_require_jq() {
+  command -v jq >/dev/null 2>&1 && return 0
+  echo "→ Installing jq"
+  livi_pm_install jq
+}
+
+# livi_app_config_jq <filter> [jq options] -> the filter applied to the app config,
+# which counts as {} when it is missing or not a JSON object.
+livi_app_config_jq() {
+  local filter="$1" src="$LIVI_APP_CONFIG"
+  shift
+  [ -r "$src" ] || src=/dev/null
+  jq -Rs "$@" "(try fromjson catch null) | if type == \"object\" then . else {} end | $filter" "$src"
+}
+
 # livi_app_config_value <key> <default> -> the value from the app config, or the default.
 livi_app_config_value() {
-  local python_bin
-  python_bin="$(command -v python3 || echo /usr/bin/python3)"
-  "$python_bin" - "$LIVI_APP_CONFIG" "$1" "$2" <<'PY'
-import json, sys
-path, key, default = sys.argv[1:4]
-try:
-    with open(path) as f:
-        value = json.load(f).get(key)
-except (OSError, ValueError):
-    value = None
-print(value if value not in (None, "") else default)
-PY
+  livi_app_config_jq '.[$k] | if . == null or . == "" then $d else . end' -r --arg k "$1" --arg d "$2"
 }
 
 # The regulatory domain from the moment the driver loads, the way raspi-config sets it.
@@ -460,6 +465,7 @@ PY
 # Only once the user has chosen a country in LIVI; a fresh install presumes none.
 livi_write_regdom() {
   local country
+  livi_require_jq || return 0
   country="$(livi_app_config_value country '' | tr '[:lower:]' '[:upper:]')"
   case "$country" in [A-Z][A-Z]) ;; *) return 0 ;; esac
   echo "→ Writing $LIVI_REGDOM_FILE for $country"
@@ -535,7 +541,7 @@ livi_write_wifi_ap_unit() {
     "$sudoers_template" | sha256sum | cut -c1-16 > "$LIVI_AP_MARKER"
 }
 
-# Earlier releases gave each python helper its own drop-in. They grant root to
+# Earlier releases gave each helper script its own drop-in. They grant root to
 # scripts that no longer ship, so drop them once the current rule is in place.
 livi_drop_obsolete_sudoers() {
   local f
@@ -634,23 +640,16 @@ livi_apply_splash() {
 # Writes the MFi i2c bus and power pin into the app config. Keeps values the
 # user already set; only a missing or disabled (-1) power pin is filled in.
 livi_seed_mfi_config() {
-  local python_bin
-  python_bin="$(command -v python3 || echo /usr/bin/python3)"
+  local cfg
+  livi_require_jq || return 1
   mkdir -p "$(dirname "$LIVI_APP_CONFIG")"
-  "$python_bin" - "$LIVI_APP_CONFIG" "$LIVI_MFI_I2C_BUS" "$LIVI_MFI_POWER_GPIO" <<'PY'
-import json, sys
-path, bus, gpio = sys.argv[1], int(sys.argv[2]), int(sys.argv[3])
-try:
-    with open(path) as f:
-        cfg = json.load(f)
-except (OSError, ValueError):
-    cfg = {}
-cfg.setdefault("carPlayMfiI2cBus", bus)
-if cfg.get("carPlayMfiPowerGpio", -1) in (None, "", -1):
-    cfg["carPlayMfiPowerGpio"] = gpio
-with open(path, "w") as f:
-    json.dump(cfg, f, indent=2)
-PY
+  cfg="$(livi_app_config_jq '
+    (if has("carPlayMfiI2cBus") then . else .carPlayMfiI2cBus = $bus end)
+    | if .carPlayMfiPowerGpio == null or .carPlayMfiPowerGpio == "" or .carPlayMfiPowerGpio == -1
+      then .carPlayMfiPowerGpio = $gpio else . end' \
+    --argjson bus "$LIVI_MFI_I2C_BUS" --argjson gpio "$LIVI_MFI_POWER_GPIO")" || return 1
+  [ -n "$cfg" ] || return 1
+  printf '%s\n' "$cfg" > "$LIVI_APP_CONFIG"
 }
 
 livi_apply_mfi() {

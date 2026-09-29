@@ -21,7 +21,6 @@ function ruleContent(): string {
 }
 
 export function helperSudoersExists(): boolean {
-  // Only a rule naming the helper binary counts; an older python-era rule does not.
   return sudoGrants('livi-helperd') || markerHolds(MARKER, ruleContent())
 }
 

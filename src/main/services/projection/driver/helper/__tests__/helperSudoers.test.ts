@@ -92,9 +92,9 @@ describe('helperSudoersExists', () => {
     expect(helperSudoersExists()).toBe(true)
   })
 
-  test('a python-era rule does not count, so an updated install gets the new one', () => {
+  test('a rule for another program or the old bt marker does not count', () => {
     mockedExec.mockReturnValueOnce(
-      'User pi may run the following commands:\n    (root) SETENV: NOPASSWD: /usr/bin/python3 *livi-helper.py'
+      'User pi may run the following commands:\n    (root) NOPASSWD: /usr/sbin/rfkill'
     )
     mockedExists.mockImplementation((p: string) => String(p) === '/tmp/bt-sudoers-v1.installed')
     expect(helperSudoersExists()).toBe(false)

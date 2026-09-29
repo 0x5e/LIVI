@@ -11,51 +11,19 @@ const BUILD_RUN = process.env.GITHUB_RUN_NUMBER || process.env.BUILD_RUN || ''
 const BUILD_BRANCH = process.env.BUILD_BRANCH || ''
 
 function copyAaResourcesPlugin(): Plugin {
-  const aaRoot = resolve(import.meta.dirname, 'src/main/services/projection/driver/aa')
-  const cpRoot = resolve(import.meta.dirname, 'src/main/services/projection/driver/cp')
-  const protosSrc = path.join(aaRoot, 'protos')
-  const cpIap2Src = path.join(cpRoot, 'iap2')
-  const sharedSrc = resolve(import.meta.dirname, 'src/main/services/projection/driver/shared')
-  const btSrc = resolve(import.meta.dirname, 'src/main/services/projection/driver/bt')
-  const helperSrc = resolve(import.meta.dirname, 'src/main/services/projection/driver/helper')
+  const protosSrc = resolve(import.meta.dirname, 'src/main/services/projection/driver/aa/protos')
   const protosDst = resolve(import.meta.dirname, 'out/main/protos')
-  const driverDst = resolve(import.meta.dirname, 'out/main/driver')
-  const btDst = resolve(import.meta.dirname, 'out/main/driver/bt')
-  const cpIap2Dst = resolve(import.meta.dirname, 'out/main/driver/cp/iap2')
-  const sharedDst = resolve(import.meta.dirname, 'out/main/driver/shared')
-  const helperDst = resolve(import.meta.dirname, 'out/main/driver/helper')
-
-  // Skip Python build droppings; the live process will recreate __pycache__.
-  const filter = (src: string): boolean => !/[\\/]__pycache__([\\/]|$)/.test(src)
 
   let copied = false
   const copy = (): void => {
     if (copied) return
     copied = true
-    if (existsSync(protosSrc)) {
-      // Refresh: removing first guarantees deletions in the source propagate.
-      try {
-        rmSync(protosDst, { recursive: true, force: true })
-      } catch {}
-      cpSync(protosSrc, protosDst, { recursive: true, filter })
-    }
-    // Wipe the whole driver/ tree once (no stale files).
+    if (!existsSync(protosSrc)) return
+    // Refresh: removing first guarantees deletions in the source propagate.
     try {
-      rmSync(driverDst, { recursive: true, force: true })
+      rmSync(protosDst, { recursive: true, force: true })
     } catch {}
-    const noTs = (src: string): boolean => filter(src) && !src.endsWith('.ts')
-    if (existsSync(btSrc)) {
-      cpSync(btSrc, btDst, { recursive: true, filter: noTs })
-    }
-    if (existsSync(helperSrc)) {
-      cpSync(helperSrc, helperDst, { recursive: true, filter: noTs })
-    }
-    if (existsSync(sharedSrc)) {
-      cpSync(sharedSrc, sharedDst, { recursive: true, filter })
-    }
-    if (existsSync(cpIap2Src)) {
-      cpSync(cpIap2Src, cpIap2Dst, { recursive: true, filter })
-    }
+    cpSync(protosSrc, protosDst, { recursive: true })
   }
 
   return {

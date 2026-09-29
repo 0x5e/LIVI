@@ -1,7 +1,7 @@
 /**
  * mfiSigner — access to the Apple MFi authentication coprocessor.
  *
- * The chip lives on the i2c bus and is owned by the Python root helper, so
+ * The chip lives on the i2c bus and is owned by the root helper (livi-helperd), so
  * CpStack reaches it over the helper control socket (see CpHelperSock): a
  * certificate request for the accessory certificate and a sign request for a
  * signature. authSetup only depends on this interface, never on the transport,

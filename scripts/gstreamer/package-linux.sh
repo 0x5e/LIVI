@@ -330,6 +330,7 @@ optional_plugins=(
   libgstv4l2codecs.so    # v4l2slh264dec/v4l2slh265dec (Pi 5 stateless HEVC)
   libgstkms.so           # kmssink (DRM overlay plane, kiosk)
   libgstva.so            # vah264dec/vah265dec (x86 VA-API)
+  libgstnvcodec.so       # nvh264dec/nvh265dec (NVIDIA NVDEC, CUDA from the host driver)
   libgstwaylandsink.so   # waylandsink (wlroots/cage)
 )
 

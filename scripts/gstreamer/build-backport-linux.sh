@@ -104,6 +104,8 @@ build_meson() {
 build_deb gstreamer1.0
 build_deb gst-plugins-base1.0 gst-plugins-base
 build_deb gst-plugins-good1.0
+nvcodec=()
+[[ "$(dpkg-architecture -qDEB_HOST_ARCH)" == amd64 ]] && nvcodec=(-Dnvcodec=enabled -Dgl=enabled)
 build_meson gst-plugins-bad1.0 gst-plugins-bad \
   -Dauto_features=disabled \
   -Dgpl=enabled \
@@ -112,7 +114,8 @@ build_meson gst-plugins-bad1.0 gst-plugins-bad \
   -Dv4l2codecs=enabled \
   -Dkms=enabled \
   -Dva=enabled \
-  -Dwayland=enabled
+  -Dwayland=enabled \
+  "${nvcodec[@]}"
 build_deb gst-libav1.0
 
 ldconfig

@@ -86,10 +86,8 @@ pub fn apply_ui_layout(state: &mut LiviState, screen_idx: usize) {
         return;
     }
     let (sx, top) = (s.x, s.top_inset());
-    if let Some(ui) = state
-        .toplevels
-        .iter_mut()
-        .find(|t| t.kind == Kind::Ui && t.screen_idx == screen_idx)
+    if let Some(ui) =
+        state.toplevels.iter_mut().find(|t| t.kind == Kind::Ui && t.screen_idx == screen_idx)
     {
         use smithay::reexports::wayland_protocols::xdg::shell::server::xdg_toplevel::State as XdgState;
         ui.position = Point::from((sx, top));
@@ -110,10 +108,8 @@ pub fn toggle_fullscreen(state: &mut LiviState, screen_idx: usize) {
     let want = !state.screens[screen_idx].fullscreen;
     state.screens[screen_idx].fullscreen = want;
     crate::host::set_fullscreen(state, screen_idx, want);
-    if let Some(ui) = state
-        .toplevels
-        .iter()
-        .find(|t| t.kind == Kind::Ui && t.screen_idx == screen_idx)
+    if let Some(ui) =
+        state.toplevels.iter().find(|t| t.kind == Kind::Ui && t.screen_idx == screen_idx)
     {
         ui.toplevel.with_pending_state(|st| {
             if want {

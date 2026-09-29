@@ -15,10 +15,10 @@ use tokio::sync::{Notify, mpsc};
 
 use crate::av;
 use crate::consts::*;
-use livi_session_io::feed::FeedWriter;
 use crate::frame::{self, FrameParser, FrameSplitter, RawFrame};
-use livi_session_io::link;
 use crate::tls::{Message, TlsEngine};
+use livi_session_io::feed::FeedWriter;
+use livi_session_io::link;
 
 const NODE_ACCEPT_TIMEOUT: Duration = Duration::from_secs(10);
 /// Idle limit until the session is running, like the main process had.
@@ -86,7 +86,10 @@ impl Sinks {
             }
         }
         for entry in v.get("video").and_then(|a| a.as_array()).into_iter().flatten() {
-            let (Some(ch), Some(id)) = (entry.get("ch").and_then(|c| c.as_u64()), entry.get("id").and_then(|i| i.as_u64())) else {
+            let (Some(ch), Some(id)) = (
+                entry.get("ch").and_then(|c| c.as_u64()),
+                entry.get("id").and_then(|i| i.as_u64()),
+            ) else {
                 continue;
             };
             let codec = match entry.get("codec").and_then(|c| c.as_str()) {
@@ -99,7 +102,10 @@ impl Sinks {
             self.flush(ch as u8);
         }
         for entry in v.get("audio").and_then(|a| a.as_array()).into_iter().flatten() {
-            let (Some(ch), Some(id)) = (entry.get("ch").and_then(|c| c.as_u64()), entry.get("id").and_then(|i| i.as_u64())) else {
+            let (Some(ch), Some(id)) = (
+                entry.get("ch").and_then(|c| c.as_u64()),
+                entry.get("id").and_then(|i| i.as_u64()),
+            ) else {
                 continue;
             };
             self.audio.insert(ch as u8, id as u32);
@@ -329,7 +335,13 @@ impl<W: AsyncWrite + Unpin + Send> Session<W> {
         self.node_tx.send(link::encode_control(json)).await.is_ok()
     }
 
-    async fn forward(&mut self, ch: u8, flags: u8, msg_id: u16, payload: &[u8]) -> Result<(), String> {
+    async fn forward(
+        &mut self,
+        ch: u8,
+        flags: u8,
+        msg_id: u16,
+        payload: &[u8],
+    ) -> Result<(), String> {
         self.node_tx
             .send(link::encode_message(ch, flags, msg_id, payload))
             .await
@@ -377,13 +389,18 @@ impl<W: AsyncWrite + Unpin + Send> Session<W> {
                 }
                 let status = u16::from_be_bytes([body[4], body[5]]);
                 if status == VERSION_STATUS_MISMATCH {
-                    return Err(format!("version mismatch {}.{}", u16::from_be_bytes([body[0], body[1]]), u16::from_be_bytes([body[2], body[3]])));
+                    return Err(format!(
+                        "version mismatch {}.{}",
+                        u16::from_be_bytes([body[0], body[1]]),
+                        u16::from_be_bytes([body[2], body[3]])
+                    ));
                 }
                 let mut tls = TlsEngine::new(self.peer.ip).map_err(|e| e.to_string())?;
                 let hello = tls.take_output();
                 self.tls = Some(tls);
                 self.phase = Phase::Handshake;
-                self.write(&frame::encode(CH_CONTROL, FLAGS_PLAINTEXT, CTRL_SSL_HANDSHAKE, &hello)).await
+                self.write(&frame::encode(CH_CONTROL, FLAGS_PLAINTEXT, CTRL_SSL_HANDSHAKE, &hello))
+                    .await
             }
             (CTRL_SSL_HANDSHAKE, Phase::Handshake) => {
                 let body = body.to_vec();
@@ -392,7 +409,13 @@ impl<W: AsyncWrite + Unpin + Send> Session<W> {
                 let out = tls.take_output();
                 let done = !tls.is_handshaking();
                 if !out.is_empty() {
-                    self.write(&frame::encode(CH_CONTROL, FLAGS_PLAINTEXT, CTRL_SSL_HANDSHAKE, &out)).await?;
+                    self.write(&frame::encode(
+                        CH_CONTROL,
+                        FLAGS_PLAINTEXT,
+                        CTRL_SSL_HANDSHAKE,
+                        &out,
+                    ))
+                    .await?;
                 }
                 if done {
                     self.become_running().await?;
@@ -492,10 +515,19 @@ impl<W: AsyncWrite + Unpin + Send> Session<W> {
         self.write(&wire).await
     }
 
-    async fn on_node_message(&mut self, ch: u8, flags: u8, msg_id: u16, payload: &[u8]) -> Result<(), String> {
+    async fn on_node_message(
+        &mut self,
+        ch: u8,
+        flags: u8,
+        msg_id: u16,
+        payload: &[u8],
+    ) -> Result<(), String> {
         let wire = if flags & FLAG_ENCRYPTED != 0 {
             let Some(tls) = self.tls.as_mut() else {
-                eprintln!("[aa-session] {}: encrypted message before tls, dropped", self.peer.label);
+                eprintln!(
+                    "[aa-session] {}: encrypted message before tls, dropped",
+                    self.peer.label
+                );
                 return Ok(());
             };
             tls.encrypt(ch, flags, msg_id, payload).map_err(|e| e.to_string())?

@@ -2,13 +2,13 @@
 //! compositor decorations and dialogs, with the optional full-output
 //! calibration (gamma/contrast/gain) shader pass.
 
+use smithay::backend::allocator::Fourcc;
 use smithay::backend::renderer::damage::OutputDamageTracker;
+use smithay::backend::renderer::element::Kind as ElementKind;
 use smithay::backend::renderer::element::memory::MemoryRenderBufferRenderElement;
 use smithay::backend::renderer::element::surface::{
-    render_elements_from_surface_tree, WaylandSurfaceRenderElement,
+    WaylandSurfaceRenderElement, render_elements_from_surface_tree,
 };
-use smithay::backend::allocator::Fourcc;
-use smithay::backend::renderer::element::Kind as ElementKind;
 use smithay::backend::renderer::gles::{
     GlesRenderer, GlesTexProgram, GlesTexture, Uniform, UniformName, UniformType,
 };
@@ -16,7 +16,7 @@ use smithay::backend::renderer::sync::SyncPoint;
 use smithay::backend::renderer::{Bind, Color32F, Frame, Offscreen, Renderer};
 use smithay::utils::{Logical, Point, Rectangle, Transform};
 
-use crate::state::{Kind, LiviState, BTN_GAP, BTN_W, TITLEBAR_H};
+use crate::state::{BTN_GAP, BTN_W, Kind, LiviState, TITLEBAR_H};
 
 smithay::backend::renderer::element::render_elements! {
     pub LiviElement<=GlesRenderer>;
@@ -82,7 +82,9 @@ pub fn cal_program(state: &mut LiviState) -> Option<GlesTexProgram> {
 }
 
 /// Committed size of a toplevel's main surface.
-pub fn surface_size(surface: &smithay::reexports::wayland_server::protocol::wl_surface::WlSurface) -> (i32, i32) {
+pub fn surface_size(
+    surface: &smithay::reexports::wayland_server::protocol::wl_surface::WlSurface,
+) -> (i32, i32) {
     smithay::backend::renderer::utils::with_renderer_surface_state(surface, |s| {
         s.surface_size().map(|sz| (sz.w, sz.h)).unwrap_or((0, 0))
     })
@@ -97,7 +99,7 @@ pub fn surface_under(
     smithay::reexports::wayland_server::protocol::wl_surface::WlSurface,
     Point<f64, Logical>,
 )> {
-    use smithay::wayland::compositor::{with_surface_tree_downward, TraversalAction};
+    use smithay::wayland::compositor::{TraversalAction, with_surface_tree_downward};
     let found: std::cell::RefCell<Option<(_, Point<f64, Logical>)>> = std::cell::RefCell::new(None);
     with_surface_tree_downward(
         root,
@@ -130,10 +132,8 @@ pub fn surface_under(
                     (size.w as f64, size.h as f64).into(),
                 );
                 if rect.contains(local) {
-                    *found.borrow_mut() = Some((
-                        surface.clone(),
-                        local - Point::from((off.x as f64, off.y as f64)),
-                    ));
+                    *found.borrow_mut() =
+                        Some((surface.clone(), local - Point::from((off.x as f64, off.y as f64))));
                 }
             }
         },
@@ -143,10 +143,7 @@ pub fn surface_under(
 }
 
 /// Collect the render elements for one screen, top to bottom (renderer order).
-fn collect_elements(
-    state: &mut LiviState,
-    screen_idx: usize,
-) -> Vec<LiviElement> {
+fn collect_elements(state: &mut LiviState, screen_idx: usize) -> Vec<LiviElement> {
     let s = &state.screens[screen_idx];
     let (sx, sw, sh) = (s.x, s.width, s.height);
     let fullscreen = s.fullscreen;
@@ -156,10 +153,12 @@ fn collect_elements(
     let scale = smithay::utils::Scale::from(1.0);
 
     // Screen-local offset: the window renders layout range [sx .. sx+sw].
-    let to_local = |p: Point<i32, Logical>| Point::<i32, smithay::utils::Physical>::from((p.x - sx, p.y));
+    let to_local =
+        |p: Point<i32, Logical>| Point::<i32, smithay::utils::Physical>::from((p.x - sx, p.y));
 
     // dialogs (top)
-    for t in state.toplevels.iter().filter(|t| t.kind == Kind::Dialog && t.screen_idx == screen_idx) {
+    for t in state.toplevels.iter().filter(|t| t.kind == Kind::Dialog && t.screen_idx == screen_idx)
+    {
         elements.extend(
             render_elements_from_surface_tree::<_, WaylandSurfaceRenderElement<GlesRenderer>>(
                 renderer,
@@ -176,12 +175,8 @@ fn collect_elements(
 
     // decorations
     if !fullscreen {
-        let deco_stale = state
-            .host
-            .deco
-            .get(&screen_idx)
-            .map(|d| d.titlebar_w != sw)
-            .unwrap_or(true);
+        let deco_stale =
+            state.host.deco.get(&screen_idx).map(|d| d.titlebar_w != sw).unwrap_or(true);
         if deco_stale {
             let set = crate::deco::build(&role, sw);
             state.host.deco.insert(screen_idx, set);
@@ -189,7 +184,10 @@ fn collect_elements(
         let renderer = state.host.renderer.as_mut().unwrap();
         if let Some(set) = state.host.deco.get(&screen_idx) {
             let slot = BTN_W + BTN_GAP;
-            let items: [(&smithay::backend::renderer::element::memory::MemoryRenderBuffer, Point<i32, Logical>); 5] = [
+            let items: [(
+                &smithay::backend::renderer::element::memory::MemoryRenderBuffer,
+                Point<i32, Logical>,
+            ); 5] = [
                 (&set.btn_close, Point::from((sx + sw - slot, 0))),
                 (&set.btn_fs, Point::from((sx + sw - 2 * slot, 0))),
                 (&set.btn_min, Point::from((sx + sw - 3 * slot, 0))),
@@ -214,11 +212,7 @@ fn collect_elements(
 
     // UI plane
     let renderer = state.host.renderer.as_mut().unwrap();
-    for t in state
-        .toplevels
-        .iter()
-        .filter(|t| t.kind == Kind::Ui && t.screen_idx == screen_idx)
-    {
+    for t in state.toplevels.iter().filter(|t| t.kind == Kind::Ui && t.screen_idx == screen_idx) {
         elements.extend(
             render_elements_from_surface_tree::<_, WaylandSurfaceRenderElement<GlesRenderer>>(
                 renderer,
@@ -289,10 +283,7 @@ pub fn render_screen(state: &mut LiviState, screen_idx: usize) {
     let uniforms = vec![
         Uniform::new("u_gamma", state.cal.gamma),
         Uniform::new("u_contrast", state.cal.contrast),
-        Uniform::new(
-            "u_gain",
-            (state.cal.gain[0], state.cal.gain[1], state.cal.gain[2]),
-        ),
+        Uniform::new("u_gain", (state.cal.gain[0], state.cal.gain[1], state.cal.gain[2])),
     ];
 
     // GL window surfaces have a bottom-left origin: the on-screen pass renders
@@ -303,12 +294,7 @@ pub fn render_screen(state: &mut LiviState, screen_idx: usize) {
         // Split borrow: renderer and the window's EGL surface both live in host.
         let host = &mut state.host;
         let renderer = host.renderer.as_mut().unwrap();
-        let hw = host
-            .windows
-            .iter_mut()
-            .find(|(i, _)| *i == screen_idx)
-            .map(|(_, w)| w)
-            .unwrap();
+        let hw = host.windows.iter_mut().find(|(i, _)| *i == screen_idx).map(|(_, w)| w).unwrap();
         let clear = Color32F::new(backdrop[0], backdrop[1], backdrop[2], backdrop[3]);
         if let Some(program) = cal.as_ref() {
             // Calibration: composite into an offscreen texture, then draw it
@@ -340,9 +326,10 @@ pub fn render_screen(state: &mut LiviState, screen_idx: usize) {
         Ok(sync) => {
             crate::host::request_frame(state, screen_idx);
             if let Some(w) = state.host.window_for_screen(screen_idx)
-                && let Err(e) = w.egl_surface.swap_buffers(None) {
-                    log::error!("swap_buffers failed: {e}");
-                }
+                && let Err(e) = w.egl_surface.swap_buffers(None)
+            {
+                log::error!("swap_buffers failed: {e}");
+            }
             // Client buffers get their release point signalled once dropped, the GPU must be done with them by then.
             if state.syncobj_state.is_some() {
                 let _ = sync.wait();
@@ -370,8 +357,7 @@ fn render_calibrated(
         renderer.create_buffer(Fourcc::Abgr8888, smithay::utils::Size::from((w, h)))?;
     {
         // Offscreen texture target, unflipped
-        let mut offscreen_tracker =
-            OutputDamageTracker::new((w, h), 1.0, Transform::Normal);
+        let mut offscreen_tracker = OutputDamageTracker::new((w, h), 1.0, Transform::Normal);
         let mut fb = renderer.bind(&mut tex)?;
         offscreen_tracker.render_output::<LiviElement, _>(renderer, &mut fb, 0, elements, clear)?;
     }

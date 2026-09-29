@@ -201,11 +201,7 @@ fn strip_iac(data: &[u8]) -> (Vec<u8>, Vec<u8>) {
 
 fn lines(buf: &[u8]) -> Vec<String> {
     let (clean, _) = strip_iac(buf);
-    String::from_utf8_lossy(&clean)
-        .replace('\r', "")
-        .split('\n')
-        .map(str::to_string)
-        .collect()
+    String::from_utf8_lossy(&clean).replace('\r', "").split('\n').map(str::to_string).collect()
 }
 
 /// The lines between the markers, once both have arrived.

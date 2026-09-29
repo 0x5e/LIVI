@@ -133,17 +133,10 @@ pub fn listing() -> Result<String, String> {
 #[cfg(target_os = "linux")]
 fn open() -> Result<OwnedFd, String> {
     let raw = unsafe {
-        libc::socket(
-            libc::AF_NETLINK,
-            libc::SOCK_RAW | libc::SOCK_CLOEXEC,
-            NETLINK_GENERIC,
-        )
+        libc::socket(libc::AF_NETLINK, libc::SOCK_RAW | libc::SOCK_CLOEXEC, NETLINK_GENERIC)
     };
     if raw < 0 {
-        return Err(format!(
-            "netlink socket: {}",
-            std::io::Error::last_os_error()
-        ));
+        return Err(format!("netlink socket: {}", std::io::Error::last_os_error()));
     }
     let fd = unsafe { OwnedFd::from_raw_fd(raw) };
     let mut local: libc::sockaddr_nl = unsafe { std::mem::zeroed() };
@@ -159,10 +152,7 @@ fn open() -> Result<OwnedFd, String> {
         return Err(format!("netlink bind: {}", std::io::Error::last_os_error()));
     }
     // Receive timeout.
-    let timeout = libc::timeval {
-        tv_sec: 3,
-        tv_usec: 0,
-    };
+    let timeout = libc::timeval { tv_sec: 3, tv_usec: 0 };
     unsafe {
         libc::setsockopt(
             fd.as_raw_fd(),
@@ -302,20 +292,23 @@ pub fn station_count(iface: &str) -> usize {
     if index == 0 {
         return 0;
     }
-    let Ok(fd) = open() else { return 0; };
-    let Ok(family) = family_id(&fd) else { return 0; };
+    let Ok(fd) = open() else {
+        return 0;
+    };
+    let Ok(family) = family_id(&fd) else {
+        return 0;
+    };
     let request = message(
         family,
         NL80211_CMD_GET_STATION,
         NLM_F_DUMP,
         &attr(ATTR_IFINDEX, &index.to_ne_bytes()),
     );
-    let Ok(payloads) = call(&fd, &request) else { return 0; };
+    let Ok(payloads) = call(&fd, &request) else {
+        return 0;
+    };
     // One answer per station; each carries the nested STA_INFO.
-    payloads
-        .iter()
-        .filter(|p| Attrs(&p[..]).any(|(kind, _)| kind == ATTR_STA_INFO))
-        .count()
+    payloads.iter().filter(|p| Attrs(&p[..]).any(|(kind, _)| kind == ATTR_STA_INFO)).count()
 }
 
 /// The regulatory domain the kernel has applied, as opposed to one merely requested.
@@ -387,11 +380,7 @@ fn radios(fd: &OwnedFd, family: u16) -> Result<Vec<Radio>, String> {
         let at = match radios.iter().position(|r| r.id == id) {
             Some(at) => at,
             None => {
-                radios.push(Radio {
-                    id,
-                    name: String::new(),
-                    channels: Vec::new(),
-                });
+                radios.push(Radio { id, name: String::new(), channels: Vec::new() });
                 radios.len() - 1
             }
         };
@@ -484,12 +473,7 @@ const fn align(n: usize) -> usize {
 #[cfg(target_os = "linux")]
 fn call(fd: &OwnedFd, request: &[u8]) -> Result<Vec<Vec<u8>>, String> {
     let sent = unsafe {
-        libc::send(
-            fd.as_raw_fd(),
-            request.as_ptr() as *const libc::c_void,
-            request.len(),
-            0,
-        )
+        libc::send(fd.as_raw_fd(), request.as_ptr() as *const libc::c_void, request.len(), 0)
     };
     if sent < 0 {
         return Err(format!("netlink send: {}", std::io::Error::last_os_error()));
@@ -499,12 +483,7 @@ fn call(fd: &OwnedFd, request: &[u8]) -> Result<Vec<Vec<u8>>, String> {
     let mut buf = vec![0u8; 64 << 10];
     loop {
         let got = unsafe {
-            libc::recv(
-                fd.as_raw_fd(),
-                buf.as_mut_ptr() as *mut libc::c_void,
-                buf.len(),
-                0,
-            )
+            libc::recv(fd.as_raw_fd(), buf.as_mut_ptr() as *mut libc::c_void, buf.len(), 0)
         };
         if got <= 0 {
             return Err(format!("netlink recv: {}", std::io::Error::last_os_error()));
@@ -574,9 +553,7 @@ mod tests {
     fn attributes_are_walked_with_their_padding() {
         let mut list = attr(1, &[0xaa]);
         list.extend(attr(2, &[1, 2, 3, 4]));
-        let seen: Vec<_> = Attrs(&list[..])
-            .map(|(kind, value)| (kind, value.to_vec()))
-            .collect();
+        let seen: Vec<_> = Attrs(&list[..]).map(|(kind, value)| (kind, value.to_vec())).collect();
         assert_eq!(seen, vec![(1, vec![0xaa]), (2, vec![1, 2, 3, 4])]);
     }
 
@@ -618,10 +595,7 @@ mod tests {
             NLM_F_ACK,
             &attr(CTRL_ATTR_FAMILY_NAME, b"nl80211\0"),
         );
-        assert_eq!(
-            u32::from_ne_bytes([m[0], m[1], m[2], m[3]]) as usize,
-            m.len()
-        );
+        assert_eq!(u32::from_ne_bytes([m[0], m[1], m[2], m[3]]) as usize, m.len());
         assert_eq!(u16::from_ne_bytes([m[4], m[5]]), 0x10);
         assert_eq!(u16::from_ne_bytes([m[6], m[7]]), NLM_F_ACK | NLM_F_REQUEST);
         assert_eq!(m[16], CTRL_CMD_GETFAMILY);

@@ -5,8 +5,8 @@ use std::os::unix::fs::PermissionsExt;
 
 use tokio::io::{AsyncReadExt, AsyncWriteExt};
 use tokio::net::{UnixListener, UnixStream};
-use zbus::zvariant::OwnedValue;
 use zbus::Connection;
+use zbus::zvariant::OwnedValue;
 
 pub const SOCK_PATH: &str = "/tmp/aa-bt.sock";
 
@@ -70,15 +70,14 @@ async fn handle(
     }
 
     let json = match verb {
-        "list_paired" | "connect" | "disconnect-profile" | "connect-full" | "disconnect" | "remove" => {
-            match bus.as_ref() {
-                None => err_json("bluetooth unavailable on this platform"),
-                Some(bus) => bluez_verb(bus, verb, arg, &deps.adapter).await,
-            }
-        }
+        "list_paired" | "connect" | "disconnect-profile" | "connect-full" | "disconnect"
+        | "remove" => match bus.as_ref() {
+            None => err_json("bluetooth unavailable on this platform"),
+            Some(bus) => bluez_verb(bus, verb, arg, &deps.adapter).await,
+        },
         "wired-phones" => {
-            let ids: Vec<String> = serde_json::from_str(if arg.is_empty() { "[]" } else { arg })
-                .unwrap_or_default();
+            let ids: Vec<String> =
+                serde_json::from_str(if arg.is_empty() { "[]" } else { arg }).unwrap_or_default();
             (deps.set_wired_phones)(ids);
             ok_json()
         }
@@ -208,12 +207,24 @@ async fn device_call(
     let path = device_path(adapter, mac);
     let result = match uuid {
         Some(uuid) => {
-            bus.call_method(Some("org.bluez"), path.as_str(), Some("org.bluez.Device1"), method, &(uuid,))
-                .await
+            bus.call_method(
+                Some("org.bluez"),
+                path.as_str(),
+                Some("org.bluez.Device1"),
+                method,
+                &(uuid,),
+            )
+            .await
         }
         None => {
-            bus.call_method(Some("org.bluez"), path.as_str(), Some("org.bluez.Device1"), method, &())
-                .await
+            bus.call_method(
+                Some("org.bluez"),
+                path.as_str(),
+                Some("org.bluez.Device1"),
+                method,
+                &(),
+            )
+            .await
         }
     };
     result.map(|_| ()).map_err(|e| e.to_string())
@@ -283,7 +294,8 @@ async fn list_paired(bus: &Connection, adapter: &str) -> Result<Vec<String>, Str
         if get_prop::<bool>(bus, &path, "Paired").await != Some(true) {
             continue;
         }
-        let mac = get_prop::<String>(bus, &path, "Address").await.unwrap_or_default().to_uppercase();
+        let mac =
+            get_prop::<String>(bus, &path, "Address").await.unwrap_or_default().to_uppercase();
         let name = match get_prop::<String>(bus, &path, "Name").await {
             Some(n) if !n.is_empty() => n,
             _ => get_prop::<String>(bus, &path, "Alias").await.unwrap_or_default(),
@@ -328,7 +340,9 @@ async fn bluez_verb(bus: &Connection, verb: &str, arg: &str, adapter: &str) -> S
                 Some((m, u)) => (m, Some(u)),
                 None => (arg, None),
             };
-            action(device_call(bus, adapter, mac, "DisconnectProfile", uuid.or(Some(WAKE_UUID))).await)
+            action(
+                device_call(bus, adapter, mac, "DisconnectProfile", uuid.or(Some(WAKE_UUID))).await,
+            )
         }
         "connect-full" => action(device_call(bus, adapter, arg, "Connect", None).await),
         "disconnect" => action(device_call(bus, adapter, arg, "Disconnect", None).await),

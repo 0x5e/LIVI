@@ -40,10 +40,7 @@ mod tests {
     fn timestamped_media_is_split() {
         let mut payload = 12345u64.to_be_bytes().to_vec();
         payload.extend_from_slice(b"nal");
-        assert_eq!(
-            media(AV_MEDIA_WITH_TIMESTAMP, &payload),
-            (Some(12345), &b"nal"[..])
-        );
+        assert_eq!(media(AV_MEDIA_WITH_TIMESTAMP, &payload), (Some(12345), &b"nal"[..]));
     }
 
     #[test]

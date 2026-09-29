@@ -159,7 +159,10 @@ fn firewalld_restore(iface: &str) {
     if prior.is_empty() {
         run_cmd("firewall-cmd", &["--zone=trusted", &format!("--remove-interface={iface}")]);
     } else {
-        run_cmd("firewall-cmd", &[&format!("--zone={prior}"), &format!("--change-interface={iface}")]);
+        run_cmd(
+            "firewall-cmd",
+            &[&format!("--zone={prior}"), &format!("--change-interface={iface}")],
+        );
     }
 }
 
@@ -187,10 +190,9 @@ pub fn release_iface_from_nm(iface: &str) {
 /// What the access point is beaconing right now, straight from the kernel.
 pub fn status(iface: &str) -> String {
     match livi_wifi::ap_state(iface) {
-        Some(ap) => format!(
-            "running true\nssid {}\nchannel {}\nwidth {}\n",
-            ap.ssid, ap.channel, ap.width
-        ),
+        Some(ap) => {
+            format!("running true\nssid {}\nchannel {}\nwidth {}\n", ap.ssid, ap.channel, ap.width)
+        }
         None => "running false\nssid \nchannel 0\nwidth 0\n".into(),
     }
 }
@@ -237,9 +239,17 @@ fn ensure_link_local(iface: &str) {
     if let Some(m) = iface_mac(iface) {
         let eui = format!(
             "fe80::{:x}{:02x}:{:02x}ff:fe{:02x}:{:02x}{:02x}",
-            m[0] ^ 0x02, m[1], m[2], m[3], m[4], m[5]
+            m[0] ^ 0x02,
+            m[1],
+            m[2],
+            m[3],
+            m[4],
+            m[5]
         );
-        run_cmd("ip", &["-6", "addr", "add", &format!("{eui}/64"), "dev", iface, "scope", "link", "nodad"]);
+        run_cmd(
+            "ip",
+            &["-6", "addr", "add", &format!("{eui}/64"), "dev", iface, "scope", "link", "nodad"],
+        );
     }
     for _ in 0..8 {
         if has_link_local(iface) {
@@ -260,17 +270,15 @@ fn setup_interface(cfg: &ApConfig) {
 
 fn hostapd_state(iface: &str) -> String {
     let out = cmd_stdout("hostapd_cli", &["-p", "/var/run/hostapd", "-i", iface, "status"]);
-    out.lines()
-        .find_map(|l| l.strip_prefix("state="))
-        .unwrap_or("")
-        .trim()
-        .to_string()
+    out.lines().find_map(|l| l.strip_prefix("state=")).unwrap_or("").trim().to_string()
 }
 
 /// Any process bound to UDP :67 — /proc/net/udp lists ports in hex (0x0043).
 fn dhcp_listening() -> bool {
     std::fs::read_to_string("/proc/net/udp")
-        .map(|s| s.lines().any(|l| l.split_whitespace().nth(1).is_some_and(|a| a.ends_with(":0043"))))
+        .map(|s| {
+            s.lines().any(|l| l.split_whitespace().nth(1).is_some_and(|a| a.ends_with(":0043")))
+        })
         .unwrap_or(false)
 }
 
@@ -391,8 +399,10 @@ pub fn run(cfg: ApConfig) -> ! {
             }
         };
         if wait_ready(&cfg.iface, Duration::from_secs(20)) {
-            println!("[wifi-ap] AP up — ssid={} ip={} channel={} width={}MHz",
-                cfg.ssid, cfg.ap_ip, cfg.channel, cfg.width);
+            println!(
+                "[wifi-ap] AP up — ssid={} ip={} channel={} width={}MHz",
+                cfg.ssid, cfg.ap_ip, cfg.channel, cfg.width
+            );
             let _ = std::io::stdout().flush();
             let _ = std::fs::write(LAST_GOOD, format!("{} {}", cfg.channel, cfg.width));
         } else {

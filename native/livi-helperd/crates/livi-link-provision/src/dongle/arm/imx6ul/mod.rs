@@ -49,7 +49,12 @@ fn running_from(mounts: &str) -> Running {
 /// first, then our kernel goes in and comes up in the rescue system, since the vendor's rootfs
 /// cannot be overwritten while it runs, and the rootfs follows from there. A running LIVI Link
 /// goes to the rescue system first for the same reason.
-pub fn install(sh: &Shell, bundle: &[u8], backup_root: &Path, progress: &dyn Fn(&str)) -> Result<(), String> {
+pub fn install(
+    sh: &Shell,
+    bundle: &[u8],
+    backup_root: &Path,
+    progress: &dyn Fn(&str),
+) -> Result<(), String> {
     let bundle = boot::read_bundle(bundle)?;
     let (Some(kernel), Some(rootfs)) = (&bundle.kernel, &bundle.rootfs) else {
         return Err("the bundle has to carry both the kernel and the rootfs".into());
@@ -67,7 +72,9 @@ pub fn install(sh: &Shell, bundle: &[u8], backup_root: &Path, progress: &dyn Fn(
             let plan = boot::prepare(sh, kernel, backup_root, progress)?;
             boot::install(sh, &plan, progress)?;
             if running(sh)? != Running::Rescue {
-                return Err("our kernel is in, but the dongle did not come up in the rescue system".into());
+                return Err(
+                    "our kernel is in, but the dongle did not come up in the rescue system".into(),
+                );
             }
             boot::write_rootfs(sh, rootfs, &plan.backup, progress)?;
             reboot(sh, progress)
@@ -84,7 +91,10 @@ pub fn install(sh: &Shell, bundle: &[u8], backup_root: &Path, progress: &dyn Fn(
 /// the bootstate partition, the mark a start that did not come up leaves behind.
 fn to_rescue(sh: &Shell, progress: &dyn Fn(&str)) -> Result<(), String> {
     let parts = mtd::partitions(sh)?;
-    let state = parts.iter().find(|p| p.name == "bootstate").ok_or("no bootstate partition in /proc/mtd")?;
+    let state = parts
+        .iter()
+        .find(|p| p.name == "bootstate")
+        .ok_or("no bootstate partition in /proc/mtd")?;
     let block = state.device.replacen("/dev/mtd", "/dev/mtdblock", 1);
     sh.sh(&format!("printf LIVIBOOT > {block} && sync"))?;
     progress("restarting into the rescue system, it writes the rootfs");

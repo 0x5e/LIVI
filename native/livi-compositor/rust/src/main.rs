@@ -58,16 +58,10 @@ fn main() {
     ctrl::init(&mut state, &event_loop.handle());
     spawn::spawn_startup(&mut state);
 
-    log::info!(
-        "Running livi-compositor on WAYLAND_DISPLAY={}",
-        state.ui_socket
-    );
+    log::info!("Running livi-compositor on WAYLAND_DISPLAY={}", state.ui_socket);
 
     while state.running {
-        if event_loop
-            .dispatch(Some(Duration::from_millis(16)), &mut state)
-            .is_err()
-        {
+        if event_loop.dispatch(Some(Duration::from_millis(16)), &mut state).is_err() {
             log::error!("event loop error, shutting down");
             break;
         }

@@ -73,11 +73,7 @@ impl CompositorHandler for LiviState {
         while let Some(parent) = get_parent(&root) {
             root = parent;
         }
-        if let Some(idx) = self
-            .toplevels
-            .iter()
-            .position(|t| t.toplevel.wl_surface() == &root)
-        {
+        if let Some(idx) = self.toplevels.iter().position(|t| t.toplevel.wl_surface() == &root) {
             classify_on_initial_commit(self, idx);
             // dialogs stay centered as their content resizes
             self.center_dialog_by_surface(&root);
@@ -104,15 +100,16 @@ fn classify_on_initial_commit(state: &mut LiviState, idx: usize) {
         return;
     }
 
-    let (app_id, title) = smithay::wayland::compositor::with_states(toplevel.wl_surface(), |states| {
-        let attrs = states
-            .data_map
-            .get::<smithay::wayland::shell::xdg::XdgToplevelSurfaceData>()
-            .unwrap()
-            .lock()
-            .unwrap();
-        (attrs.app_id.clone(), attrs.title.clone())
-    });
+    let (app_id, title) =
+        smithay::wayland::compositor::with_states(toplevel.wl_surface(), |states| {
+            let attrs = states
+                .data_map
+                .get::<smithay::wayland::shell::xdg::XdgToplevelSurfaceData>()
+                .unwrap()
+                .lock()
+                .unwrap();
+            (attrs.app_id.clone(), attrs.title.clone())
+        });
 
     let is_video = app_id.as_deref() == Some("livi-video");
     if is_video {
@@ -150,9 +147,10 @@ fn classify_on_initial_commit(state: &mut LiviState, idx: usize) {
     let mut screen_idx = 0;
     if let Some(t) = title.as_deref()
         && let Some(role) = t.strip_prefix("livi:")
-            && let Some(i) = state.screen_idx_by_role(role) {
-                screen_idx = i;
-            }
+        && let Some(i) = state.screen_idx_by_role(role)
+    {
+        screen_idx = i;
+    }
     let is_dialog = app_id.as_deref() != Some(state.output_app_id.as_str());
     state.toplevels[idx].screen_idx = screen_idx;
     state.toplevels[idx].kind = if is_dialog { Kind::Dialog } else { Kind::Ui };
@@ -174,10 +172,7 @@ fn classify_on_initial_commit(state: &mut LiviState, idx: usize) {
 }
 
 fn has_keyboard_focus(state: &LiviState) -> bool {
-    state
-        .seat
-        .get_keyboard()
-        .is_some_and(|k| k.current_focus().is_some())
+    state.seat.get_keyboard().is_some_and(|k| k.current_focus().is_some())
 }
 
 /// The main screen's UI window, which holds the keyboard when nothing else does.
@@ -204,10 +199,7 @@ fn drop_stale_planes(state: &mut LiviState, keep: usize, tag: &str) {
 /// answers whether one was there. The two travel over different sockets, so
 /// either order reaches us.
 pub fn bind_waiting_plane(state: &mut LiviState, tag: &str) -> bool {
-    let Some(idx) = state
-        .toplevels
-        .iter()
-        .rposition(|t| t.kind == Kind::Video && t.awaiting_claim)
+    let Some(idx) = state.toplevels.iter().rposition(|t| t.kind == Kind::Video && t.awaiting_claim)
     else {
         return false;
     };
@@ -298,11 +290,7 @@ impl XdgShellHandler for LiviState {
     }
 
     fn toplevel_destroyed(&mut self, surface: ToplevelSurface) {
-        let Some(idx) = self
-            .toplevels
-            .iter()
-            .position(|t| t.toplevel == surface)
-        else {
+        let Some(idx) = self.toplevels.iter().position(|t| t.toplevel == surface) else {
             return;
         };
         let was = self.toplevels[idx].kind.clone();
@@ -360,10 +348,8 @@ impl XdgShellHandler for LiviState {
         _output: Option<smithay::reexports::wayland_server::protocol::wl_output::WlOutput>,
     ) {
         // Forward to the HOST window so app-driven kiosk/fullscreen fullscreens.
-        let Some(idx) = self
-            .toplevels
-            .iter()
-            .position(|t| t.toplevel == surface && t.kind == Kind::Ui)
+        let Some(idx) =
+            self.toplevels.iter().position(|t| t.toplevel == surface && t.kind == Kind::Ui)
         else {
             surface.send_configure();
             return;
@@ -376,17 +362,12 @@ impl XdgShellHandler for LiviState {
         });
         surface.send_pending_configure();
         crate::layout::apply_ui_layout(self, screen_idx);
-        log::info!(
-            "request_fullscreen screen '{}'",
-            self.screens[screen_idx].role
-        );
+        log::info!("request_fullscreen screen '{}'", self.screens[screen_idx].role);
     }
 
     fn unfullscreen_request(&mut self, surface: ToplevelSurface) {
-        let Some(idx) = self
-            .toplevels
-            .iter()
-            .position(|t| t.toplevel == surface && t.kind == Kind::Ui)
+        let Some(idx) =
+            self.toplevels.iter().position(|t| t.toplevel == surface && t.kind == Kind::Ui)
         else {
             surface.send_configure();
             return;

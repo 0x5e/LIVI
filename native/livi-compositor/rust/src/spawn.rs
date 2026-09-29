@@ -3,7 +3,7 @@
 
 use std::os::unix::process::CommandExt;
 
-use nix::sys::signal::{kill, signal, SigHandler, Signal};
+use nix::sys::signal::{SigHandler, Signal, kill, signal};
 use nix::unistd::Pid;
 
 use crate::state::LiviState;

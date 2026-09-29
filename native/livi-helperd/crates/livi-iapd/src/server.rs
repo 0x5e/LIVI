@@ -21,10 +21,7 @@ static KEYS_PATH: OnceLock<String> = OnceLock::new();
 static NAME_SOURCE: OnceLock<NameSource> = OnceLock::new();
 
 fn keys_path() -> String {
-    KEYS_PATH
-        .get()
-        .cloned()
-        .unwrap_or_else(|| "/etc/livi-bt-keys".to_string())
+    KEYS_PATH.get().cloned().unwrap_or_else(|| "/etc/livi-bt-keys".to_string())
 }
 
 fn wifid_ap_name() -> Option<String> {
@@ -71,10 +68,7 @@ impl Phones {
         if let Some(list) = &self.wanted {
             return list.clone();
         }
-        stored_keys()
-            .iter()
-            .filter_map(|key| key.get(..6)?.try_into().ok())
-            .collect()
+        stored_keys().iter().filter_map(|key| key.get(..6)?.try_into().ok()).collect()
     }
 
     /// The next phone in the rotation, and whether it is on the air.
@@ -154,10 +148,7 @@ pub fn run(config: Config) -> ExitCode {
     let _ = KEYS_PATH.set(config.keys_path.clone());
     let _ = NAME_SOURCE.set(config.ap_name.clone());
     let fixed = config.name_override;
-    let name = fixed
-        .clone()
-        .or_else(wifid_ap_name)
-        .unwrap_or_else(|| NAME.into());
+    let name = fixed.clone().or_else(wifid_ap_name).unwrap_or_else(|| NAME.into());
     let name = name.as_str();
     let Some((mgmt, local)) = ready() else {
         eprintln!("[iapd] the controller never answered");
@@ -185,10 +176,9 @@ pub fn run(config: Config) -> ExitCode {
                 if current == shown {
                     continue;
                 }
-                match Mgmt::open().and_then(|m| {
-                    m.call(SET_NAME, mgmt::INDEX, &local_name(&current))
-                        .map(|_| ())
-                }) {
+                match Mgmt::open()
+                    .and_then(|m| m.call(SET_NAME, mgmt::INDEX, &local_name(&current)).map(|_| ()))
+                {
                     Ok(()) => {
                         println!("[iapd] the car is now called {current}");
                         shown = current;
@@ -216,9 +206,8 @@ pub fn run(config: Config) -> ExitCode {
 fn ready() -> Option<(Mgmt, String)> {
     for _ in 0..CONTROLLER_TRIES {
         if let Ok(mgmt) = Mgmt::open()
-            && let Ok(info) = mgmt
-                .call(mgmt::READ_INFO, mgmt::INDEX, &[])
-                .and_then(|b| mgmt::info(&b))
+            && let Ok(info) =
+                mgmt.call(mgmt::READ_INFO, mgmt::INDEX, &[]).and_then(|b| mgmt::info(&b))
         {
             let local = mac(&info.address);
             return Some((mgmt, local));
@@ -257,9 +246,7 @@ fn channel(local: &str, host: Arc<Mutex<Option<TcpStream>>>) -> Result<(), Strin
         let slot = host.clone();
         let (channel, name) = (record.channel, record.name);
         let local = local.to_string();
-        open.push(std::thread::spawn(move || {
-            take(&listener, channel, name, &local, &slot)
-        }));
+        open.push(std::thread::spawn(move || take(&listener, channel, name, &local, &slot)));
     }
     println!("[iapd] waiting for a phone, host on :{PORT}");
     for thread in open {
@@ -271,24 +258,13 @@ fn channel(local: &str, host: Arc<Mutex<Option<TcpStream>>>) -> Result<(), Strin
 /// Accepts on one channel, session after session.
 fn take(listener: &OwnedFd, channel: u8, name: &str, local: &str, host: &Mutex<Option<TcpStream>>) {
     loop {
-        let mut peer = SockaddrRc {
-            family: 0,
-            bdaddr: [0; 6],
-            channel: 0,
-        };
+        let mut peer = SockaddrRc { family: 0, bdaddr: [0; 6], channel: 0 };
         let mut size = size_of::<SockaddrRc>() as libc::socklen_t;
         let raw = unsafe {
-            libc::accept(
-                listener.as_raw_fd(),
-                &raw mut peer as *mut libc::sockaddr,
-                &raw mut size,
-            )
+            libc::accept(listener.as_raw_fd(), &raw mut peer as *mut libc::sockaddr, &raw mut size)
         };
         if raw < 0 {
-            eprintln!(
-                "[iapd] accept on {channel}: {}",
-                std::io::Error::last_os_error()
-            );
+            eprintln!("[iapd] accept on {channel}: {}", std::io::Error::last_os_error());
             return;
         }
         let link = std::fs::File::from(unsafe { OwnedFd::from_raw_fd(raw) });
@@ -317,24 +293,13 @@ fn attend(host: &Mutex<Option<TcpStream>>) {
 /// Opens one channel for anyone to connect to.
 fn rfcomm(channel: u8) -> Result<OwnedFd, String> {
     let raw = unsafe {
-        libc::socket(
-            AF_BLUETOOTH,
-            libc::SOCK_STREAM | libc::SOCK_CLOEXEC,
-            BTPROTO_RFCOMM,
-        )
+        libc::socket(AF_BLUETOOTH, libc::SOCK_STREAM | libc::SOCK_CLOEXEC, BTPROTO_RFCOMM)
     };
     if raw < 0 {
-        return Err(format!(
-            "rfcomm socket: {}",
-            std::io::Error::last_os_error()
-        ));
+        return Err(format!("rfcomm socket: {}", std::io::Error::last_os_error()));
     }
     let fd = unsafe { OwnedFd::from_raw_fd(raw) };
-    let addr = SockaddrRc {
-        family: AF_BLUETOOTH as libc::sa_family_t,
-        bdaddr: [0; 6],
-        channel,
-    };
+    let addr = SockaddrRc { family: AF_BLUETOOTH as libc::sa_family_t, bdaddr: [0; 6], channel };
     let bound = unsafe {
         libc::bind(
             fd.as_raw_fd(),
@@ -343,16 +308,10 @@ fn rfcomm(channel: u8) -> Result<OwnedFd, String> {
         )
     };
     if bound < 0 {
-        return Err(format!(
-            "rfcomm bind {channel}: {}",
-            std::io::Error::last_os_error()
-        ));
+        return Err(format!("rfcomm bind {channel}: {}", std::io::Error::last_os_error()));
     }
     if unsafe { libc::listen(fd.as_raw_fd(), 2) } < 0 {
-        return Err(format!(
-            "rfcomm listen: {}",
-            std::io::Error::last_os_error()
-        ));
+        return Err(format!("rfcomm listen: {}", std::io::Error::last_os_error()));
     }
     Ok(fd)
 }
@@ -521,13 +480,7 @@ fn ring(
             }
             continue;
         }
-        if phones
-            .lock()
-            .unwrap()
-            .after
-            .get(&phone)
-            .is_some_and(|next| Instant::now() < *next)
-        {
+        if phones.lock().unwrap().after.get(&phone).is_some_and(|next| Instant::now() < *next) {
             continue;
         }
         println!("[iapd] paging {who}");
@@ -634,11 +587,7 @@ fn order(line: &str, offered: &AtomicBool, phones: &Mutex<Phones>) -> Result<Str
             Ok(format!(
                 "bonds {}\noffered {}\ntargets {}\nok\n",
                 stored_keys().len(),
-                if offered.load(Ordering::Relaxed) {
-                    "on"
-                } else {
-                    "off"
-                },
+                if offered.load(Ordering::Relaxed) { "on" } else { "off" },
                 state
                     .wanted
                     .as_ref()
@@ -676,9 +625,7 @@ fn unhex(line: &str) -> Option<Vec<u8>> {
     if line.len() != KEY_LEN * 2 && line.len() != WITH_CHANNEL * 2 {
         return None;
     }
-    (0..line.len() / 2)
-        .map(|i| u8::from_str_radix(line.get(i * 2..i * 2 + 2)?, 16).ok())
-        .collect()
+    (0..line.len() / 2).map(|i| u8::from_str_radix(line.get(i * 2..i * 2 + 2)?, 16).ok()).collect()
 }
 
 /// Writes all bonds back.
@@ -692,7 +639,8 @@ fn keep(records: Vec<Vec<u8>>) {
     if std::fs::write(&temp, text).is_ok() && std::fs::rename(&temp, &path).is_ok() {
         println!("[iapd] {} bonds kept", records.len());
         let _ = std::process::Command::new("/usr/bin/livid")
-            .arg("config").arg("save")
+            .arg("config")
+            .arg("save")
             .stdin(std::process::Stdio::null())
             .stdout(std::process::Stdio::null())
             .stderr(std::process::Stdio::null())
@@ -706,10 +654,8 @@ fn remember(key: &[u8]) {
         return;
     }
     let old = stored_keys();
-    let channel = old
-        .iter()
-        .find(|r| r[..6] == key[..6] && r.len() == WITH_CHANNEL)
-        .map(|r| r[KEY_LEN]);
+    let channel =
+        old.iter().find(|r| r[..6] == key[..6] && r.len() == WITH_CHANNEL).map(|r| r[KEY_LEN]);
     let mut records: Vec<Vec<u8>> = old.into_iter().filter(|r| r[..6] != key[..6]).collect();
     let mut fresh = key.to_vec();
     if let Some(channel) = channel {
@@ -808,10 +754,7 @@ fn ask_channel(mut sdp: std::fs::File) -> Option<u8> {
     sdp.write_all(&sdp::packet(0x06, 1, &params)).ok()?;
     let mut buf = [0u8; 1024];
     let n = sdp.read(&mut buf).ok()?;
-    buf[..n]
-        .windows(5)
-        .find(|w| w[..4] == [0x19, 0x00, 0x03, 0x08])
-        .map(|w| w[4])
+    buf[..n].windows(5).find(|w| w[..4] == [0x19, 0x00, 0x03, 0x08]).map(|w| w[4])
 }
 
 /// Opens one channel on a phone.
@@ -821,11 +764,7 @@ fn rfcomm_to(phone: &[u8; 6], channel: u8) -> Option<std::fs::File> {
         return None;
     }
     let fd = unsafe { OwnedFd::from_raw_fd(raw) };
-    let addr = SockaddrRc {
-        family: AF_BLUETOOTH as libc::sa_family_t,
-        bdaddr: *phone,
-        channel,
-    };
+    let addr = SockaddrRc { family: AF_BLUETOOTH as libc::sa_family_t, bdaddr: *phone, channel };
     let joined = unsafe {
         libc::connect(
             fd.as_raw_fd(),
@@ -866,12 +805,7 @@ fn address(text: &str) -> Option<[u8; 6]> {
 
 /// A controller address as text.
 fn mac(bdaddr: &[u8; 6]) -> String {
-    bdaddr
-        .iter()
-        .rev()
-        .map(|b| format!("{b:02X}"))
-        .collect::<Vec<_>>()
-        .join(":")
+    bdaddr.iter().rev().map(|b| format!("{b:02X}")).collect::<Vec<_>>().join(":")
 }
 
 /// The six address bytes at the front of an event.
@@ -898,10 +832,7 @@ mod tests {
     }
 
     fn wanting(list: &[[u8; 6]]) -> Phones {
-        Phones {
-            wanted: Some(list.to_vec()),
-            ..Phones::default()
-        }
+        Phones { wanted: Some(list.to_vec()), ..Phones::default() }
     }
 
     #[test]

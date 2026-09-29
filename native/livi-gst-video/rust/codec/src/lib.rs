@@ -267,8 +267,14 @@ mod tests {
 
     #[test]
     fn nvidia_gets_nvdec_and_no_decoder_of_another_gpu() {
-        assert_eq!(decoder_candidates_on("h265", false, &RenderGpu::Nvidia), ["nvh265dec", "avdec_h265"]);
-        assert_eq!(decoder_candidates_on("mpeg2", false, &RenderGpu::Nvidia), ["nvh264dec", "avdec_h264"]);
+        assert_eq!(
+            decoder_candidates_on("h265", false, &RenderGpu::Nvidia),
+            ["nvh265dec", "avdec_h265"]
+        );
+        assert_eq!(
+            decoder_candidates_on("mpeg2", false, &RenderGpu::Nvidia),
+            ["nvh264dec", "avdec_h264"]
+        );
     }
 
     #[cfg(not(target_os = "macos"))]
@@ -377,7 +383,10 @@ mod pipeline_tests {
         assert_eq!(sink_chain(None), "waylandsink name=sink sync=false");
         assert_eq!(sink_chain(Some("")), "waylandsink name=sink sync=false");
         assert_eq!(sink_chain(Some("fakesink")), "fakesink name=sink sync=false");
-        assert!(pipeline_desc("h264", "avdec_h264", "", Some("fakesink")).contains("fakesink name=sink"));
+        assert!(
+            pipeline_desc("h264", "avdec_h264", "", Some("fakesink"))
+                .contains("fakesink name=sink")
+        );
     }
 
     #[cfg(target_os = "macos")]
@@ -388,4 +397,3 @@ mod pipeline_tests {
         assert_eq!(presink("avdec_h264"), "");
     }
 }
-

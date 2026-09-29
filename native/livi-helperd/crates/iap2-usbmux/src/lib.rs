@@ -12,8 +12,7 @@ pub use pipe::{MuxReader, MuxWriter, PhoneInfo};
 mod backend;
 pub use backend::{
     ensure_carplay_config, find_iphones, open_pipes, remote_addr, restore_default_config,
-    try_find_iphones,
-    set_remote,
+    set_remote, try_find_iphones,
 };
 
 pub mod remote;
@@ -24,16 +23,16 @@ pub const EP_IN: u8 = 0x85;
 #[cfg(target_os = "linux")]
 mod linux;
 #[cfg(target_os = "linux")]
-pub use linux::{open_by_address, restore_all_default_config, IPhoneDev};
+pub use linux::{IPhoneDev, open_by_address, restore_all_default_config};
 
 #[cfg(target_os = "linux")]
 mod usb_pipe;
 
 mod mux;
-pub use mux::{MuxHost, MuxTcpConn, LOCKDOWN_PORT};
+pub use mux::{LOCKDOWN_PORT, MuxHost, MuxTcpConn};
 
 mod device;
-pub use device::{socket_path, MuxDevice, MuxRegistry};
+pub use device::{MuxDevice, MuxRegistry, socket_path};
 
 #[cfg(target_os = "linux")]
 mod ncm;

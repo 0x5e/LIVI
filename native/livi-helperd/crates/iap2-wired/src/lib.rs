@@ -2,7 +2,7 @@
 // carries iAP2.
 
 mod carkit;
-pub use carkit::{open_carkit, pair_record_path, CarkitChannel, LOCKDOWN_SERVICE};
+pub use carkit::{CarkitChannel, LOCKDOWN_SERVICE, open_carkit, pair_record_path};
 
 // Same carkit stream, but sourced from the system usbmuxd instead of our own mux, so the
 // phone can sit on any Mac USB port.

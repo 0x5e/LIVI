@@ -109,11 +109,7 @@ pub fn send(state: &mut LiviState, line: &str) {
 }
 
 fn flush_out(state: &mut LiviState) {
-    let LiviState {
-        ctrl_client,
-        ctrl_out,
-        ..
-    } = state;
+    let LiviState { ctrl_client, ctrl_out, .. } = state;
     let Some(client) = ctrl_client.as_mut() else {
         ctrl_out.clear();
         return;
@@ -143,10 +139,7 @@ pub fn send_panels(state: &mut LiviState) {
         .filter_map(|(i, s)| {
             let (mm_w, mm_h) = crate::host::panel_mm(state, i)?;
             if s.width > 0 && s.height > 0 {
-                Some(format!(
-                    "panel {} {} {} {} {}\n",
-                    s.role, mm_w, mm_h, s.width, s.height
-                ))
+                Some(format!("panel {} {} {} {} {}\n", s.role, mm_w, mm_h, s.width, s.height))
             } else {
                 None
             }
@@ -183,10 +176,12 @@ fn handle_line(state: &mut LiviState, line: &str) {
                 return;
             };
             if let (Some(w), Some(h)) = (w, h)
-                && w > 0 && h > 0 {
-                    state.screens[idx].req_width = w;
-                    state.screens[idx].req_height = h;
-                }
+                && w > 0
+                && h > 0
+            {
+                state.screens[idx].req_width = w;
+                state.screens[idx].req_height = h;
+            }
             if onoff != 0 {
                 crate::host::open_screen(state, idx);
             } else {
@@ -236,7 +231,8 @@ fn handle_line(state: &mut LiviState, line: &str) {
         }
         Some("videoshow") => {
             log::info!("ctrl < {line}");
-            let (Some(tag), Some(onoff)) = (parts.next(), parts.next().and_then(|v| v.parse::<i32>().ok()))
+            let (Some(tag), Some(onoff)) =
+                (parts.next(), parts.next().and_then(|v| v.parse::<i32>().ok()))
             else {
                 return;
             };
@@ -258,12 +254,8 @@ fn handle_line(state: &mut LiviState, line: &str) {
             }
             let dbg = std::env::var("LIVI_DEBUG_BG").is_ok();
             for s in &mut state.screens {
-                s.backdrop_color = [
-                    nums[0] as f32 / 255.0,
-                    nums[1] as f32 / 255.0,
-                    nums[2] as f32 / 255.0,
-                    1.0,
-                ];
+                s.backdrop_color =
+                    [nums[0] as f32 / 255.0, nums[1] as f32 / 255.0, nums[2] as f32 / 255.0, 1.0];
                 s.has_backdrop_color = true;
             }
             if !dbg {

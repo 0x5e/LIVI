@@ -131,6 +131,9 @@ mod tests {
     fn an_empty_payload_is_still_a_record() {
         let mut f = Framer::new();
         f.push(&encode(KIND_VIDEO, 99, 5, &[]));
-        assert_eq!(f.next_record(), Some(Record { kind: KIND_VIDEO, id: 99, ts: 5, payload: vec![] }));
+        assert_eq!(
+            f.next_record(),
+            Some(Record { kind: KIND_VIDEO, id: 99, ts: 5, payload: vec![] })
+        );
     }
 }

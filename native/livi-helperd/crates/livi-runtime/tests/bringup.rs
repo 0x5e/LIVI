@@ -1,18 +1,18 @@
 use tokio::sync::mpsc;
 
+use base64::Engine;
+use iap2_csm::CsmMessage;
 use iap2_csm::messages::authentication::*;
 use iap2_csm::messages::identification::*;
+use iap2_csm::messages::location::*;
 use iap2_csm::messages::now_playing::*;
 use iap2_csm::messages::power::PowerSourceUpdate;
-use iap2_csm::CsmMessage;
-use iap2_csm::messages::wifi::SecurityType;
-use iap2_csm::messages::location::*;
 use iap2_csm::messages::vehicle_status::*;
-use livi_runtime::bringup::{run_accessory, BringupEvent, CpConfig};
+use iap2_csm::messages::wifi::SecurityType;
+use livi_runtime::bringup::{BringupEvent, CpConfig, run_accessory};
 use livi_runtime::framing::frame_msg_id;
 use livi_runtime::ident::{Identity, Transport};
 use livi_runtime::vehicle::{Vehicle, VehicleFeed};
-use base64::Engine;
 use livi_runtime::{AsyncAuth, ChannelError, ControlChannel};
 
 struct PairChannel {
@@ -60,7 +60,11 @@ impl PairChannel {
 }
 
 fn identity() -> Identity {
-    Identity { name: "LIVI".into(), ssid: "LIVI".into(), bt_mac: [0xAA, 0xBB, 0xCC, 0x11, 0x22, 0x33] }
+    Identity {
+        name: "LIVI".into(),
+        ssid: "LIVI".into(),
+        bt_mac: [0xAA, 0xBB, 0xCC, 0x11, 0x22, 0x33],
+    }
 }
 
 fn cp_config() -> CpConfig {
@@ -86,7 +90,14 @@ async fn full_bringup_sequence() {
     let (accessory, mut phone) = pair();
     let (tx, mut rx) = mpsc::channel(32);
     let auth = MockAuth { cert: vec![0xDE, 0xAD, 0xBE, 0xEF] };
-    let handle = tokio::spawn(run_accessory(accessory, auth, identity(), cp_config(), tx, VehicleFeed::quiet()));
+    let handle = tokio::spawn(run_accessory(
+        accessory,
+        auth,
+        identity(),
+        cp_config(),
+        tx,
+        VehicleFeed::quiet(),
+    ));
 
     phone.send(StartIdentification {}.encode()).await.unwrap();
     let ident_frame = phone.expect(0x1D01).await;
@@ -100,7 +111,10 @@ async fn full_bringup_sequence() {
 
     phone.send(RequestAuthenticationCertificate {}.encode()).await.unwrap();
     let cert_frame = phone.expect(0xAA01).await;
-    assert_eq!(AuthenticationCertificate::decode(&cert_frame).unwrap().certificate, vec![0xDE, 0xAD, 0xBE, 0xEF]);
+    assert_eq!(
+        AuthenticationCertificate::decode(&cert_frame).unwrap().certificate,
+        vec![0xDE, 0xAD, 0xBE, 0xEF]
+    );
 
     let challenge = vec![1u8, 2, 3, 4];
     phone
@@ -153,7 +167,14 @@ async fn wired_identifies_over_usb_and_offers_power() {
     let (accessory, mut phone) = pair();
     let (tx, mut rx) = mpsc::channel(32);
     let cp = CpConfig { transport: Transport::Wired, ..cp_config() };
-    tokio::spawn(run_accessory(accessory, MockAuth { cert: vec![0x01] }, identity(), cp, tx, VehicleFeed::quiet()));
+    tokio::spawn(run_accessory(
+        accessory,
+        MockAuth { cert: vec![0x01] },
+        identity(),
+        cp,
+        tx,
+        VehicleFeed::quiet(),
+    ));
 
     phone.send(StartIdentification {}.encode()).await.unwrap();
     let ident = IdentificationInformation::decode(&phone.expect(0x1D01).await).unwrap();
@@ -227,7 +248,10 @@ async fn bring_up(phone: &mut PairChannel, rx: &mut mpsc::Receiver<BringupEvent>
     assert_eq!(rx.recv().await, Some(BringupEvent::Identified));
     phone.send(RequestAuthenticationCertificate {}.encode()).await.unwrap();
     phone.expect(0xAA01).await;
-    phone.send(RequestAuthenticationChallengeResponse { challenge: vec![1] }.encode()).await.unwrap();
+    phone
+        .send(RequestAuthenticationChallengeResponse { challenge: vec![1] }.encode())
+        .await
+        .unwrap();
     phone.expect(0xAA03).await;
     phone.send(AuthenticationSucceeded {}.encode()).await.unwrap();
     assert_eq!(rx.recv().await, Some(BringupEvent::Authenticated));
@@ -242,17 +266,28 @@ async fn location_and_vehicle_status_reach_the_phone_that_asked() {
     let (accessory, mut phone) = pair();
     let (tx, mut rx) = mpsc::channel(32);
     let vehicle = Vehicle::default();
-    tokio::spawn(run_accessory(accessory, MockAuth { cert: vec![1] }, identity(), cp_config(), tx, vehicle.feed()));
+    tokio::spawn(run_accessory(
+        accessory,
+        MockAuth { cert: vec![1] },
+        identity(),
+        cp_config(),
+        tx,
+        vehicle.feed(),
+    ));
     bring_up(&mut phone, &mut rx).await;
 
     // Pushed before anyone asked: kept, not sent.
     vehicle.push_status(r#"{"range":320,"outsideTemperature":12}"#).unwrap();
-    let block = base64::engine::general_purpose::STANDARD.encode("$GPGGA,1*00\r\n$GPRMC,2*00\r\n$GPGSV,3*00\r\n");
+    let block = base64::engine::general_purpose::STANDARD
+        .encode("$GPGGA,1*00\r\n$GPRMC,2*00\r\n$GPGSV,3*00\r\n");
     vehicle.push_location(&block).unwrap();
 
     phone.send(StartVehicleStatusUpdates {}.encode()).await.unwrap();
     let status = VehicleStatusUpdate::decode(&phone.expect(0xA101).await).unwrap();
-    assert_eq!((status.range, status.outside_temperature, status.range_warning), (Some(320), Some(12), None));
+    assert_eq!(
+        (status.range, status.outside_temperature, status.range_warning),
+        (Some(320), Some(12), None)
+    );
 
     phone
         .send(
@@ -271,7 +306,10 @@ async fn location_and_vehicle_status_reach_the_phone_that_asked() {
     vehicle.push_location(&block).unwrap();
     let first = LocationInformation::decode(&phone.expect(0xFFFB).await).unwrap();
     let second = LocationInformation::decode(&phone.expect(0xFFFB).await).unwrap();
-    assert_eq!((first.nmea_sentence.as_str(), second.nmea_sentence.as_str()), ("$GPGGA,1*00", "$GPRMC,2*00"));
+    assert_eq!(
+        (first.nmea_sentence.as_str(), second.nmea_sentence.as_str()),
+        ("$GPGGA,1*00", "$GPRMC,2*00")
+    );
 
     // A changed value goes out by itself, the same one again does not.
     vehicle.push_status(r#"{"range":300}"#).unwrap();

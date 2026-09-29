@@ -27,13 +27,8 @@ mod imp {
     }
 
     fn control_socket() -> io::Result<OwnedFd> {
-        let raw = unsafe {
-            libc::socket(
-                AF_BLUETOOTH,
-                libc::SOCK_RAW | libc::SOCK_CLOEXEC,
-                BTPROTO_HCI,
-            )
-        };
+        let raw =
+            unsafe { libc::socket(AF_BLUETOOTH, libc::SOCK_RAW | libc::SOCK_CLOEXEC, BTPROTO_HCI) };
         if raw < 0 {
             return Err(io::Error::last_os_error());
         }
@@ -66,9 +61,7 @@ mod imp {
         };
         let mut info: HciDevInfo = unsafe { std::mem::zeroed() };
         info.dev_id = dev;
-        let r = unsafe {
-            libc::ioctl(sock.as_raw_fd(), HCIGETDEVINFO as _, &raw mut info)
-        };
+        let r = unsafe { libc::ioctl(sock.as_raw_fd(), HCIGETDEVINFO as _, &raw mut info) };
         r >= 0 && (info.flags & HCI_UP) != 0
     }
 }

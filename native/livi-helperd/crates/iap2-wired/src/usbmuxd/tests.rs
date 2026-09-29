@@ -8,11 +8,7 @@ use tokio::io::{AsyncReadExt, AsyncWriteExt};
 use super::*;
 
 fn device(connection_type: Connection) -> UsbmuxdDevice {
-    UsbmuxdDevice {
-        connection_type,
-        udid: "test-device".into(),
-        device_id: 7,
-    }
+    UsbmuxdDevice { connection_type, udid: "test-device".into(), device_id: 7 }
 }
 
 #[test]
@@ -28,9 +24,8 @@ fn discovery_excludes_wifi_and_unknown_transports() {
 
 #[tokio::test]
 async fn probe_rejects_network_device_before_connecting() {
-    let error = probe(&device(Connection::Network("127.0.0.1".parse().unwrap())))
-        .await
-        .unwrap_err();
+    let error =
+        probe(&device(Connection::Network("127.0.0.1".parse().unwrap()))).await.unwrap_err();
     assert_eq!(error.stage, Stage::Discovery);
 }
 
@@ -61,9 +56,7 @@ impl IdeviceProvider for UnpairedPhone {
                 let mut reply = plist::Dictionary::new();
                 reply.insert("Value".into(), product.into());
                 let mut bytes = Vec::new();
-                plist::Value::Dictionary(reply)
-                    .to_writer_xml(&mut bytes)
-                    .unwrap();
+                plist::Value::Dictionary(reply).to_writer_xml(&mut bytes).unwrap();
                 phone.write_u32(bytes.len() as u32).await.unwrap();
                 phone.write_all(&bytes).await.unwrap();
             });
@@ -85,10 +78,7 @@ impl IdeviceProvider for UnpairedPhone {
 
 #[tokio::test]
 async fn untrusted_iphone_reports_pair_record_stage() {
-    let phone = UnpairedPhone {
-        product: "iPhone17,1",
-        pair_reads: AtomicUsize::new(0),
-    };
+    let phone = UnpairedPhone { product: "iPhone17,1", pair_reads: AtomicUsize::new(0) };
     let error = probe_provider(&phone).await.unwrap_err();
     assert_eq!(error.stage, Stage::PairRecord);
     assert_eq!(phone.pair_reads.load(Ordering::SeqCst), 1);
@@ -96,10 +86,7 @@ async fn untrusted_iphone_reports_pair_record_stage() {
 
 #[tokio::test]
 async fn ipad_is_not_treated_as_carplay_phone() {
-    let phone = UnpairedPhone {
-        product: "iPad16,1",
-        pair_reads: AtomicUsize::new(0),
-    };
+    let phone = UnpairedPhone { product: "iPad16,1", pair_reads: AtomicUsize::new(0) };
     let error = probe_provider(&phone).await.unwrap_err();
     assert_eq!(error.stage, Stage::Product);
     assert_eq!(phone.pair_reads.load(Ordering::SeqCst), 0);
@@ -107,9 +94,7 @@ async fn ipad_is_not_treated_as_carplay_phone() {
 
 #[tokio::test(start_paused = true)]
 async fn stalled_io_is_bounded_and_keeps_its_stage() {
-    let error = step::<()>(Stage::Carkit, std::future::pending())
-        .await
-        .unwrap_err();
+    let error = step::<()>(Stage::Carkit, std::future::pending()).await.unwrap_err();
     assert_eq!(error.stage, Stage::Carkit);
     assert!(error.detail.contains("timed out"));
 }

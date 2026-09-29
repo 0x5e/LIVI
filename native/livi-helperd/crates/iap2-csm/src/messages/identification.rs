@@ -1,4 +1,6 @@
-use crate::{csm_enum, csm_field_decode, csm_field_encode, csm_group, csm_message, CsmParams, Error};
+use crate::{
+    CsmParams, Error, csm_enum, csm_field_decode, csm_field_encode, csm_group, csm_message,
+};
 
 csm_enum! {
     pub enum PowerProvidingCapability {

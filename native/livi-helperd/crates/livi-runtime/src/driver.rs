@@ -2,11 +2,13 @@ use std::io;
 use std::os::fd::{AsRawFd, OwnedFd, RawFd};
 use std::time::{Duration, Instant};
 
-use tokio::io::unix::AsyncFd;
 use tokio::io::Interest;
+use tokio::io::unix::AsyncFd;
 use tokio::sync::mpsc;
 
-use iap2_link::{Event, LinkConfig, LinkEngine, LinkState, CONTROL_SESSION_ID, FILE_TRANSFER_SESSION_ID};
+use iap2_link::{
+    CONTROL_SESSION_ID, Event, FILE_TRANSFER_SESSION_ID, LinkConfig, LinkEngine, LinkState,
+};
 
 use crate::file_transfer::{FileTransferReceiver, FtOutput};
 use crate::framing::FrameReader;
@@ -29,7 +31,11 @@ impl ControlChannel for LinkChannel {
 /// Completed file-transfer payloads (album artwork) the phone pushed over the link.
 pub type ArtworkRx = mpsc::UnboundedReceiver<Vec<u8>>;
 
-pub fn spawn_link(fd: OwnedFd, cfg: LinkConfig, initiate_negotiate: bool) -> (LinkChannel, ArtworkRx) {
+pub fn spawn_link(
+    fd: OwnedFd,
+    cfg: LinkConfig,
+    initiate_negotiate: bool,
+) -> (LinkChannel, ArtworkRx) {
     set_nonblocking(fd.as_raw_fd());
     let (out_tx, out_rx) = mpsc::unbounded_channel();
     let (in_tx, in_rx) = mpsc::unbounded_channel();
@@ -156,7 +162,11 @@ fn drain_events(
 
 /// Drives the link over any byte stream (the wired carkit TLS channel), splitting it so
 /// reads never block outgoing ACKs.
-pub fn spawn_link_stream<S>(stream: S, cfg: LinkConfig, initiate_negotiate: bool) -> (LinkChannel, ArtworkRx)
+pub fn spawn_link_stream<S>(
+    stream: S,
+    cfg: LinkConfig,
+    initiate_negotiate: bool,
+) -> (LinkChannel, ArtworkRx)
 where
     S: tokio::io::AsyncRead + tokio::io::AsyncWrite + Unpin + Send + 'static,
 {
@@ -253,18 +263,10 @@ fn set_nonblocking(fd: RawFd) {
 
 fn read_fd(fd: RawFd, buf: &mut [u8]) -> io::Result<usize> {
     let n = unsafe { libc::read(fd, buf.as_mut_ptr() as *mut libc::c_void, buf.len()) };
-    if n < 0 {
-        Err(io::Error::last_os_error())
-    } else {
-        Ok(n as usize)
-    }
+    if n < 0 { Err(io::Error::last_os_error()) } else { Ok(n as usize) }
 }
 
 fn write_fd(fd: RawFd, buf: &[u8]) -> io::Result<usize> {
     let n = unsafe { libc::write(fd, buf.as_ptr() as *const libc::c_void, buf.len()) };
-    if n < 0 {
-        Err(io::Error::last_os_error())
-    } else {
-        Ok(n as usize)
-    }
+    if n < 0 { Err(io::Error::last_os_error()) } else { Ok(n as usize) }
 }

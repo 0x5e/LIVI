@@ -12,8 +12,9 @@ pub const PROJECT: &str = "ly6238";
 pub const MTD1_SIZE: u64 = 0x0031_0000;
 pub const MTD3_SIZE: u64 = 0x0048_0000;
 
-pub(crate) const V821B_LFWB: &[u8] =
-    include_bytes!("../../../../../../../../assets/livi-link/v821b_aic8800d80/livi-link-v821b.lfwb");
+pub(crate) const V821B_LFWB: &[u8] = include_bytes!(
+    "../../../../../../../../assets/livi-link/v821b_aic8800d80/livi-link-v821b.lfwb"
+);
 
 pub struct HardwareInfo {
     pub cpuinfo_head: String,
@@ -36,11 +37,7 @@ pub fn verify_hardware(sh: &mut BindShell) -> Result<HardwareInfo, String> {
     let cpuinfo_head = sh.run("head -20 /proc/cpuinfo")?;
     let proc_mtd = sh.run("cat /proc/mtd")?;
     let aic_modules = sh.run("ls /sys/module 2>/dev/null | grep -i aic8800 || true")?;
-    Ok(HardwareInfo {
-        cpuinfo_head,
-        proc_mtd,
-        aic_modules,
-    })
+    Ok(HardwareInfo { cpuinfo_head, proc_mtd, aic_modules })
 }
 
 pub fn backup_stock(sh: &mut BindShell, out_dir: &Path) -> Result<std::path::PathBuf, String> {
@@ -71,7 +68,7 @@ pub fn stream_in_selftest(sh: &mut BindShell, size: usize) -> Result<(), String>
 pub fn flash_embedded(sh: &mut BindShell) -> Result<(), String> {
     if V821B_LFWB.is_empty() {
         return Err(
-            "no LIVI Link firmware baked in — this is a local dev build without CI assets".into(),
+            "no LIVI Link firmware baked in — this is a local dev build without CI assets".into()
         );
     }
     flash_lfwb_bytes(sh, V821B_LFWB)

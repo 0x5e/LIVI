@@ -101,10 +101,7 @@ pub fn draw_button(sym: BtnSym) -> MemoryRenderBuffer {
 fn load_font() -> Option<FontVec> {
     let mut db = fontdb::Database::new();
     db.load_system_fonts();
-    let query = fontdb::Query {
-        families: &[fontdb::Family::SansSerif],
-        ..Default::default()
-    };
+    let query = fontdb::Query { families: &[fontdb::Family::SansSerif], ..Default::default() };
     let id = db.query(&query)?;
     let (source, index) = db.face_source(id)?;
     let data = match source {
@@ -134,10 +131,7 @@ pub fn draw_title(text: &str) -> (MemoryRenderBuffer, i32) {
     for c in text.chars() {
         let glyph = scaled.scaled_glyph(c);
         let advance = scaled.h_advance(glyph.id);
-        let glyph = ab_glyph::Glyph {
-            position: ab_glyph::point(x, baseline),
-            ..glyph
-        };
+        let glyph = ab_glyph::Glyph { position: ab_glyph::point(x, baseline), ..glyph };
         if let Some(outline) = scaled.outline_glyph(glyph) {
             let bounds = outline.px_bounds();
             let data = pm.data_mut();

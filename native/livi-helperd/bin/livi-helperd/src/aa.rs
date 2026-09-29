@@ -72,8 +72,7 @@ impl WiredPhones {
 
     fn contains(&self, ids: &[&str]) -> bool {
         let known = self.0.lock().unwrap();
-        ids.iter()
-            .any(|id| !id.is_empty() && known.contains(&id.to_uppercase()))
+        ids.iter().any(|id| !id.is_empty() && known.contains(&id.to_uppercase()))
     }
 }
 
@@ -113,13 +112,9 @@ async fn handshake(
 
     let (cfg, bssid) = access_point(cfg).await;
     let (cfg, bssid) = (&cfg, bssid.to_lowercase());
-    println!(
-        "[aa] {mac}: WPP bootstrap (AP {}:{} ssid={})",
-        cfg.ap_ip, cfg.port, cfg.ssid
-    );
+    println!("[aa] {mac}: WPP bootstrap (AP {}:{} ssid={})", cfg.ap_ip, cfg.port, cfg.ssid);
 
-    sock.write_all(&wpp::wifi_version_request(cfg.channel))
-        .await?;
+    sock.write_all(&wpp::wifi_version_request(cfg.channel)).await?;
 
     let mut reader = wpp::FrameReader::default();
     let mut buf = [0u8; 4096];
@@ -142,8 +137,7 @@ async fn handshake(
         }
     }
 
-    sock.write_all(&wpp::wifi_start_request(&cfg.ap_ip, cfg.port))
-        .await?;
+    sock.write_all(&wpp::wifi_start_request(&cfg.ap_ip, cfg.port)).await?;
 
     loop {
         let next = match pending.take() {
@@ -174,10 +168,7 @@ async fn handshake(
                 emit_device(bcast, mac, &id);
             }
             wpp::MSG_WIFI_START_RESPONSE => {}
-            other => println!(
-                "[aa] {mac}: unknown WPP message {other} ({} bytes)",
-                body.len()
-            ),
+            other => println!("[aa] {mac}: unknown WPP message {other} ({} bytes)", body.len()),
         }
     }
 }
@@ -208,16 +199,8 @@ fn emit_device(bcast: &Broadcaster, mac: &str, id: &wpp::Identity) {
     }
     println!(
         "[aa] {mac}: identified instanceId={} serial={}",
-        if id.instance_id.is_empty() {
-            "-"
-        } else {
-            &id.instance_id
-        },
-        if id.serial.is_empty() {
-            "-"
-        } else {
-            &id.serial
-        }
+        if id.instance_id.is_empty() { "-" } else { &id.instance_id },
+        if id.serial.is_empty() { "-" } else { &id.serial }
     );
     bcast.push_json(format!(
         "{{\"event\":\"aa-device\",\"btMac\":\"{}\",\"instanceId\":\"{}\",\"usbSerial\":\"{}\"}}",

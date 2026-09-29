@@ -8,8 +8,8 @@ use std::future::Future;
 use std::net::{IpAddr, Ipv4Addr};
 use std::sync::{Arc, Mutex};
 
-use tokio::sync::{Notify, watch};
 use std::time::{Duration, Instant};
+use tokio::sync::{Notify, watch};
 
 use futures_util::StreamExt;
 use nusb::hotplug::HotplugEvent;
@@ -25,8 +25,8 @@ const GOOGLE_VID: u16 = 0x18d1;
 const ACCESSORY_PIDS: [u16; 6] = [0x2d00, 0x2d01, 0x2d02, 0x2d03, 0x2d04, 0x2d05];
 /// Android vendors whose devices are probed for AOAP.
 const PHONE_VENDORS: [u16; 16] = [
-    0x0489, 0x04dd, 0x04e8, 0x0b05, 0x0bb4, 0x0e8d, 0x0fce, 0x1004, 0x109b, 0x12d1, 0x17ef,
-    0x18d1, 0x19d2, 0x22b8, 0x2717, 0x2a70,
+    0x0489, 0x04dd, 0x04e8, 0x0b05, 0x0bb4, 0x0e8d, 0x0fce, 0x1004, 0x109b, 0x12d1, 0x17ef, 0x18d1,
+    0x19d2, 0x22b8, 0x2717, 0x2a70,
 ];
 /// A class-0 device made only of these interface classes is not a phone.
 const NON_PHONE_INTERFACE_CLASSES: [u8; 10] =
@@ -287,7 +287,12 @@ async fn switch(info: &DeviceInfo) -> Result<(), String> {
     vendor_out(&dev, REQ_START, 0, &[]).await.map_err(|e| format!("start: {e}"))
 }
 
-async fn vendor_out(dev: &Device, request: u8, index: u16, data: &[u8]) -> Result<(), TransferError> {
+async fn vendor_out(
+    dev: &Device,
+    request: u8,
+    index: u16,
+    data: &[u8],
+) -> Result<(), TransferError> {
     dev.control_out(
         ControlOut {
             control_type: ControlType::Vendor,

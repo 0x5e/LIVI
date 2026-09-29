@@ -30,11 +30,7 @@ fn config(path: &str) -> LiviSockConfig {
     LiviSockConfig {
         path: path.into(),
         adapter: "hci0".into(),
-        identity: Identity {
-            name: "LIVI".into(),
-            ssid: "LIVI".into(),
-            bt_mac: [0; 6],
-        },
+        identity: Identity { name: "LIVI".into(), ssid: "LIVI".into(), bt_mac: [0; 6] },
         cp: CpConfig {
             ap_mac: None,
             ap_on_air: None,
@@ -59,11 +55,7 @@ fn config(path: &str) -> LiviSockConfig {
 async fn request(path: &str, line: &str) -> String {
     let stream = UnixStream::connect(path).await.unwrap();
     let mut reader = BufReader::new(stream);
-    reader
-        .get_mut()
-        .write_all(format!("{line}\n").as_bytes())
-        .await
-        .unwrap();
+    reader.get_mut().write_all(format!("{line}\n").as_bytes()).await.unwrap();
     let mut resp = String::new();
     reader.read_line(&mut resp).await.unwrap();
     resp.trim().to_string()
@@ -79,13 +71,7 @@ async fn certificate_sign_and_subscribe() {
     };
     let bcast = Broadcaster::default();
     let state = Arc::new(HelperState::default());
-    let server = tokio::spawn(serve(
-        config(&path),
-        MockAuth,
-        Some(bus),
-        bcast.clone(),
-        state,
-    ));
+    let server = tokio::spawn(serve(config(&path), MockAuth, Some(bus), bcast.clone(), state));
 
     for _ in 0..50 {
         if UnixStream::connect(&path).await.is_ok() {

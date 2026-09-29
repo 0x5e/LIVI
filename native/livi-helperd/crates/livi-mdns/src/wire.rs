@@ -36,11 +36,7 @@ impl Name {
 
     fn matches(&self, other: &[u8]) -> bool {
         self.0.len() == other.len()
-            && self
-                .0
-                .iter()
-                .zip(other)
-                .all(|(a, b)| a.eq_ignore_ascii_case(b))
+            && self.0.iter().zip(other).all(|(a, b)| a.eq_ignore_ascii_case(b))
     }
 }
 
@@ -61,12 +57,7 @@ pub fn parse_query(pkt: &[u8], name: &Name) -> Option<Ask> {
     }
     let id = u16::from_be_bytes([pkt[0], pkt[1]]);
     let questions = u16::from_be_bytes([pkt[4], pkt[5]]);
-    let mut ask = Ask {
-        id,
-        want_a: false,
-        want_nsec: false,
-        unicast: false,
-    };
+    let mut ask = Ask { id, want_a: false, want_nsec: false, unicast: false };
     let mut pos = 12;
     for _ in 0..questions {
         let Some((qname, next)) = read_name(pkt, pos) else {
@@ -100,11 +91,7 @@ pub fn build_answer(
     with_a: bool,
     with_nsec: bool,
 ) -> Vec<u8> {
-    let class = if legacy {
-        CLASS_IN
-    } else {
-        CLASS_IN | CACHE_FLUSH
-    };
+    let class = if legacy { CLASS_IN } else { CLASS_IN | CACHE_FLUSH };
     let ttl = if legacy { LEGACY_TTL } else { TTL };
     let mut b = Vec::with_capacity(128);
     b.extend_from_slice(&id.to_be_bytes());
@@ -181,15 +168,7 @@ mod tests {
     fn answers_an_a_query_for_our_name() {
         let name = Name::new("livi-link");
         let ask = parse_query(&query(QTYPE_A, CLASS_IN, "livi-link"), &name).unwrap();
-        assert_eq!(
-            ask,
-            Ask {
-                id: 0x1234,
-                want_a: true,
-                want_nsec: false,
-                unicast: false
-            }
-        );
+        assert_eq!(ask, Ask { id: 0x1234, want_a: true, want_nsec: false, unicast: false });
     }
 
     #[test]
@@ -212,11 +191,8 @@ mod tests {
     #[test]
     fn honours_the_unicast_reply_bit() {
         let name = Name::new("livi-link");
-        let ask = parse_query(
-            &query(QTYPE_ANY, CLASS_IN | UNICAST_REPLY, "livi-link"),
-            &name,
-        )
-        .unwrap();
+        let ask =
+            parse_query(&query(QTYPE_ANY, CLASS_IN | UNICAST_REPLY, "livi-link"), &name).unwrap();
         assert!(ask.want_a && ask.want_nsec && ask.unicast);
     }
 
@@ -252,10 +228,7 @@ mod tests {
         assert_eq!(u16::from_be_bytes([answer[6], answer[7]]), 2); // A + NSEC
         let rr = 12 + name.0.len();
         assert_eq!(u16::from_be_bytes([answer[rr], answer[rr + 1]]), QTYPE_A);
-        assert_eq!(
-            u16::from_be_bytes([answer[rr + 2], answer[rr + 3]]),
-            CLASS_IN | CACHE_FLUSH
-        );
+        assert_eq!(u16::from_be_bytes([answer[rr + 2], answer[rr + 3]]), CLASS_IN | CACHE_FLUSH);
         assert!(answer.windows(4).any(|w| w == a.octets()));
     }
 
@@ -265,13 +238,7 @@ mod tests {
         let answer = build_answer(&name, 0x1234, Ipv4Addr::LOCALHOST, true, true, false);
         assert_eq!(u16::from_be_bytes([answer[0], answer[1]]), 0x1234);
         let rr = 12 + name.0.len();
-        assert_eq!(
-            u16::from_be_bytes([answer[rr + 2], answer[rr + 3]]),
-            CLASS_IN
-        );
-        assert_eq!(
-            u32::from_be_bytes(answer[rr + 4..rr + 8].try_into().unwrap()),
-            LEGACY_TTL
-        );
+        assert_eq!(u16::from_be_bytes([answer[rr + 2], answer[rr + 3]]), CLASS_IN);
+        assert_eq!(u32::from_be_bytes(answer[rr + 4..rr + 8].try_into().unwrap()), LEGACY_TTL);
     }
 }

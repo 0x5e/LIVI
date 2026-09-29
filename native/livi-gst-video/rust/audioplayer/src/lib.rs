@@ -13,7 +13,7 @@ use gstreamer_audio as gst_audio;
 use gstreamer_controller as gst_controller;
 use gstreamer_controller::prelude::*;
 
-use livi_audio_stream::{reframe_aac, rtp_caps, Codec, RTP_HEADER_LEN};
+use livi_audio_stream::{Codec, RTP_HEADER_LEN, reframe_aac, rtp_caps};
 use std::str::FromStr;
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::{Arc, Mutex, Once};
@@ -50,11 +50,7 @@ fn decoder_chain(codec: Codec) -> Option<&'static str> {
 /// The only thing about audio output that differs between the systems: which sink carries it,
 /// and what that sink calls a device.
 const fn audio_sink() -> (&'static str, &'static str) {
-    if cfg!(target_os = "macos") {
-        ("osxaudiosink", "unique-id")
-    } else {
-        ("pulsesink", "device")
-    }
+    if cfg!(target_os = "macos") { ("osxaudiosink", "unique-id") } else { ("pulsesink", "device") }
 }
 
 const SINK_NAME: &str = "audio-sink";
@@ -72,7 +68,9 @@ fn sink_chain(cfg: &Config) -> String {
 /// RFC 3640 fields keep their string types.
 pub fn pipeline_desc(cfg: &Config) -> String {
     let head = match decoder_chain(cfg.codec) {
-        Some(chain) => format!("{} ! ", chain.replace("{latency}", &cfg.latency_ms.max(100).to_string())),
+        Some(chain) => {
+            format!("{} ! ", chain.replace("{latency}", &cfg.latency_ms.max(100).to_string()))
+        }
         None => String::new(),
     };
     format!(
@@ -159,7 +157,10 @@ impl Player {
                             .as_chunks::<2>()
                             .0
                             .chunks(ch)
-                            .map(|f| (f.iter().map(|b| i16::from_le_bytes(*b) as i32).sum::<i32>() / ch as i32) as i16)
+                            .map(|f| {
+                                (f.iter().map(|b| i16::from_le_bytes(*b) as i32).sum::<i32>()
+                                    / ch as i32) as i16
+                            })
                             .collect(),
                         gst_audio::AudioFormat::F32le => map
                             .as_slice()
@@ -167,7 +168,8 @@ impl Player {
                             .0
                             .chunks(ch)
                             .map(|f| {
-                                let avg = f.iter().map(|b| f32::from_le_bytes(*b)).sum::<f32>() / ch as f32;
+                                let avg = f.iter().map(|b| f32::from_le_bytes(*b)).sum::<f32>()
+                                    / ch as f32;
                                 (avg.clamp(-1.0, 1.0) * 32767.0) as i16
                             })
                             .collect(),
@@ -191,7 +193,11 @@ impl Player {
             let label = cfg.label.clone();
             bus.set_sync_handler(move |_, msg| {
                 if let gst::MessageView::Error(e) = msg.view() {
-                    eprintln!("[cp_audio:{label}] {} | {}", e.error(), e.debug().unwrap_or_default());
+                    eprintln!(
+                        "[cp_audio:{label}] {} | {}",
+                        e.error(),
+                        e.debug().unwrap_or_default()
+                    );
                 }
                 gst::BusSyncReply::Pass
             });
@@ -387,7 +393,8 @@ mod tests {
     #[test]
     fn the_desc_never_carries_the_device_string() {
         let mut c = cfg(Codec::Opus, false);
-        c.device = Some("AppleUSBAudioEngine:Unknown Manufacturer:USB PnP Audio Device:131200:1".into());
+        c.device =
+            Some("AppleUSBAudioEngine:Unknown Manufacturer:USB PnP Audio Device:131200:1".into());
 
         let desc = pipeline_desc(&c);
         assert!(desc.contains(&format!("name={SINK_NAME}")), "desc = {desc}");

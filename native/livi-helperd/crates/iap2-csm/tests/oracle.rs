@@ -1,3 +1,4 @@
+use iap2_csm::CsmMessage;
 use iap2_csm::messages::authentication::*;
 use iap2_csm::messages::car_play::*;
 use iap2_csm::messages::communications::*;
@@ -10,13 +11,9 @@ use iap2_csm::messages::power::*;
 use iap2_csm::messages::route_guidance::*;
 use iap2_csm::messages::vehicle_status::*;
 use iap2_csm::messages::wifi::*;
-use iap2_csm::CsmMessage;
 
 fn unhex(s: &str) -> Vec<u8> {
-    (0..s.len())
-        .step_by(2)
-        .map(|i| u8::from_str_radix(&s[i..i + 2], 16).unwrap())
-        .collect()
+    (0..s.len()).step_by(2).map(|i| u8::from_str_radix(&s[i..i + 2], 16).unwrap()).collect()
 }
 
 fn vectors() -> Vec<(String, Vec<u8>)> {
@@ -185,8 +182,14 @@ fn vectors_roundtrip() {
                 assert_eq!(bt.bluetooth_transport_mac, vec![0xAA, 0xBB, 0xCC, 0xDD, 0xEE, 0xFF]);
                 let wcp = m.wireless_car_play_transport_component.unwrap();
                 assert!(wcp.supports_car_play && wcp.supports_iap2_connection);
-                assert_eq!(m.vehicle_information_component.unwrap().engine_type, EngineType::Electric);
-                assert_eq!(m.route_guidance_display_component[0].max_current_road_name_length, Some(50));
+                assert_eq!(
+                    m.vehicle_information_component.unwrap().engine_type,
+                    EngineType::Electric
+                );
+                assert_eq!(
+                    m.route_guidance_display_component[0].max_current_road_name_length,
+                    Some(50)
+                );
             }
             "IdentificationRejected" => {
                 let m = roundtrip::<IdentificationRejected>(&name, &frame);

@@ -1,11 +1,11 @@
 use std::path::PathBuf;
 use std::sync::Arc;
 
+use idevice::Idevice;
 use idevice::pairing_file::PairingFile;
 use idevice::services::lockdown::LockdownClient;
-use idevice::Idevice;
 
-use iap2_usbmux::{AsyncMuxStream, MuxDevice, LOCKDOWN_PORT};
+use iap2_usbmux::{AsyncMuxStream, LOCKDOWN_PORT, MuxDevice};
 
 pub const LOCKDOWN_SERVICE: &str = "com.apple.carkit.service";
 
@@ -112,8 +112,7 @@ fn short(serial: &str) -> &str {
 /// Loads the stored pair record, pairing first when there is none or the device no longer
 /// accepts it.
 pub async fn ensure_pairing(dev: &Arc<MuxDevice>) -> Result<PairingFile, String> {
-    let existing = pair_record_path(&dev.serial)
-        .and_then(|p| PairingFile::read_from_file(&p).ok());
+    let existing = pair_record_path(&dev.serial).and_then(|p| PairingFile::read_from_file(&p).ok());
 
     let Some(pairing) = existing else {
         return pair_device(dev).await;
@@ -123,7 +122,10 @@ pub async fn ensure_pairing(dev: &Arc<MuxDevice>) -> Result<PairingFile, String>
     match lockdown.start_session(&pairing).await {
         Ok(_) => Ok(pairing),
         Err(e) => {
-            println!("[wired] {}: stored pair record rejected ({e}), re-pairing", short(&dev.serial));
+            println!(
+                "[wired] {}: stored pair record rejected ({e}), re-pairing",
+                short(&dev.serial)
+            );
             pair_device(dev).await
         }
     }
@@ -144,10 +146,7 @@ pub async fn open_carkit(dev: &Arc<MuxDevice>) -> Result<CarkitChannel, String> 
     let stream = AsyncMuxStream::new(conn);
     let mut idevice = Idevice::new(Box::new(stream), "livi-carkit");
     if ssl {
-        idevice
-            .start_session(&pairing, false)
-            .await
-            .map_err(|e| format!("carkit tls: {e}"))?;
+        idevice.start_session(&pairing, false).await.map_err(|e| format!("carkit tls: {e}"))?;
     }
     Ok(CarkitChannel { idevice })
 }

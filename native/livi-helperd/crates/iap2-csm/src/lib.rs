@@ -132,22 +132,44 @@ macro_rules! csm_field_ty {
 
 #[macro_export]
 macro_rules! csm_val_encode {
-    ($v:expr_2021, bool) => { vec![*$v as u8] };
-    ($v:expr_2021, i8) => { $v.to_be_bytes().to_vec() };
-    ($v:expr_2021, u8) => { $v.to_be_bytes().to_vec() };
-    ($v:expr_2021, i16) => { $v.to_be_bytes().to_vec() };
-    ($v:expr_2021, u16) => { $v.to_be_bytes().to_vec() };
-    ($v:expr_2021, i32) => { $v.to_be_bytes().to_vec() };
-    ($v:expr_2021, u32) => { $v.to_be_bytes().to_vec() };
-    ($v:expr_2021, i64) => { $v.to_be_bytes().to_vec() };
-    ($v:expr_2021, u64) => { $v.to_be_bytes().to_vec() };
+    ($v:expr_2021, bool) => {
+        vec![*$v as u8]
+    };
+    ($v:expr_2021, i8) => {
+        $v.to_be_bytes().to_vec()
+    };
+    ($v:expr_2021, u8) => {
+        $v.to_be_bytes().to_vec()
+    };
+    ($v:expr_2021, i16) => {
+        $v.to_be_bytes().to_vec()
+    };
+    ($v:expr_2021, u16) => {
+        $v.to_be_bytes().to_vec()
+    };
+    ($v:expr_2021, i32) => {
+        $v.to_be_bytes().to_vec()
+    };
+    ($v:expr_2021, u32) => {
+        $v.to_be_bytes().to_vec()
+    };
+    ($v:expr_2021, i64) => {
+        $v.to_be_bytes().to_vec()
+    };
+    ($v:expr_2021, u64) => {
+        $v.to_be_bytes().to_vec()
+    };
     ($v:expr_2021, str) => {{
         let mut p = $v.as_bytes().to_vec();
         p.push(0);
         p
     }};
-    ($v:expr_2021, bytes) => { $v.clone() };
-    ($v:expr_2021, enum $e:ty) => { vec![*$v as u8] };
+    ($v:expr_2021, bytes) => {
+        $v.clone()
+    };
+    ($v:expr_2021, enum $e:ty) => {
+        vec![*$v as u8]
+    };
     ($v:expr_2021, group $g:ty) => {{
         let mut p = Vec::new();
         $crate::CsmParams::encode_params($v, &mut p);
@@ -163,22 +185,38 @@ macro_rules! csm_val_decode {
             _ => Err($crate::Error::Scalar { param: $n }),
         }
     };
-    ($b:expr_2021, $n:expr_2021, i8) => { $crate::csm_int_decode!($b, $n, i8, 1) };
-    ($b:expr_2021, $n:expr_2021, u8) => { $crate::csm_int_decode!($b, $n, u8, 1) };
-    ($b:expr_2021, $n:expr_2021, i16) => { $crate::csm_int_decode!($b, $n, i16, 2) };
-    ($b:expr_2021, $n:expr_2021, u16) => { $crate::csm_int_decode!($b, $n, u16, 2) };
-    ($b:expr_2021, $n:expr_2021, i32) => { $crate::csm_int_decode!($b, $n, i32, 4) };
-    ($b:expr_2021, $n:expr_2021, u32) => { $crate::csm_int_decode!($b, $n, u32, 4) };
-    ($b:expr_2021, $n:expr_2021, i64) => { $crate::csm_int_decode!($b, $n, i64, 8) };
-    ($b:expr_2021, $n:expr_2021, u64) => { $crate::csm_int_decode!($b, $n, u64, 8) };
+    ($b:expr_2021, $n:expr_2021, i8) => {
+        $crate::csm_int_decode!($b, $n, i8, 1)
+    };
+    ($b:expr_2021, $n:expr_2021, u8) => {
+        $crate::csm_int_decode!($b, $n, u8, 1)
+    };
+    ($b:expr_2021, $n:expr_2021, i16) => {
+        $crate::csm_int_decode!($b, $n, i16, 2)
+    };
+    ($b:expr_2021, $n:expr_2021, u16) => {
+        $crate::csm_int_decode!($b, $n, u16, 2)
+    };
+    ($b:expr_2021, $n:expr_2021, i32) => {
+        $crate::csm_int_decode!($b, $n, i32, 4)
+    };
+    ($b:expr_2021, $n:expr_2021, u32) => {
+        $crate::csm_int_decode!($b, $n, u32, 4)
+    };
+    ($b:expr_2021, $n:expr_2021, i64) => {
+        $crate::csm_int_decode!($b, $n, i64, 8)
+    };
+    ($b:expr_2021, $n:expr_2021, u64) => {
+        $crate::csm_int_decode!($b, $n, u64, 8)
+    };
     ($b:expr_2021, $n:expr_2021, str) => {{
         let b: &[u8] = $b;
         let cut = if b.is_empty() { b } else { &b[..b.len() - 1] };
-        core::str::from_utf8(cut)
-            .map(str::to_owned)
-            .map_err(|_| $crate::Error::Utf8 { param: $n })
+        core::str::from_utf8(cut).map(str::to_owned).map_err(|_| $crate::Error::Utf8 { param: $n })
     }};
-    ($b:expr_2021, $n:expr_2021, bytes) => { Ok::<_, $crate::Error>($b.to_vec()) };
+    ($b:expr_2021, $n:expr_2021, bytes) => {
+        Ok::<_, $crate::Error>($b.to_vec())
+    };
     ($b:expr_2021, $n:expr_2021, enum $e:ty) => {
         match $b.first() {
             Some(&v) => <$e>::from_u8(v).ok_or($crate::Error::Enum { param: $n, value: v }),
@@ -218,11 +256,7 @@ macro_rules! csm_opt_decode {
 #[macro_export]
 macro_rules! csm_opt_scalar_decode {
     ($b:expr_2021, $n:expr_2021, $k:tt) => {
-        if $b.is_empty() {
-            Ok(None)
-        } else {
-            $crate::csm_val_decode!($b, $n, $k).map(Some)
-        }
+        if $b.is_empty() { Ok(None) } else { $crate::csm_val_decode!($b, $n, $k).map(Some) }
     };
 }
 

@@ -67,7 +67,9 @@ impl Framer {
                         payload: rest[4..].to_vec(),
                     });
                 }
-                KIND_CONTROL => return Some(Item::Control(String::from_utf8_lossy(rest).into_owned())),
+                KIND_CONTROL => {
+                    return Some(Item::Control(String::from_utf8_lossy(rest).into_owned()));
+                }
                 _ => continue,
             }
         }
@@ -98,7 +100,10 @@ mod tests {
             f.push(piece);
         }
         assert_eq!(f.next_item(), Some(Item::Control("{\"type\":\"ready\"}".into())));
-        assert_eq!(f.next_item(), Some(Item::Message { ch: 0, flags: 3, msg_id: 1, payload: vec![] }));
+        assert_eq!(
+            f.next_item(),
+            Some(Item::Message { ch: 0, flags: 3, msg_id: 1, payload: vec![] })
+        );
     }
 
     #[test]
@@ -107,6 +112,9 @@ mod tests {
         wire.extend(encode_message(1, 2, 3, &[4]));
         let mut f = Framer::default();
         f.push(&wire);
-        assert_eq!(f.next_item().unwrap(), Item::Message { ch: 1, flags: 2, msg_id: 3, payload: vec![4] });
+        assert_eq!(
+            f.next_item().unwrap(),
+            Item::Message { ch: 1, flags: 2, msg_id: 3, payload: vec![4] }
+        );
     }
 }

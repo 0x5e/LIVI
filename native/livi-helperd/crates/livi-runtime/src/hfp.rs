@@ -53,8 +53,7 @@ impl Slc {
                 }
                 return vec![];
             }
-            let both_codec_neg =
-                HF_FEATURES & (1 << 7) != 0 && self.ag_features & (1 << 9) != 0;
+            let both_codec_neg = HF_FEATURES & (1 << 7) != 0 && self.ag_features & (1 << 9) != 0;
             if self.ag_features > 0 && both_codec_neg && !self.sent_bac {
                 self.sent_bac = true;
                 return vec!["AT+BAC=1,2\r".into()];
@@ -92,12 +91,7 @@ impl Slc {
             let v = v.trim();
             if v.starts_with('(') {
                 // Test response: ("call",(0,1)),... — capture the order.
-                self.indicators = v
-                    .split('"')
-                    .skip(1)
-                    .step_by(2)
-                    .map(str::to_string)
-                    .collect();
+                self.indicators = v.split('"').skip(1).step_by(2).map(str::to_string).collect();
             } else {
                 // Read response: current values in the captured order.
                 for (i, val) in v.split(',').enumerate() {
@@ -245,7 +239,12 @@ mod linux {
                     last_batt = slc.battchg;
                     if let Some(b) = slc.battchg {
                         let pct = u32::from(b.min(5)) * 20;
-                        emit(inner, &format!("{{\"event\":\"phone-battery\",\"mac\":\"{mac}\",\"pct\":{pct}}}"));
+                        emit(
+                            inner,
+                            &format!(
+                                "{{\"event\":\"phone-battery\",\"mac\":\"{mac}\",\"pct\":{pct}}}"
+                            ),
+                        );
                     }
                 }
             }

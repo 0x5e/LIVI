@@ -3,8 +3,8 @@ use std::path::{Path, PathBuf};
 use std::thread::sleep;
 use std::time::{Duration, Instant};
 
-use nusb::transfer::{ControlIn, ControlType, Recipient};
 use nusb::MaybeFuture;
+use nusb::transfer::{ControlIn, ControlType, Recipient};
 
 use crate::{APPLE_VID, CP_CONFIG};
 
@@ -41,7 +41,8 @@ pub fn find_iphones() -> Vec<IPhoneDev> {
         };
         let bus = read_trim(&path, "busnum").and_then(|s| s.parse().ok()).unwrap_or(0);
         let address = read_trim(&path, "devnum").and_then(|s| s.parse().ok()).unwrap_or(0);
-        let num_configs = read_trim(&path, "bNumConfigurations").and_then(|s| s.parse().ok()).unwrap_or(0);
+        let num_configs =
+            read_trim(&path, "bNumConfigurations").and_then(|s| s.parse().ok()).unwrap_or(0);
         let config_value = read_trim(&path, "bConfigurationValue").and_then(|s| s.parse().ok());
         out.push(IPhoneDev { serial, sysfs: path, bus, address, num_configs, config_value });
     }
@@ -64,11 +65,15 @@ pub fn ensure_carplay_config(serial: &str) -> Result<IPhoneDev, String> {
         loop {
             sleep(Duration::from_millis(200));
             if let Some(d) = find_by_serial(serial)
-                && d.num_configs >= CP_CONFIG {
-                    break;
-                }
+                && d.num_configs >= CP_CONFIG
+            {
+                break;
+            }
             if Instant::now() >= deadline {
-                return Err(format!("iphone {} did not expose CarPlay configs", &serial[..8.min(serial.len())]));
+                return Err(format!(
+                    "iphone {} did not expose CarPlay configs",
+                    &serial[..8.min(serial.len())]
+                ));
             }
         }
     }

@@ -173,7 +173,12 @@ impl TlsEngine {
 
     /// One encrypted frame payload with the channel and flags of its frame,
     /// and the messages that completed with it.
-    pub fn inject_record(&mut self, ch: u8, flags: u8, record: &[u8]) -> Result<Vec<Message>, Error> {
+    pub fn inject_record(
+        &mut self,
+        ch: u8,
+        flags: u8,
+        record: &[u8],
+    ) -> Result<Vec<Message>, Error> {
         let plain = self.feed(record)?;
         let mut out = Vec::new();
         if plain.is_empty() {
@@ -202,7 +207,13 @@ impl TlsEngine {
     }
 
     /// Encrypts one message into wire frames.
-    pub fn encrypt(&mut self, ch: u8, flags: u8, msg_id: u16, data: &[u8]) -> Result<Vec<u8>, Error> {
+    pub fn encrypt(
+        &mut self,
+        ch: u8,
+        flags: u8,
+        msg_id: u16,
+        data: &[u8],
+    ) -> Result<Vec<u8>, Error> {
         let mut clear = Vec::with_capacity(2 + data.len());
         clear.extend_from_slice(&msg_id.to_be_bytes());
         clear.extend_from_slice(data);
@@ -346,6 +357,9 @@ mod tests {
         let last = pump(&mut phone, &[]);
         assert!(hu.inject_record(1, 0x09, &first).unwrap().is_empty());
         let msgs = hu.inject_record(1, 0x0a, &last).unwrap();
-        assert_eq!(msgs, vec![Message { ch: 1, flags: 0x09, msg_id: 5, payload: vec![1, 2, 3, 4] }]);
+        assert_eq!(
+            msgs,
+            vec![Message { ch: 1, flags: 0x09, msg_id: 5, payload: vec![1, 2, 3, 4] }]
+        );
     }
 }

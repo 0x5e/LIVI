@@ -62,7 +62,9 @@ impl Probe {
 
     /// Everything read, for the screen and for a file to attach to an issue.
     pub fn report(&self) -> String {
-        let section = |title: &str, text: &str| format!("--- {title} ---\n{}\n\n", text.trim_end_matches(['\0', '\n', ' ']));
+        let section = |title: &str, text: &str| {
+            format!("--- {title} ---\n{}\n\n", text.trim_end_matches(['\0', '\n', ' ']))
+        };
         let mut out = String::new();
         out += &section("uname -a", &self.uname);
         out += &section("device tree model", &self.model);
@@ -97,7 +99,8 @@ mod tests {
     fn the_same_processor_with_other_partitions_is_not_taken_for_one() {
         let probe = Probe {
             cpuinfo_head: "CPU part\t: 0xc07\n".into(),
-            proc_mtd: "mtd3: 00200000 00010000 \"boot\"\nmtd6: 00440000 00010000 \"rootfs\"\n".into(),
+            proc_mtd: "mtd3: 00200000 00010000 \"boot\"\nmtd6: 00440000 00010000 \"rootfs\"\n"
+                .into(),
             ..Probe::default()
         };
         assert_eq!(probe.family(), None);
@@ -121,7 +124,11 @@ mod tests {
 
     #[test]
     fn the_report_names_every_part_it_read() {
-        let probe = Probe { uname: "Linux x 4.9.337\n".into(), model: "AXERA AX520\0".into(), ..Probe::default() };
+        let probe = Probe {
+            uname: "Linux x 4.9.337\n".into(),
+            model: "AXERA AX520\0".into(),
+            ..Probe::default()
+        };
         let report = probe.report();
         assert!(report.contains("--- uname -a ---\nLinux x 4.9.337\n"));
         assert!(report.contains("AXERA AX520\n"));

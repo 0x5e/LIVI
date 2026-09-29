@@ -7,7 +7,7 @@
 //! counting messages from zero.
 
 use livi_crypto_node::open_impl;
-use livi_video_nal::{detect_codec, CpCodec};
+use livi_video_nal::{CpCodec, detect_codec};
 
 pub const HEADER_LEN: usize = 128;
 const OP_VIDEO_FRAME: u8 = 0;
@@ -54,9 +54,8 @@ impl ScreenStream {
             if self.acc.len() < HEADER_LEN {
                 return Ok(());
             }
-            let body_size = u32::from_le_bytes([
-                self.acc[0], self.acc[1], self.acc[2], self.acc[3],
-            ]) as usize;
+            let body_size =
+                u32::from_le_bytes([self.acc[0], self.acc[1], self.acc[2], self.acc[3]]) as usize;
             if body_size > MAX_BODY {
                 return Err(Implausible(body_size));
             }

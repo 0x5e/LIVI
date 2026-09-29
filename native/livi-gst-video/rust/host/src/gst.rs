@@ -84,7 +84,8 @@ impl Outside for Gst {
     type Tap = Tap;
 
     fn open_tap(&self, cfg: TapConfig) -> Option<Tap> {
-        SocketTap::open(&cfg.path, cfg.sample_rate, cfg.channels, cfg.device.as_deref(), "tap").map(Tap)
+        SocketTap::open(&cfg.path, cfg.sample_rate, cfg.channels, cfg.device.as_deref(), "tap")
+            .map(Tap)
     }
 
     fn create_plane(&self, codec: &str, codec_data: &[u8]) -> Option<Player> {

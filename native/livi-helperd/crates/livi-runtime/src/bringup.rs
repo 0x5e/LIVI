@@ -97,10 +97,7 @@ fn subscriptions() -> Vec<Vec<u8>> {
             }),
         }
         .encode(),
-        StartRouteGuidanceUpdates {
-            display_component_id: None,
-        }
-        .encode(),
+        StartRouteGuidanceUpdates { display_component_id: None }.encode(),
         StartPowerUpdates {
             maximum_current_drawn_from_accessory: false,
             device_battery_will_charge_if_power_is_present: false,
@@ -151,9 +148,7 @@ async fn run_identification<C: ControlChannel>(
         match frame_msg_id(&frame) {
             Some(0x1D00) => {
                 let ident = build_identification(id, transport, &exclude);
-                ch.send(ident.encode())
-                    .await
-                    .map_err(|_| BringupError::Channel)?;
+                ch.send(ident.encode()).await.map_err(|_| BringupError::Channel)?;
             }
             Some(0x1D02) => return Ok(()),
             Some(0x1D03) => {
@@ -172,9 +167,7 @@ async fn run_identification<C: ControlChannel>(
                 }
                 exclude.extend(drop);
                 let ident = build_identification(id, transport, &exclude);
-                ch.send(ident.encode())
-                    .await
-                    .map_err(|_| BringupError::Channel)?;
+                ch.send(ident.encode()).await.map_err(|_| BringupError::Channel)?;
             }
             other => {
                 return Err(BringupError::Identification(format!(
@@ -192,14 +185,8 @@ fn flagged_fields(r: &IdentificationRejected) -> Vec<&'static str> {
             out.push(name)
         }
     };
-    push(
-        r.location_information_component,
-        "location_information_component",
-    );
-    push(
-        r.vehicle_information_component,
-        "vehicle_information_component",
-    );
+    push(r.location_information_component, "location_information_component");
+    push(r.vehicle_information_component, "vehicle_information_component");
     push(r.vehicle_status_component, "vehicle_status_component");
     out
 }
@@ -213,14 +200,9 @@ async fn run_auth<C: ControlChannel, A: AsyncAuth>(
         let frame = recv(ch).await?;
         match frame_msg_id(&frame) {
             Some(0xAA00) => {
-                ch.send(
-                    AuthenticationCertificate {
-                        certificate: cert.clone(),
-                    }
-                    .encode(),
-                )
-                .await
-                .map_err(|_| BringupError::Channel)?;
+                ch.send(AuthenticationCertificate { certificate: cert.clone() }.encode())
+                    .await
+                    .map_err(|_| BringupError::Channel)?;
             }
             Some(0xAA02) => {
                 let req = RequestAuthenticationChallengeResponse::decode(&frame)
@@ -232,9 +214,7 @@ async fn run_auth<C: ControlChannel, A: AsyncAuth>(
             }
             Some(0xAA05) => return Ok(()),
             Some(0xAA04) => {
-                return Err(BringupError::Auth(
-                    "device sent AuthenticationFailed".into(),
-                ));
+                return Err(BringupError::Auth("device sent AuthenticationFailed".into()));
             }
             other => {
                 return Err(BringupError::Auth(format!(
@@ -259,9 +239,7 @@ fn carplay_start_session(cp: &CpConfig, live: OnAir) -> Option<CarPlayStartSessi
         // The link-local the phone connects to: the A/V interface's.
         let fe80 = net::wlan_link_local(cp.av_iface.as_deref()?)?;
         return Some(CarPlayStartSession {
-            wired_attributes: Some(CarPlayStartSessionWiredAttributes {
-                ip_address: vec![fe80],
-            }),
+            wired_attributes: Some(CarPlayStartSessionWiredAttributes { ip_address: vec![fe80] }),
             wireless_attributes: None,
             port: Some(cp.airplay_port),
             // No AP interface: the A/V interface stands in.
@@ -273,9 +251,7 @@ fn carplay_start_session(cp: &CpConfig, live: OnAir) -> Option<CarPlayStartSessi
     }
     let fe80 = net::wlan_link_local(&cp.wifi_iface)?;
     let (live_ssid, live_channel) = live;
-    let ssid = live_ssid
-        .filter(|s| !s.is_empty())
-        .unwrap_or_else(|| cp.ssid.clone());
+    let ssid = live_ssid.filter(|s| !s.is_empty()).unwrap_or_else(|| cp.ssid.clone());
     let channel = live_channel.filter(|c| *c != 0).unwrap_or(cp.channel);
     Some(CarPlayStartSession {
         wired_attributes: None,
@@ -496,11 +472,7 @@ pub async fn run_accessory<C: ControlChannel, A: AsyncAuth>(
             }
             _ => {}
         }
-        if events
-            .send(BringupEvent::Incoming { msg_id, frame })
-            .await
-            .is_err()
-        {
+        if events.send(BringupEvent::Incoming { msg_id, frame }).await.is_err() {
             return;
         }
     }

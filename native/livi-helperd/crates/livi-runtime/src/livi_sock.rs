@@ -32,10 +32,7 @@ pub struct Broadcaster {
 
 impl Broadcaster {
     pub fn push_json(&self, line: String) {
-        self.subs
-            .lock()
-            .unwrap()
-            .retain(|tx| tx.send(line.clone()).is_ok());
+        self.subs.lock().unwrap().retain(|tx| tx.send(line.clone()).is_ok());
     }
 
     pub fn subscribe(&self) -> mpsc::UnboundedReceiver<String> {
@@ -269,9 +266,7 @@ where
 // [["MAC", "uuid" | null], ...]. The array order is the paging order.
 fn parse_reconnect_targets(arg: &str) -> Result<Vec<(String, Option<String>)>, String> {
     let value: serde_json::Value = serde_json::from_str(arg).map_err(|e| e.to_string())?;
-    let list = value
-        .as_array()
-        .ok_or("reconnect-targets expects a JSON array")?;
+    let list = value.as_array().ok_or("reconnect-targets expects a JSON array")?;
     list.iter()
         .map(|pair| {
             let mac = pair
@@ -317,20 +312,15 @@ fn run_tunnel<A>(
     bcast: Broadcaster,
     cid: String,
     vehicle: VehicleFeed,
-)
-where
+) where
     A: AsyncAuth + Clone + Send + 'static,
 {
     let Ok(std_stream) = stream.into_std() else {
         return;
     };
     let fd: OwnedFd = std_stream.into();
-    let link_cfg = LinkConfig {
-        max_outgoing: 4,
-        control_version: 2,
-        zero_ack: true,
-        ..LinkConfig::default()
-    };
+    let link_cfg =
+        LinkConfig { max_outgoing: 4, control_version: 2, zero_ack: true, ..LinkConfig::default() };
     let (channel, art_rx) = spawn_link(fd, link_cfg, true);
     let (tx, rx) = mpsc::channel(64);
     // Read the access point's current MAC/SSID/channel now, so the phone hears the same
@@ -344,13 +334,7 @@ where
         cid: (!cid.is_empty()).then_some(cid),
         ..Default::default()
     }));
-    tokio::spawn(pump_events_for(
-        rx,
-        bcast.clone(),
-        "tunnel",
-        None,
-        ident.clone(),
-    ));
+    tokio::spawn(pump_events_for(rx, bcast.clone(), "tunnel", None, ident.clone()));
     tokio::spawn(pump_artwork(art_rx, bcast, ident));
 }
 
@@ -364,10 +348,7 @@ pub async fn pump_artwork(
         if data.is_empty() {
             continue;
         }
-        let json = format!(
-            "{{\"type\":\"albumart\",\"dataB64\":\"{}\"}}",
-            STANDARD.encode(&data)
-        );
+        let json = format!("{{\"type\":\"albumart\",\"dataB64\":\"{}\"}}", STANDARD.encode(&data));
         bcast.push_json(ident.lock().unwrap().apply(json));
     }
 }
@@ -375,14 +356,7 @@ pub async fn pump_artwork(
 pub type SharedTag = Arc<Mutex<events::EventTag>>;
 
 pub async fn pump_events(rx: mpsc::Receiver<BringupEvent>, bcast: Broadcaster, tag: &'static str) {
-    pump_events_for(
-        rx,
-        bcast,
-        tag,
-        None,
-        Arc::new(Mutex::new(events::EventTag::default())),
-    )
-    .await
+    pump_events_for(rx, bcast, tag, None, Arc::new(Mutex::new(events::EventTag::default()))).await
 }
 
 /// Forwards bring-up telemetry to the UI: decodes incoming CSM into JSON and broadcasts it.
@@ -429,19 +403,9 @@ pub async fn pump_events_for(
 }
 
 async fn device_disconnect(bus: &zbus::Connection, adapter: &str, mac: &str) -> Result<(), String> {
-    let path = format!(
-        "/org/bluez/{}/dev_{}",
-        adapter,
-        mac.replace(':', "_").to_uppercase()
-    );
-    bus.call_method(
-        Some("org.bluez"),
-        path.as_str(),
-        Some("org.bluez.Device1"),
-        "Disconnect",
-        &(),
-    )
-    .await
-    .map(|_| ())
-    .map_err(|e| e.to_string())
+    let path = format!("/org/bluez/{}/dev_{}", adapter, mac.replace(':', "_").to_uppercase());
+    bus.call_method(Some("org.bluez"), path.as_str(), Some("org.bluez.Device1"), "Disconnect", &())
+        .await
+        .map(|_| ())
+        .map_err(|e| e.to_string())
 }

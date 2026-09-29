@@ -23,12 +23,14 @@ fn parse() -> Result<Mode, String> {
     let mut args = std::env::args().skip(1);
     while let Some(arg) = args.next() {
         match arg.as_str() {
-            "--bus"        => bus = args.next().and_then(|v| v.parse().ok()).unwrap_or(bus),
-            "--power-gpio" => power_gpio = args.next().and_then(|v| v.parse().ok()).unwrap_or(power_gpio),
-            "--no-power"   => power_gpio = -1,
-            "--remote"     => remote = args.next(),
-            "--dongle"     => remote = Some("livi-link.local:5000".into()),
-            other          => return Err(format!("unknown argument: {other}")),
+            "--bus" => bus = args.next().and_then(|v| v.parse().ok()).unwrap_or(bus),
+            "--power-gpio" => {
+                power_gpio = args.next().and_then(|v| v.parse().ok()).unwrap_or(power_gpio)
+            }
+            "--no-power" => power_gpio = -1,
+            "--remote" => remote = args.next(),
+            "--dongle" => remote = Some("livi-link.local:5000".into()),
+            other => return Err(format!("unknown argument: {other}")),
         }
     }
     match remote {
@@ -68,7 +70,8 @@ fn run() -> Result<(), Box<dyn std::error::Error>> {
             let mut chip = iap2_mfi::I2cCoprocessor::open(bus, power_gpio)?;
             println!(
                 "[mfi-probe] addr=0x{:02X} device_version=0x{:02X}",
-                chip.address(), chip.device_version()?,
+                chip.address(),
+                chip.device_version()?,
             );
             drive(&mut chip)
         }

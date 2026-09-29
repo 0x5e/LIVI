@@ -3,7 +3,7 @@
 //! Frames pass from the first keyframe on. The running GOP is kept up to
 //! `CACHE_MAX` frames and primes a player created mid-stream.
 
-use livi_video_nal::{classify_nal, CpCodec, CpNalKind};
+use livi_video_nal::{CpCodec, CpNalKind, classify_nal};
 
 /// Frames kept at most. A longer GOP is dropped.
 pub const CACHE_MAX: usize = 240;

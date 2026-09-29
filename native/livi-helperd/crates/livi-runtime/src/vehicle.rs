@@ -92,10 +92,7 @@ impl Default for Vehicle {
 
 impl Vehicle {
     pub fn feed(&self) -> VehicleFeed {
-        VehicleFeed {
-            location: self.location.subscribe(),
-            status: self.status.subscribe(),
-        }
+        VehicleFeed { location: self.location.subscribe(), status: self.status.subscribe() }
     }
 
     /// `location <base64 nmea>`
@@ -173,7 +170,9 @@ mod tests {
     fn a_location_push_wakes_the_feed_and_an_unchanged_status_does_not() {
         let vehicle = Vehicle::default();
         let mut feed = vehicle.feed();
-        vehicle.push_location(&base64::engine::general_purpose::STANDARD.encode("$GPGGA,1*00")).unwrap();
+        vehicle
+            .push_location(&base64::engine::general_purpose::STANDARD.encode("$GPGGA,1*00"))
+            .unwrap();
         assert!(feed.location.has_changed().unwrap());
         assert_eq!(feed.location.borrow_and_update().1, "$GPGGA,1*00");
 

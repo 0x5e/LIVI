@@ -1,6 +1,6 @@
 use iap2_csm::messages::car_play::*;
 use iap2_csm::messages::vehicle_status::*;
-use iap2_csm::{frame_header, CsmMessage, Error};
+use iap2_csm::{CsmMessage, Error, frame_header};
 
 #[test]
 fn missing_required_param_errors() {

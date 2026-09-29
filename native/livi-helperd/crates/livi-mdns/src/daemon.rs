@@ -49,11 +49,7 @@ pub fn run(args: &[String]) -> ExitCode {
             println!("[mdnsd] {host}.local -> {addr} on {iface}");
         }
 
-        let mut poll = libc::pollfd {
-            fd: fd.as_raw_fd(),
-            events: libc::POLLIN,
-            revents: 0,
-        };
+        let mut poll = libc::pollfd { fd: fd.as_raw_fd(), events: libc::POLLIN, revents: 0 };
         if unsafe { libc::poll(&raw mut poll, 1, POLL_MS) } <= 0 {
             continue;
         }
@@ -117,23 +113,15 @@ fn bind_socket() -> Result<OwnedFd, String> {
         )
     };
     if bound < 0 {
-        return Err(format!(
-            "bind :{}: {}",
-            mdns::PORT,
-            std::io::Error::last_os_error()
-        ));
+        return Err(format!("bind :{}: {}", mdns::PORT, std::io::Error::last_os_error()));
     }
     Ok(fd)
 }
 
 fn join_group(fd: &OwnedFd, via: Ipv4Addr) -> bool {
     let mreq = libc::ip_mreq {
-        imr_multiaddr: libc::in_addr {
-            s_addr: u32::from(mdns::GROUP).to_be(),
-        },
-        imr_interface: libc::in_addr {
-            s_addr: u32::from(via).to_be(),
-        },
+        imr_multiaddr: libc::in_addr { s_addr: u32::from(mdns::GROUP).to_be() },
+        imr_interface: libc::in_addr { s_addr: u32::from(via).to_be() },
     };
     unsafe {
         libc::setsockopt(
@@ -150,10 +138,8 @@ fn join_group(fd: &OwnedFd, via: Ipv4Addr) -> bool {
 fn receive(fd: &OwnedFd, buf: &mut [u8]) -> Option<(usize, libc::sockaddr_in, libc::c_uint)> {
     let mut from: libc::sockaddr_in = unsafe { std::mem::zeroed() };
     let mut control = [0u8; 256];
-    let mut iov = libc::iovec {
-        iov_base: buf.as_mut_ptr() as *mut libc::c_void,
-        iov_len: buf.len(),
-    };
+    let mut iov =
+        libc::iovec { iov_base: buf.as_mut_ptr() as *mut libc::c_void, iov_len: buf.len() };
     let mut msg: libc::msghdr = unsafe { std::mem::zeroed() };
     msg.msg_name = &raw mut from as *mut libc::c_void;
     msg.msg_namelen = size_of::<libc::sockaddr_in>() as libc::socklen_t;
@@ -195,9 +181,7 @@ fn send_to(fd: &OwnedFd, to: &libc::sockaddr_in, data: &[u8]) {
 }
 
 fn send_multicast(fd: &OwnedFd, via: Ipv4Addr, data: &[u8]) {
-    let iface = libc::in_addr {
-        s_addr: u32::from(via).to_be(),
-    };
+    let iface = libc::in_addr { s_addr: u32::from(via).to_be() };
     set_opt(fd, libc::IPPROTO_IP, libc::IP_MULTICAST_IF, &iface);
     let mut group: libc::sockaddr_in = unsafe { std::mem::zeroed() };
     group.sin_family = libc::AF_INET as u16;
@@ -248,8 +232,5 @@ fn index_to_name(index: libc::c_uint) -> Option<String> {
     if name.is_null() {
         return None;
     }
-    unsafe { CStr::from_ptr(name) }
-        .to_str()
-        .ok()
-        .map(str::to_string)
+    unsafe { CStr::from_ptr(name) }.to_str().ok().map(str::to_string)
 }

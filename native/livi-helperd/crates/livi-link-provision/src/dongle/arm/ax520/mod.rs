@@ -18,8 +18,9 @@ pub const BOOT_SIZE: u64 = 0x0030_0000;
 pub const CUSTOMER_SIZE: u64 = 0x0044_0000;
 pub const ROOTFS_SIZE: u64 = 0x0044_0000;
 
-pub(crate) const AX520_LFWB: &[u8] =
-    include_bytes!("../../../../../../../../assets/livi-link/ax520_aic8800d80/livi-link-ax520.lfwb");
+pub(crate) const AX520_LFWB: &[u8] = include_bytes!(
+    "../../../../../../../../assets/livi-link/ax520_aic8800d80/livi-link-ax520.lfwb"
+);
 
 pub struct HardwareInfo {
     pub cpuinfo_head: String,
@@ -62,10 +63,7 @@ fn mtd_is(proc_mtd: &str, index: u8, name: &str, size: u64) -> bool {
 pub fn verify_hardware(sh: &mut BindShell) -> Result<HardwareInfo, String> {
     let cpuinfo_head = sh.run("head -20 /proc/cpuinfo")?;
     let proc_mtd = sh.run("cat /proc/mtd")?;
-    Ok(HardwareInfo {
-        cpuinfo_head,
-        proc_mtd,
-    })
+    Ok(HardwareInfo { cpuinfo_head, proc_mtd })
 }
 
 pub fn backup_stock(sh: &mut BindShell, out_dir: &Path) -> Result<std::path::PathBuf, String> {
@@ -111,7 +109,7 @@ pub fn stream_in_selftest(sh: &mut BindShell, size: usize) -> Result<(), String>
 pub fn flash_embedded(sh: &mut BindShell) -> Result<(), String> {
     if AX520_LFWB.is_empty() {
         return Err(
-            "no LIVI Link firmware baked in — this is a local dev build without CI assets".into(),
+            "no LIVI Link firmware baked in — this is a local dev build without CI assets".into()
         );
     }
     flash_lfwb_bytes(sh, AX520_LFWB)
@@ -174,10 +172,7 @@ mtd9: 00070000 00010000 \"UDISK\"
     const CPUINFO: &str = "processor\t: 0\nmodel name\t: ARMv7 Processor rev 5 (v7l)\nCPU implementer\t: 0x41\nCPU architecture: 7\nCPU part\t: 0xc07\n";
 
     fn info(cpuinfo: &str, mtd: &str) -> HardwareInfo {
-        HardwareInfo {
-            cpuinfo_head: cpuinfo.into(),
-            proc_mtd: mtd.into(),
-        }
+        HardwareInfo { cpuinfo_head: cpuinfo.into(), proc_mtd: mtd.into() }
     }
 
     #[test]
@@ -188,7 +183,8 @@ mtd9: 00070000 00010000 \"UDISK\"
     #[test]
     fn a_shifted_partition_table_is_refused() {
         // The V821B layout: boot is mtd1 there, mtd3 is its rootfs.
-        let v821b = STOCK_MTD.replace("mtd3: 00300000 00010000 \"boot\"", "mtd3: 00480000 00010000 \"rootfs\"");
+        let v821b = STOCK_MTD
+            .replace("mtd3: 00300000 00010000 \"boot\"", "mtd3: 00480000 00010000 \"rootfs\"");
         assert!(!info(CPUINFO, &v821b).looks_like_ax520_aic8800d80());
     }
 
@@ -227,7 +223,12 @@ mtd9: 00070000 00010000 \"UDISK\"
         let rootfs = vec![3u8; 16];
         let link = lfwb::unpack(&lfwb::pack(&[(BOOT_MTD, &boot), (ROOTFS_MTD, &rootfs)])).unwrap();
         assert!(lfwb::image(&link, CUSTOMER_MTD).is_none());
-        let stock = lfwb::unpack(&lfwb::pack(&[(BOOT_MTD, &boot), (CUSTOMER_MTD, &customer), (ROOTFS_MTD, &rootfs)])).unwrap();
+        let stock = lfwb::unpack(&lfwb::pack(&[
+            (BOOT_MTD, &boot),
+            (CUSTOMER_MTD, &customer),
+            (ROOTFS_MTD, &rootfs),
+        ]))
+        .unwrap();
         assert_eq!(lfwb::image(&stock, CUSTOMER_MTD), Some(&customer[..]));
         assert_eq!(lfwb::image(&stock, BOOT_MTD), Some(&boot[..]));
         assert_eq!(lfwb::image(&stock, ROOTFS_MTD), Some(&rootfs[..]));

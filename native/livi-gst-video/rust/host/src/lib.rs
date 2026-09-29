@@ -5,8 +5,8 @@
 use std::cell::RefCell;
 use std::collections::HashMap;
 use std::rc::Rc;
-use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::Arc;
+use std::sync::atomic::{AtomicBool, Ordering};
 
 use livi_audio_stream::{AudioSink, Codec as AudioCodec};
 use livi_audio_uplink::UplinkCodec;
@@ -910,11 +910,7 @@ mod tests {
 
         fn take_visualizer(&self) -> Option<(Vec<u8>, u32)> {
             let s = core::mem::take(&mut self.0.lock().unwrap().visualizer);
-            if s.is_empty() {
-                None
-            } else {
-                Some((s, 48000))
-            }
+            if s.is_empty() { None } else { Some((s, 48000)) }
         }
     }
 
@@ -1156,7 +1152,10 @@ mod tests {
 
             assert_eq!(
                 first,
-                vec!["[feed] recv 0x7a000001: in=1 dropped=1 pushed=0 awaiting_kf=1 active=1".to_owned()]
+                vec![
+                    "[feed] recv 0x7a000001: in=1 dropped=1 pushed=0 awaiting_kf=1 active=1"
+                        .to_owned()
+                ]
             );
             assert!(f.host.take_stats().is_empty());
         }
@@ -1752,7 +1751,15 @@ mod tests {
 
         assert_eq!(
             f.world.0.borrow().audio_cfgs,
-            vec![(AudioCodec::Opus, 96, 44100, 2, 1000, true, Some("alsa_output.front".to_owned()))]
+            vec![(
+                AudioCodec::Opus,
+                96,
+                44100,
+                2,
+                1000,
+                true,
+                Some("alsa_output.front".to_owned())
+            )]
         );
     }
 
@@ -1992,16 +1999,7 @@ mod tests {
 
         assert_eq!(
             f.world.0.borrow().uplinks,
-            vec![(
-                97,
-                24000,
-                1,
-                48000,
-                20,
-                5010,
-                "fe80::1".to_owned(),
-                Some("hw:0".to_owned())
-            )]
+            vec![(97, 24000, 1, 48000, 20, 5010, "fe80::1".to_owned(), Some("hw:0".to_owned()))]
         );
     }
 

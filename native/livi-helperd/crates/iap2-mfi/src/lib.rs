@@ -38,7 +38,9 @@ impl core::fmt::Display for MfiError {
             MfiError::AuthFailed { error_code: Some(c) } => {
                 write!(f, "auth failed (error code 0x{c:02X})")
             }
-            MfiError::AuthFailed { error_code: None } => write!(f, "auth failed (error unreadable)"),
+            MfiError::AuthFailed { error_code: None } => {
+                write!(f, "auth failed (error unreadable)")
+            }
             MfiError::NoChip { probed } => {
                 let addrs: Vec<String> = probed.iter().map(|a| format!("0x{a:02X}")).collect();
                 write!(f, "no coprocessor answered at {}", addrs.join("/"))

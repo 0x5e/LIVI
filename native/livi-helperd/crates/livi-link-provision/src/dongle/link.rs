@@ -83,8 +83,14 @@ mod tests {
 
     #[test]
     fn the_web_api_answer_is_a_message_or_an_error() {
-        assert_eq!(answer(r#"{"ok":true,"message":"mtdblock3 written, rebooting"}"#).unwrap(), "mtdblock3 written, rebooting");
-        assert_eq!(answer(r#"{"ok":false,"error":"bundle magic mismatch"}"#).unwrap_err(), "bundle magic mismatch");
+        assert_eq!(
+            answer(r#"{"ok":true,"message":"mtdblock3 written, rebooting"}"#).unwrap(),
+            "mtdblock3 written, rebooting"
+        );
+        assert_eq!(
+            answer(r#"{"ok":false,"error":"bundle magic mismatch"}"#).unwrap_err(),
+            "bundle magic mismatch"
+        );
         assert!(answer("not found").is_err());
     }
 
@@ -97,7 +103,8 @@ mod tests {
 
     #[test]
     fn the_rest_of_a_bundle_goes_without_the_refused_type() {
-        let bundle = crate::dongle::lfwb::pack(&[(2, b"kernel".as_slice()), (3, b"hsqs-rootfs".as_slice())]);
+        let bundle =
+            crate::dongle::lfwb::pack(&[(2, b"kernel".as_slice()), (3, b"hsqs-rootfs".as_slice())]);
         let rest = crate::dongle::lfwb::unpack(&without(&bundle, 2).unwrap()).unwrap();
         assert_eq!(rest, vec![(3, b"hsqs-rootfs".to_vec())]);
         let only = crate::dongle::lfwb::pack(&[(2, b"kernel".as_slice())]);

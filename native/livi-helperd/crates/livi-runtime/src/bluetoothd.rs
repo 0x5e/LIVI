@@ -62,10 +62,14 @@ mod linux {
     const MAIN_CONF: &str = "/etc/bluetooth/main.conf";
 
     fn find_bluetoothd() -> Option<String> {
-        ["/usr/libexec/bluetooth/bluetoothd", "/usr/lib/bluetooth/bluetoothd", "/usr/sbin/bluetoothd"]
-            .into_iter()
-            .find(|p| Path::new(p).exists())
-            .map(str::to_string)
+        [
+            "/usr/libexec/bluetooth/bluetoothd",
+            "/usr/lib/bluetooth/bluetoothd",
+            "/usr/sbin/bluetoothd",
+        ]
+        .into_iter()
+        .find(|p| Path::new(p).exists())
+        .map(str::to_string)
     }
 
     fn write_noplugin_dropin() -> bool {
@@ -73,13 +77,16 @@ mod linux {
             eprintln!("[helperd] bluetoothd binary not found, skipping --noplugin setup");
             return false;
         };
-        let content =
-            format!("[Service]\nExecStart=\nExecStart={bluetoothd} --noplugin={DISABLED_PLUGINS}\n");
+        let content = format!(
+            "[Service]\nExecStart=\nExecStart={bluetoothd} --noplugin={DISABLED_PLUGINS}\n"
+        );
         let mut changed = false;
         if let Ok(entries) = std::fs::read_dir(DROPIN_DIR) {
             for entry in entries.flatten() {
                 let name = entry.file_name().to_string_lossy().to_string();
-                if name.starts_with("livi-") && name.ends_with(".conf") && entry.path() != Path::new(DROPIN_CFG)
+                if name.starts_with("livi-")
+                    && name.ends_with(".conf")
+                    && entry.path() != Path::new(DROPIN_CFG)
                 {
                     changed |= std::fs::remove_file(entry.path()).is_ok();
                 }
@@ -119,8 +126,12 @@ mod linux {
         changed |= ensure_main_conf_class();
         if changed {
             println!("[helperd] restarting bluetoothd (--noplugin={DISABLED_PLUGINS}, class)");
-            let _ = std::process::Command::new(crate::sys::tool("systemctl")).arg("daemon-reload").status();
-            let _ = std::process::Command::new(crate::sys::tool("systemctl")).args(["restart", "bluetooth"]).status();
+            let _ = std::process::Command::new(crate::sys::tool("systemctl"))
+                .arg("daemon-reload")
+                .status();
+            let _ = std::process::Command::new(crate::sys::tool("systemctl"))
+                .args(["restart", "bluetooth"])
+                .status();
             std::thread::sleep(std::time::Duration::from_secs(5));
         }
     }

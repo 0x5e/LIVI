@@ -37,9 +37,8 @@ pub fn wlan_mac(iface: &str) -> Option<String> {
             continue;
         }
         let base = sdl.sdl_nlen as usize;
-        let mac: Vec<String> = (0..6)
-            .map(|i| format!("{:02X}", sdl.sdl_data[base + i] as u8))
-            .collect();
+        let mac: Vec<String> =
+            (0..6).map(|i| format!("{:02X}", sdl.sdl_data[base + i] as u8)).collect();
         out = Some(mac.join(":"));
         break;
     }

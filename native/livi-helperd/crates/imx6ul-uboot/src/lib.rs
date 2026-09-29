@@ -38,7 +38,8 @@ impl Fuses {
     /// From the OCOTP as a mainline kernel exposes it (nvmem, one little-endian word per shadow
     /// register): CFG0 and CFG1 at words 1 and 2, MAC0 and MAC1 at words 0x22 and 0x23.
     pub fn from_ocotp(nvmem: &[u8]) -> Option<Self> {
-        let word = |i: usize| Some(u32::from_le_bytes(nvmem.get(i * 4..i * 4 + 4)?.try_into().ok()?));
+        let word =
+            |i: usize| Some(u32::from_le_bytes(nvmem.get(i * 4..i * 4 + 4)?.try_into().ok()?));
         Some(Self { cfg0: word(1)?, cfg1: word(2)?, mac0: word(0x22)?, mac1: word(0x23)? })
     }
 }
@@ -176,9 +177,7 @@ pub fn layout(env: &[u8], kernel_part: usize) -> Result<Layout, String> {
         return Err("heweiencrypt does not convert three consecutive staging blocks".into());
     }
 
-    if kernel_len <= HEAD
-        || staging < KERNEL + kernel_len
-        || staging + HEAD > KERNEL + kernel_part
+    if kernel_len <= HEAD || staging < KERNEL + kernel_len || staging + HEAD > KERNEL + kernel_part
     {
         return Err(format!(
             "kernel {kernel_len:#x} and staging at {staging:#x} do not fit the kernel partition"
@@ -290,7 +289,8 @@ mod tests {
         ];
         let mut hewei = vec!["sf probe 0".to_string()];
         for i in 0..3 {
-            hewei.push(format!("sf read 0x80800000 {:#x} 0x10000", KERNEL + kernel_len + i * ERASE));
+            hewei
+                .push(format!("sf read 0x80800000 {:#x} 0x10000", KERNEL + kernel_len + i * ERASE));
             hewei.push("mm d 0x80800000 0x10000".into());
             hewei.push("mm m 0x80800000 0x10000".into());
             hewei.push(format!("sf update 0x80800000 {:#x}  0x10000", KERNEL + i * ERASE));
@@ -326,11 +326,16 @@ mod tests {
     #[test]
     fn the_fuses_are_read_from_the_ocotp_words() {
         let mut nvmem = vec![0u8; 0x100];
-        for (word, value) in [(1, FUSES.cfg0), (2, FUSES.cfg1), (0x22, FUSES.mac0), (0x23, FUSES.mac1)] {
+        for (word, value) in
+            [(1, FUSES.cfg0), (2, FUSES.cfg1), (0x22, FUSES.mac0), (0x23, FUSES.mac1)]
+        {
             nvmem[word * 4..word * 4 + 4].copy_from_slice(&value.to_le_bytes());
         }
         let f = Fuses::from_ocotp(&nvmem).unwrap();
-        assert_eq!((f.cfg0, f.cfg1, f.mac0, f.mac1), (FUSES.cfg0, FUSES.cfg1, FUSES.mac0, FUSES.mac1));
+        assert_eq!(
+            (f.cfg0, f.cfg1, f.mac0, f.mac1),
+            (FUSES.cfg0, FUSES.cfg1, FUSES.mac0, FUSES.mac1)
+        );
         assert!(Fuses::from_ocotp(&nvmem[..0x88]).is_none());
     }
 

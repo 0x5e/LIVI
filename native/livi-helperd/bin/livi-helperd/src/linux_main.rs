@@ -23,10 +23,7 @@ const ATTACH_WAIT: std::time::Duration = std::time::Duration::from_secs(10);
 const BT_FALLBACK: &str = "hci0";
 
 fn env_or<T: std::str::FromStr>(key: &str, default: T) -> T {
-    std::env::var(key)
-        .ok()
-        .and_then(|v| v.parse().ok())
-        .unwrap_or(default)
+    std::env::var(key).ok().and_then(|v| v.parse().ok()).unwrap_or(default)
 }
 
 fn config_path() -> std::path::PathBuf {
@@ -61,10 +58,7 @@ impl DeviceConfig {
         {
             return s.to_string();
         }
-        std::env::var(env_key)
-            .ok()
-            .filter(|s| !s.is_empty())
-            .unwrap_or_else(|| default.to_string())
+        std::env::var(env_key).ok().filter(|s| !s.is_empty()).unwrap_or_else(|| default.to_string())
     }
 
     pub fn int<T: std::str::FromStr + std::convert::TryFrom<i64>>(
@@ -211,10 +205,7 @@ pub fn run_bt_tunnel() -> ExitCode {
 }
 
 pub fn run() -> ExitCode {
-    let rt = match tokio::runtime::Builder::new_multi_thread()
-        .enable_all()
-        .build()
-    {
+    let rt = match tokio::runtime::Builder::new_multi_thread().enable_all().build() {
         Ok(rt) => rt,
         Err(e) => {
             eprintln!("[helperd] runtime: {e}");
@@ -269,10 +260,7 @@ async fn serve() -> Result<(), Box<dyn std::error::Error>> {
     let (auth, mfi_link) = match I2cCoprocessor::open(bus_num, gpio) {
         Ok(chip) => {
             println!("[helperd] MFi addr=0x{:02X}", chip.address());
-            (
-                Some(SharedCoprocessor::new(Box::new(chip))),
-                crate::link::LinkPresence::always(),
-            )
+            (Some(SharedCoprocessor::new(Box::new(chip))), crate::link::LinkPresence::always())
         }
         Err(e) => {
             println!(
@@ -310,11 +298,7 @@ async fn serve() -> Result<(), Box<dyn std::error::Error>> {
         .is_ok_and(|v| v == "1")
         .then(|| livi_dongle::iap::sessions(|| true));
     let bt_mac = bt::adapter_address(&conn, &adapter).await?;
-    println!(
-        "[helperd] adapter {} up (RFCOMM ch {})",
-        format_mac(&bt_mac),
-        bt::IAP_CHANNEL
-    );
+    println!("[helperd] adapter {} up (RFCOMM ch {})", format_mac(&bt_mac), bt::IAP_CHANNEL);
 
     let identity = Identity { name, ssid, bt_mac };
 
@@ -363,14 +347,11 @@ async fn serve() -> Result<(), Box<dyn std::error::Error>> {
     if std::env::var("LIVI_AA_WIRELESS").unwrap_or_else(|_| "1".into()) != "0" {
         // The projection listener the WPP bootstrap points the phone at.
         let events = aa_events.clone();
-        tokio::spawn(livi_aa::server::run(
-            env_or("LIVI_PORT", 5277u16),
-            move |socket, peer| {
-                events.push_json(format!(
+        tokio::spawn(livi_aa::server::run(env_or("LIVI_PORT", 5277u16), move |socket, peer| {
+            events.push_json(format!(
                 "{{\"event\":\"aa-session\",\"socket\":\"{socket}\",\"peer\":\"{peer}\",\"transport\":\"wifi\"}}"
             ));
-            },
-        ));
+        }));
         match bt::start_aa(&conn).await {
             Ok(incoming) => {
                 let aa_cfg = crate::aa::AaConfig {
@@ -467,11 +448,7 @@ async fn serve() -> Result<(), Box<dyn std::error::Error>> {
     if let Some(auth) = auth.clone()
         && std::env::var("LIVI_CP_WIRED").unwrap_or_else(|_| "1".into()) != "0"
     {
-        let wired_cp = CpConfig {
-            transport: Transport::Wired,
-            av_iface: None,
-            ..cp.clone()
-        };
+        let wired_cp = CpConfig { transport: Transport::Wired, av_iface: None, ..cp.clone() };
         tokio::spawn(crate::wired::watch(
             auth,
             identity.clone(),
@@ -554,8 +531,5 @@ async fn serve() -> Result<(), Box<dyn std::error::Error>> {
 }
 
 fn format_mac(mac: &[u8; 6]) -> String {
-    mac.iter()
-        .map(|b| format!("{b:02X}"))
-        .collect::<Vec<_>>()
-        .join(":")
+    mac.iter().map(|b| format!("{b:02X}")).collect::<Vec<_>>().join(":")
 }

@@ -110,12 +110,9 @@ pub fn sessions(ready: impl Fn() -> bool + Send + 'static) -> mpsc::Receiver<Ses
 
 /// Holds a connection open until the dongle says a phone is on it.
 async fn waiting() -> Result<Session, String> {
-    let mut stream = TcpStream::connect(link::addr(PORT))
-        .await
-        .map_err(|e| format!("dongle: {e}"))?;
-    stream
-        .set_nodelay(true)
-        .map_err(|e| format!("nodelay: {e}"))?;
+    let mut stream =
+        TcpStream::connect(link::addr(PORT)).await.map_err(|e| format!("dongle: {e}"))?;
+    stream.set_nodelay(true).map_err(|e| format!("nodelay: {e}"))?;
     // Waiting for a phone means a long silence, so the link itself has to say when the dongle is
     // gone. Without this a restarted dongle leaves us listening to nobody.
     watch_liveness(&stream);
@@ -132,11 +129,7 @@ async fn waiting() -> Result<Session, String> {
         .and_then(address)
         .ok_or("the dongle named no controller")?;
     println!("[iap] {peer} is on the dongle's bluetooth");
-    Ok(Session {
-        peer,
-        local,
-        stream,
-    })
+    Ok(Session { peer, local, stream })
 }
 
 /// Asks the kernel to check a quiet link, so a dongle that went away is noticed within seconds.
@@ -210,14 +203,10 @@ fn order(line: &str) -> Result<(), String> {
         .ok_or("the dongle has no address")?;
     let mut stream = std::net::TcpStream::connect_timeout(&addr, ORDER_TIMEOUT)
         .map_err(|e| format!("dongle: {e}"))?;
-    stream
-        .set_read_timeout(Some(ORDER_TIMEOUT))
-        .map_err(|e| format!("dongle: {e}"))?;
+    stream.set_read_timeout(Some(ORDER_TIMEOUT)).map_err(|e| format!("dongle: {e}"))?;
     writeln!(stream, "{line}").map_err(|e| format!("dongle: {e}"))?;
     let mut answer = String::new();
-    BufReader::new(&stream)
-        .read_line(&mut answer)
-        .map_err(|e| format!("dongle: {e}"))?;
+    BufReader::new(&stream).read_line(&mut answer).map_err(|e| format!("dongle: {e}"))?;
     match answer.trim() {
         "ok" => Ok(()),
         other => Err(other.trim_start_matches("error ").to_string()),
@@ -241,10 +230,7 @@ mod tests {
 
     #[test]
     fn an_address_reads_back_the_way_the_wire_carries_it() {
-        assert_eq!(
-            address("38:BA:B0:A0:E6:6F"),
-            Some([0x6f, 0xe6, 0xa0, 0xb0, 0xba, 0x38])
-        );
+        assert_eq!(address("38:BA:B0:A0:E6:6F"), Some([0x6f, 0xe6, 0xa0, 0xb0, 0xba, 0x38]));
         assert_eq!(address("38:BA:B0:A0:E6"), None);
         assert_eq!(address("38:BA:B0:A0:E6:6F:11"), None);
         assert_eq!(address("not an address"), None);

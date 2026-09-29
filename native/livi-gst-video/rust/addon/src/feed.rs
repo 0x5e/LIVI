@@ -39,7 +39,9 @@ const FIRST_AUDIO_ID: u32 = 0x7c00_0001;
 
 fn lock() -> MutexGuard<'static, Registry> {
     REGISTRY
-        .get_or_init(|| Mutex::new(Registry { next_audio_id: FIRST_AUDIO_ID, ..Default::default() }))
+        .get_or_init(|| {
+            Mutex::new(Registry { next_audio_id: FIRST_AUDIO_ID, ..Default::default() })
+        })
         .lock()
         .unwrap_or_else(|e| e.into_inner())
 }
@@ -129,11 +131,8 @@ pub fn set_visualizer(on: bool, cb: Option<VizCb>) {
                     continue;
                 }
                 // Drained under the lock, handed over outside it.
-                let taken: Vec<(Vec<u8>, u32)> = lock()
-                    .audio
-                    .values()
-                    .filter_map(|out| out.player.take_visualizer())
-                    .collect();
+                let taken: Vec<(Vec<u8>, u32)> =
+                    lock().audio.values().filter_map(|out| out.player.take_visualizer()).collect();
                 if let Some(cb) = viz_cb().lock().unwrap_or_else(|e| e.into_inner()).as_ref() {
                     for (samples, rate) in taken {
                         cb(samples, rate);
@@ -238,7 +237,9 @@ fn dispatch(r: feedproto::Record) {
 /// The cluster id serves every cluster plane, any other id its own plane.
 fn targets_of(planes: &HashMap<u32, Arc<Player>>, id: u32) -> Vec<Arc<Player>> {
     if id == CLUSTER_RECV_ID {
-        (CLUSTER_PLANE_MIN..=CLUSTER_PLANE_MAX).filter_map(|cid| planes.get(&cid).cloned()).collect()
+        (CLUSTER_PLANE_MIN..=CLUSTER_PLANE_MAX)
+            .filter_map(|cid| planes.get(&cid).cloned())
+            .collect()
     } else {
         planes.get(&id).cloned().into_iter().collect()
     }

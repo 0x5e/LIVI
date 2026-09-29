@@ -30,10 +30,7 @@ impl BindShell {
                 Ok(stream) => {
                     stream.set_read_timeout(Some(Duration::from_secs(30))).ok();
                     stream.set_write_timeout(Some(Duration::from_secs(15))).ok();
-                    return Ok(BindShell {
-                        stream,
-                        buf: String::new(),
-                    });
+                    return Ok(BindShell { stream, buf: String::new() });
                 }
                 Err(_) if Instant::now() < deadline => {
                     std::thread::sleep(Duration::from_secs(2));
@@ -46,9 +43,7 @@ impl BindShell {
 
     pub fn run(&mut self, cmd: &str) -> Result<String, String> {
         let line = format!("({cmd}); echo {SENTINEL}:$?\n");
-        self.stream
-            .write_all(line.as_bytes())
-            .map_err(|e| format!("write: {e}"))?;
+        self.stream.write_all(line.as_bytes()).map_err(|e| format!("write: {e}"))?;
         let mut tmp = [0u8; 4096];
         loop {
             let n = self.stream.read(&mut tmp).map_err(|e| format!("read: {e}"))?;
@@ -79,18 +74,13 @@ impl BindShell {
             ));
         }
         let line = format!("({src_cmd}) 2>/dev/null; printf '\\n{SENTINEL}:0\\n'\n");
-        self.stream
-            .write_all(line.as_bytes())
-            .map_err(|e| format!("write: {e}"))?;
+        self.stream.write_all(line.as_bytes()).map_err(|e| format!("write: {e}"))?;
 
         let mut out = Vec::with_capacity(expected_size as usize);
         let mut buf = [0u8; 65536];
         while (out.len() as u64) < expected_size {
             let want = ((expected_size as usize) - out.len()).min(buf.len());
-            let n = self
-                .stream
-                .read(&mut buf[..want])
-                .map_err(|e| format!("data read: {e}"))?;
+            let n = self.stream.read(&mut buf[..want]).map_err(|e| format!("data read: {e}"))?;
             if n == 0 {
                 return Err(format!(
                     "shell closed after {} B (expected {expected_size})",
@@ -112,14 +102,10 @@ impl BindShell {
             ));
         }
         let line = format!("({cmd}); echo {SENTINEL}:$?\n");
-        self.stream
-            .write_all(line.as_bytes())
-            .map_err(|e| format!("write cmd: {e}"))?;
+        self.stream.write_all(line.as_bytes()).map_err(|e| format!("write cmd: {e}"))?;
         self.stream.flush().ok();
         std::thread::sleep(Duration::from_millis(100));
-        self.stream
-            .write_all(data)
-            .map_err(|e| format!("write data: {e}"))?;
+        self.stream.write_all(data).map_err(|e| format!("write data: {e}"))?;
 
         let mut tmp = [0u8; 4096];
         loop {

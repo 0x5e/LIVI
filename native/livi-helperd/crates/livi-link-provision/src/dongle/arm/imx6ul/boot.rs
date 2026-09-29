@@ -5,11 +5,14 @@ use std::path::{Path, PathBuf};
 use std::thread::sleep;
 use std::time::{Duration, Instant};
 
-use imx6ul_uboot::{ENV_BLOCK, ERASE, Fuses, KERNEL, Layout, UPDATE_BLOCK, UpgKey, kernel_partition, layout, read_env};
+use imx6ul_uboot::{
+    ENV_BLOCK, ERASE, Fuses, KERNEL, Layout, UPDATE_BLOCK, UpgKey, kernel_partition, layout,
+    read_env,
+};
 
+use super::Running;
 use super::mtd::{self, Partition, sha256_hex};
 use super::shell::{PUSH_PORT, Shell, md5_hex};
-use super::Running;
 
 /// Where the environment block sits: at the end of the vendor's 256 KiB uboot partition, or in an
 /// `env` partition of its own under our kernel, which keeps U-Boot itself read-only.
@@ -66,20 +69,28 @@ pub fn write_rootfs(
     progress: &dyn Fn(&str),
 ) -> Result<(), String> {
     let parts = mtd::partitions(sh)?;
-    let part = parts.iter().find(|p| p.name == "rootfs").ok_or("no rootfs partition in /proc/mtd")?;
+    let part =
+        parts.iter().find(|p| p.name == "rootfs").ok_or("no rootfs partition in /proc/mtd")?;
     if image.len() as u64 > part.bytes {
         return Err(format!("rootfs image is {} bytes, the partition {}", image.len(), part.bytes));
     }
     // Read back with dd in whole blocks: the rescue busybox has no `head -c`. mksquashfs pads to 4 KiB.
     if !image.len().is_multiple_of(4096) {
-        return Err(format!("rootfs image is {} bytes, not a whole number of 4 KiB blocks", image.len()));
+        return Err(format!(
+            "rootfs image is {} bytes, not a whole number of 4 KiB blocks",
+            image.len()
+        ));
     }
     match super::running(sh)? {
         Running::Vendor => {
-            return Err("the vendor system runs from the rootfs partition, install our kernel first".into());
+            return Err(
+                "the vendor system runs from the rootfs partition, install our kernel first".into(),
+            );
         }
         Running::Livi => {
-            return Err("LIVI Link runs from the rootfs partition, update it through its web page".into());
+            return Err(
+                "LIVI Link runs from the rootfs partition, update it through its web page".into()
+            );
         }
         Running::Rescue => {}
     }
@@ -155,7 +166,9 @@ pub fn prepare(
 /// staging blocks on its way up, reboots and waits for the dongle to return.
 pub fn install(sh: &Shell, plan: &Install, progress: &dyn Fn(&str)) -> Result<(), String> {
     // The vendor userspace has mtd-utils, our initramfs only busybox.
-    let tools = sh.sh("for t in flash_erase flashcp flash_eraseall; do command -v $t >/dev/null && echo $t; done")?;
+    let tools = sh.sh(
+        "for t in flash_erase flashcp flash_eraseall; do command -v $t >/dev/null && echo $t; done",
+    )?;
     let has = |t: &str| tools.split_whitespace().any(|w| w == t);
     let erase_all = |dev: &str| {
         if has("flash_erase") {
@@ -190,13 +203,17 @@ pub fn install(sh: &Shell, plan: &Install, progress: &dyn Fn(&str)) -> Result<()
         EnvAt::Uboot if has("flash_erase") => {
             format!("flash_erase {} {ENV_BLOCK} 1 >/dev/null", plan.uboot.device)
         }
-        EnvAt::Uboot => return Err("no flash_erase to erase one block of the uboot partition".into()),
+        EnvAt::Uboot => {
+            return Err("no flash_erase to erase one block of the uboot partition".into());
+        }
         EnvAt::Own(p) => erase_all(&p.device)?,
     };
     sh.run(&format!("{erase} && sync"), Duration::from_secs(60))?;
     let after = mtd::pull(sh, &plan.uboot, progress)?;
     if after[..UPDATE_BLOCK + ERASE] != plan.uboot_image[..UPDATE_BLOCK + ERASE] {
-        return Err("U-Boot changed although only the environment block was erased, do not reboot".into());
+        return Err(
+            "U-Boot changed although only the environment block was erased, do not reboot".into()
+        );
     }
     if env_block(sh, &plan.uboot, &plan.env, progress)?.iter().any(|&b| b != 0xff) {
         return Err("the environment block did not erase".into());
@@ -222,7 +239,8 @@ pub fn install(sh: &Shell, plan: &Install, progress: &dyn Fn(&str)) -> Result<()
 }
 
 fn locate(parts: &[Partition]) -> Result<(Partition, EnvAt, Partition), String> {
-    let at = parts.iter().position(|p| p.name == "uboot").ok_or("no uboot partition in /proc/mtd")?;
+    let at =
+        parts.iter().position(|p| p.name == "uboot").ok_or("no uboot partition in /proc/mtd")?;
     let next = |i: usize, name: &str| parts.get(at + i).filter(|p| p.name == name).cloned();
     let uboot = parts[at].clone();
     let found = match uboot.bytes as usize {
@@ -296,7 +314,8 @@ mod tests {
 
     #[test]
     fn the_vendor_layout_and_ours_are_both_found() {
-        let vendor = [part("uboot", 0, 0x40000), part("kernel", 1, 0x340000), part("rootfs", 2, 0xc80000)];
+        let vendor =
+            [part("uboot", 0, 0x40000), part("kernel", 1, 0x340000), part("rootfs", 2, 0xc80000)];
         let (_, env, kernel) = locate(&vendor).unwrap();
         assert!(matches!(env, EnvAt::Uboot));
         assert_eq!(kernel.device, "/dev/mtd1");

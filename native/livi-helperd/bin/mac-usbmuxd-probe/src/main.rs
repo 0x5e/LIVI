@@ -10,7 +10,7 @@ mod mac {
     use iap2_link::LinkConfig;
     use iap2_mfi::ncm::NcmCoprocessor;
     use iap2_wired::{mac_network, usbmuxd};
-    use livi_runtime::bringup::{run_accessory, BringupEvent, CpConfig};
+    use livi_runtime::bringup::{BringupEvent, CpConfig, run_accessory};
     use livi_runtime::driver::spawn_link_stream;
     use livi_runtime::ident::{Identity, Transport};
     use livi_runtime::mfi_async::SharedCoprocessor;
@@ -32,14 +32,17 @@ mod mac {
             av_iface,
             available_current_ma: 500,
         };
-        let identity = Identity { name: "LIVI".into(), ssid: "LIVI".into(), bt_mac: [0x02, 0, 0, 0, 0, 1] };
+        let identity =
+            Identity { name: "LIVI".into(), ssid: "LIVI".into(), bt_mac: [0x02, 0, 0, 0, 0, 1] };
         (cp, identity)
     }
 
     pub async fn run() -> Result<(), String> {
         let devices = usbmuxd::devices().await.map_err(|e| e.to_string())?;
         let Some(device) = devices.into_iter().next() else {
-            return Err("no USB device on the system usbmuxd; plug the iPhone in and unlock it".into());
+            return Err(
+                "no USB device on the system usbmuxd; plug the iPhone in and unlock it".into()
+            );
         };
         let tag = device.udid[..8.min(device.udid.len())].to_string();
 
@@ -52,7 +55,10 @@ mod mac {
         println!("[usbmuxd] {tag}: CarPlay NCM interfaces: {ncm:?}");
         let av_iface = ncm.into_iter().find(|i| livi_runtime::net::wlan_link_local(i).is_some());
         match &av_iface {
-            Some(i) => println!("[usbmuxd] {tag}: AV interface {i}, link-local {:?}", livi_runtime::net::wlan_link_local(i)),
+            Some(i) => println!(
+                "[usbmuxd] {tag}: AV interface {i}, link-local {:?}",
+                livi_runtime::net::wlan_link_local(i)
+            ),
             None => println!("[usbmuxd] {tag}: no NCM interface with a link-local yet"),
         }
 
@@ -61,14 +67,21 @@ mod mac {
             Ok(s) => s,
             Err(e) => {
                 if e.stage == usbmuxd::Stage::PairRecord {
-                    return Err(format!("{e}\n[usbmuxd] {tag}: trust this Mac in Finder, confirm on the phone, then retry"));
+                    return Err(format!(
+                        "{e}\n[usbmuxd] {tag}: trust this Mac in Finder, confirm on the phone, then retry"
+                    ));
                 }
                 return Err(e.to_string());
             }
         };
         println!("[usbmuxd] {tag}: carkit stream up, starting iAP2");
 
-        let link = LinkConfig { max_outgoing: 4, control_version: 2, zero_ack: true, ..LinkConfig::default() };
+        let link = LinkConfig {
+            max_outgoing: 4,
+            control_version: 2,
+            zero_ack: true,
+            ..LinkConfig::default()
+        };
         let (ch, _art_rx) = spawn_link_stream(stream, link, true);
         let (cp, id) = wired_config(av_iface);
         let auth = SharedCoprocessor::new(Box::new(NcmCoprocessor::new(&mfi_addr)));
@@ -79,14 +92,18 @@ mod mac {
         loop {
             match tokio::time::timeout(deadline, rx.recv()).await {
                 Ok(Some(BringupEvent::CarPlayStartSent)) => {
-                    println!("[usbmuxd] {tag}: CarPlayStartSession sent with the AV interface's link-local, phone would connect back to :7000");
+                    println!(
+                        "[usbmuxd] {tag}: CarPlayStartSession sent with the AV interface's link-local, phone would connect back to :7000"
+                    );
                     return Ok(());
                 }
                 Ok(Some(BringupEvent::Incoming { msg_id, .. })) => {
                     println!("[usbmuxd] {tag}: incoming 0x{msg_id:04x}")
                 }
                 Ok(Some(BringupEvent::Failed(msg))) => return Err(format!("iAP2 failed: {msg}")),
-                Ok(Some(BringupEvent::Closed)) => return Err("iAP2 closed before CarPlayStartSession".into()),
+                Ok(Some(BringupEvent::Closed)) => {
+                    return Err("iAP2 closed before CarPlayStartSession".into());
+                }
                 Ok(Some(other)) => println!("[usbmuxd] {tag}: {other:?}"),
                 Ok(None) => return Err("iAP2 closed before CarPlayStartSession".into()),
                 Err(_) => return Err("iAP2 stalled: no progress in 30s".into()),

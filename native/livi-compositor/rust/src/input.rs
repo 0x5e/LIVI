@@ -9,7 +9,7 @@ use smithay::input::touch::{DownEvent, MotionEvent as TouchMotionEvent, UpEvent}
 use smithay::reexports::wayland_server::protocol::wl_surface::WlSurface;
 use smithay::utils::{Logical, Point, SERIAL_COUNTER};
 
-use crate::state::{Kind, LiviState, BTN_GAP, BTN_W, RESIZE_BORDER, TITLEBAR_H};
+use crate::state::{BTN_GAP, BTN_W, Kind, LiviState, RESIZE_BORDER, TITLEBAR_H};
 
 #[derive(PartialEq, Clone, Copy, Debug)]
 pub enum DecoHit {
@@ -173,30 +173,21 @@ pub fn pointer_button(state: &mut LiviState, time: u32, button: u32, pressed: bo
             state,
             &ButtonEvent {
                 button,
-                state: if pressed {
-                    ButtonState::Pressed
-                } else {
-                    ButtonState::Released
-                },
+                state: if pressed { ButtonState::Pressed } else { ButtonState::Released },
                 serial: SERIAL_COUNTER.next_serial(),
                 time,
             },
         );
         pointer.frame(state);
     }
-    if pressed
-        && let Some((surface, _)) = surface_at(state, lx, ly) {
-            focus_surface(state, &surface);
-        }
+    if pressed && let Some((surface, _)) = surface_at(state, lx, ly) {
+        focus_surface(state, &surface);
+    }
 }
 
 pub fn focus_surface(state: &mut LiviState, surface: &WlSurface) {
     // Focus skips video planes.
-    if state
-        .toplevels
-        .iter()
-        .any(|t| t.kind == Kind::Video && t.toplevel.wl_surface() == surface)
-    {
+    if state.toplevels.iter().any(|t| t.kind == Kind::Video && t.toplevel.wl_surface() == surface) {
         return;
     }
     if let Some(keyboard) = state.seat.get_keyboard() {
@@ -268,22 +259,11 @@ pub fn touch_motion(state: &mut LiviState, time: u32, id: i32, wx: f64, wy: f64)
         .find(|(tid, _, _)| *tid == id)
         .map(|(_, lx, _)| {
             let sx = *lx;
-            state
-                .screens
-                .iter()
-                .map(|s| s.x)
-                .filter(|&x| (x as f64) <= sx)
-                .max()
-                .unwrap_or(0)
+            state.screens.iter().map(|s| s.x).filter(|&x| (x as f64) <= sx).max().unwrap_or(0)
         })
         .unwrap_or(0);
     let (lx, ly) = (screen_x as f64 + wx, wy);
-    if let Some(p) = state
-        .host
-        .touch_positions
-        .iter_mut()
-        .find(|(tid, _, _)| *tid == id)
-    {
+    if let Some(p) = state.host.touch_positions.iter_mut().find(|(tid, _, _)| *tid == id) {
         p.1 = lx;
         p.2 = ly;
     }
@@ -308,11 +288,7 @@ pub fn touch_up(state: &mut LiviState, time: u32, id: i32) {
     if let Some(touch) = state.seat.get_touch() {
         touch.up(
             state,
-            &UpEvent {
-                slot: Some(id as u32).into(),
-                serial: SERIAL_COUNTER.next_serial(),
-                time,
-            },
+            &UpEvent { slot: Some(id as u32).into(), serial: SERIAL_COUNTER.next_serial(), time },
         );
         touch.frame(state);
     }
@@ -331,7 +307,13 @@ pub fn modifiers(state: &mut LiviState, m: smithay_client_toolkit::seat::keyboar
     state.host.alt_held = m.alt;
 }
 
-pub fn key(state: &mut LiviState, time: u32, raw_code: u32, pressed: bool, keysym: smithay_client_toolkit::seat::keyboard::Keysym) {
+pub fn key(
+    state: &mut LiviState,
+    time: u32,
+    raw_code: u32,
+    pressed: bool,
+    keysym: smithay_client_toolkit::seat::keyboard::Keysym,
+) {
     // Alt keybindings: Esc quits, F11 toggles main fullscreen.
     if pressed && state.host.alt_held {
         match keysym {
@@ -352,11 +334,7 @@ pub fn key(state: &mut LiviState, time: u32, raw_code: u32, pressed: bool, keysy
         keyboard.input::<(), _>(
             state,
             (raw_code + 8).into(),
-            if pressed {
-                KeyState::Pressed
-            } else {
-                KeyState::Released
-            },
+            if pressed { KeyState::Pressed } else { KeyState::Released },
             SERIAL_COUNTER.next_serial(),
             time,
             |_, _, _| FilterResult::Forward,

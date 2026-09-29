@@ -67,10 +67,8 @@ mod linux {
                 return;
             }
         };
-        let _ = std::fs::set_permissions(
-            MIC_SOCK,
-            std::os::unix::fs::PermissionsExt::from_mode(0o666),
-        );
+        let _ =
+            std::fs::set_permissions(MIC_SOCK, std::os::unix::fs::PermissionsExt::from_mode(0o666));
         mic.set_nonblocking(true).ok();
 
         let listen = match sco_listen() {
@@ -153,7 +151,8 @@ mod linux {
                 downlink = open_downlink(t);
             }
             if let Some(d) = downlink.as_mut() {
-                let record = feedproto::encode(feedproto::KIND_AUDIO, d.target.1, now_ns(), &down[..n]);
+                let record =
+                    feedproto::encode(feedproto::KIND_AUDIO, d.target.1, now_ns(), &down[..n]);
                 if d.sock.write_all(&record).is_err() {
                     eprintln!("[sco] feed gone");
                     downlink = None;
@@ -189,9 +188,8 @@ mod linux {
                 *byte = pending.pop_front().unwrap_or(0);
             }
             // A controller that takes no more audio must not hold up the caller's side.
-            let _ = unsafe {
-                libc::send(sco.as_raw_fd(), up.as_ptr().cast(), n, libc::MSG_DONTWAIT)
-            };
+            let _ =
+                unsafe { libc::send(sco.as_raw_fd(), up.as_ptr().cast(), n, libc::MSG_DONTWAIT) };
         }
     }
 
@@ -229,7 +227,8 @@ mod linux {
     }
 
     fn sco_accept(listen: &OwnedFd) -> std::io::Result<(OwnedFd, u16)> {
-        let raw = unsafe { libc::accept(listen.as_raw_fd(), std::ptr::null_mut(), std::ptr::null_mut()) };
+        let raw =
+            unsafe { libc::accept(listen.as_raw_fd(), std::ptr::null_mut(), std::ptr::null_mut()) };
         if raw < 0 {
             return Err(std::io::Error::last_os_error());
         }

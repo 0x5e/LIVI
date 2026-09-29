@@ -2,7 +2,7 @@ use std::process::ExitCode;
 
 #[cfg(target_os = "linux")]
 fn run() -> Result<(), Box<dyn std::error::Error>> {
-    use iap2_usbmux::{find_iphones, MuxRegistry};
+    use iap2_usbmux::{MuxRegistry, find_iphones};
 
     let keep = std::env::args().any(|a| a == "--keep");
 
@@ -76,19 +76,25 @@ fn probe_carkit(registry: &iap2_usbmux::MuxRegistry) {
                 let tag = serial[..8.min(serial.len())].to_string();
                 match pair_record_path(&serial) {
                     Some(p) => println!("[muxd-probe] {tag}: pair record {}", p.display()),
-                    None => println!("[muxd-probe] {tag}: no pair record yet — will pair (confirm on phone)"),
+                    None => println!(
+                        "[muxd-probe] {tag}: no pair record yet — will pair (confirm on phone)"
+                    ),
                 }
                 match open_carkit(&dev).await {
                     Ok(mut ch) => {
                         println!("[muxd-probe] {tag}: carkit TLS channel up (iAP2)");
-                        match tokio::time::timeout(std::time::Duration::from_secs(5), ch.recv(64)).await {
+                        match tokio::time::timeout(std::time::Duration::from_secs(5), ch.recv(64))
+                            .await
+                        {
                             Ok(Ok(data)) => println!(
                                 "[muxd-probe] {tag}: first iAP2 bytes ({}) {:02x?}",
                                 data.len(),
                                 &data[..data.len().min(8)]
                             ),
                             Ok(Err(e)) => println!("[muxd-probe] {tag}: carkit read failed: {e}"),
-                            Err(_) => println!("[muxd-probe] {tag}: no iAP2 bytes yet (phone waits for us)"),
+                            Err(_) => println!(
+                                "[muxd-probe] {tag}: no iAP2 bytes yet (phone waits for us)"
+                            ),
                         }
                     }
                     Err(e) => println!("[muxd-probe] {tag}: carkit failed: {e}"),
@@ -127,17 +133,18 @@ fn query_lockdown(dev: &iap2_usbmux::MuxDevice) -> Result<(usize, String), Strin
                     expect = Some(u32::from_be_bytes(buf[0..4].try_into().unwrap()) as usize);
                 }
                 if let Some(n) = expect
-                    && buf.len() >= 4 + n {
-                        let text = String::from_utf8_lossy(&buf[4..4 + n]);
-                        let typ = text
-                            .split("<string>")
-                            .nth(1)
-                            .and_then(|s| s.split("</string>").next())
-                            .unwrap_or("?")
-                            .to_string();
-                        conn.close();
-                        return Ok((n, typ));
-                    }
+                    && buf.len() >= 4 + n
+                {
+                    let text = String::from_utf8_lossy(&buf[4..4 + n]);
+                    let typ = text
+                        .split("<string>")
+                        .nth(1)
+                        .and_then(|s| s.split("</string>").next())
+                        .unwrap_or("?")
+                        .to_string();
+                    conn.close();
+                    return Ok((n, typ));
+                }
             }
             Some(_) => {
                 conn.close();

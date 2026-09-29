@@ -7,7 +7,7 @@ use gstreamer as gst;
 use gstreamer_app as gst_app;
 
 use gst::prelude::*;
-use livi_audio_uplink::{seal_packet, to_wire_pcm, Counters, UplinkCodec, RTP_HEADER_LEN};
+use livi_audio_uplink::{Counters, RTP_HEADER_LEN, UplinkCodec, seal_packet, to_wire_pcm};
 use std::net::UdpSocket;
 use std::sync::Mutex;
 
@@ -309,8 +309,7 @@ mod tests {
     use livi_audio_uplink::UplinkCodec;
 
     // A real macOS unique-id built from a class-compliant USB descriptor.
-    const NASTY: &str =
-        "AppleUSBAudioEngine:Unknown Manufacturer:USB PnP Audio Device:131200:1";
+    const NASTY: &str = "AppleUSBAudioEngine:Unknown Manufacturer:USB PnP Audio Device:131200:1";
 
     fn cfg(codec: UplinkCodec, device: Option<String>) -> UplinkConfig {
         UplinkConfig {

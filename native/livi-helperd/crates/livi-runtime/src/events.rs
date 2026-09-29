@@ -1,11 +1,11 @@
 // Turns the phone's telemetry messages into the JSON event lines the LIVI UI consumes.
 
+use iap2_csm::CsmMessage;
 use iap2_csm::messages::communications::CallStateUpdate;
 use iap2_csm::messages::communications::CommunicationsUpdate;
 use iap2_csm::messages::now_playing::{NowPlayingUpdate, PlaybackStatus};
 use iap2_csm::messages::power::PowerUpdate;
 use iap2_csm::messages::route_guidance::{RouteGuidanceManeuverUpdate, RouteGuidanceUpdate};
-use iap2_csm::CsmMessage;
 
 use crate::framing::frame_msg_id;
 
@@ -107,7 +107,9 @@ impl EventTag {
                 if let Some(d) = m.distance_to_maneuver {
                     o.num("remainDistance", d);
                 }
-                if let Some(turn) = self.navigation.current.and_then(|i| self.navigation.maneuvers.get(&i)) {
+                if let Some(turn) =
+                    self.navigation.current.and_then(|i| self.navigation.maneuvers.get(&i))
+                {
                     maneuver_fields(&mut o, turn);
                 }
                 o.finish()
@@ -186,11 +188,7 @@ impl Obj {
         self.parts.push(format!("\"{key}\":{value}"));
     }
     fn finish(self) -> Option<String> {
-        if self.parts.len() <= 1 {
-            None
-        } else {
-            Some(format!("{{{}}}", self.parts.join(",")))
-        }
+        if self.parts.len() <= 1 { None } else { Some(format!("{{{}}}", self.parts.join(","))) }
     }
 }
 
@@ -370,7 +368,10 @@ mod tests {
             ..turn.clone()
         };
         let json = tag.navigation_json(&more.encode()).unwrap();
-        assert!(json.contains("\"junctionType\":3") && json.contains("\"maneuverType\":4"), "{json}");
+        assert!(
+            json.contains("\"junctionType\":3") && json.contains("\"maneuverType\":4"),
+            "{json}"
+        );
     }
     use iap2_csm::messages::now_playing::{MediaItemAttributes, PlaybackAttributes};
 

@@ -3,7 +3,7 @@
 //! Exports `seal`/`open`, loaded in-process via `require('livi-crypto')`.
 //! The AEAD comes from aws-lc-rs (assembly ChaCha20/Poly1305, NEON on aarch64).
 
-use aws_lc_rs::aead::{Aad, LessSafeKey, Nonce, UnboundKey, CHACHA20_POLY1305};
+use aws_lc_rs::aead::{Aad, CHACHA20_POLY1305, LessSafeKey, Nonce, UnboundKey};
 #[cfg(feature = "node")]
 use napi::bindgen_prelude::Buffer;
 #[cfg(feature = "node")]
@@ -69,10 +69,7 @@ mod tests {
     use super::*;
 
     fn hex(s: &str) -> Vec<u8> {
-        (0..s.len())
-            .step_by(2)
-            .map(|i| u8::from_str_radix(&s[i..i + 2], 16).unwrap())
-            .collect()
+        (0..s.len()).step_by(2).map(|i| u8::from_str_radix(&s[i..i + 2], 16).unwrap()).collect()
     }
 
     // RFC 8439 §2.8.2 AEAD test vector.

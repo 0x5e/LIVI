@@ -47,17 +47,11 @@ pub fn attach(
 /// Runs the tunnel until the dongle or the local stack lets go, saying whether an adapter existed.
 pub fn tunnel(on_adapter: &(impl Fn(u16) + Sync)) -> Result<bool, String> {
     let stream = TcpStream::connect(link::addr(PORT)).map_err(|e| format!("dongle: {e}"))?;
-    stream
-        .set_nodelay(true)
-        .map_err(|e| format!("nodelay: {e}"))?;
+    stream.set_nodelay(true).map_err(|e| format!("nodelay: {e}"))?;
     notice_loss(&stream);
-    let mut dev = OpenOptions::new()
-        .read(true)
-        .write(true)
-        .open(VHCI)
-        .map_err(|e| format!("{VHCI}: {e}"))?;
-    dev.write_all(&CREATE_PRIMARY)
-        .map_err(|e| format!("{VHCI}: no adapter: {e}"))?;
+    let mut dev =
+        OpenOptions::new().read(true).write(true).open(VHCI).map_err(|e| format!("{VHCI}: {e}"))?;
+    dev.write_all(&CREATE_PRIMARY).map_err(|e| format!("{VHCI}: no adapter: {e}"))?;
     let made = AtomicBool::new(false);
     pump(dev, stream, &|index| {
         made.store(true, Ordering::Relaxed);
@@ -248,11 +242,7 @@ fn fit_to_vhci(pkt: &mut [u8]) -> Option<Vec<u8>> {
 
 /// Whether the descriptor has something to read, waiting at most `ms`.
 fn readable(fd: RawFd, ms: i32) -> bool {
-    let mut p = libc::pollfd {
-        fd,
-        events: libc::POLLIN,
-        revents: 0,
-    };
+    let mut p = libc::pollfd { fd, events: libc::POLLIN, revents: 0 };
     unsafe { libc::poll(&raw mut p, 1, ms) > 0 }
 }
 

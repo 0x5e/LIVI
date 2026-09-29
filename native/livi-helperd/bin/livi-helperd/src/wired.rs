@@ -228,10 +228,9 @@ pub async fn watch_usbmuxd(
                         );
                         run_wired_session(device.udid.clone(), stream, ncm, ctx, cancel).await;
                     }
-                    Err(e) => eprintln!(
-                        "[wired] {}: usbmuxd carkit failed: {e}",
-                        short(&device.udid)
-                    ),
+                    Err(e) => {
+                        eprintln!("[wired] {}: usbmuxd carkit failed: {e}", short(&device.udid))
+                    }
                 }
             });
         }
@@ -260,18 +259,11 @@ async fn run_wired_session<S>(
     S: tokio::io::AsyncRead + tokio::io::AsyncWrite + Unpin + Send + 'static,
 {
     let cp = match ncm.ifname() {
-        Some(name) => CpConfig {
-            av_iface: Some(name.to_string()),
-            ..ctx.cp
-        },
+        Some(name) => CpConfig { av_iface: Some(name.to_string()), ..ctx.cp },
         None => ctx.cp,
     };
-    let link = LinkConfig {
-        max_outgoing: 4,
-        control_version: 2,
-        zero_ack: true,
-        ..LinkConfig::default()
-    };
+    let link =
+        LinkConfig { max_outgoing: 4, control_version: 2, zero_ack: true, ..LinkConfig::default() };
     let (ch, art_rx) = spawn_link_stream(stream, link, true);
     let (tx, rx) = tokio::sync::mpsc::channel(64);
     let ident: SharedTag = Default::default();

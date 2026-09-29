@@ -393,10 +393,7 @@ impl LinkEngine {
     }
 
     pub fn send(&mut self, session_id: u8, data: Vec<u8>, now: u64) {
-        self.send_packet(
-            Packet { psn: 0, session_id, data, counter: 0, timeout: 0 },
-            now,
-        );
+        self.send_packet(Packet { psn: 0, session_id, data, counter: 0, timeout: 0 }, now);
     }
 
     pub fn send_ea(&mut self, stream_id: u16, data: &[u8], now: u64) {
@@ -511,22 +508,24 @@ impl LinkEngine {
             self.handle_ack(header.ack, now);
         }
         if header.control & CONTROL_EAK != 0
-            && let Some(p) = &payload {
-                self.handle_eak(p.clone());
-            }
+            && let Some(p) = &payload
+        {
+            self.handle_eak(p.clone());
+        }
         if header.control & !CONTROL_ACK == 0
-            && let Some(data) = payload {
-                self.handle_data(
-                    Packet {
-                        psn: header.seq,
-                        session_id: header.session_id,
-                        data,
-                        counter: 0,
-                        timeout: 0,
-                    },
-                    now,
-                );
-            }
+            && let Some(data) = payload
+        {
+            self.handle_data(
+                Packet {
+                    psn: header.seq,
+                    session_id: header.session_id,
+                    data,
+                    counter: 0,
+                    timeout: 0,
+                },
+                now,
+            );
+        }
         if self.lsp.max_ack > 0 && self.cumulative_received >= self.lsp.max_ack as u32 {
             self.cumulative_received = 0;
             self.last_acked_psn = Some(self.last_received_in_sequence_psn);

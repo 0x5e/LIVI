@@ -46,11 +46,7 @@ pub fn detect_codec(payload: &[u8]) -> (CpCodec, usize) {
             _ => i += 1,
         }
     }
-    if looks_like_avcc(payload) {
-        (CpCodec::H264, 0)
-    } else {
-        (CpCodec::H265, 0)
-    }
+    if looks_like_avcc(payload) { (CpCodec::H264, 0) } else { (CpCodec::H265, 0) }
 }
 
 fn classify_byte(header_byte: u8, codec: CpCodec) -> CpNalKind {

@@ -9,14 +9,17 @@ use nusb::{DeviceInfo, MaybeFuture};
 use std::process::ExitCode;
 
 fn main() -> ExitCode {
-    let vid = std::env::args().nth(1).and_then(|a| u16::from_str_radix(a.trim_start_matches("0x"), 16).ok());
+    let vid = std::env::args()
+        .nth(1)
+        .and_then(|a| u16::from_str_radix(a.trim_start_matches("0x"), 16).ok());
     let claim = std::env::args().any(|a| a == "--claim");
 
     let Ok(list) = nusb::list_devices().wait() else {
         eprintln!("[usb-probe] list_devices failed");
         return ExitCode::FAILURE;
     };
-    let devices: Vec<DeviceInfo> = list.filter(|d| vid.is_none_or(|v| d.vendor_id() == v)).collect();
+    let devices: Vec<DeviceInfo> =
+        list.filter(|d| vid.is_none_or(|v| d.vendor_id() == v)).collect();
     if devices.is_empty() {
         eprintln!("[usb-probe] no matching device");
         return ExitCode::FAILURE;
@@ -37,7 +40,8 @@ fn main() -> ExitCode {
             continue;
         };
         let Ok(cfg) = device.active_configuration() else { continue };
-        let mut ifaces: Vec<u8> = cfg.interface_alt_settings().map(|d| d.interface_number()).collect();
+        let mut ifaces: Vec<u8> =
+            cfg.interface_alt_settings().map(|d| d.interface_number()).collect();
         ifaces.sort_unstable();
         ifaces.dedup();
         let active = cfg.configuration_value();

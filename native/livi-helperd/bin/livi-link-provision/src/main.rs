@@ -78,15 +78,15 @@ fn run_imx6ul(args: &[String]) -> Result<bool, String> {
             })
         }
         "push" => match &args[1..] {
-            [local, remote] => std::fs::read(local)
-                .map_err(|e| format!("{local}: {e}"))
-                .and_then(|data| {
+            [local, remote] => {
+                std::fs::read(local).map_err(|e| format!("{local}: {e}")).and_then(|data| {
                     let md5 = shell::md5_hex(&data);
                     sh.push(&data, remote, shell::PUSH_PORT, &md5).map(|()| {
                         println!("pushed {} bytes to {remote} ({md5})", data.len());
                         true
                     })
-                }),
+                })
+            }
             _ => Err("usage: push <local> <remote>".to_string()),
         },
         "kernel" => match &args[1..] {
@@ -120,8 +120,14 @@ fn run_imx6ul(args: &[String]) -> Result<bool, String> {
                 let data = std::fs::read(lfwb).map_err(|e| format!("{lfwb}: {e}"))?;
                 if rest.is_empty() {
                     let bundle = boot::read_bundle(&data)?;
-                    let size = |i: &Option<Vec<u8>>| i.as_ref().map_or("none".into(), |d| format!("{} B", d.len()));
-                    println!("== bundle: kernel {}, rootfs {}", size(&bundle.kernel), size(&bundle.rootfs));
+                    let size = |i: &Option<Vec<u8>>| {
+                        i.as_ref().map_or("none".into(), |d| format!("{} B", d.len()))
+                    };
+                    println!(
+                        "== bundle: kernel {}, rootfs {}",
+                        size(&bundle.kernel),
+                        size(&bundle.rootfs)
+                    );
                     println!("== the dongle runs: {:?}", imx6ul::running(&sh)?);
                     if let Some(kernel) = &bundle.kernel {
                         boot::prepare(&sh, kernel, &backup_dir(), &report)?;
@@ -158,10 +164,7 @@ fn run_ax520(args: &[String]) -> Result<bool, String> {
         Some("install-shell") => stock_install_shell(Some(ax520::PROJECT)),
         Some("verify-hw") => ax520_verify(),
         Some("selftest") => {
-            let n = args
-                .get(1)
-                .and_then(|s| s.parse::<usize>().ok())
-                .unwrap_or(3_211_264);
+            let n = args.get(1).and_then(|s| s.parse::<usize>().ok()).unwrap_or(3_211_264);
             ax520_selftest(n)
         }
         Some("backup") => {
@@ -187,10 +190,7 @@ fn run_v821b(args: &[String]) -> Result<bool, String> {
         Some("install-shell") => stock_install_shell(Some(v821b::PROJECT)),
         Some("verify-hw") => v821b_verify(),
         Some("selftest") => {
-            let n = args
-                .get(1)
-                .and_then(|s| s.parse::<usize>().ok())
-                .unwrap_or(3_211_264);
+            let n = args.get(1).and_then(|s| s.parse::<usize>().ok()).unwrap_or(3_211_264);
             v821b_selftest(n)
         }
         Some("backup") => {
@@ -225,7 +225,7 @@ enum Found {
 /// Probes USB and the network at the same time. The first hit wins.
 fn wait_for_dongle() -> Found {
     use std::sync::atomic::{AtomicBool, Ordering};
-    use std::sync::{mpsc, Arc};
+    use std::sync::{Arc, mpsc};
 
     let stop = Arc::new(AtomicBool::new(false));
     let (tx, rx) = mpsc::channel();
@@ -293,10 +293,14 @@ fn menu() -> std::process::ExitCode {
                 None if livi_link_provision::dongle::shell::is_up() => {
                     println!("  1  look at this dongle's hardware (no LIVI Link image for it yet)");
                 }
-                None => println!("  1  open this dongle (patches the vendor's update for it, then looks at what it is)"),
+                None => println!(
+                    "  1  open this dongle (patches the vendor's update for it, then looks at what it is)"
+                ),
             },
             Detected::LiviLink { target, .. } if target == link::EARLIER_IMX6UL_TARGET => {
-                println!("  1  move to the current LIVI Link firmware (backup current firmware first)");
+                println!(
+                    "  1  move to the current LIVI Link firmware (backup current firmware first)"
+                );
             }
             Detected::LiviLink { .. } => {
                 println!("  1  update LIVI Link");
@@ -388,7 +392,10 @@ fn imx6ul_provision(lfwb: Option<&Path>) -> Result<(), String> {
     }
     imx6ul::install(&sh, &bundle, &backup_dir(), &report)?;
     let now = wait_for_livi_link(&host)?;
-    println!("\n== done, the dongle runs LIVI Link {} ({}) and is safe to unplug", now.version, now.build);
+    println!(
+        "\n== done, the dongle runs LIVI Link {} ({}) and is safe to unplug",
+        now.version, now.build
+    );
     Ok(())
 }
 
@@ -399,16 +406,26 @@ fn update_livi_link() -> Result<(), String> {
     let before = link::status(&host).ok_or("the dongle does not answer as LIVI Link")?;
     let bundle = link::bundle(&before.target)
         .ok_or_else(|| format!("this tool carries no firmware for {}", before.target))?;
-    println!("== {} runs {} ({}), uploading {} bytes", before.model, before.version, before.build, bundle.len());
+    println!(
+        "== {} runs {} ({}), uploading {} bytes",
+        before.model,
+        before.version,
+        before.build,
+        bundle.len()
+    );
     let done = match link::update(&host, bundle) {
         Ok(done) => done,
         Err(e) => {
             let typ = link::refused(&e).ok_or(e)?;
             if before.target == "imx6ul_iw416" {
-                println!("== the firmware on the dongle does not take this bundle yet, installing it from the rescue system");
+                println!(
+                    "== the firmware on the dongle does not take this bundle yet, installing it from the rescue system"
+                );
                 return imx6ul_provision(None);
             }
-            println!("== the firmware on the dongle does not take image type {typ} yet, the rest of the bundle brings one that does");
+            println!(
+                "== the firmware on the dongle does not take image type {typ} yet, the rest of the bundle brings one that does"
+            );
             let first = link::update(&host, &link::without(bundle, typ)?)?;
             println!("== {first}");
             if first.contains("rebooting") {
@@ -617,7 +634,9 @@ fn v821b_provision(lfwb: Option<&PathBuf>) -> Result<(), String> {
     let mut sh = livi_link_provision::dongle::shell::BindShell::connect(300)?;
     let hw = livi_link_provision::dongle::riscv::v821b::verify_hardware(&mut sh)?;
     if !hw.looks_like_v821b_aic8800d80() {
-        return Err("hardware verify failed — not touching mtd. bind-shell stays open for you.".into());
+        return Err(
+            "hardware verify failed — not touching mtd. bind-shell stays open for you.".into()
+        );
     }
     println!("hw: V821B+AIC8800D80 ✓  → backup + flash");
     let dir = backup_dir();
@@ -665,7 +684,9 @@ fn ax520_provision(lfwb: Option<&PathBuf>) -> Result<(), String> {
     let mut sh = livi_link_provision::dongle::shell::BindShell::connect(300)?;
     let hw = ax520::verify_hardware(&mut sh)?;
     if !hw.looks_like_ax520_aic8800d80() {
-        return Err("hardware verify failed — not touching mtd. bind-shell stays open for you.".into());
+        return Err(
+            "hardware verify failed — not touching mtd. bind-shell stays open for you.".into()
+        );
     }
     println!("hw: AX520+AIC8800D80 ✓  → backup + flash");
     let dir = backup_dir();

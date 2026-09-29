@@ -2,8 +2,8 @@ use std::collections::{HashMap, HashSet};
 use std::sync::{Arc, Mutex};
 
 use crate::livi_sock::SharedTag;
-use tokio::sync::Notify;
 use crate::vehicle::{Vehicle, VehicleFeed};
+use tokio::sync::Notify;
 
 /// Shared helper state: reconnect targets, the tags of the carkit iAP2 sessions, and the
 /// phones an iAP2 link is running with. Targets stay in the order LIVI sent them: most

@@ -30,8 +30,7 @@ pub fn host() -> Result<HostInfo, String> {
         .timeout(Duration::from_secs(5))
         .call()
         .map_err(|e| format!("id=host: {e}"))?;
-    resp.into_json::<HostInfo>()
-        .map_err(|e| format!("id=host JSON: {e}"))
+    resp.into_json::<HostInfo>().map_err(|e| format!("id=host JSON: {e}"))
 }
 
 pub fn upload(image: &[u8]) -> Result<(), String> {
@@ -47,10 +46,7 @@ pub fn upload(image: &[u8]) -> Result<(), String> {
     body.extend_from_slice(format!("\r\n--{boundary}--\r\n").as_bytes());
 
     let resp = ureq::post(&url)
-        .set(
-            "Content-Type",
-            &format!("multipart/form-data; boundary={boundary}"),
-        )
+        .set("Content-Type", &format!("multipart/form-data; boundary={boundary}"))
         .timeout(Duration::from_secs(60))
         .send_bytes(&body)
         .map_err(|e| format!("id=upload: {e}"))?;
@@ -75,9 +71,7 @@ pub fn wait_for_update_complete(deadline_secs: u64) -> Result<(), String> {
             }
         }
         if start.elapsed() > deadline {
-            return Err(format!(
-                "update did not reach state 3 within {deadline_secs}s"
-            ));
+            return Err(format!("update did not reach state 3 within {deadline_secs}s"));
         }
     }
 }

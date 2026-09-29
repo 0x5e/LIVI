@@ -22,7 +22,10 @@ pub fn stage_kernel(zimage: &[u8], kernel: &[u8]) -> Result<Vec<u8>, String> {
 /// a planned one or not, comes up with the new kernel.
 pub fn erase_env() -> Result<(), String> {
     let env = mtd("env")?;
-    let erased = Command::new("/usr/sbin/flash_eraseall").args(["-q", &env]).status().is_ok_and(|s| s.success())
+    let erased = Command::new("/usr/sbin/flash_eraseall")
+        .args(["-q", &env])
+        .status()
+        .is_ok_and(|s| s.success())
         && fs::read(&env).is_ok_and(|b| !b.is_empty() && b.iter().all(|&x| x == 0xff));
     if erased { Ok(()) } else { Err(format!("could not erase the environment block {env}")) }
 }
@@ -38,7 +41,8 @@ fn mtd(name: &str) -> Result<String, String> {
             if n.is_empty() || !n.bytes().all(|b| b.is_ascii_digit()) {
                 return None;
             }
-            (fs::read_to_string(e.path().join("name")).ok()?.trim() == name).then(|| format!("/dev/{dev}"))
+            (fs::read_to_string(e.path().join("name")).ok()?.trim() == name)
+                .then(|| format!("/dev/{dev}"))
         })
         .ok_or_else(|| format!("no {name} partition"))
 }

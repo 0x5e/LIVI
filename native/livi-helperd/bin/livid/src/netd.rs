@@ -36,10 +36,8 @@ const MSG_ACK: u8 = 5;
 fn livid_main() -> ExitCode {
     let args: Vec<String> = env::args().collect();
     let iface = args.get(1).cloned().unwrap_or_else(|| "usb0".into());
-    let server_ip: Ipv4Addr = args
-        .get(2)
-        .and_then(|s| s.parse().ok())
-        .unwrap_or(Ipv4Addr::new(10, 10, 10, 1));
+    let server_ip: Ipv4Addr =
+        args.get(2).and_then(|s| s.parse().ok()).unwrap_or(Ipv4Addr::new(10, 10, 10, 1));
     let pool_start: u8 = args.get(3).and_then(|s| s.parse().ok()).unwrap_or(100);
     let pool_end: u8 = args.get(4).and_then(|s| s.parse().ok()).unwrap_or(149);
     let hostname: String = args.get(5).cloned().unwrap_or_else(|| "livi-link".into());
@@ -75,23 +73,14 @@ struct Leases {
 }
 impl Leases {
     fn new(pool_start: u8, pool_end: u8) -> Self {
-        Self {
-            entries: Vec::new(),
-            next: pool_start,
-            pool_start,
-            pool_end,
-        }
+        Self { entries: Vec::new(), next: pool_start, pool_start, pool_end }
     }
     fn assign(&mut self, mac: [u8; 6]) -> u8 {
         if let Some(&(_, ip)) = self.entries.iter().find(|(m, _)| *m == mac) {
             return ip;
         }
         let ip = self.next;
-        self.next = if self.next >= self.pool_end {
-            self.pool_start
-        } else {
-            self.next + 1
-        };
+        self.next = if self.next >= self.pool_end { self.pool_start } else { self.next + 1 };
         self.entries.push((mac, ip));
         ip
     }
@@ -201,11 +190,7 @@ fn dhcp_server(iface: &str, server_ip: Ipv4Addr, pool_start: u8, pool_end: u8) -
             };
             let so = server_ip.octets();
             let yiaddr = Ipv4Addr::new(so[0], so[1], so[2], last_octet);
-            let reply_type = if msgtype == MSG_DISCOVER {
-                MSG_OFFER
-            } else {
-                MSG_ACK
-            };
+            let reply_type = if msgtype == MSG_DISCOVER { MSG_OFFER } else { MSG_ACK };
 
             let out = build_reply(xid, flags, chaddr, yiaddr, server_ip, reply_type);
             let label = if reply_type == MSG_OFFER { "OFFER" } else { "ACK" };

@@ -107,9 +107,8 @@ async fn send(path: &str, content: &[u8]) -> Result<(), String> {
     let dev = info.open().await.map_err(|e| format!("open dongle: {e}"))?;
     // Without those endpoints the dongle is not in the mode it boots into, so a fresh start is
     // what brings it back.
-    let pipe = open_pipe(&dev)
-        .await
-        .map_err(|e| format!("{e}, unplug the dongle and plug it back in"))?;
+    let pipe =
+        open_pipe(&dev).await.map_err(|e| format!("{e}, unplug the dongle and plug it back in"))?;
     let mut stream = UsbStream::new(pipe);
 
     stream

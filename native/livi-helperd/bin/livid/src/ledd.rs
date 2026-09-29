@@ -2,7 +2,10 @@
 pub fn run(_args: Vec<String>) -> i32 {
     match livid_main() {
         Ok(()) => 0,
-        Err(e) => { eprintln!("[livi-ledd] {e}"); 1 }
+        Err(e) => {
+            eprintln!("[livi-ledd] {e}");
+            1
+        }
     }
 }
 
@@ -84,35 +87,43 @@ struct Config {
 impl Default for Config {
     fn default() -> Self {
         // Matches the "● online" accent (--acc: #4dd0e1) in the web UI.
-        Self {
-            status: Rgb(0x4d, 0xd0, 0xe1),
-            brightness_pct: 20,
-            wb: Rgb(255, 190, 130),
-        }
+        Self { status: Rgb(0x4d, 0xd0, 0xe1), brightness_pct: 20, wb: Rgb(255, 190, 130) }
     }
 }
 
 impl Config {
     fn load() -> Self {
-        let Ok(s) = fs::read_to_string(CONFIG_PATH) else { return Self::default(); };
+        let Ok(s) = fs::read_to_string(CONFIG_PATH) else {
+            return Self::default();
+        };
         let mut cfg = Self::default();
         for line in s.lines() {
             let line = line.trim();
             // Only whole-line comments — a `#` mid-value belongs to the value
             // (e.g. status_color = "#00ff00" — else we'd chop the colour).
-            if line.is_empty() || line.starts_with('#') { continue; }
-            let Some((k, v)) = line.split_once('=') else { continue; };
+            if line.is_empty() || line.starts_with('#') {
+                continue;
+            }
+            let Some((k, v)) = line.split_once('=') else {
+                continue;
+            };
             let k = k.trim();
             let v = v.trim().trim_matches('"');
             match k {
                 "status_color" => {
-                    if let Some(rgb) = parse_rgb(v) { cfg.status = rgb; }
+                    if let Some(rgb) = parse_rgb(v) {
+                        cfg.status = rgb;
+                    }
                 }
                 "brightness" => {
-                    if let Ok(n) = v.parse::<u8>() { cfg.brightness_pct = n.min(100); }
+                    if let Ok(n) = v.parse::<u8>() {
+                        cfg.brightness_pct = n.min(100);
+                    }
                 }
                 "white_balance" => {
-                    if let Some(rgb) = parse_rgb(v) { cfg.wb = rgb; }
+                    if let Some(rgb) = parse_rgb(v) {
+                        cfg.wb = rgb;
+                    }
                 }
                 _ => {}
             }
@@ -124,14 +135,18 @@ impl Config {
 fn parse_rgb(s: &str) -> Option<Rgb> {
     // Accept "r,g,b" or "#rrggbb"
     if let Some(hex) = s.strip_prefix('#') {
-        if hex.len() != 6 { return None; }
+        if hex.len() != 6 {
+            return None;
+        }
         let r = u8::from_str_radix(&hex[0..2], 16).ok()?;
         let g = u8::from_str_radix(&hex[2..4], 16).ok()?;
         let b = u8::from_str_radix(&hex[4..6], 16).ok()?;
         return Some(Rgb(r, g, b));
     }
     let parts: Vec<_> = s.split(',').map(|p| p.trim()).collect();
-    if parts.len() != 3 { return None; }
+    if parts.len() != 3 {
+        return None;
+    }
     Some(Rgb(parts[0].parse().ok()?, parts[1].parse().ok()?, parts[2].parse().ok()?))
 }
 
@@ -156,14 +171,14 @@ struct State {
 impl State {
     fn read() -> Self {
         Self {
-            client:       wifi_client(),
-            bt_paging:    exists("bt-paging"),
+            client: wifi_client(),
+            bt_paging: exists("bt-paging"),
             bt_connected: exists("bt-connected"),
-            iap2_active:  exists("iap2-active"),
-            flash_mode:   exists("flash-mode"),
-            flash_done:   exists("flash-done"),
-            flash_error:  exists("flash-error"),
-            wbtest:       exists("wbtest"),
+            iap2_active: exists("iap2-active"),
+            flash_mode: exists("flash-mode"),
+            flash_done: exists("flash-done"),
+            flash_error: exists("flash-error"),
+            wbtest: exists("wbtest"),
         }
     }
 }
@@ -186,10 +201,7 @@ fn wifi_client() -> bool {
         return false;
     };
     // 16-byte entries: mac[6], port_no @6, is_local @7. A non-local mac on wlan0's port = a station.
-    fdb.as_chunks::<16>()
-        .0
-        .iter()
-        .any(|e| e[6] == port_no && e[7] == 0)
+    fdb.as_chunks::<16>().0.iter().any(|e| e[6] == port_no && e[7] == 0)
 }
 
 // ---------------------------------------------------------------------------
@@ -206,7 +218,9 @@ const BLUE: Rgb = Rgb(0, 0, 255);
 const WHITE: Rgb = Rgb(255, 255, 255);
 
 fn render(state: &State, cfg: &Config, tick: u64) -> Rgb {
-    if cfg.brightness_pct == 0 { return OFF; }
+    if cfg.brightness_pct == 0 {
+        return OFF;
+    }
 
     // WB test: full white, so brightness + white-balance are the only things shaping it.
     if state.wbtest {
@@ -310,16 +324,19 @@ fn encode_byte(b: u8, out: &mut [u8; 4]) {
     }
     out[0] = ((acc >> 24) & 0xff) as u8;
     out[1] = ((acc >> 16) & 0xff) as u8;
-    out[2] = ((acc >>  8) & 0xff) as u8;
-    out[3] = ( acc        & 0xff) as u8;
+    out[2] = ((acc >> 8) & 0xff) as u8;
+    out[3] = (acc & 0xff) as u8;
 }
 
 /// Encode one pixel (GRB) into 12 SPI bytes. WS2812B native byte order.
 fn encode_pixel(c: Rgb, out: &mut [u8; 12]) {
     let mut tmp = [0u8; 4];
-    encode_byte(c.1, &mut tmp); out[0..4].copy_from_slice(&tmp);  // G
-    encode_byte(c.0, &mut tmp); out[4..8].copy_from_slice(&tmp);  // R
-    encode_byte(c.2, &mut tmp); out[8..12].copy_from_slice(&tmp); // B
+    encode_byte(c.1, &mut tmp);
+    out[0..4].copy_from_slice(&tmp); // G
+    encode_byte(c.0, &mut tmp);
+    out[4..8].copy_from_slice(&tmp); // R
+    encode_byte(c.2, &mut tmp);
+    out[8..12].copy_from_slice(&tmp); // B
 }
 
 fn led_count() -> usize {
@@ -449,7 +466,7 @@ fn livid_main() -> std::io::Result<()> {
     let _ = fs::write(PID_PATH, format!("{}\n", std::process::id()));
 
     unsafe {
-        libc::signal(libc::SIGHUP,  on_sighup as *const () as libc::sighandler_t);
+        libc::signal(libc::SIGHUP, on_sighup as *const () as libc::sighandler_t);
         libc::signal(libc::SIGPIPE, libc::SIG_IGN);
     }
 
@@ -503,18 +520,26 @@ mod tests {
         let waiting = over_a_second(State::default(), |p| p.0);
         assert!(waiting.contains(&true) && waiting.contains(&false));
         assert_eq!(pair(State { client: true, ..Default::default() }, 13), (true, false));
-        assert_eq!(pair(State { client: true, bt_connected: true, ..Default::default() }, 13), (true, true));
-        let paging = over_a_second(State { client: true, bt_paging: true, ..Default::default() }, |p| p.1);
+        assert_eq!(
+            pair(State { client: true, bt_connected: true, ..Default::default() }, 13),
+            (true, true)
+        );
+        let paging =
+            over_a_second(State { client: true, bt_paging: true, ..Default::default() }, |p| p.1);
         assert!(paging.contains(&true) && paging.contains(&false));
     }
 
     #[test]
     fn two_leds_alternate_while_flashing_and_red_stays_on_a_failed_write() {
         for t in 0..TICK_HZ {
-            let (red, blue) = pair(State { flash_mode: true, client: true, ..Default::default() }, t);
+            let (red, blue) =
+                pair(State { flash_mode: true, client: true, ..Default::default() }, t);
             assert_ne!(red, blue);
         }
-        assert_eq!(pair(State { flash_error: true, flash_mode: true, ..Default::default() }, 0), (true, false));
+        assert_eq!(
+            pair(State { flash_error: true, flash_mode: true, ..Default::default() }, 0),
+            (true, false)
+        );
     }
 
     #[test]
@@ -524,4 +549,3 @@ mod tests {
         assert_eq!(render_pair(&state, &cfg, 0), (false, false));
     }
 }
-

@@ -4,11 +4,11 @@ use std::fs;
 use std::os::fd::{AsRawFd, FromRawFd, OwnedFd, RawFd};
 use std::path::Path;
 use std::process::Command;
-use std::sync::atomic::{AtomicBool, AtomicU16, Ordering};
 use std::sync::Arc;
+use std::sync::atomic::{AtomicBool, AtomicU16, Ordering};
 use std::time::Duration;
 
-use nusb::transfer::{Bulk, Buffer, ControlIn, ControlType, In, Out, Recipient};
+use nusb::transfer::{Buffer, Bulk, ControlIn, ControlType, In, Out, Recipient};
 use nusb::{Device, Endpoint, MaybeFuture};
 
 use crate::linux::{find_iphones, open_by_address}; // NcmBridge is local-USB only
@@ -65,12 +65,7 @@ fn find_ncm_function(device: &Device) -> Option<NcmFunction> {
                 }
             }
             if ep_in != 0 && ep_out != 0 {
-                return Some(NcmFunction {
-                    control,
-                    data: desc.interface_number(),
-                    ep_in,
-                    ep_out,
-                });
+                return Some(NcmFunction { control, data: desc.interface_number(), ep_in, ep_out });
             }
         }
     }
@@ -87,9 +82,10 @@ fn kernel_ncm_iface(sysfs: &Path) -> Option<String> {
             continue;
         }
         if let Ok(dev) = e.path().join("device").canonicalize()
-            && dev.starts_with(&root) {
-                return e.file_name().into_string().ok();
-            }
+            && dev.starts_with(&root)
+        {
+            return e.file_name().into_string().ok();
+        }
     }
     None
 }
@@ -131,13 +127,33 @@ fn link_local_profile(ifname: &str) {
     let mac = mac.trim().to_uppercase();
     let name = format!("livi-carkit-{}", mac.replace(':', ""));
     if !run_cmd("nmcli", &["-g", "connection.id", "connection", "show", &name]) {
-        let added = run_cmd("nmcli", &[
-            "connection", "add", "type", "ethernet", "con-name", &name,
-            "ethernet.mac-address", &mac,
-            "ipv4.method", "disabled", "ipv6.method", "link-local", "ipv6.addr-gen-mode", "eui64",
-            "connection.autoconnect", "yes", "connection.autoconnect-priority", "999",
-        ]);
-        println!("[ncm] NetworkManager profile {name}: {}", if added { "added" } else { "not added" });
+        let added = run_cmd(
+            "nmcli",
+            &[
+                "connection",
+                "add",
+                "type",
+                "ethernet",
+                "con-name",
+                &name,
+                "ethernet.mac-address",
+                &mac,
+                "ipv4.method",
+                "disabled",
+                "ipv6.method",
+                "link-local",
+                "ipv6.addr-gen-mode",
+                "eui64",
+                "connection.autoconnect",
+                "yes",
+                "connection.autoconnect-priority",
+                "999",
+            ],
+        );
+        println!(
+            "[ncm] NetworkManager profile {name}: {}",
+            if added { "added" } else { "not added" }
+        );
     }
     run_cmd("nmcli", &["connection", "up", &name, "ifname", ifname]);
 }
@@ -167,10 +183,7 @@ impl NcmBridge {
             .wait()
             .map_err(|e| format!("claim NCM data {}: {e}", func.data))?;
         // Alt setting 1 is the one with the bulk endpoints; alt 0 carries no data.
-        data_iface
-            .set_alt_setting(1)
-            .wait()
-            .map_err(|e| format!("NCM alt setting: {e}"))?;
+        data_iface.set_alt_setting(1).wait().map_err(|e| format!("NCM alt setting: {e}"))?;
 
         let host_mac = host_mac(&device, &dev.sysfs, func.control);
         let ep_in = data_iface
@@ -247,10 +260,12 @@ fn spawn_tap_to_usb(mut ep_out: Endpoint<Bulk, Out>, tap: Arc<OwnedFd>, run: Arc
             out.extend_from_slice(&ntb);
             let completion = ep_out.transfer_blocking(out, Duration::from_millis(3000));
             if let Err(e) = completion.status
-                && run.load(Ordering::SeqCst) && !is_timeout(&e) {
-                    eprintln!("[ncm] usb write ended: {e}");
-                    return;
-                }
+                && run.load(Ordering::SeqCst)
+                && !is_timeout(&e)
+            {
+                eprintln!("[ncm] usb write ended: {e}");
+                return;
+            }
         }
     });
 }
@@ -261,20 +276,12 @@ fn is_timeout(e: &nusb::transfer::TransferError) -> bool {
 
 fn read_fd(fd: RawFd, buf: &mut [u8]) -> std::io::Result<usize> {
     let n = unsafe { libc::read(fd, buf.as_mut_ptr() as *mut libc::c_void, buf.len()) };
-    if n < 0 {
-        Err(std::io::Error::last_os_error())
-    } else {
-        Ok(n as usize)
-    }
+    if n < 0 { Err(std::io::Error::last_os_error()) } else { Ok(n as usize) }
 }
 
 fn write_fd(fd: RawFd, buf: &[u8]) -> std::io::Result<()> {
     let n = unsafe { libc::write(fd, buf.as_ptr() as *const libc::c_void, buf.len()) };
-    if n < 0 {
-        Err(std::io::Error::last_os_error())
-    } else {
-        Ok(())
-    }
+    if n < 0 { Err(std::io::Error::last_os_error()) } else { Ok(()) }
 }
 
 /// The host-side MAC of the link, from the USB string the CDC Ethernet functional descriptor
@@ -292,7 +299,8 @@ fn host_mac(device: &Device, sysfs: &Path, control_if: u8) -> Option<String> {
         }
         if btype == 0x04 && blen >= 3 {
             cur_if = raw[idx + 2] as i32;
-        } else if btype == 0x24 && blen >= 4 && cur_if == control_if as i32 && raw[idx + 2] == 0x0F {
+        } else if btype == 0x24 && blen >= 4 && cur_if == control_if as i32 && raw[idx + 2] == 0x0F
+        {
             mac_str_idx = raw[idx + 3];
             break;
         }
@@ -319,16 +327,11 @@ fn host_mac(device: &Device, sysfs: &Path, control_if: u8) -> Option<String> {
         return None;
     }
     let end = (buf[0] as usize).min(buf.len());
-    let utf16: Vec<u16> = buf[2..end].as_chunks::<2>().0.iter().map(|c| u16::from_le_bytes(*c)).collect();
+    let utf16: Vec<u16> =
+        buf[2..end].as_chunks::<2>().0.iter().map(|c| u16::from_le_bytes(*c)).collect();
     let s = String::from_utf16(&utf16).ok()?;
     if s.len() != 12 {
         return None;
     }
-    Some(
-        (0..12)
-            .step_by(2)
-            .map(|i| s[i..i + 2].to_lowercase())
-            .collect::<Vec<_>>()
-            .join(":"),
-    )
+    Some((0..12).step_by(2).map(|i| s[i..i + 2].to_lowercase()).collect::<Vec<_>>().join(":"))
 }

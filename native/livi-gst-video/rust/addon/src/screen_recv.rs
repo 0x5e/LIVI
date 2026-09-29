@@ -90,8 +90,10 @@ pub fn open(id: u32, key: [u8; 32], on_config: ConfigCb) -> std::io::Result<u16>
 
     std::thread::Builder::new().name(format!("livi-cp-screen-{id}")).spawn(move || {
         // Built here: the sink behind ScreenStream is not Send, so it stays on this thread.
-        let mut stream =
-            ScreenStream::new(key, Box::new(Sink { id, stop: stop.clone(), on_config, reported: None }));
+        let mut stream = ScreenStream::new(
+            key,
+            Box::new(Sink { id, stop: stop.clone(), on_config, reported: None }),
+        );
         let mut chunk = vec![0u8; 65536];
         while !stop.load(Ordering::Relaxed) {
             let Ok((client, _)) = listener.accept() else {
@@ -168,9 +170,13 @@ mod tests {
     #[test]
     fn a_connection_reports_the_streams_config() {
         let (tx, rx) = mpsc::channel();
-        let port = open(0xdead_0001, KEY, Box::new(move |codec, atom| {
-            let _ = tx.send((codec as u8, atom));
-        }))
+        let port = open(
+            0xdead_0001,
+            KEY,
+            Box::new(move |codec, atom| {
+                let _ = tx.send((codec as u8, atom));
+            }),
+        )
         .expect("receiver binds a port");
         assert!(port > 0);
 
@@ -186,9 +192,13 @@ mod tests {
     #[test]
     fn a_keepalive_config_is_not_reported() {
         let (tx, rx) = mpsc::channel();
-        let port = open(0xdead_0003, KEY, Box::new(move |_, atom| {
-            let _ = tx.send(atom);
-        }))
+        let port = open(
+            0xdead_0003,
+            KEY,
+            Box::new(move |_, atom| {
+                let _ = tx.send(atom);
+            }),
+        )
         .unwrap();
 
         let mut client = connect(port);
@@ -203,9 +213,13 @@ mod tests {
     #[test]
     fn a_repeated_config_is_reported_once_and_a_changed_one_again() {
         let (tx, rx) = mpsc::channel();
-        let port = open(0xdead_0004, KEY, Box::new(move |_, atom| {
-            let _ = tx.send(atom);
-        }))
+        let port = open(
+            0xdead_0004,
+            KEY,
+            Box::new(move |_, atom| {
+                let _ = tx.send(atom);
+            }),
+        )
         .unwrap();
 
         let mut client = connect(port);

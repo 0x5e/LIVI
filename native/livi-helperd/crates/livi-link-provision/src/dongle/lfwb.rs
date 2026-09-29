@@ -107,7 +107,9 @@ pub fn write_mtd(sh: &mut BindShell, node: &str, data: &[u8]) -> Result<(), Stri
 /// written, not what the chip holds.
 pub fn raw_node(node: &str) -> String {
     match node.rsplit_once("mtdblock") {
-        Some((dir, n)) if n.bytes().all(|b| b.is_ascii_digit()) && !n.is_empty() => format!("{dir}mtd{n}"),
+        Some((dir, n)) if n.bytes().all(|b| b.is_ascii_digit()) && !n.is_empty() => {
+            format!("{dir}mtd{n}")
+        }
         _ => node.to_string(),
     }
 }

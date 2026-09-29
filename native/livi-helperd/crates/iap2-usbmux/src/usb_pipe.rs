@@ -2,7 +2,7 @@
 
 use std::time::Duration;
 
-use nusb::transfer::{Bulk, Buffer, In, Out, TransferError};
+use nusb::transfer::{Buffer, Bulk, In, Out, TransferError};
 use nusb::{Endpoint, Interface, MaybeFuture};
 
 use crate::linux::{find_iphones, open_by_address};
@@ -61,11 +61,9 @@ pub fn open_pipes(serial: &str) -> Result<MuxPipes, String> {
     }
     let iface = iface.ok_or_else(|| format!("claim usbmux interface: {last}"))?;
 
-    let ep_out = iface
-        .endpoint::<Bulk, Out>(EP_OUT)
-        .map_err(|e| format!("usbmux out endpoint: {e}"))?;
-    let ep_in = iface
-        .endpoint::<Bulk, In>(EP_IN)
-        .map_err(|e| format!("usbmux in endpoint: {e}"))?;
+    let ep_out =
+        iface.endpoint::<Bulk, Out>(EP_OUT).map_err(|e| format!("usbmux out endpoint: {e}"))?;
+    let ep_in =
+        iface.endpoint::<Bulk, In>(EP_IN).map_err(|e| format!("usbmux in endpoint: {e}"))?;
     Ok((Box::new(UsbWriter(ep_out)), Box::new(UsbReader(ep_in))))
 }

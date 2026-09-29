@@ -213,7 +213,6 @@ pub struct Player {
     view: core::sync::atomic::AtomicPtr<core::ffi::c_void>,
 }
 
-
 impl Player {
     /// Builds the pipeline for `codec` and hangs it in the window `handle`
     /// names. None when no decoder is registered or the description fails.
@@ -266,7 +265,10 @@ impl Player {
                 dec.set_property("max-threads", 1i32);
                 eprintln!(
                     "[gst_video] {decoder} thread-type={} max-threads={}",
-                    dec.property_value("thread-type").serialize().map(|s| s.to_string()).unwrap_or_default(),
+                    dec.property_value("thread-type")
+                        .serialize()
+                        .map(|s| s.to_string())
+                        .unwrap_or_default(),
                     dec.property::<i32>("max-threads")
                 );
             }
@@ -329,7 +331,9 @@ impl Player {
         if overlay == 0 {
             return;
         }
-        if let Some(o) = self.sink.as_ref().and_then(|s| s.dynamic_cast_ref::<gstreamer_video::VideoOverlay>()) {
+        if let Some(o) =
+            self.sink.as_ref().and_then(|s| s.dynamic_cast_ref::<gstreamer_video::VideoOverlay>())
+        {
             unsafe { o.set_window_handle(overlay) };
         }
     }
@@ -377,9 +381,10 @@ impl Player {
             if view.is_null() {
                 return;
             }
-            let sink = self.sink.as_ref().map_or(core::ptr::null_mut(), |s| {
-                s.as_ptr() as *mut core::ffi::c_void
-            });
+            let sink = self
+                .sink
+                .as_ref()
+                .map_or(core::ptr::null_mut(), |s| s.as_ptr() as *mut core::ffi::c_void);
             unsafe {
                 livi_set_content_region(view, sink, crop_l, crop_t, vis_w, vis_h, tier_w, tier_h)
             }
@@ -456,7 +461,11 @@ fn render_gpu() -> Option<livi_video_codec::RenderGpu> {
     let name = std::path::Path::new(&node).file_name()?.to_str()?.to_owned();
     let driver = std::fs::read_link(format!("/sys/class/drm/{name}/device/driver")).ok();
     let nvidia = driver.as_deref().and_then(|d| d.file_name()).is_some_and(|d| d == "nvidia");
-    Some(if nvidia { livi_video_codec::RenderGpu::Nvidia } else { livi_video_codec::RenderGpu::Node(name) })
+    Some(if nvidia {
+        livi_video_codec::RenderGpu::Nvidia
+    } else {
+        livi_video_codec::RenderGpu::Node(name)
+    })
 }
 
 fn candidates(codec: &str, sw_only: bool) -> Vec<String> {

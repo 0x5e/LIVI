@@ -2,8 +2,8 @@
 //! JavaScript values and the crates the pipeline lives in. The feed the helper
 //! streams media into ends here as well on the platforms without a host process.
 
-mod feed;
 mod audio_recv;
+mod feed;
 mod mic_uplink;
 mod screen_recv;
 
@@ -62,12 +62,7 @@ fn probe(codec: &str) -> CodecSupport {
 /// Whether a hardware and a software decoder exist, per codec.
 #[napi]
 pub fn probe_codecs() -> CodecProbe {
-    CodecProbe {
-        h264: probe("h264"),
-        h265: probe("h265"),
-        vp9: probe("vp9"),
-        av1: probe("av1"),
-    }
+    CodecProbe { h264: probe("h264"), h265: probe("h265"), vp9: probe("vp9"), av1: probe("av1") }
 }
 
 /// The first pointer-sized bytes of the buffer, which carry the window handle.

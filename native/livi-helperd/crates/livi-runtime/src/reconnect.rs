@@ -1,7 +1,7 @@
 // Round-robins paired phones back over Bluetooth after a restart.
 
-use std::collections::hash_map::Entry;
 use std::collections::HashMap;
+use std::collections::hash_map::Entry;
 use std::sync::Arc;
 use std::time::{Duration, Instant};
 
@@ -66,7 +66,8 @@ pub async fn run(conn: Connection, adapter: String, ap_iface: String, state: Arc
                 println!("[cp] reconnect: {mac} connected but no session, disconnecting");
                 let _ = disconnect(&conn, &path).await;
             } else if uuid.is_some() {
-                let _ = tokio::time::timeout(PING_TIMEOUT, page(&conn, &path, uuid.as_deref())).await;
+                let _ =
+                    tokio::time::timeout(PING_TIMEOUT, page(&conn, &path, uuid.as_deref())).await;
             }
             continue;
         }
@@ -125,8 +126,14 @@ async fn device_connected(conn: &Connection, path: &str) -> Option<bool> {
 async fn page(conn: &Connection, path: &str, uuid: Option<&str>) -> Result<(), zbus::Error> {
     match uuid {
         Some(uuid) => {
-            conn.call_method(Some("org.bluez"), path, Some("org.bluez.Device1"), "ConnectProfile", &(uuid,))
-                .await?;
+            conn.call_method(
+                Some("org.bluez"),
+                path,
+                Some("org.bluez.Device1"),
+                "ConnectProfile",
+                &(uuid,),
+            )
+            .await?;
         }
         None => {
             conn.call_method(Some("org.bluez"), path, Some("org.bluez.Device1"), "Connect", &())

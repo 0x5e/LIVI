@@ -30,10 +30,7 @@ pub fn install_bindshell(expected: Option<&str>, cache: &Path) -> Result<(), Str
     }
     let info = web::host()?;
     if info.update != 0 {
-        return Err(format!(
-            "dongle is not idle (update={}); reboot and retry",
-            info.update
-        ));
+        return Err(format!("dongle is not idle (update={}); reboot and retry", info.update));
     }
     let project = ly_project(&info.sys.appver)
         .ok_or_else(|| format!("can't read a project id out of appver {:?}", info.sys.appver))?;

@@ -39,8 +39,8 @@ impl Framer {
             if self.buf.len() < LEN_BYTES {
                 return None;
             }
-            let len = u32::from_ne_bytes([self.buf[0], self.buf[1], self.buf[2], self.buf[3]])
-                as usize;
+            let len =
+                u32::from_ne_bytes([self.buf[0], self.buf[1], self.buf[2], self.buf[3]]) as usize;
             if self.buf.len() < LEN_BYTES + len {
                 return None;
             }
@@ -98,10 +98,7 @@ mod tests {
         let mut f = Framer::new();
         f.push(&frame(2, 0x7a00_0001, &[1, 2, 3]));
 
-        assert_eq!(
-            f.next_message(),
-            Some(Message { op: 2, id: 0x7a00_0001, rest: vec![1, 2, 3] })
-        );
+        assert_eq!(f.next_message(), Some(Message { op: 2, id: 0x7a00_0001, rest: vec![1, 2, 3] }));
         assert_eq!(f.next_message(), None);
     }
 

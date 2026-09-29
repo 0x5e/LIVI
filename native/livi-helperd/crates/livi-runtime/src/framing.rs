@@ -12,9 +12,7 @@ impl FrameReader {
     }
 
     pub fn next_frame(&mut self) -> Option<Vec<u8>> {
-        while self.buf.len() >= 2
-            && u16::from_be_bytes([self.buf[0], self.buf[1]]) != CSM_START
-        {
+        while self.buf.len() >= 2 && u16::from_be_bytes([self.buf[0], self.buf[1]]) != CSM_START {
             self.buf.remove(0);
         }
         if self.buf.len() < 6 {

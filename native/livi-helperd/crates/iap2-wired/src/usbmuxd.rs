@@ -50,10 +50,7 @@ async fn step<T>(
             };
             Err(ProbeError { stage, detail })
         }
-        Err(_) => Err(ProbeError {
-            stage,
-            detail: "timed out after 5 seconds".into(),
-        }),
+        Err(_) => Err(ProbeError { stage, detail: "timed out after 5 seconds".into() }),
     }
 }
 
@@ -65,10 +62,7 @@ pub async fn devices() -> Result<Vec<UsbmuxdDevice>, ProbeError> {
 }
 
 fn usb_only(devices: Vec<UsbmuxdDevice>) -> Vec<UsbmuxdDevice> {
-    devices
-        .into_iter()
-        .filter(|d| d.connection_type == Connection::Usb)
-        .collect()
+    devices.into_iter().filter(|d| d.connection_type == Connection::Usb).collect()
 }
 
 /// Use the existing macOS trust record in memory, without copying or rewriting it.
@@ -104,17 +98,10 @@ async fn probe_provider(provider: &dyn IdeviceProvider) -> Result<(), ProbeError
 async fn open_provider(
     provider: &dyn IdeviceProvider,
 ) -> Result<Box<dyn idevice::ReadWrite>, ProbeError> {
-    let connection = step(
-        Stage::Lockdown,
-        provider.connect(LockdownClient::LOCKDOWND_PORT),
-    )
-    .await?;
+    let connection =
+        step(Stage::Lockdown, provider.connect(LockdownClient::LOCKDOWND_PORT)).await?;
     let mut lockdown = LockdownClient::new(connection);
-    let product = step(
-        Stage::Product,
-        lockdown.get_value(Some("ProductType"), None),
-    )
-    .await?;
+    let product = step(Stage::Product, lockdown.get_value(Some("ProductType"), None)).await?;
     if !product.as_string().is_some_and(|s| s.starts_with("iPhone")) {
         return Err(ProbeError {
             stage: Stage::Product,

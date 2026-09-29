@@ -24,17 +24,19 @@ impl AsyncMuxStream {
         let (tx, mut tx_rx) = mpsc::unbounded_channel::<Vec<u8>>();
 
         let reader_conn = conn.clone();
-        std::thread::spawn(move || loop {
-            match reader_conn.recv(std::time::Duration::from_secs(30)) {
-                Some(data) if !data.is_empty() => {
-                    if rx_tx.send(data).is_err() {
-                        return;
+        std::thread::spawn(move || {
+            loop {
+                match reader_conn.recv(std::time::Duration::from_secs(30)) {
+                    Some(data) if !data.is_empty() => {
+                        if rx_tx.send(data).is_err() {
+                            return;
+                        }
                     }
-                }
-                Some(_) => return,
-                None => {
-                    if rx_tx.is_closed() {
-                        return;
+                    Some(_) => return,
+                    None => {
+                        if rx_tx.is_closed() {
+                            return;
+                        }
                     }
                 }
             }
@@ -88,7 +90,11 @@ impl AsyncRead for AsyncMuxStream {
 }
 
 impl AsyncWrite for AsyncMuxStream {
-    fn poll_write(self: Pin<&mut Self>, _cx: &mut Context<'_>, buf: &[u8]) -> Poll<io::Result<usize>> {
+    fn poll_write(
+        self: Pin<&mut Self>,
+        _cx: &mut Context<'_>,
+        buf: &[u8],
+    ) -> Poll<io::Result<usize>> {
         match self.tx.send(buf.to_vec()) {
             Ok(()) => Poll::Ready(Ok(buf.len())),
             Err(_) => Poll::Ready(Err(io::Error::new(io::ErrorKind::BrokenPipe, "mux closed"))),

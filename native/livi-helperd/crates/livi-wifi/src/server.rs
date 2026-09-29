@@ -219,8 +219,15 @@ fn config(base: &str, wanted: &Wanted, vht: bool) -> String {
             Some("ssid") => wanted.ssid.is_some(),
             Some("country_code") => wanted.country.is_some(),
             Some(
-                "channel" | "hw_mode" | "ht_capab" | "vendor_elements" | "assocresp_elements"
-                | "ieee80211ac" | "vht_capab" | "vht_oper_chwidth" | "vht_oper_centr_freq_seg0_idx",
+                "channel"
+                | "hw_mode"
+                | "ht_capab"
+                | "vendor_elements"
+                | "assocresp_elements"
+                | "ieee80211ac"
+                | "vht_capab"
+                | "vht_oper_chwidth"
+                | "vht_oper_centr_freq_seg0_idx",
             ) => wanted.channel.is_some(),
             Some("wpa_passphrase") => wanted.passphrase.is_some(),
             _ => false,
@@ -302,18 +309,14 @@ fn vht_centre(channel: u32) -> Option<u32> {
 }
 
 fn ht40(channel: u32) -> &'static str {
-    let up = if channel <= 14 {
-        channel <= 7
-    } else {
-        (channel / 4) % 2 == 1
-    };
+    let up = if channel <= 14 { channel <= 7 } else { (channel / 4) % 2 == 1 };
     if up { "[HT40+]" } else { "[HT40-]" }
 }
 
 fn apply(ap: &mut Ap, wanted: &Wanted) -> Result<(), String> {
     await_radio()?;
-    let base = std::fs::read_to_string(&ap.base)
-        .map_err(|e| format!("{}: {e}", ap.base.display()))?;
+    let base =
+        std::fs::read_to_string(&ap.base).map_err(|e| format!("{}: {e}", ap.base.display()))?;
     if let Some(parent) = ap.live[0].parent() {
         let _ = std::fs::create_dir_all(parent);
     }
@@ -346,10 +349,10 @@ fn save(ap: &Ap) -> Result<(), String> {
     if ap.config == ap.base {
         return Ok(());
     }
-    let live = std::fs::read_to_string(&ap.config)
-        .map_err(|e| format!("{}: {e}", ap.config.display()))?;
-    let base = std::fs::read_to_string(&ap.base)
-        .map_err(|e| format!("{}: {e}", ap.base.display()))?;
+    let live =
+        std::fs::read_to_string(&ap.config).map_err(|e| format!("{}: {e}", ap.config.display()))?;
+    let base =
+        std::fs::read_to_string(&ap.base).map_err(|e| format!("{}: {e}", ap.base.display()))?;
     let next = config(&base, &settings_of(&live), ap.vht);
     if next == base {
         return Ok(());
@@ -442,7 +445,8 @@ fn weaker(config: &str) -> Option<(String, &'static str)> {
         set("vht_capab", None);
         "40 MHz"
     } else if value("ieee80211ac").as_deref() == Some("1") {
-        for key in ["ieee80211ac", "vht_capab", "vht_oper_chwidth", "vht_oper_centr_freq_seg0_idx"] {
+        for key in ["ieee80211ac", "vht_capab", "vht_oper_chwidth", "vht_oper_centr_freq_seg0_idx"]
+        {
             set(key, None);
         }
         "802.11n"
@@ -469,11 +473,8 @@ fn off(ap: &mut Ap) {
 }
 
 fn bluetooth(up: bool) -> Result<(), String> {
-    let (what, result) = if up {
-        ("up", livi_btd::hci::up(BT_DEV))
-    } else {
-        ("down", livi_btd::hci::down(BT_DEV))
-    };
+    let (what, result) =
+        if up { ("up", livi_btd::hci::up(BT_DEV)) } else { ("down", livi_btd::hci::down(BT_DEV)) };
     result.map_err(|e| format!("{BT} would not go {what}: {e}"))
 }
 
@@ -550,8 +551,7 @@ fn status(ap: &Ap) -> String {
 
 fn start(ap: &mut Ap, config: &std::path::Path) -> Result<(), String> {
     let _ = std::fs::remove_file(&ap.log);
-    let log = std::fs::File::create(&ap.log)
-        .map_err(|e| format!("{}: {e}", ap.log.display()))?;
+    let log = std::fs::File::create(&ap.log).map_err(|e| format!("{}: {e}", ap.log.display()))?;
     let errors = log.try_clone().map_err(|e| e.to_string())?;
     let mut child = Command::new(HOSTAPD)
         .arg(config)
@@ -602,7 +602,9 @@ fn complaint(log: &str) -> String {
 }
 
 fn running() -> bool {
-    let Ok(dir) = std::fs::read_dir("/proc") else { return false; };
+    let Ok(dir) = std::fs::read_dir("/proc") else {
+        return false;
+    };
     for entry in dir.flatten() {
         let name = entry.file_name();
         let Some(name) = name.to_str() else { continue };

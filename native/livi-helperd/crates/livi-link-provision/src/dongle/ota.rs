@@ -127,23 +127,25 @@ fn read_entries(archive: &[u8]) -> Result<Vec<Entry>, String> {
     let mut entries = Vec::new();
     let mut at = 0;
     loop {
-        let header = archive
-            .get(at..at + CPIO_HEADER)
-            .ok_or("the update ends in the middle of a header")?;
+        let header =
+            archive.get(at..at + CPIO_HEADER).ok_or("the update ends in the middle of a header")?;
         let magic: [u8; 6] = header[..6].try_into().map_err(|_| "short header")?;
         if !magic.starts_with(b"07070") {
             return Err("the update is not a cpio archive".into());
         }
         let mut fields = [0u32; 13];
         for (i, field) in fields.iter_mut().enumerate() {
-            let text = std::str::from_utf8(&header[6 + i * 8..14 + i * 8]).map_err(|e| e.to_string())?;
-            *field = u32::from_str_radix(text, 16).map_err(|e| format!("cpio header field {i}: {e}"))?;
+            let text =
+                std::str::from_utf8(&header[6 + i * 8..14 + i * 8]).map_err(|e| e.to_string())?;
+            *field =
+                u32::from_str_radix(text, 16).map_err(|e| format!("cpio header field {i}: {e}"))?;
         }
         let (file_size, name_size) = (fields[6] as usize, fields[11] as usize);
         let name_bytes = archive
             .get(at + CPIO_HEADER..at + CPIO_HEADER + name_size)
             .ok_or("the update ends in the middle of a name")?;
-        let name = String::from_utf8_lossy(name_bytes.strip_suffix(&[0]).unwrap_or(name_bytes)).into_owned();
+        let name = String::from_utf8_lossy(name_bytes.strip_suffix(&[0]).unwrap_or(name_bytes))
+            .into_owned();
         let data_at = align4(at + CPIO_HEADER + name_size);
         let data = archive
             .get(data_at..data_at + file_size)
@@ -252,10 +254,14 @@ impl Ota {
         let customer = self.part("customer").ok_or("the update has no customer partition")?;
         let fs = FilesystemReader::from_reader(Cursor::new(&customer.data[..]))
             .map_err(|e| format!("customer partition: {e}"))?;
-        let script = read_text(&fs, SCRIPT_PATH)
-            .ok_or_else(|| format!("{SCRIPT_PATH} is not in the customer partition, so there is nothing to hook into"))?;
+        let script = read_text(&fs, SCRIPT_PATH).ok_or_else(|| {
+            format!(
+                "{SCRIPT_PATH} is not in the customer partition, so there is nothing to hook into"
+            )
+        })?;
 
-        let mut writer = FilesystemWriter::from_fs_reader(&fs).map_err(|e| format!("customer partition: {e}"))?;
+        let mut writer = FilesystemWriter::from_fs_reader(&fs)
+            .map_err(|e| format!("customer partition: {e}"))?;
         writer
             .replace_file(SCRIPT_PATH, Cursor::new(hooked(&script).into_bytes()))
             .map_err(|e| format!("{SCRIPT_PATH}: {e}"))?;
@@ -263,7 +269,11 @@ impl Ota {
         if writer.mut_file(SHELL_PATH).is_some() {
             writer.replace_file(SHELL_PATH, bytes)
         } else {
-            writer.push_file(bytes, SHELL_PATH, NodeHeader { permissions: 0o755, uid: 0, gid: 0, mtime: 0 })
+            writer.push_file(
+                bytes,
+                SHELL_PATH,
+                NodeHeader { permissions: 0o755, uid: 0, gid: 0, mtime: 0 },
+            )
         }
         .map_err(|e| format!("{SHELL_PATH}: {e}"))?;
         let mut squashfs = Cursor::new(Vec::new());
@@ -331,11 +341,9 @@ pub fn version_url(appver: &str) -> Option<String> {
 /// The address of the current package out of a `version.json`, only ever one on the vendor's own
 /// server.
 fn image_url(version_json: &str, origin: &str) -> Result<String, String> {
-    let json: serde_json::Value = serde_json::from_str(version_json).map_err(|e| format!("version.json: {e}"))?;
-    let url = json
-        .get("url")
-        .and_then(|u| u.as_str())
-        .ok_or("version.json names no update")?;
+    let json: serde_json::Value =
+        serde_json::from_str(version_json).map_err(|e| format!("version.json: {e}"))?;
+    let url = json.get("url").and_then(|u| u.as_str()).ok_or("version.json names no update")?;
     if !url.starts_with(&format!("{origin}/")) {
         return Err(format!("version.json points to {url}, which is not the vendor's server"));
     }
@@ -343,16 +351,10 @@ fn image_url(version_json: &str, origin: &str) -> Result<String, String> {
 }
 
 fn get(url: &str, limit: u64) -> Result<Vec<u8>, String> {
-    let response = ureq::get(url)
-        .timeout(Duration::from_secs(300))
-        .call()
-        .map_err(|e| e.to_string())?;
+    let response =
+        ureq::get(url).timeout(Duration::from_secs(300)).call().map_err(|e| e.to_string())?;
     let mut body = Vec::new();
-    response
-        .into_reader()
-        .take(limit)
-        .read_to_end(&mut body)
-        .map_err(|e| e.to_string())?;
+    response.into_reader().take(limit).read_to_end(&mut body).map_err(|e| e.to_string())?;
     Ok(body)
 }
 
@@ -364,7 +366,8 @@ pub fn fetch(appver: &str, cache: &Path) -> Result<Vec<u8>, String> {
         println!("== using the update image {path}");
         return std::fs::read(&path).map_err(|e| format!("{path}: {e}"));
     }
-    let (origin, folder) = origin_and_folder(appver).ok_or_else(|| format!("no project in appver {appver:?}"))?;
+    let (origin, folder) =
+        origin_and_folder(appver).ok_or_else(|| format!("no project in appver {appver:?}"))?;
     let saved: PathBuf = cache.join(format!("ly{folder}-update.img"));
     if let Ok(bytes) = std::fs::read(&saved)
         && Ota::open(&bytes).is_ok()
@@ -383,7 +386,9 @@ pub fn fetch(appver: &str, cache: &Path) -> Result<Vec<u8>, String> {
         });
     match downloaded {
         Ok((_, bytes)) => {
-            if let Err(e) = std::fs::create_dir_all(cache).and_then(|()| std::fs::write(&saved, &bytes)) {
+            if let Err(e) =
+                std::fs::create_dir_all(cache).and_then(|()| std::fs::write(&saved, &bytes))
+            {
                 println!("== could not save the download for the next run: {e}");
             }
             println!("== downloaded {} bytes", bytes.len());
@@ -409,7 +414,10 @@ pub fn shell_image(appver: &str, project: &str, cache: &Path) -> Result<Vec<u8>,
         None => return Err("the update names no project".into()),
     }
     let arch = ota.arch()?;
-    println!("== the update carries {} programs, patching it with the matching bind-shell", arch.name());
+    println!(
+        "== the update carries {} programs, patching it with the matching bind-shell",
+        arch.name()
+    );
     ota.with_shell(arch.shell())
 }
 
@@ -430,7 +438,8 @@ mod tests {
         let header = NodeHeader { permissions: 0o755, uid: 0, gid: 0, mtime: 0 };
         let mut fs = FilesystemWriter::default();
         fs.push_dir_all("/app", header).unwrap();
-        fs.push_file(Cursor::new(b"#!/bin/sh\necho vendor boot\n".to_vec()), SCRIPT_PATH, header).unwrap();
+        fs.push_file(Cursor::new(b"#!/bin/sh\necho vendor boot\n".to_vec()), SCRIPT_PATH, header)
+            .unwrap();
         fs.push_file(Cursor::new(program), "/app/lylink", header).unwrap();
         let mut squashfs = Cursor::new(Vec::new());
         fs.write(&mut squashfs).unwrap();
@@ -532,7 +541,10 @@ mod tests {
 
     #[test]
     fn patching_a_patched_package_does_not_stack_a_second_hook() {
-        let once = Ota::open(&Ota::open(&fake_package("ly7115", 40)).unwrap().with_shell(Arch::Arm.shell()).unwrap()).unwrap();
+        let once = Ota::open(
+            &Ota::open(&fake_package("ly7115", 40)).unwrap().with_shell(Arch::Arm.shell()).unwrap(),
+        )
+        .unwrap();
         let twice = Ota::open(&once.with_shell(Arch::Arm.shell()).unwrap()).unwrap();
         let script = String::from_utf8(file_in(&twice, SCRIPT_PATH).unwrap()).unwrap();
         assert_eq!(script.matches(HOOK_MARKER).count(), 1);
@@ -571,7 +583,8 @@ mod tests {
         );
         let elsewhere = r#"{"url":"https://example.com/update.img"}"#;
         assert!(image_url(elsewhere, origin).is_err());
-        let lookalike = r#"{"url":"https://cpbox-abroad.oss-us-west-1.aliyuncs.com.evil.example/x"}"#;
+        let lookalike =
+            r#"{"url":"https://cpbox-abroad.oss-us-west-1.aliyuncs.com.evil.example/x"}"#;
         assert!(image_url(lookalike, origin).is_err());
         assert!(image_url("{}", origin).is_err());
     }

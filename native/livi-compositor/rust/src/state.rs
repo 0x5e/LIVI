@@ -95,11 +95,7 @@ pub struct Screen {
 
 impl Screen {
     pub fn top_inset(&self) -> i32 {
-        if self.fullscreen {
-            0
-        } else {
-            TITLEBAR_H
-        }
+        if self.fullscreen { 0 } else { TITLEBAR_H }
     }
 }
 
@@ -165,7 +161,10 @@ pub struct ClientState {
 impl ClientData for ClientState {}
 
 impl LiviState {
-    pub fn new(event_loop: &mut EventLoop<'static, LiviState>, startup_cmd: Option<String>) -> Self {
+    pub fn new(
+        event_loop: &mut EventLoop<'static, LiviState>,
+        startup_cmd: Option<String>,
+    ) -> Self {
         let mut display: Display<LiviState> = Display::new().expect("wayland display");
         let dh = display.handle();
 
@@ -195,16 +194,13 @@ impl LiviState {
         // Dispatch inner-client requests from the display's poll fd.
         let poll_fd = display.backend().poll_fd().try_clone_to_owned().unwrap();
         loop_handle
-            .insert_source(
-                Generic::new(poll_fd, Interest::READ, Mode::Level),
-                {
-                    let mut display = display;
-                    move |_, _, state: &mut LiviState| {
-                        display.dispatch_clients(state).unwrap();
-                        Ok(PostAction::Continue)
-                    }
-                },
-            )
+            .insert_source(Generic::new(poll_fd, Interest::READ, Mode::Level), {
+                let mut display = display;
+                move |_, _, state: &mut LiviState| {
+                    display.dispatch_clients(state).unwrap();
+                    Ok(PostAction::Continue)
+                }
+            })
             .expect("insert display source");
 
         let kiosk = std::env::var("LIVI_KIOSK").map(|v| v != "0").unwrap_or(false);
@@ -258,12 +254,7 @@ impl LiviState {
             video_order: Vec::new(),
             pending_video_tags: VecDeque::new(),
             video_cfgs: Vec::new(),
-            cal: CalState {
-                active: false,
-                gamma: 1.0,
-                contrast: 1.0,
-                gain: [1.0, 1.0, 1.0],
-            },
+            cal: CalState { active: false, gamma: 1.0, contrast: 1.0, gain: [1.0, 1.0, 1.0] },
             host: HostState::new(),
             ctrl_client: None,
             ctrl_buf: String::new(),
@@ -285,26 +276,22 @@ impl LiviState {
         if let Some(i) = self.video_cfgs.iter().position(|c| c.tag == tag) {
             return &mut self.video_cfgs[i];
         }
-        self.video_cfgs.push(VideoCfg {
-            tag: tag.to_string(),
-            ..Default::default()
-        });
+        self.video_cfgs.push(VideoCfg { tag: tag.to_string(), ..Default::default() });
         self.video_cfgs.last_mut().unwrap()
     }
 
     pub fn find_video_by_tag(&self, tag: &str) -> Option<usize> {
-        self.toplevels
-            .iter()
-            .position(|t| t.kind == Kind::Video && t.tag == tag)
+        self.toplevels.iter().position(|t| t.kind == Kind::Video && t.tag == tag)
     }
 
     /// Housekeeping after each loop turn: flush clients, drive host redraws,
     /// check the restart deadline.
     pub fn after_dispatch(&mut self) {
         if let Some(deadline) = self.restart_deadline
-            && Instant::now() >= deadline {
-                crate::spawn::force_restart(self);
-            }
+            && Instant::now() >= deadline
+        {
+            crate::spawn::force_restart(self);
+        }
         crate::host::apply_settled_resizes(self);
         crate::host::pump(self);
         self.display_handle.flush_clients().ok();

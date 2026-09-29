@@ -31,7 +31,8 @@ fn mtd_dev() -> &'static str {
         let by_name = fs::read_dir("/sys/class/mtd").ok().and_then(|dir| {
             dir.flatten().find_map(|e| {
                 let name = e.file_name().into_string().ok()?;
-                let n = name.strip_prefix("mtd").filter(|n| n.bytes().all(|b| b.is_ascii_digit()))?;
+                let n =
+                    name.strip_prefix("mtd").filter(|n| n.bytes().all(|b| b.is_ascii_digit()))?;
                 let label = fs::read_to_string(e.path().join("name")).ok()?;
                 (label.trim() == "customer").then(|| format!("/dev/mtdblock{n}"))
             })
@@ -138,7 +139,10 @@ fn cmd_save() -> i32 {
     }
     let blob = match pack_v2(&entries) {
         Ok(b) => b,
-        Err(e) => { eprintln!("[livid config save] pack: {e}"); return 1; }
+        Err(e) => {
+            eprintln!("[livid config save] pack: {e}");
+            return 1;
+        }
     };
     if let Err(e) = write_blob(&blob) {
         eprintln!("[livid config save] write {}: {e}", mtd_dev());
@@ -155,7 +159,10 @@ fn cmd_save() -> i32 {
             eprintln!("[livid config save] {} entries persisted to {}", entries.len(), mtd_dev());
             0
         }
-        Err(e) => { eprintln!("[livid config save] verify: {e}"); 2 }
+        Err(e) => {
+            eprintln!("[livid config save] verify: {e}");
+            2
+        }
     }
 }
 
@@ -205,7 +212,10 @@ fn unpack_v2(payload: &[u8]) -> std::io::Result<Vec<Entry>> {
             .map_err(|_| io_err("v2 non-utf8 name"))?
             .to_string();
         let len = u32::from_le_bytes([
-            payload[off + 32], payload[off + 33], payload[off + 34], payload[off + 35],
+            payload[off + 32],
+            payload[off + 33],
+            payload[off + 34],
+            payload[off + 35],
         ]) as usize;
         if cursor + len > payload.len() {
             return Err(io_err(&format!("v2 entry {i} extends past payload")));
@@ -256,13 +266,12 @@ fn pack_v2(entries: &[Entry]) -> Result<Vec<u8>, String> {
 
 fn write_blob(blob: &[u8]) -> std::io::Result<()> {
     use std::os::unix::fs::OpenOptionsExt;
-    let mut f = fs::OpenOptions::new()
-        .write(true)
-        .custom_flags(libc::O_SYNC)
-        .open(mtd_dev())?;
+    let mut f = fs::OpenOptions::new().write(true).custom_flags(libc::O_SYNC).open(mtd_dev())?;
     f.write_all(blob)?;
     f.sync_all()?;
-    unsafe { libc::sync(); }
+    unsafe {
+        libc::sync();
+    }
     Ok(())
 }
 
@@ -273,7 +282,9 @@ fn crc32(data: &[u8]) -> u32 {
         for _ in 0..8 {
             let mix = (crc ^ byte) & 1;
             crc >>= 1;
-            if mix != 0 { crc ^= 0xEDB8_8320; }
+            if mix != 0 {
+                crc ^= 0xEDB8_8320;
+            }
             byte >>= 1;
         }
     }

@@ -11,10 +11,7 @@ pub const CHOICE: &str = "livi-link";
 
 /// Whether the name resolves to an IPv4 address right now.
 pub fn resolves() -> bool {
-    (LINK_NAME, 0u16)
-        .to_socket_addrs()
-        .map(|mut a| a.any(|a| a.is_ipv4()))
-        .unwrap_or(false)
+    (LINK_NAME, 0u16).to_socket_addrs().map(|mut a| a.any(|a| a.is_ipv4())).unwrap_or(false)
 }
 
 /// "LINK_NAME:port".

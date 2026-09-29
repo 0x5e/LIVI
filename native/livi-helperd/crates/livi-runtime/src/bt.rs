@@ -148,15 +148,9 @@ pub async fn start(
     let conn = Connection::system().await?;
     let (tx, rx) = mpsc::unbounded_channel();
 
-    conn.object_server()
-        .at(IAP_SERVER_PATH, Profile { tx: tx.clone() })
-        .await?;
-    conn.object_server()
-        .at(IAP_CLIENT_PATH, Profile { tx: tx.clone() })
-        .await?;
-    conn.object_server()
-        .at(CARPLAY_PATH, Profile { tx })
-        .await?;
+    conn.object_server().at(IAP_SERVER_PATH, Profile { tx: tx.clone() }).await?;
+    conn.object_server().at(IAP_CLIENT_PATH, Profile { tx: tx.clone() }).await?;
+    conn.object_server().at(CARPLAY_PATH, Profile { tx }).await?;
     conn.object_server().at(AGENT_PATH, Agent).await?;
 
     let mut iap_opts: HashMap<&str, Value> = HashMap::new();
@@ -204,13 +198,7 @@ pub async fn start(
     let adapter_path = format!("/org/bluez/{adapter}");
     wait_for_adapter(&conn, &adapter_path).await?;
     set_prop(&conn, &adapter_path, "Alias", Value::from(alias)).await?;
-    set_prop(
-        &conn,
-        &adapter_path,
-        "DiscoverableTimeout",
-        Value::from(0u32),
-    )
-    .await?;
+    set_prop(&conn, &adapter_path, "DiscoverableTimeout", Value::from(0u32)).await?;
     // A soft-blocked adapter refuses Powered with org.bluez.Error.Blocked.
     let _ = std::process::Command::new(crate::sys::tool("rfkill"))
         .args(["unblock", "bluetooth"])
@@ -218,13 +206,7 @@ pub async fn start(
         .stderr(std::process::Stdio::null())
         .status();
     set_prop(&conn, &adapter_path, "Powered", Value::from(true)).await?;
-    set_prop(
-        &conn,
-        &adapter_path,
-        "Discoverable",
-        Value::from(discoverable),
-    )
-    .await?;
+    set_prop(&conn, &adapter_path, "Discoverable", Value::from(discoverable)).await?;
     set_prop(&conn, &adapter_path, "Pairable", Value::from(discoverable)).await?;
 
     Ok((conn, rx))
@@ -353,9 +335,7 @@ impl HfpProfile {
 /// The audio daemon usually holds HFP HF (incl. SCO); ours registers only as fallback,
 /// and calls go through the daemon's — a second SLC just makes the phone drop one.
 pub async fn start_hfp(conn: &Connection, hfp: crate::hfp::Hfp) -> Result<(), Box<dyn Error>> {
-    conn.object_server()
-        .at(HFP_PATH, HfpProfile { hfp: hfp.clone() })
-        .await?;
+    conn.object_server().at(HFP_PATH, HfpProfile { hfp: hfp.clone() }).await?;
     let mut opts: HashMap<&str, Value> = HashMap::new();
     opts.insert("Name", Value::from("HFP Hands-Free"));
     opts.insert("Role", Value::from("client"));
@@ -403,9 +383,7 @@ pub async fn start_ble_ad(
     adapter: &str,
     name: &str,
 ) -> Result<(), Box<dyn Error>> {
-    conn.object_server()
-        .at(BLE_AD_PATH, BleAd { name: name.into() })
-        .await?;
+    conn.object_server().at(BLE_AD_PATH, BleAd { name: name.into() }).await?;
     let path = format!("/org/bluez/{adapter}");
     let opts: HashMap<&str, Value> = HashMap::new();
     conn.call_method(
@@ -481,25 +459,16 @@ impl MediaPlayerHandle {
             *s = status.to_string();
         }
         println!("[aa] avrcp playback status -> {status}");
-        if let Ok(iface) = self
-            .conn
-            .object_server()
-            .interface::<_, MprisPlayer>(PLAYER_PATH)
-            .await
+        if let Ok(iface) = self.conn.object_server().interface::<_, MprisPlayer>(PLAYER_PATH).await
         {
-            let _ = iface
-                .get()
-                .await
-                .playback_status_changed(iface.signal_context())
-                .await;
+            let _ = iface.get().await.playback_status_changed(iface.signal_context()).await;
         }
     }
 }
 
 impl MprisPlayer {
     fn emit(&self, command: &str) {
-        self.events
-            .push_json(format!("{{\"event\":\"input\",\"command\":\"{command}\"}}"));
+        self.events.push_json(format!("{{\"event\":\"input\",\"command\":\"{command}\"}}"));
     }
 }
 
@@ -612,15 +581,7 @@ pub async fn start_media_player(
 ) -> Result<MediaPlayerHandle, Box<dyn Error>> {
     let status = std::sync::Arc::new(std::sync::Mutex::new("Playing".to_string()));
     conn.object_server().at(PLAYER_PATH, MprisRoot).await?;
-    conn.object_server()
-        .at(
-            PLAYER_PATH,
-            MprisPlayer {
-                events,
-                status: status.clone(),
-            },
-        )
-        .await?;
+    conn.object_server().at(PLAYER_PATH, MprisPlayer { events, status: status.clone() }).await?;
 
     let mut props: HashMap<&str, Value> = HashMap::new();
     props.insert("PlaybackStatus", Value::from("Playing"));
@@ -648,10 +609,7 @@ pub async fn start_media_player(
     )
     .await?;
     println!("[aa] media player registered at {PLAYER_PATH}");
-    Ok(MediaPlayerHandle {
-        conn: conn.clone(),
-        status,
-    })
+    Ok(MediaPlayerHandle { conn: conn.clone(), status })
 }
 
 /// Stops advertising, so phones no longer try to reach a head unit that is gone.

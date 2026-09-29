@@ -4,11 +4,18 @@ use crate::dongle::arm::imx6ul::shell::{self, Shell};
 pub enum Detected {
     /// A shell on the i.MX6UL dongle: the vendor firmware after the USB bootstrap, or our rescue
     /// system.
-    Imx6ul { host: String },
-    LiviLink { model: String, target: String },
+    Imx6ul {
+        host: String,
+    },
+    LiviLink {
+        model: String,
+        target: String,
+    },
     /// A dongle in stock firmware, running the "Liaoyuan" web/OTA stack (`dongle::web`) — could
     /// be a V821B or an AX520 (or another project not yet seen), see `dongle::hook::ly_project`.
-    DongleStock { info: dongle::web::HostInfo },
+    DongleStock {
+        info: dongle::web::HostInfo,
+    },
     Nothing,
 }
 
@@ -20,7 +27,10 @@ impl Detected {
             Detected::DongleStock { info } => {
                 let project = dongle::hook::ly_project(&info.sys.appver)
                     .unwrap_or_else(|| "unknown project".into());
-                format!("{project} dongle in stock firmware ({}, appver {})", info.name, info.sys.appver)
+                format!(
+                    "{project} dongle in stock firmware ({}, appver {})",
+                    info.name, info.sys.appver
+                )
             }
             Detected::Nothing => "no dongle found".into(),
         }

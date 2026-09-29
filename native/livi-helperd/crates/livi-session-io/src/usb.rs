@@ -40,7 +40,8 @@ pub async fn open_pipe(dev: &Device) -> Result<Pipe, String> {
     for _ in 0..CLAIM_RETRIES {
         match dev.claim_interface(number).await {
             Ok(iface) => {
-                let ep_in = iface.endpoint::<Bulk, In>(in_addr).map_err(|e| format!("bulk in: {e}"))?;
+                let ep_in =
+                    iface.endpoint::<Bulk, In>(in_addr).map_err(|e| format!("bulk in: {e}"))?;
                 let ep_out =
                     iface.endpoint::<Bulk, Out>(out_addr).map_err(|e| format!("bulk out: {e}"))?;
                 return Ok(Pipe { iface, ep_in, ep_out });
@@ -92,7 +93,11 @@ impl UsbStream {
     }
 }
 
-async fn pump_in(mut ep: Endpoint<Bulk, In>, tx: mpsc::UnboundedSender<Vec<u8>>, _iface: Interface) {
+async fn pump_in(
+    mut ep: Endpoint<Bulk, In>,
+    tx: mpsc::UnboundedSender<Vec<u8>>,
+    _iface: Interface,
+) {
     for _ in 0..READS_IN_FLIGHT {
         let buf = ep.allocate(READ_LEN);
         ep.submit(buf);
@@ -104,7 +109,8 @@ async fn pump_in(mut ep: Endpoint<Bulk, In>, tx: mpsc::UnboundedSender<Vec<u8>>,
         };
         match done.status {
             Ok(()) => {
-                if done.actual_len > 0 && tx.send(done.buffer[..done.actual_len].to_vec()).is_err() {
+                if done.actual_len > 0 && tx.send(done.buffer[..done.actual_len].to_vec()).is_err()
+                {
                     break;
                 }
             }
@@ -169,7 +175,11 @@ impl AsyncRead for UsbStream {
 }
 
 impl AsyncWrite for UsbStream {
-    fn poll_write(self: Pin<&mut Self>, _cx: &mut Context<'_>, data: &[u8]) -> Poll<io::Result<usize>> {
+    fn poll_write(
+        self: Pin<&mut Self>,
+        _cx: &mut Context<'_>,
+        data: &[u8],
+    ) -> Poll<io::Result<usize>> {
         let sent = self.tx.as_ref().is_some_and(|tx| tx.send(data.to_vec()).is_ok());
         if sent {
             Poll::Ready(Ok(data.len()))

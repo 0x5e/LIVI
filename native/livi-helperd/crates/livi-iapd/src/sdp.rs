@@ -33,18 +33,8 @@ pub struct Record {
 
 /// Everything this controller offers.
 pub const RECORDS: [Record; 2] = [
-    Record {
-        handle: 0x0001_0001,
-        uuid: IAP_UUID,
-        channel: 3,
-        name: "Wireless iAP",
-    },
-    Record {
-        handle: 0x0001_0002,
-        uuid: CARPLAY_UUID,
-        channel: 4,
-        name: "CarPlay",
-    },
+    Record { handle: 0x0001_0001, uuid: IAP_UUID, channel: 3, name: "Wireless iAP" },
+    Record { handle: 0x0001_0002, uuid: CARPLAY_UUID, channel: 4, name: "CarPlay" },
 ];
 const UUID_L2CAP: u16 = 0x0100;
 const UUID_RFCOMM: u16 = 0x0003;
@@ -77,10 +67,7 @@ pub fn dump() {
     request.extend_from_slice(&seq(&uint32(0x0000_ffff)));
     request.push(0);
     let reply = answer(&packet(REQ_SEARCH_ATTRIBUTE, 1, &request));
-    println!(
-        "{}",
-        reply.iter().map(|b| format!("{b:02x}")).collect::<String>()
-    );
+    println!("{}", reply.iter().map(|b| format!("{b:02x}")).collect::<String>());
 }
 
 /// Serves the record until the socket dies, one client at a time.
@@ -91,11 +78,7 @@ pub fn serve() -> Result<(), String> {
     }
     loop {
         let raw = unsafe {
-            libc::accept(
-                listener.as_raw_fd(),
-                std::ptr::null_mut(),
-                std::ptr::null_mut(),
-            )
+            libc::accept(listener.as_raw_fd(), std::ptr::null_mut(), std::ptr::null_mut())
         };
         if raw < 0 {
             return Err(format!("accept: {}", std::io::Error::last_os_error()));
@@ -107,13 +90,8 @@ pub fn serve() -> Result<(), String> {
 
 /// Opens the SDP channel.
 fn listen() -> Result<OwnedFd, String> {
-    let raw = unsafe {
-        libc::socket(
-            AF_BLUETOOTH,
-            SOCK_SEQPACKET | libc::SOCK_CLOEXEC,
-            BTPROTO_L2CAP,
-        )
-    };
+    let raw =
+        unsafe { libc::socket(AF_BLUETOOTH, SOCK_SEQPACKET | libc::SOCK_CLOEXEC, BTPROTO_L2CAP) };
     if raw < 0 {
         return Err(format!("socket: {}", std::io::Error::last_os_error()));
     }
@@ -133,10 +111,7 @@ fn listen() -> Result<OwnedFd, String> {
         )
     };
     if bound < 0 {
-        return Err(format!(
-            "bind psm {PSM}: {}",
-            std::io::Error::last_os_error()
-        ));
+        return Err(format!("bind psm {PSM}: {}", std::io::Error::last_os_error()));
     }
     if unsafe { libc::listen(fd.as_raw_fd(), 4) } < 0 {
         return Err(format!("listen: {}", std::io::Error::last_os_error()));
@@ -345,10 +320,7 @@ pub(crate) fn element(body: &[u8]) -> Option<(&[u8], &[u8])> {
         3 => (8, 1),
         4 => (16, 1),
         5 => (*body.get(1)? as usize, 2),
-        6 => (
-            u16::from_be_bytes([*body.get(1)?, *body.get(2)?]) as usize,
-            3,
-        ),
+        6 => (u16::from_be_bytes([*body.get(1)?, *body.get(2)?]) as usize, 3),
         _ => (
             u32::from_be_bytes([*body.get(1)?, *body.get(2)?, *body.get(3)?, *body.get(4)?])
                 as usize,

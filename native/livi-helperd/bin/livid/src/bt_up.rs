@@ -45,7 +45,9 @@ fn livid_main() -> i32 {
         let e = std::io::Error::last_os_error();
         if e.raw_os_error() != Some(libc::EALREADY) {
             eprintln!("livi-bt-up: HCIDEVUP hci{dev}: {e}");
-            unsafe { libc::close(sock); }
+            unsafe {
+                libc::close(sock);
+            }
             return 1;
         }
     }
@@ -54,7 +56,9 @@ fn livid_main() -> i32 {
     let mut info: HciDevInfo = unsafe { std::mem::zeroed() };
     info.dev_id = dev as u16;
     let r = unsafe { libc::ioctl(sock, HCIGETDEVINFO as _, &mut info as *mut _) };
-    unsafe { libc::close(sock); }
+    unsafe {
+        libc::close(sock);
+    }
     if r < 0 {
         eprintln!("livi-bt-up: HCIGETDEVINFO hci{dev}: {}", std::io::Error::last_os_error());
         return 2;
@@ -63,8 +67,12 @@ fn livid_main() -> i32 {
     // bdaddr is stored little-endian; MAC address strings are printed big-endian.
     let mac = format!(
         "{:02x}:{:02x}:{:02x}:{:02x}:{:02x}:{:02x}",
-        info.bdaddr[5], info.bdaddr[4], info.bdaddr[3],
-        info.bdaddr[2], info.bdaddr[1], info.bdaddr[0]
+        info.bdaddr[5],
+        info.bdaddr[4],
+        info.bdaddr[3],
+        info.bdaddr[2],
+        info.bdaddr[1],
+        info.bdaddr[0]
     );
     // The kernel packs bus (low nibble) and dev_type (bits 4-5) into one byte; an "amp"
     // here is why mgmt refuses the controller — it only manages primary ones.

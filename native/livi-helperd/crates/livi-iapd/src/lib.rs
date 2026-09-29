@@ -9,7 +9,7 @@ pub mod sdp;
 #[cfg(target_os = "linux")]
 mod server;
 #[cfg(target_os = "linux")]
-pub use server::{Config, NameSource, PORT, CONTROL_PORT, run};
+pub use server::{CONTROL_PORT, Config, NameSource, PORT, run};
 
 #[cfg(not(target_os = "linux"))]
 pub const PORT: u16 = 5004;

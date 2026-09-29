@@ -108,13 +108,8 @@ fn await_controller() -> bool {
 }
 
 fn claim() -> Result<OwnedFd, String> {
-    let raw = unsafe {
-        libc::socket(
-            AF_BLUETOOTH,
-            libc::SOCK_RAW | libc::SOCK_CLOEXEC,
-            BTPROTO_HCI,
-        )
-    };
+    let raw =
+        unsafe { libc::socket(AF_BLUETOOTH, libc::SOCK_RAW | libc::SOCK_CLOEXEC, BTPROTO_HCI) };
     if raw < 0 {
         return Err(format!("socket: {}", std::io::Error::last_os_error()));
     }
@@ -170,9 +165,8 @@ fn out_bound(dev: File, mut out: TcpStream, stop: &AtomicBool) {
             }
         };
         watch_link(&buf[..n], &mut links);
-        if let Err(e) = out
-            .write_all(&(n as u16).to_be_bytes())
-            .and_then(|()| out.write_all(&buf[..n]))
+        if let Err(e) =
+            out.write_all(&(n as u16).to_be_bytes()).and_then(|()| out.write_all(&buf[..n]))
         {
             eprintln!("[btd] send: {e}");
             return;
@@ -246,10 +240,6 @@ fn in_bound(mut dev: File, stream: &TcpStream) {
 }
 
 fn readable(fd: RawFd, ms: i32) -> bool {
-    let mut p = libc::pollfd {
-        fd,
-        events: libc::POLLIN,
-        revents: 0,
-    };
+    let mut p = libc::pollfd { fd, events: libc::POLLIN, revents: 0 };
     unsafe { libc::poll(&raw mut p, 1, ms) > 0 }
 }

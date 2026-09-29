@@ -5,11 +5,7 @@ use std::os::unix::fs::PermissionsExt;
 use std::process::{Command, Stdio};
 
 fn require_root() -> Result<(), String> {
-    if unsafe { libc::geteuid() } == 0 {
-        Ok(())
-    } else {
-        Err("needs root".into())
-    }
+    if unsafe { libc::geteuid() } == 0 { Ok(()) } else { Err("needs root".into()) }
 }
 
 fn read(src: &str) -> Result<Vec<u8>, String> {

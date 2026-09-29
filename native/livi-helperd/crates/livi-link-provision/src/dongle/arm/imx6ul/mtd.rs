@@ -77,12 +77,7 @@ pub fn pull(sh: &Shell, part: &Partition, progress: &dyn Fn(&str)) -> Result<Vec
         }
     }
     if image.len() as u64 != part.bytes {
-        return Err(format!(
-            "{}: read {} of {} bytes",
-            part.name,
-            image.len(),
-            part.bytes
-        ));
+        return Err(format!("{}: read {} of {} bytes", part.name, image.len(), part.bytes));
     }
     progress(&format!(
         "read {} ({} bytes in {:.0}s), verifying",

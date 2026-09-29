@@ -12,8 +12,10 @@ const I2C_SLAVE: libc::c_ulong = 0x0703;
 const GPIO_CHIP: &str = "/dev/gpiochip0";
 const GPIO_V2_LINE_FLAG_OUTPUT: u64 = 1 << 3;
 // _IOWR(0xB4, nr, size)
-const GPIO_V2_GET_LINE_IOCTL: u32 = (3 << 30) | ((size_of::<LineRequest>() as u32) << 16) | (0xB4 << 8) | 0x07;
-const GPIO_V2_LINE_SET_VALUES_IOCTL: u32 = (3 << 30) | ((size_of::<LineValues>() as u32) << 16) | (0xB4 << 8) | 0x0F;
+const GPIO_V2_GET_LINE_IOCTL: u32 =
+    (3 << 30) | ((size_of::<LineRequest>() as u32) << 16) | (0xB4 << 8) | 0x07;
+const GPIO_V2_LINE_SET_VALUES_IOCTL: u32 =
+    (3 << 30) | ((size_of::<LineValues>() as u32) << 16) | (0xB4 << 8) | 0x0F;
 
 // The chip only leaves a wedged state on a real power cycle
 const POWER_OFF_SETTLE: Duration = Duration::from_millis(50);
@@ -49,7 +51,8 @@ struct PowerLine(fs::File);
 impl PowerLine {
     fn on(gpio: u32) -> Result<Self, MfiError> {
         let chip = fs::OpenOptions::new()
-            .read(true).write(true)
+            .read(true)
+            .write(true)
             .open(GPIO_CHIP)
             .map_err(|e| MfiError::Io(format!("open {GPIO_CHIP}: {e}")))?;
         let mut req: LineRequest = unsafe { std::mem::zeroed() };
@@ -58,7 +61,10 @@ impl PowerLine {
         req.flags = GPIO_V2_LINE_FLAG_OUTPUT;
         req.consumer[..8].copy_from_slice(b"livi-mfi");
         if unsafe { libc::ioctl(chip.as_raw_fd(), GPIO_V2_GET_LINE_IOCTL as _, &mut req) } < 0 {
-            return Err(MfiError::Io(format!("claim gpio {gpio}: {}", std::io::Error::last_os_error())));
+            return Err(MfiError::Io(format!(
+                "claim gpio {gpio}: {}",
+                std::io::Error::last_os_error()
+            )));
         }
         let line = Self(unsafe { <fs::File as std::os::fd::FromRawFd>::from_raw_fd(req.fd) });
         sleep(POWER_OFF_SETTLE);
@@ -69,7 +75,10 @@ impl PowerLine {
 
     fn set(&self, on: bool) -> std::io::Result<()> {
         let mut values = LineValues { bits: u64::from(on), mask: 1 };
-        if unsafe { libc::ioctl(self.0.as_raw_fd(), GPIO_V2_LINE_SET_VALUES_IOCTL as _, &mut values) } < 0 {
+        if unsafe {
+            libc::ioctl(self.0.as_raw_fd(), GPIO_V2_LINE_SET_VALUES_IOCTL as _, &mut values)
+        } < 0
+        {
             return Err(std::io::Error::last_os_error());
         }
         Ok(())
@@ -101,7 +110,8 @@ impl I2cCoprocessor {
         let bus_path = format!("/dev/i2c-{bus}");
         let addr = Self::probe(&bus_path)?;
         let file = fs::OpenOptions::new()
-            .read(true).write(true)
+            .read(true)
+            .write(true)
             .open(&bus_path)
             .map_err(|e| MfiError::Io(format!("open {bus_path}: {e}")))?;
         set_slave(&file, addr)?;
@@ -110,9 +120,13 @@ impl I2cCoprocessor {
         Ok(chip)
     }
 
-    pub fn address(&self) -> u16 { self.addr }
+    pub fn address(&self) -> u16 {
+        self.addr
+    }
 
-    pub fn power_gpio(&self) -> Option<u32> { self.power.as_ref().map(|(gpio, _)| *gpio) }
+    pub fn power_gpio(&self) -> Option<u32> {
+        self.power.as_ref().map(|(gpio, _)| *gpio)
+    }
 
     pub fn device_version(&mut self) -> Result<u8, MfiError> {
         Ok(self.read_reg(REG_DEVICE_VERSION, 1)?[0])
@@ -125,8 +139,12 @@ impl I2cCoprocessor {
                 let Ok(mut f) = fs::OpenOptions::new().read(true).write(true).open(bus_path) else {
                     continue;
                 };
-                if set_slave(&f, cand).is_err() { continue; }
-                if f.write_all(&[REG_DEVICE_VERSION]).is_err() { continue; }
+                if set_slave(&f, cand).is_err() {
+                    continue;
+                }
+                if f.write_all(&[REG_DEVICE_VERSION]).is_err() {
+                    continue;
+                }
                 let mut buf = [0u8; 1];
                 if f.read_exact(&mut buf).is_ok() {
                     return Ok(cand);
@@ -137,7 +155,11 @@ impl I2cCoprocessor {
         Err(MfiError::NoChip { probed: DEV_ADDR_CANDIDATES.to_vec() })
     }
 
-    fn retry(&mut self, what: &str, mut op: impl FnMut(&mut fs::File) -> bool) -> Result<(), MfiError> {
+    fn retry(
+        &mut self,
+        what: &str,
+        mut op: impl FnMut(&mut fs::File) -> bool,
+    ) -> Result<(), MfiError> {
         let deadline = Instant::now() + IO_TIMEOUT;
         loop {
             if op(&mut self.file) {
@@ -173,10 +195,7 @@ impl I2cCoprocessor {
 fn set_slave(file: &fs::File, addr: u16) -> Result<(), MfiError> {
     let rc = unsafe { libc::ioctl(file.as_raw_fd(), I2C_SLAVE as _, addr as libc::c_ulong) };
     if rc < 0 {
-        Err(MfiError::Io(format!(
-            "I2C_SLAVE 0x{addr:02X}: {}",
-            std::io::Error::last_os_error()
-        )))
+        Err(MfiError::Io(format!("I2C_SLAVE 0x{addr:02X}: {}", std::io::Error::last_os_error())))
     } else {
         Ok(())
     }

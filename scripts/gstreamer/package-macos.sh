@@ -105,17 +105,18 @@ add_rpath() {
   if install_name_tool -add_rpath "$rp" "$f" 2>/dev/null; then resign "$f"; fi
 }
 # Point gst_video.node at the bundle. It ships asar-unpacked, so from
-# .../node_modules/gst-video/build/Release/ the bundle sits 5 levels up at
+# .../node_modules/livi-gst-video/build/Release/ the bundle sits 5 levels up at
 # Contents/Resources/gstreamer/macos-arm64/lib. Bundle rpath FIRST (self-contained),
 # the system framework kept as a dev fallback.
 relocate_node() {
   local REPO_ROOT NODE BUNDLE_RPATH rp
   REPO_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)"
-  NODE="$REPO_ROOT/native/gst-video/build/Release/gst_video.node"
+  NODE="$REPO_ROOT/native/livi-gst-video/build/Release/gst_video.node"
   BUNDLE_RPATH="@loader_path/../../../../../gstreamer/macos-arm64/lib"
   if [[ ! -e "$NODE" ]]; then
-    echo "WARN: $NODE not built yet; build the addon before packaging" >&2
-    return 0
+    [[ "$MODE" == "node" ]] || return 0
+    echo "$NODE not built, run build:native before packaging" >&2
+    exit 1
   fi
   echo "==> Relocating gst_video.node rpath -> bundle (system framework kept as dev fallback)"
   while read -r rp; do

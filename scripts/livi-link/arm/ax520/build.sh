@@ -244,24 +244,51 @@ log "zImage: $(stat -c%s "$ZIMAGE") B   DTB: $(stat -c%s "$DTB") B"
 aic8800_collect
 
 # ---------------------------------------------------------------------------
-# 5) Wrap into this device's uImage variant (same legacy header layout as
-#    stock, but muboot reads it little-endian — see make_uimage.py's own
-#    header comment for how that was confirmed against a real mtd3_boot.img).
+# 5) Wrap into this device's uImage variant: the legacy U-Boot header layout,
+#    but muboot reads every field little-endian (the magic in a real
+#    mtd3_boot.img is 56 19 05 27). mkimage only writes big-endian.
 # ---------------------------------------------------------------------------
+le32() {
+  local v=$1
+  # shellcheck disable=SC2059
+  printf "$(printf '\\x%02x\\x%02x\\x%02x\\x%02x' \
+    $((v & 255)) $((v >> 8 & 255)) $((v >> 16 & 255)) $((v >> 24 & 255)))"
+}
+
+# CRC-32 as the gzip trailer carries it, little-endian
+crc32le() { gzip -c "$1" | tail -c 8 | head -c 4; }
+
+# make_uimage <image> <out> <name>, load and entry address 0x10008000
+make_uimage() {
+  local src=$1 dst=$2 name=${3:0:32} hdr=$2.hdr
+  {
+    le32 $((0x27051956))
+    le32 0  # header CRC, computed over this header and filled in below
+    le32 "$(date +%s)"
+    le32 "$(wc -c < "$src")"
+    le32 $((0x10008000))
+    le32 $((0x10008000))
+    crc32le "$src"
+    printf '\x05\x02\x02\x00'  # Linux, ARM, kernel, uncompressed
+    printf '%s' "$name"
+    head -c $((32 - ${#name})) /dev/zero
+  } > "$hdr"
+  { head -c 4 "$hdr"; crc32le "$hdr"; tail -c +9 "$hdr"; cat "$src"; } > "$dst"
+  rm -f "$hdr"
+}
+
 log "cat zImage + DTB, wrap as little-endian legacy uImage"
 cat "$ZIMAGE" "$DTB" > "$OUT/zImage_w_dtb.bin"
-python3 "$HERE/make_uimage.py" "$OUT/zImage_w_dtb.bin" "$OUT/livi-link-ax520-boot.uimg" "LIVI-Link AX520 $KVER"
+make_uimage "$OUT/zImage_w_dtb.bin" "$OUT/livi-link-ax520-boot.uimg" "LIVI-Link AX520 $KVER"
 
 BOOT_PART_SIZE=$((3 * 1024 * 1024))  # 3 MiB — the "boot" mtd region's real size.
-python3 - "$OUT/livi-link-ax520-boot.uimg" "$OUT/livi-link-ax520-boot-padded.uimg" "$BOOT_PART_SIZE" <<'PYEOF'
-import sys
-src, dst, size = sys.argv[1], sys.argv[2], int(sys.argv[3])
-data = open(src, 'rb').read()
-assert len(data) <= size, f"{len(data)} exceeds boot partition size {size}"
-data += b'\xff' * (size - len(data))
-open(dst, 'wb').write(data)
-print(f'{dst}: {len(data)} bytes (padded from {len(data)})')
-PYEOF
+UIMG_SIZE=$(wc -c < "$OUT/livi-link-ax520-boot.uimg")
+(( UIMG_SIZE <= BOOT_PART_SIZE )) || { log "uImage is $UIMG_SIZE B, the boot partition only $BOOT_PART_SIZE B"; exit 4; }
+{
+  cat "$OUT/livi-link-ax520-boot.uimg"
+  head -c $((BOOT_PART_SIZE - UIMG_SIZE)) /dev/zero | tr '\0' '\377'
+} > "$OUT/livi-link-ax520-boot-padded.uimg"
+log "boot uImage: $UIMG_SIZE B, padded to $BOOT_PART_SIZE B"
 
 log "done — $OUT/livi-link-ax520-boot-padded.uimg"
 

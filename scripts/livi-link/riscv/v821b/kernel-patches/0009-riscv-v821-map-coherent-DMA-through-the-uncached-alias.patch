@@ -5,20 +5,16 @@ non-coherent device and the SPIF and SMHC probes stop with -ENOMEM. Map each
 coherent buffer a second time through the non-cacheable alias the vendor
 OpenSBI sets up.
 ---
- arch/riscv/Kconfig.socs  |    2 ++
- arch/riscv/mm/Makefile   |    1 +
- arch/riscv/mm/dma-v821.c |   37 +++++++++++++++++++++++++++++++++++++
- 3 files changed, 40 insertions(+)
-
 diff --git a/arch/riscv/Kconfig.socs b/arch/riscv/Kconfig.socs
-index 360ce6858..2548ff85b 100644
+index d6bce2220..0a4bb3aef 100644
 --- a/arch/riscv/Kconfig.socs
 +++ b/arch/riscv/Kconfig.socs
-@@ -69,8 +69,10 @@ config ARCH_SUNXI_V821
+@@ -74,9 +74,11 @@ config ARCH_SUNXI_V821
  	# It would remap coherent DMA with page attributes this core does not have.
  	depends on !ERRATA_THEAD_CMO
  	select ANDES_CACHE
 +	select ARCH_HAS_DMA_SET_UNCACHED
+ 	select CACHEMAINT_FOR_DMA
  	select ERRATA_ANDES
  	select RISCV_DMA_NONCOHERENT
 +	select VMAP_PFN

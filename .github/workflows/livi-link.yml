@@ -213,7 +213,7 @@ jobs:
         run: |
           set -euo pipefail
           apt-get install -y --no-install-recommends \
-            gcc-arm-linux-gnueabihf squashfs-tools python3 \
+            gcc-arm-linux-gnueabihf squashfs-tools \
             bc bison flex libssl-dev libelf-dev bzip2 pkg-config
           "$HOME/.cargo/bin/rustup" target add armv7-unknown-linux-musleabihf
           arm-linux-gnueabihf-gcc --version | head -1

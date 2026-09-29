@@ -16,9 +16,9 @@ Each firmware brings its own Linux kernel. The web interface shows it under **Ke
 
 | Firmware | Kernel |
 | --- | --- |
-| `imx6ul_iw416` | 6.18.53 |
-| `v821b_aic8800d80` | 6.18.53 |
-| `ax520_aic8800d80` | 6.18.53 |
+| `imx6ul_iw416` | 7.2.8 |
+| `v821b_aic8800d80` | 7.2.8  |
+| `ax520_aic8800d80` | 7.2.8  |
 
 ## Supported hardware
 

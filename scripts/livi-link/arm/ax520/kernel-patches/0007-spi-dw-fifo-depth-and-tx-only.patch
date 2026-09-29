@@ -37,7 +37,7 @@
 +	return guard < 0 ? -ETIMEDOUT : 0;
 +}
 +
- static int dw_spi_transfer_one(struct spi_controller *host,
+ static int dw_spi_transfer_one(struct spi_controller *ctlr,
  			       struct spi_device *spi,
  			       struct spi_transfer *transfer)
 @@ -432,6 +465,17 @@

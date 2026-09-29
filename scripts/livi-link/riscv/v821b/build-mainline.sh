@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 # LIVI-Link V821B+AIC8800D80 dongle kernel on mainline: Image with the initramfs built in and our DTB,
 # wrapped into the boot image the vendor U-Boot loads from mtd1, plus the AIC8800 modules and livid for
-# the rootfs. Takes over from build.sh (Tina 5.4).
+# the rootfs.
 # Order: build-userspace.sh, build-mainline.sh, ../../common/build-rootfs.sh <this dir>,
 # ../../common/pack-bundle.sh <this dir>.
 set -euo pipefail

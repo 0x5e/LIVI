@@ -64,7 +64,7 @@ aic8800_config() {
   echo --enable WIRELESS --enable WLAN --enable CFG80211 --enable FW_LOADER \
        --enable CFG80211_CERTIFICATION_ONUS --disable CFG80211_REQUIRE_SIGNED_REGDB \
        --disable CFG80211_CRDA_SUPPORT --enable CFG80211_INTERNAL_REGDB \
-       --enable AIC_WLAN_SUPPORT --module AIC8800_WLAN_SUPPORT --module AIC8800_BTLPM_SUPPORT \
+       --enable AIC_WLAN_SUPPORT --module AIC8800_WLAN_SUPPORT --disable AIC8800_BTLPM_SUPPORT \
        --set-str AIC_FW_PATH /lib/firmware/aic8800d80 \
        --enable BT --enable BT_BREDR --enable BT_LE --enable BT_RFCOMM --enable CRYPTO_ECDH
 }

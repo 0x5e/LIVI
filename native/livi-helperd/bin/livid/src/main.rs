@@ -72,6 +72,7 @@ fn web_caps() -> livi_web::WebCaps {
         wifi_iface: "wlan0".into(),
         bridge: Some("br0".into()),
         host_iface: "usb0".into(),
+        mfi: mfid::STATE.into(),
         bt: "hci0".into(),
         led,
         flash,

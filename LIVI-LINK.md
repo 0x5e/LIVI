@@ -10,6 +10,16 @@ supported on Linux and macOS, and can provide:
 Each one is enabled separately in the settings. While the dongle is not selected in the settings,
 LIVI turns its access point temporarily off to keep interference low.
 
+## Firmware
+
+Each firmware brings its own Linux kernel. The web interface shows it under **Kernel**.
+
+| Firmware | Kernel |
+| --- | --- |
+| `imx6ul_iw416` | 6.18.53 |
+| `v821b_aic8800d80` | 6.18.53 |
+| `ax520_aic8800d80` | 6.18.53 |
+
 ## Supported hardware
 
 Several bridges are the same board sold under different names, and one name can cover completely
@@ -67,8 +77,8 @@ Its web interface cannot flash the current firmware, please use provisioning too
 ## Web interface
 
 <http://livi-link.local/>, or <http://10.10.10.1/> over USB. It shows which firmware the dongle
-runs, what the radio is actually doing (channel, width, clients, link rate), Bluetooth, and, if
-the LED supports colours, its colour and brightness.
+runs, the MFi chip it found, what the radio is actually doing (channel, width, clients, link
+rate), Bluetooth, and, if the LED supports colours, its colour and brightness.
 
 <p align="center">
   <img src="docs/media/livi-link/LL.png" width="600" alt="LIVI Link web interface" />
@@ -113,8 +123,3 @@ If the dongle does not come up on USB or Wi-Fi, give it 30 seconds, then replug 
 
 A CPC200-CCPA whose system does not come up stays in a rescue system after the next restart. It is
 reachable over USB at `10.10.10.1`, and the provisioning tool installs LIVI Link again from there.
-
-## Firmware
-
-The firmware carries LIVI's version and the commit it was built from, for example
-`9.0.0 (7850de95)`. The web interface shows both under **Firmware**.

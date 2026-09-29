@@ -59,55 +59,7 @@ grep -q 'subdir-y += axera' "$KDIR/arch/arm/boot/dts/Makefile" \
 # ---------------------------------------------------------------------------
 # 2) AIC8800 driver: radxa SDK, Bluetooth through aic_btsdio.
 # ---------------------------------------------------------------------------
-AIC_ORG=${AIC_ORG:-https://github.com/radxa-pkg/aic8800}
-AIC_REF=${AIC_REF:-516e3b087763d80c44f5e3b6d2dd63e0d925c91d}
-AIC_CACHE=$TOP/radxa-aic8800
-AIC_SUB=src/SDIO/driver_fw/driver/aic8800
-AIC_FW_SUB=src/SDIO/driver_fw/fw/aic8800D80
-if [[ ! -e $AIC_CACHE/$AIC_SUB/aic8800_fdrv/aic_btsdio.c || ! -d $AIC_CACHE/$AIC_FW_SUB ]]; then
-  log "fetch radxa aic8800 driver ($AIC_REF)"
-  rm -rf "$AIC_CACHE"
-  git clone --filter=blob:none --sparse "$AIC_ORG" "$AIC_CACHE"
-  git -C "$AIC_CACHE" sparse-checkout set "$AIC_SUB" "$AIC_FW_SUB"
-  git -C "$AIC_CACHE" checkout -q "$AIC_REF"
-fi
-
-log "overlay AIC8800 driver into drivers/net/wireless/aic8800 (in-tree, not out-of-tree —
-     the vendor Makefiles' obj-m/obj-y need to read our real Kconfig, and CFG80211/BT/mac80211
-     symbols only resolve against Module.symvers once vmlinux is actually built with them in)"
-DRV=$KDIR/drivers/net/wireless/aic8800
-rm -rf "$DRV"
-cp -a "$AIC_CACHE/$AIC_SUB" "$DRV"
-find "$DRV" -name '*.o' -o -name '*.ko' -o -name '.*.cmd' -o -name Module.symvers -o -name modules.order \
-  | xargs rm -f
-
-log "apply AIC8800 driver patches (BT tweaks + mainline API compat)"
-apply_patches "$COMMON/patches/aic8800" "$DRV"
-
-log "apply AX520-only AIC8800 driver patches (mainline-only cfg80211 API shape,
-     not valid on V821B's older Tina 5.4 cfg80211 — kept out of the shared patch set)"
-apply_patches "$HERE/patches" "$DRV"
-
-log "wire AIC8800 into the wireless Kconfig/Makefile tree"
-grep -q 'aic8800/Kconfig' "$KDIR/drivers/net/wireless/Kconfig" || \
-  sed -i '/^source "drivers\/net\/wireless\/virtual\/Kconfig"/i source "drivers/net/wireless/aic8800/Kconfig"' \
-    "$KDIR/drivers/net/wireless/Kconfig"
-grep -q 'AIC_WLAN_SUPPORT' "$KDIR/drivers/net/wireless/Makefile" || \
-  echo 'obj-$(CONFIG_AIC_WLAN_SUPPORT) += aic8800/' >> "$KDIR/drivers/net/wireless/Makefile"
-
-# The top-level vendor Makefile hardcodes CONFIG_AIC8800_WLAN_SUPPORT/CONFIG_AIC_WLAN_SUPPORT/
-# CONFIG_AIC8800_BTLPM_SUPPORT := m, silently overriding whatever our real .config says the
-# moment Kbuild processes this fragment. Strip those three lines so the obj-$(CONFIG_X) lines
-# right below them read the real Kconfig value instead.
-sed -i '/^CONFIG_AIC8800_BTLPM_SUPPORT := m$/d;/^CONFIG_AIC8800_WLAN_SUPPORT := m$/d;/^CONFIG_AIC_WLAN_SUPPORT := m$/d' \
-  "$DRV/Makefile"
-
-# aic8800_bsp and aic8800_fdrv duplicate a large amount of source (SDIO transport, core
-# message handling, chip-id globals — not just the small helpers V821B's own comment implies)
-# under different filenames with identical symbol names. That's fine as two independently-
-# linked .ko modules (each module's symbol table is private) — which is what this build keeps
-# them as. Don't try to force either one obj-y (built-in): it collides at link time the moment
-# both share vmlinux's single symbol namespace, and neither vendor Makefile expects that.
+aic8800_install
 
 # ---------------------------------------------------------------------------
 # 3) Config: built from allnoconfig, not multi_v7_defconfig. multi_v7 is the
@@ -258,24 +210,7 @@ log "layer LIVI AX520 config onto allnoconfig"
   --enable UNIX \
   --enable BRIDGE \
   --enable NETDEVICES \
-  --enable WIRELESS \
-  --enable WLAN \
-  --enable CFG80211 \
-  --enable FW_LOADER \
-  --enable CFG80211_CERTIFICATION_ONUS \
-  --disable CFG80211_REQUIRE_SIGNED_REGDB \
-  --disable CFG80211_CRDA_SUPPORT \
-  --enable CFG80211_INTERNAL_REGDB \
-  --enable AIC_WLAN_SUPPORT \
-  --module AIC8800_WLAN_SUPPORT \
-  --module AIC8800_BTLPM_SUPPORT \
-  --set-str AIC_FW_PATH "/lib/firmware/aic8800d80" \
-  \
-  --enable BT \
-  --enable BT_BREDR \
-  --enable BT_LE \
-  --enable BT_RFCOMM \
-  --enable CRYPTO_ECDH \
+  $(aic8800_config) \
   \
   --enable DEBUG_KERNEL \
   --enable DEBUG_FS \
@@ -290,20 +225,6 @@ log "layer LIVI AX520 config onto allnoconfig"
   --set-val CONSOLE_LOGLEVEL_DEFAULT 8
 
 make ARCH=arm CROSS_COMPILE="$CROSS_COMPILE" olddefconfig
-
-# CONFIG_PLATFORM_ALLWINNER is the vendor driver's own Makefile variable (aic8800_bsp/Makefile,
-# aic8800_fdrv/Makefile), not a Kconfig symbol — AX520 uses dw_mmc, not sunxi-mmc, so this must
-# stay at its default "n" (it already is; aicsdio.c's own CONFIG_PLATFORM_ALLWINNER guard around
-# the sunxi_mmc_rescan_card() call then correctly compiles out on this platform).
-
-# aic8800_bsp tells the firmware which port Bluetooth uses, so bsp and fdrv both need SDIO BT on.
-# With fdrv alone the firmware stays on UART and asserts on the first HCI reset.
-for mk in "$DRV/aic8800_bsp/Makefile" "$DRV/aic8800_fdrv/Makefile"; do
-  sed -i 's|^\([[:space:]]*export[[:space:]]*\)\?CONFIG_SDIO_BT[[:space:]]*=.*|CONFIG_SDIO_BT = y|' "$mk"
-done
-grep -q '^CONFIG_SDIO_BT = y' "$DRV/aic8800_bsp/Makefile" && grep -q '^CONFIG_SDIO_BT = y' "$DRV/aic8800_fdrv/Makefile" \
-  || { log "CONFIG_SDIO_BT not found in the AIC8800 Makefiles"; exit 6; }
-sed -i 's|#define AICBT_DBG_FLAG\([[:space:]]\{1,\}\)1|#define AICBT_DBG_FLAG\10|' "$DRV/aic8800_fdrv/aic_btsdio.h"
 
 # ---------------------------------------------------------------------------
 # 4) Build
@@ -320,16 +241,7 @@ DTB=$KDIR/arch/arm/boot/dts/axera/ax520-vehiconn.dtb
 [[ -f $ZIMAGE && -f $DTB ]] || { log "build did not produce zImage + DTB"; exit 4; }
 log "zImage: $(stat -c%s "$ZIMAGE") B   DTB: $(stat -c%s "$DTB") B"
 
-# AIC8800 modules — collected for build-rootfs.sh, not part of this boot image.
-log "collect AIC8800 modules (bsp, fdrv)"
-MODOUT=$OUT/modules
-rm -rf "$MODOUT"; mkdir -p "$MODOUT"
-for m in aic8800_bsp aic8800_fdrv; do
-  ko=$(find "$DRV" -name "$m.ko" -print -quit)
-  [[ -n $ko ]] || { log "module $m.ko not built"; exit 4; }
-  "${CROSS_COMPILE}strip" --strip-debug "$ko" -o "$MODOUT/$m.ko"
-  log "  $m.ko: $(stat -c%s "$MODOUT/$m.ko") B"
-done
+aic8800_collect
 
 # ---------------------------------------------------------------------------
 # 5) Wrap into this device's uImage variant (same legacy header layout as

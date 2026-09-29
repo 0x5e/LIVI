@@ -63,6 +63,7 @@
       <dt>Load</dt><dd id="load">loading…</dd>
       <dt>Memory</dt><dd id="mem">loading…</dd>
       <dt>USB0 MAC</dt><dd id="mac">loading…</dd>
+      <dt>CP</dt><dd id="cp">loading…</dd>
     </dl>
   </div>
 
@@ -140,7 +141,7 @@ async function tick() {
     const r = await fetch('/api/status');
     if (r.ok) {
       const s = await r.json();
-      for (const k of ['model','kernel','uptime','load','mem','mac']) document.getElementById(k).textContent = s[k];
+      for (const k of ['model','kernel','uptime','load','mem','mac','cp']) document.getElementById(k).textContent = s[k];
       document.getElementById('firmware').textContent = `${s.version} (${s.build})`;
       installed = { target: s.target, version: s.version, build: s.build };
     }

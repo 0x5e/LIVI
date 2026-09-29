@@ -47,6 +47,8 @@ pub struct WebCaps {
     pub bridge: Option<String>,
     /// The host-facing interface whose MAC stands in as the dongle's address.
     pub host_iface: String,
+    /// Where mfid notes the MFi coprocessor it found.
+    pub mfi: String,
     /// The Bluetooth controller (e.g. "hci0").
     pub bt: String,
     /// Whether to offer the LED section (a controllable LED daemon is present).
@@ -734,10 +736,14 @@ fn status_json() -> String {
     let load   = read_trim("/proc/loadavg");
     let mem    = fmt_meminfo();
     let mac    = read_trim(&format!("/sys/class/net/{}/address", caps().host_iface));
+    let mut cp = read_trim(&caps().mfi);
+    if cp.is_empty() {
+        cp = "not found".into();
+    }
     format!(
-        r#"{{"model":"{}","target":"{}","version":"{}","build":"{}","kernel":"{}","uptime":"{}","load":"{}","mem":"{}","mac":"{}"}}"#,
+        r#"{{"model":"{}","target":"{}","version":"{}","build":"{}","kernel":"{}","uptime":"{}","load":"{}","mem":"{}","mac":"{}","cp":"{}"}}"#,
         js(&caps().model), js(&caps().target), js(VERSION), js(BUILD),
-        js(&kernel), js(&uptime), js(&load), js(&mem), js(&mac)
+        js(&kernel), js(&uptime), js(&load), js(&mem), js(&mac), js(&cp)
     )
 }
 

@@ -40,6 +40,10 @@ if [ -n "$ROOTDEV" ] && mount -t squashfs -o ro "$ROOTDEV" /mnt/root && [ -x /mn
         echo "the last boot of rootfs $ROOTDEV did not bring the ways in up, staying here (flash_eraseall $STATE to try it again)" > /dev/console
         umount /mnt/root
     else
+        # Whatever reached the UART before the question is no answer to it. A UART that hears its own
+        # output has the boot loader's lines waiting there, line ends included.
+        stty -F /dev/console -icanon min 0 time 0 && cat /dev/console > /dev/null
+        stty -F /dev/console icanon
         echo "rootfs $ROOTDEV is ours, switching in 1 s, Enter for the recovery shell" > /dev/console
         if read -t 1 _ < /dev/console; then
             umount /mnt/root

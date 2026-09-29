@@ -1,21 +1,21 @@
 #!/usr/bin/env bash
 # Cross-build the V821B userspace bits (musl, busybox, libnl3, hostapd)
 # from upstream sources. Andes gcc as the C compiler. musl runtime is
-# copied into $OUT/lib so busybox/hostapd link against it dynamically.
+# copied into $USERSPACE/lib so busybox/hostapd link against it dynamically.
 #
-# Layout matches what common/build-rootfs.sh expects from $STOCK_ROOTFS:
-#   $OUT/bin/busybox
-#   $OUT/lib/{libc.so, ld-musl-riscv32.so.1}
-#   $OUT/usr/sbin/hostapd
-#   $OUT/usr/lib/libnl-3.so.200, libnl-genl-3.so.200
+# Layout matches what common/build-rootfs.sh and the initramfs expect:
+#   $USERSPACE/bin/busybox
+#   $USERSPACE/lib/{libc.so, ld-musl-riscv32.so.1}
+#   $USERSPACE/usr/sbin/hostapd
+#   $USERSPACE/usr/lib/libnl-3.so.200, libnl-genl-3.so.200
+#   $USERSPACE/rescue/busybox   (RESCUE_APPLETS only)
 set -euo pipefail
 
-HERE=$(cd "$(dirname "$0")" && pwd)
-BUILD=${BUILD:-$HOME/LocalDev/livi-userspace-build}
+LOG_TAG=userspace
+source "$(dirname "${BASH_SOURCE[0]}")/board.sh"
+BUILD=$TOP/userspace
 SRC=$BUILD/src
 STAGE=$BUILD/stage
-OUT=${OUT:-$BUILD/out}
-JOBS=${JOBS:-$(nproc)}
 LOGS=$BUILD/logs
 mkdir -p "$LOGS"
 
@@ -54,8 +54,6 @@ CROSS=riscv32-linux-
 MUSL_PREFIX=$STAGE/musl-riscv32
 LIBNL_PREFIX=$STAGE/libnl3
 
-log(){ printf '\033[1;35m[v821b-userspace]\033[0m %s\n' "$*"; }
-
 fetch() {
     local url=$1 out=$2 sha=${3:-}
     if [[ -f "$out" ]]; then
@@ -71,7 +69,7 @@ fetch() {
     log "$(sha256sum "$out" | awk '{print $1}')  $out"
 }
 
-mkdir -p "$SRC" "$STAGE" "$OUT"/{bin,lib,usr/sbin,usr/lib}
+mkdir -p "$SRC" "$STAGE" "$USERSPACE"/{bin,lib,usr/sbin,usr/lib}
 
 # ---------------------------------------------------------------------------
 # 1) musl → riscv32-linux
@@ -95,21 +93,21 @@ fi
 MUSL_GCC=$MUSL_PREFIX/bin/musl-gcc
 [[ -x "$MUSL_GCC" ]] || { log "no musl-gcc at $MUSL_GCC"; exit 3; }
 
-KERNEL_SRC=${KERNEL_SRC:-$HOME/LocalDev/tina-test/tina-v821-v1.3-kernel/linux-5.4-ansc}
-if [[ ! -f "$MUSL_PREFIX/include/linux/kd.h" && -d "$KERNEL_SRC" ]]; then
+if [[ ! -f "$MUSL_PREFIX/include/linux/kd.h" ]]; then
+    fetch_kernel
     log "install kernel UAPI headers into musl sysroot"
-    (cd "$KERNEL_SRC" && make ARCH=riscv INSTALL_HDR_PATH="$MUSL_PREFIX" headers_install >/dev/null)
+    (cd "$KDIR" && make ARCH=riscv INSTALL_HDR_PATH="$MUSL_PREFIX" headers_install >/dev/null)
 fi
 
-cp -f "$MUSL_PREFIX/lib/libc.so"                "$OUT/lib/libc.so"
-cp -f "$MUSL_PREFIX/lib/ld-musl-riscv32.so.1"   "$OUT/lib/ld-musl-riscv32.so.1" 2>/dev/null || \
-    ln -sf libc.so "$OUT/lib/ld-musl-riscv32.so.1"
+cp -f "$MUSL_PREFIX/lib/libc.so"                "$USERSPACE/lib/libc.so"
+cp -f "$MUSL_PREFIX/lib/ld-musl-riscv32.so.1"   "$USERSPACE/lib/ld-musl-riscv32.so.1" 2>/dev/null || \
+    ln -sf libc.so "$USERSPACE/lib/ld-musl-riscv32.so.1"
 
 # ---------------------------------------------------------------------------
 # 2) busybox
 # ---------------------------------------------------------------------------
 BB_SRC=$SRC/busybox-${BUSYBOX_VER}
-if [[ ! -x "$OUT/bin/busybox" ]]; then
+if [[ ! -x "$USERSPACE/bin/busybox" ]]; then
     fetch "$BUSYBOX_URL" "$SRC/busybox-${BUSYBOX_VER}.tar.bz2" "$BUSYBOX_SHA"
     rm -rf "$BB_SRC"
     tar -xjf "$SRC/busybox-${BUSYBOX_VER}.tar.bz2" -C "$SRC"
@@ -117,11 +115,58 @@ if [[ ! -x "$OUT/bin/busybox" ]]; then
     (
         cd "$BB_SRC"
         make CROSS_COMPILE=$CROSS defconfig >/dev/null </dev/null
-        sed -i -f "$HERE/../../common/busybox.sed" .config
+        sed -i -f "$COMMON/busybox.sed" .config
         (yes "" 2>/dev/null || true) | make CROSS_COMPILE=$CROSS oldconfig >/dev/null
         quiet busybox-build make -j"$JOBS" CROSS_COMPILE=$CROSS CC="$MUSL_GCC"
     )
-    cp -f "$BB_SRC/busybox" "$OUT/bin/busybox"
+    cp -f "$BB_SRC/busybox" "$USERSPACE/bin/busybox"
+fi
+
+# ---------------------------------------------------------------------------
+# 2b) rescue busybox for the initramfs: static, only what the ways in, the switch to the rootfs and the
+#     provisioner use, since the boot image has no room for the full one and musl next to it.
+#     Rebuilt whenever the list changes.
+# ---------------------------------------------------------------------------
+RESCUE_APPLETS="
+  LFS BUSYBOX ASH SH_IS_ASH ASH_JOB_CONTROL ASH_ECHO ASH_PRINTF ASH_TEST ASH_CMDCMD ASH_OPTIMIZE_FOR_SIZE
+  FEATURE_SH_MATH FEATURE_EDITING FEATURE_TAB_COMPLETION FEATURE_INSTALLER FEATURE_DEVPTS
+  CTTYHACK SETSID STTY SWITCH_ROOT
+  CAT CHMOD CP CUT DATE DD DF DIRNAME BASENAME DU ECHO ENV FALSE TRUE HEAD TAIL LN LS MKDIR MV
+  OD PRINTF RM SEQ SLEEP SYNC TEST TEST1 TEST2 TOUCH TR UNAME UPTIME WC MD5SUM SHA256SUM
+  GREP SED AWK HEXDUMP XXD VI
+  PS KILL KILLALL PKILL PGREP PIDOF FREE
+  MOUNT UMOUNT DMESG FLASHCP FLASH_ERASEALL DEVMEM HALT REBOOT POWEROFF
+  IFCONFIG FEATURE_IFCONFIG_STATUS BRCTL FEATURE_BRCTL_FANCY FEATURE_BRCTL_SHOW NC NC_SERVER TELNETD
+  FEATURE_TELNETD_STANDALONE UDHCPD PING
+"
+RESCUE=$USERSPACE/rescue
+if [[ ! -x $RESCUE/busybox || "$(cat "$RESCUE/busybox.applets" 2>/dev/null)" != "$RESCUE_APPLETS" ]]; then
+    if [[ ! -d $BB_SRC ]]; then
+        fetch "$BUSYBOX_URL" "$SRC/busybox-${BUSYBOX_VER}.tar.bz2" "$BUSYBOX_SHA"
+        tar -xjf "$SRC/busybox-${BUSYBOX_VER}.tar.bz2" -C "$SRC"
+    fi
+    log "rescue busybox (allnoconfig + RESCUE_APPLETS, static)"
+    mkdir -p "$RESCUE"
+    (
+        cd "$BB_SRC"
+        make -s distclean >/dev/null
+        make -s allnoconfig >/dev/null </dev/null
+        sed -i -e 's|^# CONFIG_STATIC is not set|CONFIG_STATIC=y|' \
+               -e 's|^CONFIG_SH_IS_NONE=y|# CONFIG_SH_IS_NONE is not set|' .config
+        for sym in $RESCUE_APPLETS; do
+            sed -i "s|^# CONFIG_$sym is not set|CONFIG_$sym=y|" .config
+        done
+        (yes "" 2>/dev/null || true) | make -s oldconfig >/dev/null
+        missing=
+        for sym in STATIC $RESCUE_APPLETS; do
+            grep -q "^CONFIG_$sym=y" .config || missing="$missing $sym"
+        done
+        [[ -z $missing ]] || { log "busybox symbols that did not stick:$missing"; exit 4; }
+        quiet busybox-rescue make -j"$JOBS" CROSS_COMPILE=$CROSS CC="$MUSL_GCC"
+    )
+    "${CROSS}strip" -o "$RESCUE/busybox" "$BB_SRC/busybox"
+    printf '%s' "$RESCUE_APPLETS" > "$RESCUE/busybox.applets"
+    file "$RESCUE/busybox" | grep -q 'statically linked' || { log "rescue busybox is not static"; exit 4; }
 fi
 
 # ---------------------------------------------------------------------------
@@ -150,21 +195,21 @@ fi
 # Ship the two libnl3 SOs the dongle needs, dereferencing the version symlink
 # so both the SONAME (libnl-3.so.200) and the compat symlink (libnl-3.so) land.
 for l in libnl-3 libnl-genl-3; do
-    cp -fL "$LIBNL_PREFIX/lib/${l}.so.200"      "$OUT/usr/lib/${l}.so.200"
-    ln -sf "${l}.so.200"                        "$OUT/usr/lib/${l}.so"
+    cp -fL "$LIBNL_PREFIX/lib/${l}.so.200"      "$USERSPACE/usr/lib/${l}.so.200"
+    ln -sf "${l}.so.200"                        "$USERSPACE/usr/lib/${l}.so"
 done
 
 # ---------------------------------------------------------------------------
 # 4) hostapd
 # ---------------------------------------------------------------------------
 HA_SRC=$SRC/hostapd-${HOSTAPD_VER}
-if [[ ! -x "$OUT/usr/sbin/hostapd" ]]; then
+if [[ ! -x "$USERSPACE/usr/sbin/hostapd" ]]; then
     fetch "$HOSTAPD_URL" "$SRC/hostapd-${HOSTAPD_VER}.tar.gz" "$HOSTAPD_SHA"
     rm -rf "$HA_SRC"
     tar -xzf "$SRC/hostapd-${HOSTAPD_VER}.tar.gz" -C "$SRC"
     (
         cd "$HA_SRC/hostapd"
-        cp "$HERE/../../common/hostapd-build.config" .config
+        cp "$COMMON/hostapd-build.config" .config
         # hostapd's Makefile just adds `LIBS += -lnl-3 -lnl-genl-3` under
         # CONFIG_LIBNL32 — no pkg-config, no -L. Append -L via .config so
         # the linker can find our staged libnl3.
@@ -175,20 +220,20 @@ EOF
         export PKG_CONFIG_LIBDIR=$LIBNL_PREFIX/lib/pkgconfig
         quiet hostapd-build make -j"$JOBS" CC="$MUSL_GCC"
     )
-    cp -f "$HA_SRC/hostapd/hostapd" "$OUT/usr/sbin/hostapd"
+    cp -f "$HA_SRC/hostapd/hostapd" "$USERSPACE/usr/sbin/hostapd"
 fi
 
 # Strip everything (matches Stock: -Os + stripped). Big wins on hostapd.
 log "strip"
 "${CROSS}strip" \
-    "$OUT/bin/busybox" \
-    "$OUT/usr/sbin/hostapd" \
-    "$OUT/usr/lib"/libnl-*.so.200 \
-    "$OUT/lib/libc.so" 2>/dev/null || true
+    "$USERSPACE/bin/busybox" \
+    "$USERSPACE/usr/sbin/hostapd" \
+    "$USERSPACE/usr/lib"/libnl-*.so.200 \
+    "$USERSPACE/lib/libc.so" 2>/dev/null || true
 
 log "sizes:"
-du -h "$OUT/bin/busybox" \
-      "$OUT/usr/sbin/hostapd" \
-      "$OUT/usr/lib"/libnl-*.so.200 \
-      "$OUT/lib"/{libc.so,ld-musl-riscv32.so.1}
-log "userspace done at $OUT"
+du -h "$USERSPACE/bin/busybox" \
+      "$USERSPACE/usr/sbin/hostapd" \
+      "$USERSPACE/usr/lib"/libnl-*.so.200 \
+      "$USERSPACE/lib"/{libc.so,ld-musl-riscv32.so.1}
+log "userspace done at $USERSPACE"

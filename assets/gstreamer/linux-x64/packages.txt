@@ -1,4 +1,4 @@
-gst-plugins-bad1.0 1.28.7-1
+gst-plugins-bad1.0 1.28.7-2
 gstreamer1.0-alsa:amd64 1.28.7-1
 gstreamer1.0-gl:amd64 1.28.7-1
 gstreamer1.0-libav:amd64 1.28.7-1

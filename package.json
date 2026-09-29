@@ -44,7 +44,8 @@
     "coverage:renderer": "vitest run --project renderer --coverage --coverage.reportsDirectory=coverage/renderer --coverage.include='src/renderer/**/*.{ts,tsx}'"
   },
   "lint-staged": {
-    "*.{js,jsx,cjs,mjs,ts,tsx,cts,mts,json,jsonc,css,scss,md,yml,yaml}": "biome check --write --no-errors-on-unmatched"
+    "*.{js,jsx,cjs,mjs,ts,tsx,cts,mts,json,jsonc,css,scss,md,yml,yaml}": "biome check --write --no-errors-on-unmatched",
+    "*.rs": "rustfmt"
   },
   "dependencies": {
     "@base-ui/react": "^1.8.0",

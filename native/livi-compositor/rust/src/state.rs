@@ -8,13 +8,14 @@ use std::time::Instant;
 use smithay::input::{Seat, SeatState};
 use smithay::output::Output;
 use smithay::reexports::calloop::generic::Generic;
-use smithay::reexports::calloop::{EventLoop, Interest, Mode, PostAction};
+use smithay::reexports::calloop::{EventLoop, Interest, LoopHandle, Mode, PostAction};
 use smithay::reexports::wayland_server::backend::ClientData;
 use smithay::reexports::wayland_server::{Display, DisplayHandle};
 use smithay::utils::{Logical, Point};
 use smithay::wayland::compositor::CompositorState;
 use smithay::wayland::cursor_shape::CursorShapeManagerState;
 use smithay::wayland::dmabuf::DmabufState;
+use smithay::wayland::drm_syncobj::DrmSyncobjState;
 use smithay::wayland::selection::data_device::DataDeviceState;
 use smithay::wayland::shell::xdg::decoration::XdgDecorationState;
 use smithay::wayland::shell::xdg::{ToplevelSurface, XdgShellState};
@@ -123,6 +124,11 @@ pub struct LiviState {
     pub data_device_state: DataDeviceState,
     pub shm_state: ShmState,
     pub dmabuf_state: DmabufState,
+    /// The DRM node the renderer runs on, handed to the inner UI so its video decodes on the same GPU.
+    pub render_node: Option<std::path::PathBuf>,
+    /// Set by host::init when the render node supports explicit sync.
+    pub syncobj_state: Option<DrmSyncobjState>,
+    pub loop_handle: LoopHandle<'static, LiviState>,
     pub _viewporter_state: ViewporterState,
     pub _cursor_shape_state: CursorShapeManagerState,
 
@@ -241,6 +247,9 @@ impl LiviState {
             data_device_state,
             shm_state,
             dmabuf_state,
+            render_node: None,
+            syncobj_state: None,
+            loop_handle: loop_handle.clone(),
             _viewporter_state: viewporter_state,
             _cursor_shape_state: cursor_shape_state,
             output_app_id,

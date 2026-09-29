@@ -10,13 +10,15 @@ use smithay::reexports::wayland_protocols::xdg::shell::server::xdg_toplevel::Sta
 use smithay::reexports::wayland_server::protocol::wl_buffer::WlBuffer;
 use smithay::reexports::wayland_server::protocol::wl_seat::WlSeat;
 use smithay::reexports::wayland_server::protocol::wl_surface::WlSurface;
-use smithay::reexports::wayland_server::Client;
+use smithay::reexports::wayland_server::{Client, Resource};
 use smithay::utils::{Point, Serial};
 use smithay::wayland::buffer::BufferHandler;
 use smithay::wayland::compositor::{
-    get_parent, is_sync_subsurface, CompositorClientState, CompositorHandler, CompositorState,
+    add_blocker, add_pre_commit_hook, get_parent, is_sync_subsurface, with_states, CompositorClientState,
+    CompositorHandler, CompositorState,
 };
 use smithay::wayland::dmabuf::{DmabufGlobal, DmabufHandler, DmabufState, ImportNotifier};
+use smithay::wayland::drm_syncobj::{DrmSyncobjCachedState, DrmSyncobjHandler, DrmSyncobjState};
 use smithay::wayland::selection::data_device::{
     ClientDndGrabHandler, DataDeviceHandler, DataDeviceState, ServerDndGrabHandler,
 };
@@ -37,6 +39,29 @@ impl CompositorHandler for LiviState {
 
     fn client_compositor_state<'a>(&self, client: &'a Client) -> &'a CompositorClientState {
         &client.get_data::<crate::state::ClientState>().unwrap().compositor_state
+    }
+
+    fn new_surface(&mut self, surface: &WlSurface) {
+        // A buffer with an acquire point is only read once the client's GPU work on it is done.
+        add_pre_commit_hook::<Self, _>(surface, |state, _dh, surface| {
+            let acquire = with_states(surface, |data| {
+                data.cached_state.get::<DrmSyncobjCachedState>().pending().acquire_point.clone()
+            });
+            let (Some(acquire), Some(client)) = (acquire, surface.client()) else {
+                return;
+            };
+            let Ok((blocker, source)) = acquire.generate_blocker() else {
+                return;
+            };
+            let cleared = state.loop_handle.insert_source(source, move |_, _, state| {
+                let dh = state.display_handle.clone();
+                state.client_compositor_state(&client).blocker_cleared(state, &dh);
+                Ok(())
+            });
+            if cleared.is_ok() {
+                add_blocker(surface, blocker);
+            }
+        });
     }
 
     fn commit(&mut self, surface: &WlSurface) {
@@ -440,6 +465,12 @@ impl ShmHandler for LiviState {
     }
 }
 
+impl DrmSyncobjHandler for LiviState {
+    fn drm_syncobj_state(&mut self) -> Option<&mut DrmSyncobjState> {
+        self.syncobj_state.as_mut()
+    }
+}
+
 impl DmabufHandler for LiviState {
     fn dmabuf_state(&mut self) -> &mut DmabufState {
         &mut self.dmabuf_state
@@ -468,6 +499,7 @@ smithay::delegate_seat!(LiviState);
 smithay::delegate_cursor_shape!(LiviState);
 smithay::delegate_data_device!(LiviState);
 smithay::delegate_shm!(LiviState);
+smithay::delegate_drm_syncobj!(LiviState);
 smithay::delegate_dmabuf!(LiviState);
 smithay::delegate_viewporter!(LiviState);
 impl smithay::wayland::output::OutputHandler for LiviState {}

@@ -86,6 +86,40 @@ pub fn decoder_candidates(codec: &str, sw_only: bool) -> &'static [&'static CStr
     }
 }
 
+/// The GPU livi-compositor renders on. A decoded frame only reaches it as a
+/// dmabuf when the decoder sits on that same GPU.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum RenderGpu {
+    Nvidia,
+    /// Any other driver, by its render node name, e.g. "renderD128".
+    Node(String),
+}
+
+/// Decoder candidates for `codec` on `gpu`, best first. NVIDIA gets NVDEC,
+/// another GPU the VA decoder of its own node ahead of the unnamed one, which
+/// sits on the first VA device and needs its device path checked.
+pub fn decoder_candidates_on(codec: &str, sw_only: bool, gpu: &RenderGpu) -> Vec<String> {
+    let mut names = Vec::new();
+    if !sw_only && *gpu == RenderGpu::Nvidia {
+        let c = match codec {
+            "h265" | "vp9" | "av1" => codec,
+            _ => "h264",
+        };
+        names.push(format!("nv{c}dec"));
+    }
+    for name in decoder_candidates(codec, sw_only).iter().filter_map(|n| n.to_str().ok()) {
+        match gpu {
+            RenderGpu::Nvidia if is_hw_decoder(name) => continue,
+            RenderGpu::Node(node) if name.starts_with("va") => {
+                names.push(format!("va{node}{}", &name[2..]));
+            }
+            _ => {}
+        }
+        names.push(name.to_owned());
+    }
+    names
+}
+
 /// Codec names the caller may pass. Anything else is read as h264.
 pub fn known_codecs() -> [&'static CStr; 4] {
     [H264, H265, VP9, AV1]
@@ -117,7 +151,8 @@ pub fn presink(decoder: &str) -> &'static str {
     }
     #[cfg(not(target_os = "macos"))]
     {
-        if is_hw_decoder(decoder) { "" } else { "videoconvert ! " }
+        // NVDEC hands out plain frames as well, it shares no memory with the compositor.
+        if is_hw_decoder(decoder) && !decoder.starts_with("nv") { "" } else { "videoconvert ! " }
     }
 }
 
@@ -228,6 +263,36 @@ mod tests {
             let name = codec.to_str().unwrap();
             assert_eq!(decoder_candidates(name, true)[0], sw_decoder_for(name));
         }
+    }
+
+    #[test]
+    fn nvidia_gets_nvdec_and_no_decoder_of_another_gpu() {
+        assert_eq!(decoder_candidates_on("h265", false, &RenderGpu::Nvidia), ["nvh265dec", "avdec_h265"]);
+        assert_eq!(decoder_candidates_on("mpeg2", false, &RenderGpu::Nvidia), ["nvh264dec", "avdec_h264"]);
+    }
+
+    #[cfg(not(target_os = "macos"))]
+    #[test]
+    fn another_gpu_tries_the_va_decoder_of_its_own_node_first() {
+        let names = decoder_candidates_on("h265", false, &RenderGpu::Node("renderD129".into()));
+        let own = names.iter().position(|n| n == "varenderD129h265dec").unwrap();
+        let first = names.iter().position(|n| n == "vah265dec").unwrap();
+        assert!(own < first);
+        assert_eq!(names.last().unwrap(), "avdec_h265");
+    }
+
+    #[test]
+    fn software_only_stays_software_on_every_gpu() {
+        for gpu in [RenderGpu::Nvidia, RenderGpu::Node("renderD128".into())] {
+            assert_eq!(decoder_candidates_on("h264", true, &gpu), ["avdec_h264"]);
+        }
+    }
+
+    #[cfg(not(target_os = "macos"))]
+    #[test]
+    fn nvdec_frames_are_converted_before_the_sink() {
+        assert_eq!(presink("nvh265dec"), "videoconvert ! ");
+        assert_eq!(presink("vah265dec"), "");
     }
 }
 

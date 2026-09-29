@@ -15,6 +15,7 @@ path = "src/main.rs"
 smithay = { version = "0.7", default-features = false, features = [
     "wayland_frontend",
     "backend_egl",
+    "backend_drm",
     "renderer_gl",
     "use_system_lib",
 ] }

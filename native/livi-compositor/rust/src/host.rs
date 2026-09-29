@@ -5,11 +5,13 @@ use std::time::{Duration, Instant};
 
 use smithay::backend::egl::context::GlAttributes;
 use smithay::backend::egl::native::{EGLNativeDisplay, EGLPlatform};
-use smithay::backend::egl::{EGLContext, EGLDisplay, EGLSurface};
+use smithay::backend::drm::DrmDeviceFd;
+use smithay::backend::egl::{EGLContext, EGLDevice, EGLDisplay, EGLSurface};
 use smithay::backend::renderer::gles::GlesRenderer;
 use smithay::backend::renderer::ImportDma;
 use smithay::reexports::calloop::LoopHandle;
-use smithay::utils::SERIAL_COUNTER;
+use smithay::utils::{DeviceFd, SERIAL_COUNTER};
+use smithay::wayland::drm_syncobj::{supports_syncobj_eventfd, DrmSyncobjState};
 use smithay_client_toolkit::compositor::{CompositorHandler as SctkCompositorHandler, CompositorState as SctkCompositorState};
 use smithay_client_toolkit::output::{OutputHandler as SctkOutputHandler, OutputState as SctkOutputState};
 use calloop_wayland_source::WaylandSource;
@@ -173,6 +175,23 @@ impl EGLNativeDisplay for HostNativeDisplay {
     }
 }
 
+/// The DRM node the renderer runs on.
+fn render_node(display: &EGLDisplay) -> Option<std::path::PathBuf> {
+    let device = EGLDevice::device_for_display(display).ok()?;
+    device
+        .render_device_path()
+        .or_else(|_| device.drm_device_path())
+        .ok()
+}
+
+/// The render node, when it can do explicit sync. NVIDIA puts no implicit fences on dmabufs, so
+/// without explicit sync the compositor reads buffers a client is still drawing into.
+fn syncobj_device(path: &std::path::Path) -> Option<DrmDeviceFd> {
+    let file = std::fs::OpenOptions::new().read(true).write(true).open(path).ok()?;
+    let fd = DrmDeviceFd::new(DeviceFd::from(std::os::fd::OwnedFd::from(file)));
+    supports_syncobj_eventfd(&fd).then_some(fd)
+}
+
 /// Connect to the outer session, set up EGL + the shared GLES renderer, and
 /// hook the host event queue into the loop.
 pub fn init(state: &mut LiviState, handle: &LoopHandle<'static, LiviState>) {
@@ -223,6 +242,15 @@ pub fn init(state: &mut LiviState, handle: &LoopHandle<'static, LiviState>) {
         .dmabuf_state
         .create_global::<LiviState>(&state.display_handle, formats);
     let _ = global;
+
+    state.render_node = render_node(&egl_display);
+    match state.render_node.as_deref().and_then(syncobj_device) {
+        Some(fd) => {
+            log::info!("explicit sync over {:?}", state.render_node);
+            state.syncobj_state = Some(DrmSyncobjState::new::<LiviState>(&state.display_handle, fd));
+        }
+        None => log::info!("no explicit sync, inner clients rely on implicit dmabuf fences"),
+    }
 
     WaylandSource::new(conn.clone(), event_queue)
         .insert(handle.clone())

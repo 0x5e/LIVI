@@ -916,6 +916,8 @@ dependencies = [
  "cgmath",
  "cursor-icon",
  "downcast-rs",
+ "drm",
+ "drm-ffi",
  "drm-fourcc",
  "errno",
  "gbm",

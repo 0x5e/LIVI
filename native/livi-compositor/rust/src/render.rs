@@ -12,6 +12,7 @@ use smithay::backend::renderer::element::Kind as ElementKind;
 use smithay::backend::renderer::gles::{
     GlesRenderer, GlesTexProgram, GlesTexture, Uniform, UniformName, UniformType,
 };
+use smithay::backend::renderer::sync::SyncPoint;
 use smithay::backend::renderer::{Bind, Color32F, Frame, Offscreen, Renderer};
 use smithay::utils::{Logical, Point, Rectangle, Transform};
 
@@ -325,7 +326,7 @@ pub fn render_screen(state: &mut LiviState, screen_idx: usize) {
             match renderer.bind(&mut hw.egl_surface) {
                 Ok(mut fb) => tracker
                     .render_output::<LiviElement, _>(renderer, &mut fb, 0, &elements, clear)
-                    .map(|_| ())
+                    .map(|r| r.sync)
                     .map_err(|e| Box::new(e) as Box<dyn std::error::Error>),
                 Err(e) => {
                     log::error!("bind failed: {e}");
@@ -336,12 +337,16 @@ pub fn render_screen(state: &mut LiviState, screen_idx: usize) {
     };
 
     match res {
-        Ok(()) => {
+        Ok(sync) => {
             crate::host::request_frame(state, screen_idx);
             if let Some(w) = state.host.window_for_screen(screen_idx)
                 && let Err(e) = w.egl_surface.swap_buffers(None) {
                     log::error!("swap_buffers failed: {e}");
                 }
+            // Client buffers get their release point signalled once dropped, the GPU must be done with them by then.
+            if state.syncobj_state.is_some() {
+                let _ = sync.wait();
+            }
             crate::host::send_frame_callbacks(state);
         }
         Err(e) => log::error!("render failed: {e}"),
@@ -359,7 +364,7 @@ fn render_calibrated(
     size: (i32, i32),
     program: &GlesTexProgram,
     uniforms: &[Uniform<'static>],
-) -> Result<(), Box<dyn std::error::Error>> {
+) -> Result<SyncPoint, Box<dyn std::error::Error>> {
     let (w, h) = size;
     let mut tex: GlesTexture =
         renderer.create_buffer(Fourcc::Abgr8888, smithay::utils::Size::from((w, h)))?;
@@ -389,6 +394,5 @@ fn render_calibrated(
         Some(program),
         uniforms,
     )?;
-    let _ = frame.finish()?;
-    Ok(())
+    Ok(frame.finish()?)
 }

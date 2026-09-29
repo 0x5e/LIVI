@@ -20,6 +20,7 @@ pub fn spawn_startup(state: &mut LiviState) {
         .arg("-c")
         .arg(&cmd)
         .env("WAYLAND_DISPLAY", &state.ui_socket)
+        .envs(state.render_node.as_ref().map(|node| ("LIVI_RENDER_NODE", node)))
         .spawn();
     match child {
         Ok(c) => state.startup_pid = Some(Pid::from_raw(c.id() as i32)),

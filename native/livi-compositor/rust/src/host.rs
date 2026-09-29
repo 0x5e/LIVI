@@ -11,6 +11,7 @@ use smithay::backend::renderer::gles::GlesRenderer;
 use smithay::backend::renderer::ImportDma;
 use smithay::reexports::calloop::LoopHandle;
 use smithay::utils::{DeviceFd, SERIAL_COUNTER};
+use smithay::wayland::dmabuf::DmabufFeedbackBuilder;
 use smithay::wayland::drm_syncobj::{supports_syncobj_eventfd, DrmSyncobjState};
 use smithay_client_toolkit::compositor::{CompositorHandler as SctkCompositorHandler, CompositorState as SctkCompositorState};
 use smithay_client_toolkit::output::{OutputHandler as SctkOutputHandler, OutputState as SctkOutputState};
@@ -236,14 +237,24 @@ pub fn init(state: &mut LiviState, handle: &LoopHandle<'static, LiviState>) {
     ) }
     .expect("GlesRenderer");
 
-    // Advertise dmabuf to inner clients with the formats the renderer imports.
-    let formats = renderer.dmabuf_formats();
-    let global = state
-        .dmabuf_state
-        .create_global::<LiviState>(&state.display_handle, formats);
-    let _ = global;
-
     state.render_node = render_node(&egl_display);
+
+    // Advertise dmabuf to inner clients with the formats the renderer imports. The render node as main
+    // device makes them allocate on the GPU this compositor draws with, where there is more than one.
+    let formats = renderer.dmabuf_formats();
+    let feedback = state.render_node.as_deref().and_then(|node| {
+        let dev = std::os::unix::fs::MetadataExt::rdev(&std::fs::metadata(node).ok()?);
+        DmabufFeedbackBuilder::new(dev, formats.clone()).build().ok()
+    });
+    let _global = match &feedback {
+        Some(feedback) => state
+            .dmabuf_state
+            .create_global_with_default_feedback::<LiviState>(&state.display_handle, feedback),
+        None => state
+            .dmabuf_state
+            .create_global::<LiviState>(&state.display_handle, formats),
+    };
+
     match state.render_node.as_deref().and_then(syncobj_device) {
         Some(fd) => {
             log::info!("explicit sync over {:?}", state.render_node);

@@ -79,6 +79,9 @@ struct Wanted {
     passphrase: Option<String>,
     /// Some(false) once the radio turned 802.11ac down, so a saved config does not ask again.
     ac: Option<bool>,
+    /// The same for 802.11ax. None where it was never asked for, so an older saved config gets
+    /// it tried once.
+    ax: Option<bool>,
 }
 
 enum Cmd<'a> {
@@ -238,7 +241,10 @@ fn config(base: &str, wanted: &Wanted, vht: bool) -> String {
                 | "ieee80211ac"
                 | "vht_capab"
                 | "vht_oper_chwidth"
-                | "vht_oper_centr_freq_seg0_idx",
+                | "vht_oper_centr_freq_seg0_idx"
+                | "ieee80211ax"
+                | "he_oper_chwidth"
+                | "he_oper_centr_freq_seg0_idx",
             ) => wanted.channel.is_some(),
             Some("wpa_passphrase") => wanted.passphrase.is_some(),
             _ => false,
@@ -265,12 +271,22 @@ fn config(base: &str, wanted: &Wanted, vht: bool) -> String {
             band(channel)
         ));
         if vht && wanted.ac != Some(false) && band(channel) == "a" {
-            match vht_centre(channel).filter(|_| width >= 80) {
+            let centre = vht_centre(channel).filter(|_| width >= 80);
+            match centre {
                 Some(centre) => out.push_str(&format!(
                     "ieee80211ac=1\nvht_capab=[SHORT-GI-80]\nvht_oper_chwidth=1\n\
                      vht_oper_centr_freq_seg0_idx={centre}\n"
                 )),
                 None => out.push_str("ieee80211ac=1\nvht_oper_chwidth=0\n"),
+            }
+            // 802.11ax on the same channel block. A radio without it refuses to start, and weaker()
+            // takes it back.
+            match (wanted.ax, centre) {
+                (Some(false), _) => out.push_str("ieee80211ax=0\n"),
+                (_, Some(centre)) => out.push_str(&format!(
+                    "ieee80211ax=1\nhe_oper_chwidth=1\nhe_oper_centr_freq_seg0_idx={centre}\n"
+                )),
+                (_, None) => out.push_str("ieee80211ax=1\nhe_oper_chwidth=0\n"),
             }
         }
     }
@@ -401,6 +417,7 @@ fn settings_of(text: &str) -> Wanted {
         }),
         passphrase: value("wpa_passphrase"),
         ac: Some(value("ieee80211ac").as_deref() == Some("1")),
+        ax: value("ieee80211ax").map(|ax| ax == "1"),
     }
 }
 
@@ -416,8 +433,9 @@ fn on(ap: &mut Ap) -> Result<(), String> {
 }
 
 /// Starts hostapd on `path`, and when the radio refuses, on what `weaker` makes of it, until one
-/// runs. The file then holds the config the radio runs on. Radios differ in what they do (802.11ac,
-/// 40 MHz, 5 GHz at all, and what the regulatory domain allows), so nothing is assumed up front.
+/// runs. The file then holds the config the radio runs on. Radios differ in what they do (802.11ax,
+/// 802.11ac, 40 MHz, 5 GHz at all, and what the regulatory domain allows), so nothing is assumed up
+/// front.
 fn start_weakening(ap: &mut Ap, path: &std::path::Path) -> Result<(), String> {
     let refused = match start(ap, path) {
         Ok(()) => return Ok(()),
@@ -436,8 +454,9 @@ fn start_weakening(ap: &mut Ap, path: &std::path::Path) -> Result<(), String> {
     Err(refused)
 }
 
-/// One step less than `config` asks of the radio: 80 MHz to 40, then 802.11ac off, then 40 MHz to
-/// 20, then 5 GHz to 2.4 GHz. None when there is nothing left to give up.
+/// One step less than `config` asks of the radio: 80 MHz to 40, then 802.11ax off, then 802.11ac
+/// off, then 40 MHz to 20, then 5 GHz to 2.4 GHz. None when there is nothing left to give up.
+/// 802.11ax is turned off as `ieee80211ax=0` rather than dropped, so a saved config remembers it.
 fn weaker(config: &str) -> Option<(String, &'static str)> {
     let value = |key: &str| {
         config
@@ -459,7 +478,14 @@ fn weaker(config: &str) -> Option<(String, &'static str)> {
         set("vht_oper_chwidth", Some("0"));
         set("vht_oper_centr_freq_seg0_idx", None);
         set("vht_capab", None);
+        set("he_oper_chwidth", Some("0"));
+        set("he_oper_centr_freq_seg0_idx", None);
         "40 MHz"
+    } else if value("ieee80211ax").as_deref() == Some("1") {
+        set("ieee80211ax", Some("0"));
+        set("he_oper_chwidth", None);
+        set("he_oper_centr_freq_seg0_idx", None);
+        "802.11ac"
     } else if value("ieee80211ac").as_deref() == Some("1") {
         for key in ["ieee80211ac", "vht_capab", "vht_oper_chwidth", "vht_oper_centr_freq_seg0_idx"]
         {
@@ -750,8 +776,27 @@ mod tests {
     fn a_radio_without_vht_never_gets_it() {
         let out = config(BASE, &wanted(36, Some(80)), false);
         let out = lines(&out);
-        assert!(!out.iter().any(|l| l.starts_with("ieee80211ac") || l.starts_with("vht_")));
+        assert!(!out.iter().any(|l| l.starts_with("ieee80211a") || l.starts_with("vht_")));
+        assert!(!out.iter().any(|l| l.starts_with("he_")));
         assert!(out.contains(&"ht_capab=[SHORT-GI-20][SHORT-GI-40][HT40+]"));
+    }
+
+    #[test]
+    fn eighty_megahertz_asks_for_802_11ax_on_the_same_block() {
+        let out = config(BASE, &wanted(149, Some(80)), true);
+        let out = lines(&out);
+        assert!(out.contains(&"ieee80211ax=1"));
+        assert!(out.contains(&"he_oper_chwidth=1"));
+        assert!(out.contains(&"he_oper_centr_freq_seg0_idx=155"));
+    }
+
+    #[test]
+    fn forty_megahertz_asks_for_802_11ax_without_a_centre() {
+        let out = config(BASE, &wanted(36, Some(40)), true);
+        let out = lines(&out);
+        assert!(out.contains(&"ieee80211ax=1"));
+        assert!(out.contains(&"he_oper_chwidth=0"));
+        assert!(!out.iter().any(|l| l.starts_with("he_oper_centr_freq_seg0_idx")));
     }
 
     #[test]
@@ -762,7 +807,7 @@ mod tests {
             steps.push(step);
             text = next;
         }
-        assert_eq!(steps, ["40 MHz", "802.11n", "20 MHz", "2.4 GHz channel 6"]);
+        assert_eq!(steps, ["40 MHz", "802.11ac", "802.11n", "20 MHz", "2.4 GHz channel 6"]);
         let ie = format!("vendor_elements={}", apple_ie(6));
         let out = lines(&text);
         assert!(out.contains(&"hw_mode=g"));
@@ -770,17 +815,50 @@ mod tests {
         assert!(out.contains(&"ht_capab=[SHORT-GI-20]"));
         assert!(out.contains(&ie.as_str()));
         assert!(!out.iter().any(|l| l.starts_with("ieee80211ac") || l.starts_with("vht_")));
+        assert!(!out.iter().any(|l| l.starts_with("he_") || *l == "ieee80211ax=1"));
         assert!(out.contains(&"wpa_passphrase=livilink"));
+    }
+
+    #[test]
+    fn forty_megahertz_keeps_802_11ax_until_the_radio_refuses_that_too() {
+        let live = config(BASE, &wanted(36, Some(80)), true);
+        let (forty, _) = weaker(&live).unwrap();
+        let forty = lines(&forty);
+        assert!(forty.contains(&"ieee80211ax=1"));
+        assert!(forty.contains(&"he_oper_chwidth=0"));
+        assert!(!forty.iter().any(|l| l.starts_with("he_oper_centr_freq_seg0_idx")));
+    }
+
+    #[test]
+    fn a_config_the_radio_ran_without_ax_is_saved_without_asking_again() {
+        let live = config(BASE, &wanted(36, Some(80)), true);
+        let (forty, _) = weaker(&live).unwrap();
+        let (ac, _) = weaker(&forty).unwrap();
+        let saved = config(BASE, &settings_of(&ac), true);
+        let saved = lines(&saved);
+        assert!(saved.contains(&"ieee80211ax=0"));
+        assert!(!saved.iter().any(|l| l.starts_with("he_")));
+        assert!(saved.contains(&"ieee80211ac=1"));
+    }
+
+    #[test]
+    fn a_config_saved_before_802_11ax_gets_it_tried() {
+        let before = config(BASE, &Wanted { ax: Some(false), ..wanted(36, Some(80)) }, true)
+            .replace("ieee80211ax=0\n", "");
+        let out = config(BASE, &settings_of(&before), true);
+        assert!(lines(&out).contains(&"ieee80211ax=1"));
     }
 
     #[test]
     fn a_config_the_radio_ran_without_ac_is_saved_without_it() {
         let live = config(BASE, &wanted(36, Some(80)), true);
         let (forty, _) = weaker(&live).unwrap();
-        let (n, _) = weaker(&forty).unwrap();
+        let (ac, _) = weaker(&forty).unwrap();
+        let (n, _) = weaker(&ac).unwrap();
         let saved = config(BASE, &settings_of(&n), true);
         let saved = lines(&saved);
         assert!(!saved.iter().any(|l| l.starts_with("ieee80211ac") || l.starts_with("vht_")));
+        assert!(!saved.iter().any(|l| l.starts_with("he_") || *l == "ieee80211ax=1"));
         assert!(saved.contains(&"ht_capab=[SHORT-GI-20][SHORT-GI-40][HT40+]"));
     }
 

@@ -18,7 +18,7 @@ function hexToRgb255(hex: string): [number, number, number] {
 }
 
 // Linux runs the pipeline in the gstHost child process (its own GLib loop so waylandsink resizes
-// live, and out of reach of the Electron-vs-system libffi crash). mac/Windows render in-process.
+// live, and out of reach of the Electron-vs-system libffi crash). mac render in-process.
 export const useHostProcess = process.platform === 'linux'
 let nextPlayerId = 1
 
@@ -477,7 +477,7 @@ export function setOnPlayerCreated(cb: (() => void) | null): void {
 }
 
 // GStreamer video player. On Linux the pipeline lives in the gstHost child process and this only
-// holds an id for it; on mac/Windows it drives the in-process addon directly.
+// holds an id for it; on mac it drives the in-process addon directly.
 export class GstVideo {
   private readonly id: number
   private started = false

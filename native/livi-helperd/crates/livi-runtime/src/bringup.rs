@@ -464,7 +464,15 @@ pub async fn run_accessory<C: ControlChannel, A: AsyncAuth>(
                         let _ = events.send(BringupEvent::CarPlayStartSent).await;
                     }
                     None => {
-                        let why = format!("no link-local on {:?}", cp.wifi_iface);
+                        let why = match (&cp.transport, cp.av_iface.as_deref()) {
+                            (Transport::Wired, None) => {
+                                "the phone's USB network interface was not found".to_string()
+                            }
+                            (Transport::Wired, Some(iface)) => {
+                                format!("no link-local on {iface:?}")
+                            }
+                            _ => format!("no link-local on {:?}", cp.wifi_iface),
+                        };
                         println!("[cp] CarPlayStartSession not sent: {why}");
                         let _ = events.send(BringupEvent::Failed(why)).await;
                     }

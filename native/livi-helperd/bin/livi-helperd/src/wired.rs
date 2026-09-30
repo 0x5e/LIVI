@@ -218,8 +218,14 @@ pub async fn watch_usbmuxd(
             };
             tokio::spawn(async move {
                 // The phone's own USB network interface (enX), resolved from the UDID.
-                let ncm =
-                    LocalNcm::Bridged(iap2_wired::mac_network::discover(&device.udid).await.ok());
+                let iface = match iap2_wired::mac_network::discover(&device.udid).await {
+                    Ok(iface) => Some(iface),
+                    Err(e) => {
+                        eprintln!("[wired] {}: no USB network interface: {e}", short(&device.udid));
+                        None
+                    }
+                };
+                let ncm = LocalNcm::Bridged(iface);
                 match iap2_wired::usbmuxd::open(&device).await {
                     Ok(stream) => {
                         println!(

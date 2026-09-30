@@ -271,7 +271,7 @@ fn env_block(
 
 /// The vendor kernel has /sys/fsl_otp, a mainline kernel the OCOTP as nvmem (one word per shadow
 /// register, CFG0 at word 1, MAC0 at word 0x22).
-fn read_fuses(sh: &Shell) -> Result<Fuses, String> {
+pub(super) fn read_fuses(sh: &Shell) -> Result<Fuses, String> {
     let out = sh.sh(
         "if [ -d /sys/fsl_otp ]; then cd /sys/fsl_otp && cat HW_OCOTP_CFG0 HW_OCOTP_CFG1 HW_OCOTP_MAC0 HW_OCOTP_MAC1; \
          else n=/sys/bus/nvmem/devices/imx-ocotp0/nvmem; \

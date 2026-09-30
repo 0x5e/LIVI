@@ -140,6 +140,7 @@ fn run_imx6ul(args: &[String]) -> Result<bool, String> {
             _ => Err("usage: flash <lfwb> [--write]".to_string()),
         },
         "provision" => imx6ul_provision(args.get(1).map(Path::new)).map(|()| true),
+        "restore" => imx6ul_back_to_stock(args.get(1).map(Path::new)).map(|()| true),
         "bootstrap" => bootstrap::boot_hook().map(|()| {
             println!("bootstrap written, replug the dongle to start its shell");
             true
@@ -320,11 +321,15 @@ fn menu() -> std::process::ExitCode {
                     "  1  move to the current LIVI Link firmware (backup current firmware first)"
                 );
             }
-            Detected::LiviLink { .. } => {
+            Detected::LiviLink { target, .. } => {
                 println!("  1  update LIVI Link");
+                if target.starts_with("imx6ul_") {
+                    println!("  2  back to the vendor firmware (from backup)");
+                }
             }
             Detected::Imx6ul { .. } => {
                 println!("  1  install LIVI Link (backup current firmware first)");
+                println!("  2  back to the vendor firmware (from backup)");
             }
             Detected::Nothing if stock_usb => {
                 println!("  1  bootstrap + install LIVI Link (over USB)");
@@ -371,6 +376,16 @@ fn menu() -> std::process::ExitCode {
                     Err(e) => Err(e),
                 }
             }
+            ("2", Detected::LiviLink { target, .. }) if target.starts_with("imx6ul_") => {
+                match imx6ul_back_to_stock(None) {
+                    Ok(()) => return std::process::ExitCode::SUCCESS,
+                    Err(e) => Err(e),
+                }
+            }
+            ("2", Detected::Imx6ul { .. }) => match imx6ul_back_to_stock(None) {
+                Ok(()) => return std::process::ExitCode::SUCCESS,
+                Err(e) => Err(e),
+            },
             ("1", Detected::LiviLink { .. }) => match update_livi_link() {
                 Ok(()) => return std::process::ExitCode::SUCCESS,
                 Err(e) => Err(e),
@@ -419,6 +434,24 @@ fn imx6ul_provision(lfwb: Option<&Path>) -> Result<(), String> {
     println!(
         "\n== done, the dongle runs LIVI Link {} ({}) and is safe to unplug",
         now.version, now.build
+    );
+    Ok(())
+}
+
+/// An i.MX6UL dongle back to its vendor firmware, from the stock backup this tool took of it: the
+/// one in `dir`, or the newest in the backup folder.
+fn imx6ul_back_to_stock(dir: Option<&Path>) -> Result<(), String> {
+    let sh = Shell::new(&pick_host());
+    let stock = imx6ul::restore::find(&sh, &backup_dir(), dir, &report)?;
+    println!("== the backup of this dongle: {}", livi_link_provision::tilde(&stock.dir));
+    let answer = ask("write the vendor firmware back, LIVI Link is gone afterwards? [y/N]")?;
+    if !answer.eq_ignore_ascii_case("y") {
+        println!("== left as it is");
+        return Ok(());
+    }
+    imx6ul::back_to_stock(&sh, &stock, &report)?;
+    println!(
+        "\n== done, the dongle starts its vendor firmware, leave it plugged in until it is up"
     );
     Ok(())
 }
@@ -564,7 +597,7 @@ fn report(line: &str) {
 
 fn usage() -> &'static str {
     "usage: livi-link-provision [detect]
-  dongle arm imx6ul  provision [lfwb] | flash <lfwb> [--write] | kernel <zImage> [--write] | backup [dir] | push <local> <remote> | sh 'CMD' | bootstrap | usbscan
+  dongle arm imx6ul  provision [lfwb] | restore [backup dir] | flash <lfwb> [--write] | kernel <zImage> [--write] | backup [dir] | push <local> <remote> | sh 'CMD' | bootstrap | usbscan
   dongle arm ax520   info | install-shell | verify-hw | selftest [N] | backup [dir] | flash <lfwb> | provision [lfwb]
   dongle riscv v821b info | install-shell | verify-hw | selftest [N] | backup [dir] | flash <lfwb> | provision [lfwb]"
 }

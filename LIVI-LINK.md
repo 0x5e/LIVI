@@ -123,6 +123,11 @@ With the `v821b_aic8800d80` or `ax520_aic8800d80` firmware, upload the backup th
 under **Firmware**. The dongle writes it and reboots into its original firmware. Do not unplug it
 while it writes.
 
+With the `imx6ul_iw416` or `imx6ul_rtl8822cs` firmware, run the provisioning tool on the computer
+that did the install and pick **back to the vendor firmware**. It takes the backup it made of this
+dongle, checks that the backup really belongs to it, writes it back from the rescue system and
+restarts into the original firmware. Do not unplug the dongle while it writes.
+
 ## If something goes wrong
 
 If the dongle does not come up on USB or Wi-Fi, give it 30 seconds, then replug it. The logs are under `/tmp` on the dongle.

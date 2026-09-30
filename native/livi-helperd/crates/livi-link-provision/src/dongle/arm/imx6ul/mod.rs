@@ -4,6 +4,7 @@
 
 pub mod boot;
 pub mod mtd;
+pub mod restore;
 pub mod shell;
 
 use std::path::Path;
@@ -104,6 +105,24 @@ pub fn install(
             boot::install(sh, &plan, progress)
         }
     }
+}
+
+/// Puts the vendor firmware from `stock` back and restarts into it. That writes the rootfs
+/// partition, so a running LIVI Link goes to the rescue system first.
+pub fn back_to_stock(
+    sh: &Shell,
+    stock: &restore::Stock,
+    progress: &dyn Fn(&str),
+) -> Result<(), String> {
+    match running(sh)? {
+        Running::Vendor => return Err("the dongle runs its vendor firmware already".into()),
+        Running::Livi => to_rescue(sh, progress)?,
+        Running::Rescue => {}
+    }
+    restore::write(sh, stock, progress)?;
+    progress("restarting into the vendor firmware");
+    sh.sh("(sleep 1; sync; reboot; sleep 5; reboot -f) >/dev/null 2>&1 &")?;
+    Ok(())
 }
 
 /// Restarts LIVI Link into its rescue system: the initramfs stays there when it finds its mark in

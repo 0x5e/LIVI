@@ -9,9 +9,10 @@ const SDIO: &str = "/sys/bus/sdio/devices";
 
 /// The Wi-Fi/Bluetooth modules the board comes with and has a build for: SDIO device id, label,
 /// firmware target.
-const MODULES: [(&str, &str, &str); 2] = [
+const MODULES: [(&str, &str, &str); 3] = [
     ("0x9159", "i.MX6ULL + IW416", "imx6ul_iw416"),
     ("0xc822", "i.MX6ULL + RTL8822CS", "imx6ul_rtl8822cs"),
+    ("0xb822", "i.MX6ULL + RTL8822BS", "imx6ul_rtl8822bs"),
 ];
 
 /// Label and firmware target of this unit, told apart by its module rather than by the build it
@@ -89,12 +90,13 @@ mod tests {
     fn the_module_picks_the_target() {
         assert_eq!(module_of(&ids(&["0x9159"])).1, "imx6ul_iw416");
         assert_eq!(module_of(&ids(&["0xc822"])), ("i.MX6ULL + RTL8822CS", "imx6ul_rtl8822cs"));
+        assert_eq!(module_of(&ids(&["0xb822"])), ("i.MX6ULL + RTL8822BS", "imx6ul_rtl8822bs"));
     }
 
     #[test]
     fn an_unknown_module_stays_on_the_iw416_build() {
         assert_eq!(
-            module_of(&ids(&["0xb822"])),
+            module_of(&ids(&["0x4354"])),
             ("i.MX6ULL + unknown Wi-Fi module", "imx6ul_iw416")
         );
         assert_eq!(module_of(&[]).1, "imx6ul_iw416");

@@ -23,10 +23,14 @@ pub(crate) const IMX6UL_LFWB: &[u8] =
 pub(crate) const IMX6UL_RTL8822CS_LFWB: &[u8] = include_bytes!(
     "../../../../../../../../assets/livi-link/imx6ul_rtl8822cs/livi-link-imx6ull-rtl8822cs.lfwb"
 );
+pub(crate) const IMX6UL_RTL8822BS_LFWB: &[u8] = include_bytes!(
+    "../../../../../../../../assets/livi-link/imx6ul_rtl8822bs/livi-link-imx6ull-rtl8822bs.lfwb"
+);
 
 /// The Wi-Fi/Bluetooth modules the board comes with and has a build for, by SDIO device id. LIVI
 /// Link tells them apart the same way.
-const MODULES: [(&str, &str); 2] = [("0x9159", "imx6ul_iw416"), ("0xc822", "imx6ul_rtl8822cs")];
+const MODULES: [(&str, &str); 3] =
+    [("0x9159", "imx6ul_iw416"), ("0xc822", "imx6ul_rtl8822cs"), ("0xb822", "imx6ul_rtl8822bs")];
 
 /// The firmware target for the dongle's module, `None` for a module without a build.
 pub fn module_target(sh: &Shell) -> Result<Option<&'static str>, String> {
@@ -195,7 +199,8 @@ mod tests {
     fn the_module_picks_the_target() {
         assert_eq!(target_of("0x9159\n"), Some("imx6ul_iw416"));
         assert_eq!(target_of("0xc822\r\n"), Some("imx6ul_rtl8822cs"));
-        assert_eq!(target_of("0xb822\n"), None);
+        assert_eq!(target_of("0xb822\n"), Some("imx6ul_rtl8822bs"));
+        assert_eq!(target_of("0x4354\n"), None);
         assert_eq!(target_of(""), None);
     }
 }

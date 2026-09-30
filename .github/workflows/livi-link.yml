@@ -20,6 +20,10 @@ on:
         description: 'Build imx6ul_rtl8822cs (armv7, static-musl, mainline kernel)'
         type: boolean
         default: true
+      imx6ul_rtl8822bs:
+        description: 'Build imx6ul_rtl8822bs (armv7, static-musl, mainline kernel)'
+        type: boolean
+        default: true
 
 permissions:
   contents: write
@@ -92,14 +96,16 @@ jobs:
           V821: ${{ inputs.v821b_aic8800d80 }}
           AX520: ${{ inputs.ax520_aic8800d80 }}
           IMX6UL: ${{ inputs.imx6ul_iw416 }}
-          IMX6UL_RTL: ${{ inputs.imx6ul_rtl8822cs }}
+          IMX6UL_RTL8822CS: ${{ inputs.imx6ul_rtl8822cs }}
+          IMX6UL_RTL8822BS: ${{ inputs.imx6ul_rtl8822bs }}
         run: |
           set -euo pipefail
           arr=()
           [[ "$V821"   == "true" ]] && arr+=('"v821b_aic8800d80"')
           [[ "$AX520"  == "true" ]] && arr+=('"ax520_aic8800d80"')
           [[ "$IMX6UL" == "true" ]] && arr+=('"imx6ul_iw416"')
-          [[ "$IMX6UL_RTL" == "true" ]] && arr+=('"imx6ul_rtl8822cs"')
+          [[ "$IMX6UL_RTL8822CS" == "true" ]] && arr+=('"imx6ul_rtl8822cs"')
+          [[ "$IMX6UL_RTL8822BS" == "true" ]] && arr+=('"imx6ul_rtl8822bs"')
           {
             printf 'matrix={"target":[%s]}\n' "$(IFS=,; echo "${arr[*]}")"
             printf 'any=%s\n' "$(IFS=,; echo "${arr[*]}")"
@@ -303,6 +309,13 @@ jobs:
           name: imx6ul_rtl8822cs
           path: assets/livi-link/imx6ul_rtl8822cs
 
+      - name: Download imx6ul_rtl8822bs artifact
+        if: contains(needs.targets.outputs.any, 'imx6ul_rtl8822bs')
+        uses: actions/download-artifact@v8
+        with:
+          name: imx6ul_rtl8822bs
+          path: assets/livi-link/imx6ul_rtl8822bs
+
       - name: Commit and push
         shell: bash
         run: |
@@ -379,6 +392,13 @@ jobs:
         with:
           name: imx6ul_rtl8822cs
           path: assets/livi-link/imx6ul_rtl8822cs
+
+      - name: Take the imx6ul_rtl8822bs firmware bundle from this run
+        if: contains(needs.targets.outputs.any, 'imx6ul_rtl8822bs')
+        uses: actions/download-artifact@v8
+        with:
+          name: imx6ul_rtl8822bs
+          path: assets/livi-link/imx6ul_rtl8822bs
 
       - name: Setup Rust
         shell: bash

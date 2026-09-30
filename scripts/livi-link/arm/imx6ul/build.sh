@@ -61,6 +61,11 @@ case $RADIO in
     RADIO_BUILTIN=(MAC80211 RTW88_8822CS BT_HCIUART_SERDEV BT_HCIUART_RTL)
     RADIO_MODULES=(BT_HCIUART BT_RTL)
     ;;
+  rtl8822bs)
+    RADIO_CONFIG=(--enable MAC80211 --enable WLAN_VENDOR_REALTEK --enable RTW88 --enable RTW88_8822BS)
+    RADIO_BUILTIN=(MAC80211 RTW88_8822BS)
+    RADIO_MODULES=()
+    ;;
 esac
 
 # Built from allnoconfig: only what the board, the boot path, the two ways in and the rootfs need.

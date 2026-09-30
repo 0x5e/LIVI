@@ -1,12 +1,12 @@
 # i.MX6ULL with the Wi-Fi/Bluetooth module RADIO names: what this board's build scripts and the
 # shared rootfs and bundle scripts (common/) take from it. The same board comes with different
-# modules, each gets its own build (imx6ul_iw416, imx6ul_rtl8822cs).
+# modules, each gets its own build (imx6ul_iw416, imx6ul_rtl8822cs, imx6ul_rtl8822bs).
 HERE=$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)
 BOARD=imx6ul
 RADIO=${RADIO:-iw416}
 case $RADIO in
-  iw416 | rtl8822cs) ;;
-  *) echo "RADIO=$RADIO: this board has builds for iw416 and rtl8822cs" >&2; exit 2 ;;
+  iw416 | rtl8822cs | rtl8822bs) ;;
+  *) echo "RADIO=$RADIO: this board has builds for iw416, rtl8822cs and rtl8822bs" >&2; exit 2 ;;
 esac
 TARGET=imx6ul_$RADIO
 : "${TOP:=$HOME/LocalDev/imx6ul-$RADIO-kernel}"
@@ -63,6 +63,11 @@ case $RADIO in
       "rtl_bt/rtl8822cs_fw.bin 42db5218c54b0638e1bafdbc7d0986172288e55a9e1c879080d41206bb87dfa2 20260916"
       "rtl_bt/rtl8822cs_config.bin dbdc0a455f628337509afbdb6e1fb42e1622e3e876fc2aa962cc1b754709131c 20260916"
     )
+    ;;
+  rtl8822bs)
+    WIFI_FW=("rtw88/rtw8822b_fw.bin a72da690597bfa99d8eb6fc2ab090d18d8ad92ac2befd35db1c9e3662d8d8418 20260916")
+    # btrtl knows the 8822B over USB only, its Bluetooth half over UART stays off for now.
+    BT_FW=()
     ;;
 esac
 FIRMWARE=$TOP/firmware

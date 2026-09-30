@@ -9,8 +9,8 @@ board_init() { :; }
 board_early() { :; }
 
 # The Wi-Fi driver is built into the kernel and powers the module itself. The shared scripts and
-# hostapd.conf take the access point interface as wlan0: rtw88 (RTL8822CS) names it so, mwifiex
-# (IW416, driver_mode=2) calls it uap0.
+# hostapd.conf take the access point interface as wlan0: rtw88 (RTL8822CS, RTL8822BS) names it
+# so, mwifiex (IW416, driver_mode=2) calls it uap0.
 board_wifi() {
     for i in $(seq 1 20); do
         { [ -e /sys/class/net/uap0 ] || [ -e /sys/class/net/wlan0 ]; } && break

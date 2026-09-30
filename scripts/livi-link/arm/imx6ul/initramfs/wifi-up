@@ -1,8 +1,9 @@
 #!/bin/sh
-# wifi-up: the module's Wi-Fi as access point LIVI-Link on br0 next to usb0. 2.4 GHz, 20 MHz: without
-# a country the kernel allows no access point on 5 GHz.
+# wifi-up: the module's Wi-Fi as access point LIVI-Link on br0 next to usb0. 2.4 GHz, 20 MHz:
+# without a country the kernel allows no access point on 5 GHz.
 
-# mwifiex (IW416) registers the access point interface as uap0, rtw88 (RTL8822CS) as wlan0.
+# mwifiex (IW416) registers the access point interface as uap0, rtw88 (RTL8822CS, RTL8822BS) as
+# wlan0.
 ap_iface() {
     for i in uap0 wlan0; do
         [ -d /sys/class/net/$i ] && { echo $i; return 0; }

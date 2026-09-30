@@ -18,6 +18,7 @@ Each firmware brings its own Linux kernel. The web interface shows it under **Ke
 | --- | --- |
 | `imx6ul_iw416` | 7.2.8 |
 | `imx6ul_rtl8822cs` | 7.2.8 |
+| `imx6ul_rtl8822bs` | 7.2.8 |
 | `v821b_aic8800d80` | 7.2.8  |
 | `ax520_aic8800d80` | 7.2.8  |
 
@@ -29,21 +30,24 @@ sometimes from one month to the next. The Mini Ultra3 alone has come with at lea
 boards so far, among them one with an Ingenic SoC and one with the Allwinner V821B. So the name on the box says little about what is inside. A
 row counts as **confirmed** only once someone has successfully installed LIVI Link on that product.
 
-| Firmware | Hardware | Sold as | Wi-Fi | State |
-| --- | --- | --- | --- | --- |
-| `imx6ul_iw416`[^vendorfw] | NXP i.MX6UL, IW416 | CPC200-CCPA | 5 GHz, 40 MHz | confirmed |
-| `imx6ul_rtl8822cs` | NXP i.MX6UL, RTL8822CS | CPC200-CCPA | | not confirmed |
-| `imx6ul_iw416` | NXP i.MX6UL, IW416 | CPC200-C2Air | 5 GHz, 40 MHz | not confirmed |
-| `imx6ul_iw416` | NXP i.MX6UL, IW416 | CPC200-2Air | 5 GHz, 40 MHz | not confirmed |
-| `v821b_aic8800d80` | Allwinner V821B, AIC8800D80 | Mini Ultra3 | 5 GHz, 80 MHz | confirmed |
-| none | Ingenic | Mini Ultra3 | | not supported |
-| `v821b_aic8800d80` | Allwinner V821B, AIC8800D80 | CPC200-C2Air | 5 GHz, 80 MHz | not confirmed |
-| `ax520_aic8800d80` | Axera AX520CE, AIC8800D80 | CPC200-C2Air | 5 GHz, 80 MHz | confirmed[^mfi] |
+| Firmware | Hardware | Sold as | Wi-Fi | Max PHY rate | State |
+| --- | --- | --- | --- | --- | --- |
+| `imx6ul_iw416`[^vendorfw] | NXP i.MX6UL, IW416 | CPC200-CCPA | Wi-Fi 4, 1x1, 5 GHz, 40 MHz | 150 Mbit/s | confirmed |
+| `imx6ul_rtl8822cs` | NXP i.MX6UL, RTL8822CS | CPC200-CCPA | Wi-Fi 5, 2x2, 5 GHz, 80 MHz | 867 Mbit/s | not confirmed |
+| `imx6ul_rtl8822bs`[^nobt] | NXP i.MX6UL, RTL8822BS | CPC200-Autokit | Wi-Fi 5, 2x2, 5 GHz, 80 MHz | 867 Mbit/s | confirmed |
+| `imx6ul_iw416` | NXP i.MX6UL, IW416 | CPC200-C2Air | Wi-Fi 4, 1x1, 5 GHz, 40 MHz | 150 Mbit/s | not confirmed |
+| `imx6ul_iw416` | NXP i.MX6UL, IW416 | CPC200-2Air | Wi-Fi 4, 1x1, 5 GHz, 40 MHz | 150 Mbit/s | not confirmed |
+| `v821b_aic8800d80` | Allwinner V821B, AIC8800D80 | Mini Ultra3 | Wi-Fi 6, 1x1, 5 GHz, 80 MHz | 600 Mbit/s | confirmed |
+| none | Ingenic X1600E, AIC8800D80 | Mini Ultra1 | Wi-Fi 6, 1x1, 5 GHz, 80 MHz | 600 Mbit/s | not supported |
+| `v821b_aic8800d80` | Allwinner V821B, AIC8800D80 | CPC200-C2Air | Wi-Fi 6, 1x1, 5 GHz, 80 MHz | 600 Mbit/s | not confirmed |
+| `ax520_aic8800d80` | Axera AX520CE, AIC8800D80 | CPC200-C2Air | Wi-Fi 6, 1x1, 5 GHz, 80 MHz | 600 Mbit/s | confirmed[^mfi] |
 
 [^vendorfw]: Tested from the latest vendor firmware. If the install stops with an error, update the
     dongle to the latest vendor firmware first and try again.
 [^mfi]: MFi authentication needs an MFi chip on the dongle. Without one, LIVI Link provides the
     access point and Bluetooth only.
+[^nobt]: Wi-Fi only for now, the module's Bluetooth is not supported yet. On macOS, where the
+    dongle pairs the phone, that means no wireless CarPlay.
 
 That is why the provisioning tool probes the dongle before it writes anything, and reports hardware
 it does not know as not found.
@@ -123,7 +127,7 @@ With the `v821b_aic8800d80` or `ax520_aic8800d80` firmware, upload the backup th
 under **Firmware**. The dongle writes it and reboots into its original firmware. Do not unplug it
 while it writes.
 
-With the `imx6ul_iw416` or `imx6ul_rtl8822cs` firmware, run the provisioning tool on the computer
+With an `imx6ul_…` firmware, run the provisioning tool on the computer
 that did the install and pick **back to the vendor firmware**. It takes the backup it made of this
 dongle, checks that the backup really belongs to it, writes it back from the rescue system and
 restarts into the original firmware. Do not unplug the dongle while it writes.

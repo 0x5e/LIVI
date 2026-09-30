@@ -478,6 +478,31 @@ describe('SettingsFieldControl', () => {
     expect(onChange).toHaveBeenCalledWith('auto')
   })
 
+  test('select node tells onPick about every tap, also on the option already picked', () => {
+    const onPick = vi.fn()
+    render(
+      <SettingsFieldControl
+        node={
+          {
+            type: 'select',
+            label: 'Adapter',
+            path: 'btAdapter',
+            options: [
+              { label: 'LIVI Link', value: 'livi-link' },
+              { label: 'hci0', value: 'hci0' }
+            ],
+            onPick
+          } as any
+        }
+        value="livi-link"
+        onChange={vi.fn()}
+      />
+    )
+    fireEvent.click(screen.getByText('LIVI Link'))
+    fireEvent.click(screen.getByText('hci0'))
+    expect(onPick.mock.calls).toEqual([['livi-link'], ['hci0']])
+  })
+
   test('select node seeds options from cache when present', () => {
     mockGetCached.mockReturnValue([{ value: 'cached', label: 'Cached' }])
     render(

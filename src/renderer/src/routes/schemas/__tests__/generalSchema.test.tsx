@@ -65,6 +65,54 @@ describe('generalSchema loadOptions', () => {
     expect(labelFor('hci0')).toBe('hci0')
   })
 
+  type AdapterSelect = {
+    loadOptions: () => Promise<Array<{ value: string; label: string; labelKey?: string }>>
+    onPick: (value: string) => void
+  }
+
+  function adapterSelect(path: 'wifiInterface' | 'btAdapter'): AdapterSelect {
+    let found: AdapterSelect | undefined
+    const walk = (n: Record<string, unknown>): void => {
+      if (n.type === 'select' && n.path === path) found = n as unknown as AdapterSelect
+      if (Array.isArray(n.children)) for (const c of n.children) walk(c as Record<string, unknown>)
+    }
+    walk(generalSchema as unknown as Record<string, unknown>)
+    if (!found) throw new Error(`no ${path} select`)
+    return found
+  }
+
+  test('the dongle says so where the radio it would serve is switched off', async () => {
+    ;(window as unknown as { app: unknown }).app = {
+      listWifiInterfaces: vi.fn(async () => ['livi-link']),
+      listBtAdapters: vi.fn(async () => ['livi-link']),
+      dongleRadios: vi.fn(async () => ({ wifi: false, bt: true }))
+    }
+
+    expect((await adapterSelect('wifiInterface').loadOptions())[0]).toMatchObject({
+      label: 'LIVI Link (off)',
+      labelKey: 'settings.dongleSwitchedOff'
+    })
+    expect((await adapterSelect('btAdapter').loadOptions())[0]).toEqual({
+      value: 'livi-link',
+      label: 'LIVI Link'
+    })
+  })
+
+  test('picking the dongle switches its radio on, picking anything else leaves it alone', () => {
+    const switchDongleRadio = vi.fn(async () => {})
+    ;(window as unknown as { app: unknown }).app = { switchDongleRadio }
+
+    adapterSelect('wifiInterface').onPick('livi-link')
+    adapterSelect('btAdapter').onPick('livi-link')
+    adapterSelect('wifiInterface').onPick('wlan0')
+    adapterSelect('btAdapter').onPick('hci0')
+
+    expect(switchDongleRadio.mock.calls).toEqual([
+      ['wifi', true],
+      ['bt', true]
+    ])
+  })
+
   test('display modes keep the panel-default option ahead of the reported modes', async () => {
     ;(window as unknown as { app: unknown }).app = {
       listDisplayModes: vi.fn(async () => ['800x480'])

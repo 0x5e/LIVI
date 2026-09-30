@@ -295,7 +295,7 @@ function DynamicSelect({
 
   const handlePick = (next: string | number): void => {
     onChange(next)
-    if (node.type === 'select') node.onPick?.(next)
+    node.onPick?.(next)
 
     // Offline BT entry → trigger BlueZ Connect
     const pickedOption = renderedOptions.find((o) => o.value === next)

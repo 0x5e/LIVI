@@ -565,6 +565,17 @@ describe('preload api bridge', () => {
     expect(ipcRendererMock.invoke).toHaveBeenCalledWith('app:listBtAdapters')
   })
 
+  test('the dongle radio wrappers forward to invoke', async () => {
+    const { app } = await loadPreload()
+    ipcRendererMock.invoke.mockResolvedValue(undefined)
+
+    await app.dongleRadios()
+    await app.switchDongleRadio('bt', true)
+
+    expect(ipcRendererMock.invoke).toHaveBeenCalledWith('app:dongleRadios')
+    expect(ipcRendererMock.invoke).toHaveBeenCalledWith('app:switchDongleRadio', 'bt', true)
+  })
+
   describe('app ipc wrappers — additional', () => {
     test('all simple invoke wrappers forward correctly', async () => {
       const { app } = await loadPreload()

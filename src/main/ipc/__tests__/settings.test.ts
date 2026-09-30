@@ -30,9 +30,20 @@ vi.mock('@main/app/hostOutput', () => ({
   listHostOutputModes: vi.fn(() => ['1024x600', '800x480'])
 }))
 
-const { dongleApPresent } = vi.hoisted(() => ({ dongleApPresent: vi.fn(async () => false) }))
+const { dongleApPresent, dongleStatus, radiosOf, switchDongle } = vi.hoisted(() => ({
+  dongleApPresent: vi.fn(async () => false),
+  dongleStatus: vi.fn(async (): Promise<Record<string, string> | null> => null),
+  radiosOf: vi.fn(() => ({ wifi: null, bt: null })),
+  switchDongle: vi.fn(async () => {})
+}))
 
-vi.mock('@main/services/link/dongleAp', () => ({ DONGLE_LINK: 'livi-link', dongleApPresent }))
+vi.mock('@main/services/link/dongleAp', () => ({
+  DONGLE_LINK: 'livi-link',
+  dongleApPresent,
+  dongleStatus,
+  radiosOf,
+  switchDongle
+}))
 
 vi.mock('@main/app/wifiOptions', () => ({
   listBtAdapters: vi.fn(() => ['hci0']),
@@ -275,6 +286,47 @@ describe('registerSettingsIpc', () => {
     expect(log).toHaveBeenCalledWith('[settings] wifi interfaces: none')
     expect(log).toHaveBeenCalledWith('[settings] bluetooth adapters: none')
     log.mockRestore()
+  })
+
+  test("app:dongleRadios reads the switches out of the dongle's status", async () => {
+    dongleStatus.mockResolvedValueOnce({ 'wifi-enabled': 'off' })
+    radiosOf.mockReturnValueOnce({ wifi: false, bt: true } as never)
+    registerSettingsIpc({ config: {} } as never)
+
+    expect(await getHandler<() => Promise<unknown>>('app:dongleRadios')()).toEqual({
+      wifi: false,
+      bt: true
+    })
+    expect(radiosOf).toHaveBeenCalledWith({ 'wifi-enabled': 'off' })
+  })
+
+  test('app:switchDongleRadio switches a radio only where the dongle is the picked adapter', async () => {
+    const config = { wifiInterface: 'livi-link', btAdapter: 'livi-link' }
+    registerSettingsIpc({ config } as never)
+    const handler =
+      getHandler<(_evt: unknown, radio: unknown, on: unknown) => Promise<void>>(
+        'app:switchDongleRadio'
+      )
+
+    await handler({}, 'wifi', true)
+    expect(switchDongle).toHaveBeenLastCalledWith('wifi', true, config)
+
+    // Anything but a literal true is off.
+    await handler({}, 'bt', 'yes')
+    expect(switchDongle).toHaveBeenLastCalledWith('bt', false, config)
+  })
+
+  test('app:switchDongleRadio leaves other adapters and unknown radios alone', async () => {
+    registerSettingsIpc({ config: { wifiInterface: 'wlan0', btAdapter: 'hci0' } } as never)
+    const handler =
+      getHandler<(_evt: unknown, radio: unknown, on: unknown) => Promise<void>>(
+        'app:switchDongleRadio'
+      )
+
+    await handler({}, 'wifi', true)
+    await handler({}, 'bt', true)
+    await handler({}, 'nfc', true)
+    expect(switchDongle).not.toHaveBeenCalled()
   })
 
   test('app:getLatestRelease pulls the nightly feed and derives version, commit and run', async () => {

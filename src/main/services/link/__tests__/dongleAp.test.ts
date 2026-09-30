@@ -489,6 +489,32 @@ describe("switching the dongle's radios", () => {
     expect(sockets).toHaveLength(1)
   })
 
+  it('switches Wi-Fi off with one order', async () => {
+    const done = switchDongle('wifi', false, config)
+    await answer(sockets[0], 1)
+    await done
+    expect(sockets[0].sent).toEqual(['off\n'])
+    expect(sockets).toHaveLength(1)
+  })
+
+  it('switches Bluetooth on, then tells the accessory its part', async () => {
+    const done = switchDongle('bt', true, { ...config, btAdapter: DONGLE_LINK } as Config)
+    await answer(sockets[0], 1)
+    await settle(1)
+    expect(sockets[0].sent).toEqual(['bt on\n'])
+    expect(sockets[1].sent[0]).toBe('status\n')
+    sockets[1].emit('error', new Error('done'))
+    await settle(2)
+    sockets[2].emit('error', new Error('done'))
+    await done
+  })
+
+  it('switches nothing while no dongle is on the network', async () => {
+    networkInterfaces.mockReturnValue({ wlan0: [{ address: '192.168.1.20' }] })
+    await switchDongle('wifi', true, chosen)
+    expect(createConnection).not.toHaveBeenCalled()
+  })
+
   it('switches a radio on when the dongle is picked, and off when another adapter is', async () => {
     followAdapterChoice(config, chosen)
     await settle(0)
@@ -504,6 +530,12 @@ describe("switching the dongle's radios", () => {
 
   it('leaves the radios alone when the adapters stay', async () => {
     followAdapterChoice(chosen, { ...chosen, carName: 'Saab' } as Config)
+    for (let i = 0; i < 50; i++) await Promise.resolve()
+    expect(createConnection).not.toHaveBeenCalled()
+  })
+
+  it('leaves the radios alone when one other adapter replaces another', async () => {
+    followAdapterChoice(config, { ...config, wifiInterface: 'wlan1', btAdapter: 'hci1' } as Config)
     for (let i = 0; i < 50; i++) await Promise.resolve()
     expect(createConnection).not.toHaveBeenCalled()
   })

@@ -195,13 +195,7 @@ async fn read_line(stream: &mut TcpStream) -> Result<String, String> {
 /// One order to the dongle's accessory, and the line it answers with.
 fn order(line: &str) -> Result<(), String> {
     use std::io::{BufRead, BufReader, Write as _};
-    use std::net::ToSocketAddrs;
-    let addr = (link::LINK_NAME, CONTROL_PORT)
-        .to_socket_addrs()
-        .map_err(|e| format!("dongle: {e}"))?
-        .next()
-        .ok_or("the dongle has no address")?;
-    let mut stream = std::net::TcpStream::connect_timeout(&addr, ORDER_TIMEOUT)
+    let mut stream = livi_net::connect((link::LINK_NAME, CONTROL_PORT), ORDER_TIMEOUT)
         .map_err(|e| format!("dongle: {e}"))?;
     stream.set_read_timeout(Some(ORDER_TIMEOUT)).map_err(|e| format!("dongle: {e}"))?;
     writeln!(stream, "{line}").map_err(|e| format!("dongle: {e}"))?;

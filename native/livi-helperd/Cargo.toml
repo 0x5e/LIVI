@@ -17,6 +17,7 @@ members = [
     "crates/livi-btd",
     "crates/livi-iapd",
     "crates/livi-mdns",
+    "crates/livi-net",
     "bin/mfi-probe",
     "bin/livi-helperd",
     "bin/livi-link-provision",

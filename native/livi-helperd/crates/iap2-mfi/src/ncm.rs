@@ -6,7 +6,7 @@
 //!   PROTO_MAJOR: [0x03]                              -> [status][len:2][major:1]
 
 use std::io::{Read, Write};
-use std::net::{TcpStream, ToSocketAddrs};
+use std::net::TcpStream;
 
 use crate::*;
 
@@ -34,14 +34,7 @@ impl NcmCoprocessor {
 
     fn ensure(&mut self) -> Result<&mut TcpStream, MfiError> {
         if self.stream.is_none() {
-            // Connects with a timeout; an unreachable dongle fails within IO_TIMEOUT.
-            let sockaddr = self
-                .addr
-                .to_socket_addrs()
-                .map_err(|e| MfiError::Io(format!("resolve {}: {e}", self.addr)))?
-                .next()
-                .ok_or_else(|| MfiError::Io(format!("resolve {}: no address", self.addr)))?;
-            let stream = TcpStream::connect_timeout(&sockaddr, IO_TIMEOUT)
+            let stream = livi_net::connect(self.addr.as_str(), IO_TIMEOUT)
                 .map_err(|e| MfiError::Io(format!("connect {}: {e}", self.addr)))?;
             stream.set_nodelay(true).ok();
             stream.set_read_timeout(Some(IO_TIMEOUT + AUTH_TIMEOUT)).ok();

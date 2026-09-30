@@ -6,6 +6,7 @@ edition.workspace = true
 [dependencies]
 futures-util = "0.3"
 libc = "0.2"
+livi-net = { path = "../livi-net" }
 nusb = { version = "0.2", features = ["tokio"] }
 tokio = { version = "1", features = ["rt", "macros", "time", "sync", "io-util", "net"] }
 

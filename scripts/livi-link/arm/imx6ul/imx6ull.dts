@@ -1,6 +1,7 @@
 // SPDX-License-Identifier: GPL-2.0
 /*
- * LIVI Link on the i.MX6ULL dongle board (NXP IW416 Wi-Fi/BT, 128 MiB, 16 MiB QSPI NOR).
+ * LIVI Link on the i.MX6ULL dongle board (128 MiB, 16 MiB QSPI NOR). The board comes with
+ * different Wi-Fi/BT modules, what differs is in imx6ull-<module>.dtsi, included at the end.
  * Pin settings are the ones the vendor kernel runs with, read off a running board.
  */
 /dts-v1/;
@@ -14,8 +15,7 @@
 
 	chosen {
 		stdout-path = &uart1;
-		/* driver_mode 2 adds uap0 next to the station interface. */
-		bootargs = "console=ttymxc0,115200 rdinit=/init mwifiex.driver_mode=2";
+		bootargs = "console=ttymxc0,115200 rdinit=/init";
 	};
 
 	memory@80000000 {
@@ -23,7 +23,7 @@
 		reg = <0x80000000 0x08000000>;
 	};
 
-	/* Enables the IW416 (PDn). */
+	/* Enables the Wi-Fi/BT module (PDn). */
 	reg_wlan: regulator-wlan {
 		compatible = "regulator-fixed";
 		regulator-name = "wlan";
@@ -136,17 +136,12 @@
 	status = "okay";
 };
 
-/* Bluetooth half of the IW416, running from the combo firmware mwifiex loads over SDIO. */
+/* The module's Bluetooth half, its node is in the module's .dtsi. */
 &uart3 {
 	pinctrl-names = "default";
 	pinctrl-0 = <&pinctrl_uart3>;
 	uart-has-rtscts;
 	status = "okay";
-
-	bluetooth {
-		compatible = "nxp,88w8987-bt";
-		fw-init-baudrate = <3000000>;
-	};
 };
 
 /* The port the host sees. OTG1 is a host port with its ID pin grounded. */
@@ -221,3 +216,5 @@
 		};
 	};
 };
+
+#include "imx6ull-livi-link-radio.dtsi"

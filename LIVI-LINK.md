@@ -17,6 +17,7 @@ Each firmware brings its own Linux kernel. The web interface shows it under **Ke
 | Firmware | Kernel |
 | --- | --- |
 | `imx6ul_iw416` | 7.2.8 |
+| `imx6ul_rtl8822cs` | 7.2.8 |
 | `v821b_aic8800d80` | 7.2.8  |
 | `ax520_aic8800d80` | 7.2.8  |
 
@@ -31,6 +32,7 @@ row counts as **confirmed** only once someone has successfully installed LIVI Li
 | Firmware | Hardware | Sold as | Wi-Fi | State |
 | --- | --- | --- | --- | --- |
 | `imx6ul_iw416`[^vendorfw] | NXP i.MX6UL, IW416 | CPC200-CCPA | 5 GHz, 40 MHz | confirmed |
+| `imx6ul_rtl8822cs` | NXP i.MX6UL, RTL8822CS | CPC200-CCPA | | not confirmed |
 | `imx6ul_iw416` | NXP i.MX6UL, IW416 | CPC200-C2Air | 5 GHz, 40 MHz | not confirmed |
 | `imx6ul_iw416` | NXP i.MX6UL, IW416 | CPC200-2Air | 5 GHz, 40 MHz | not confirmed |
 | `v821b_aic8800d80` | Allwinner V821B, AIC8800D80 | Mini Ultra3 | 5 GHz, 80 MHz | confirmed |

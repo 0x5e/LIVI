@@ -53,9 +53,10 @@ fn web_caps() -> livi_web::WebCaps {
             },
         )
     } else if has(b"livi,link-imx6ull") {
+        let (model, target) = imx6ul::module();
         (
-            "i.MX6ULL + IW416",
-            "imx6ul_iw416",
+            model,
+            target,
             false,
             livi_web::Flash {
                 mtd: vec![

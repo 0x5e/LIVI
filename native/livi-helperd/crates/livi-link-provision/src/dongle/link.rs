@@ -30,6 +30,7 @@ pub fn bundle(target: &str) -> Option<&'static [u8]> {
         "v821b_aic8800d80" => super::riscv::v821b::V821B_LFWB,
         "ax520_aic8800d80" => super::arm::ax520::AX520_LFWB,
         "imx6ul_iw416" => super::arm::imx6ul::IMX6UL_LFWB,
+        "imx6ul_rtl8822cs" => super::arm::imx6ul::IMX6UL_RTL8822CS_LFWB,
         _ => return None,
     };
     (!bytes.is_empty()).then_some(bytes)

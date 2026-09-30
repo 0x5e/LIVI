@@ -366,12 +366,9 @@ fn menu() -> std::process::ExitCode {
 /// A stock i.MX6UL dongle, or one in our rescue system, to LIVI Link: a shell if it has none, the
 /// backup of the vendor firmware and the install, then it waits until LIVI Link answers.
 fn imx6ul_provision(lfwb: Option<&Path>) -> Result<(), String> {
-    let bundle = match lfwb {
-        Some(path) => std::fs::read(path).map_err(|e| format!("{}: {e}", path.display()))?,
-        None => link::bundle("imx6ul_iw416")
-            .ok_or("no LIVI Link firmware baked in, this is a local build without CI assets")?
-            .to_vec(),
-    };
+    let given = lfwb
+        .map(|path| std::fs::read(path).map_err(|e| format!("{}: {e}", path.display())))
+        .transpose()?;
     let host = pick_host();
     let sh = Shell::new(&host);
     // A stock dongle offers the host no network, so the bootstrap rides into the next boot.
@@ -390,6 +387,10 @@ fn imx6ul_provision(lfwb: Option<&Path>) -> Result<(), String> {
         sh.sh(&format!("chmod 755 {}; rm -f {}; sync", bootstrap::CARRIER, bootstrap::BOOT_HOOK))?;
         println!("== bootstrap removed again");
     }
+    let bundle = match given {
+        Some(bundle) => bundle,
+        None => imx6ul_bundle(&sh)?.to_vec(),
+    };
     imx6ul::install(&sh, &bundle, &backup_dir(), &report)?;
     let now = wait_for_livi_link(&host)?;
     println!(
@@ -399,13 +400,32 @@ fn imx6ul_provision(lfwb: Option<&Path>) -> Result<(), String> {
     Ok(())
 }
 
+/// The bundle for the i.MX6UL dongle's Wi-Fi/Bluetooth module, whichever build it runs now. A
+/// module without a build of its own gets the IW416 one, which runs all but Wi-Fi and Bluetooth.
+fn imx6ul_bundle(sh: &Shell) -> Result<&'static [u8], String> {
+    let target = imx6ul::module_target(sh)?.unwrap_or_else(|| {
+        println!(
+            "== there is no build for this dongle's Wi-Fi module yet, the IW416 one runs all but Wi-Fi and Bluetooth"
+        );
+        "imx6ul_iw416"
+    });
+    println!("== firmware {target}");
+    link::bundle(target).ok_or_else(|| {
+        format!("no {target} firmware baked in, this is a local build without CI assets")
+    })
+}
+
 /// Updates a dongle that runs LIVI Link the way its web page does, with the bundle this tool
 /// carries for its board.
 fn update_livi_link() -> Result<(), String> {
     let host = pick_host();
     let before = link::status(&host).ok_or("the dongle does not answer as LIVI Link")?;
-    let bundle = link::bundle(&before.target)
-        .ok_or_else(|| format!("this tool carries no firmware for {}", before.target))?;
+    let bundle = if before.target.starts_with("imx6ul_") {
+        imx6ul_bundle(&Shell::new(&host))?
+    } else {
+        link::bundle(&before.target)
+            .ok_or_else(|| format!("this tool carries no firmware for {}", before.target))?
+    };
     println!(
         "== {} runs {} ({}), uploading {} bytes",
         before.model,
@@ -417,7 +437,7 @@ fn update_livi_link() -> Result<(), String> {
         Ok(done) => done,
         Err(e) => {
             let typ = link::refused(&e).ok_or(e)?;
-            if before.target == "imx6ul_iw416" {
+            if before.target.starts_with("imx6ul_") {
                 println!(
                     "== the firmware on the dongle does not take this bundle yet, installing it from the rescue system"
                 );

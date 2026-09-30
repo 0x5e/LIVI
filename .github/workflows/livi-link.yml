@@ -16,6 +16,10 @@ on:
         description: 'Build imx6ul_iw416 (armv7, static-musl, mainline kernel)'
         type: boolean
         default: true
+      imx6ul_rtl8822cs:
+        description: 'Build imx6ul_rtl8822cs (armv7, static-musl, mainline kernel)'
+        type: boolean
+        default: true
 
 permissions:
   contents: write
@@ -88,12 +92,14 @@ jobs:
           V821: ${{ inputs.v821b_aic8800d80 }}
           AX520: ${{ inputs.ax520_aic8800d80 }}
           IMX6UL: ${{ inputs.imx6ul_iw416 }}
+          IMX6UL_RTL: ${{ inputs.imx6ul_rtl8822cs }}
         run: |
           set -euo pipefail
           arr=()
           [[ "$V821"   == "true" ]] && arr+=('"v821b_aic8800d80"')
           [[ "$AX520"  == "true" ]] && arr+=('"ax520_aic8800d80"')
           [[ "$IMX6UL" == "true" ]] && arr+=('"imx6ul_iw416"')
+          [[ "$IMX6UL_RTL" == "true" ]] && arr+=('"imx6ul_rtl8822cs"')
           {
             printf 'matrix={"target":[%s]}\n' "$(IFS=,; echo "${arr[*]}")"
             printf 'any=%s\n' "$(IFS=,; echo "${arr[*]}")"
@@ -208,7 +214,7 @@ jobs:
 
       # Every armv7 board builds the same way, only its directory under scripts/livi-link/arm differs.
       - name: Install arm-linux-gnueabihf cross toolchain (armv7)
-        if: matrix.target == 'ax520_aic8800d80' || matrix.target == 'imx6ul_iw416'
+        if: matrix.target == 'ax520_aic8800d80' || startsWith(matrix.target, 'imx6ul_')
         shell: bash
         run: |
           set -euo pipefail
@@ -219,7 +225,7 @@ jobs:
           arm-linux-gnueabihf-gcc --version | head -1
 
       - name: Cache cargo (armv7)
-        if: matrix.target == 'ax520_aic8800d80' || matrix.target == 'imx6ul_iw416'
+        if: matrix.target == 'ax520_aic8800d80' || startsWith(matrix.target, 'imx6ul_')
         uses: actions/cache@v5
         with:
           path: |
@@ -230,14 +236,17 @@ jobs:
           restore-keys: cargo-livi-link-${{ matrix.target }}-
 
       - name: Build armv7 firmware bundle
-        if: matrix.target == 'ax520_aic8800d80' || matrix.target == 'imx6ul_iw416'
+        if: matrix.target == 'ax520_aic8800d80' || startsWith(matrix.target, 'imx6ul_')
         shell: bash
         env:
           BOARD_DIR: scripts/livi-link/arm/${{ matrix.target == 'ax520_aic8800d80' && 'ax520' || 'imx6ul' }}
+          TARGET: ${{ matrix.target }}
           TOP: ${{ github.workspace }}/build/${{ matrix.target }}
           CROSS_COMPILE: arm-linux-gnueabihf-
         run: |
           set -euo pipefail
+          # An i.MX6UL target names the Wi-Fi/Bluetooth module its build is for.
+          if [[ $TARGET == imx6ul_* ]]; then export RADIO=${TARGET#imx6ul_}; fi
           mkdir -p "$TOP"
           bash scripts/livi-link/arm/build-userspace.sh "$BOARD_DIR"
           bash "$BOARD_DIR/build.sh"
@@ -286,6 +295,13 @@ jobs:
         with:
           name: imx6ul_iw416
           path: assets/livi-link/imx6ul_iw416
+
+      - name: Download imx6ul_rtl8822cs artifact
+        if: contains(needs.targets.outputs.any, 'imx6ul_rtl8822cs')
+        uses: actions/download-artifact@v8
+        with:
+          name: imx6ul_rtl8822cs
+          path: assets/livi-link/imx6ul_rtl8822cs
 
       - name: Commit and push
         shell: bash
@@ -350,12 +366,19 @@ jobs:
           name: ax520_aic8800d80
           path: assets/livi-link/ax520_aic8800d80
 
-      - name: Take the imx6ul firmware bundle from this run
+      - name: Take the imx6ul_iw416 firmware bundle from this run
         if: contains(needs.targets.outputs.any, 'imx6ul_iw416')
         uses: actions/download-artifact@v8
         with:
           name: imx6ul_iw416
           path: assets/livi-link/imx6ul_iw416
+
+      - name: Take the imx6ul_rtl8822cs firmware bundle from this run
+        if: contains(needs.targets.outputs.any, 'imx6ul_rtl8822cs')
+        uses: actions/download-artifact@v8
+        with:
+          name: imx6ul_rtl8822cs
+          path: assets/livi-link/imx6ul_rtl8822cs
 
       - name: Setup Rust
         shell: bash

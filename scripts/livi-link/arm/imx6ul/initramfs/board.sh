@@ -2,7 +2,7 @@
 BOARD_NAME="LIVI Link i.MX6ULL"
 RESCUE_USB_DELAY=0
 
-# mwifiex is built into the kernel, so the Wi-Fi AP is a second way in next to USB.
+# The Wi-Fi driver is built into the kernel, so the Wi-Fi AP is a second way in next to USB.
 board_rescue() { ( wifi-up > /dev/console 2>&1 ) & }
 
 board_help() {

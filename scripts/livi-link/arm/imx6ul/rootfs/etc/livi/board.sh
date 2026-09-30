@@ -1,4 +1,4 @@
-# i.MX6ULL + IW416: what /init and /etc/init.d/rcS do on this board and not on the others.
+# i.MX6ULL: what /init and /etc/init.d/rcS do on this board and not on the others.
 
 # The MFi chip answers at 0x11 on the bus of the UART5 pads.
 MFI_I2C=1
@@ -8,15 +8,17 @@ board_init() { :; }
 
 board_early() { :; }
 
-# mwifiex is built into the kernel and powers the IW416 itself. With driver_mode=2 it registers the
-# access point interface as uap0, the name the shared scripts and hostapd.conf expect is wlan0.
+# The Wi-Fi driver is built into the kernel and powers the module itself. The shared scripts and
+# hostapd.conf take the access point interface as wlan0: rtw88 (RTL8822CS) names it so, mwifiex
+# (IW416, driver_mode=2) calls it uap0.
 board_wifi() {
     for i in $(seq 1 20); do
-        [ -e /sys/class/net/uap0 ] && break
+        { [ -e /sys/class/net/uap0 ] || [ -e /sys/class/net/wlan0 ]; } && break
         sleep 0.5
     done
-    ip link set uap0 name wlan0 && echo '[livi] uap0 is wlan0'
-    # The combo firmware mwifiex loaded runs the Bluetooth half too, btnxpuart only attaches to it.
+    [ -e /sys/class/net/uap0 ] && ip link set uap0 name wlan0 && echo '[livi] uap0 is wlan0'
+    # Bluetooth once the Wi-Fi half is up: the IW416's combo firmware runs both halves, and the
+    # RTL8822CS may not bring its Wi-Fi up when Bluetooth starts first.
     M=/lib/modules/$(uname -r)
     for m in $(cat $M/load); do
         insmod $M/$m.ko && echo "[livi] insmod $m"

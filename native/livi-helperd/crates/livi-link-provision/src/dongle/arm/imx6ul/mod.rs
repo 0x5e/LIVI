@@ -15,10 +15,29 @@ use shell::Shell;
 /// How long the dongle may take to come back after a reboot.
 const REBOOT_TIMEOUT: Duration = Duration::from_secs(180);
 
-/// The bundle CI builds for this board, baked in so the tool is a single download. Empty in a
-/// local build without the CI asset.
+/// The bundles CI builds for this board, one per Wi-Fi/Bluetooth module, baked in so the tool is a
+/// single download. Empty in a local build without the CI assets.
 pub(crate) const IMX6UL_LFWB: &[u8] =
     include_bytes!("../../../../../../../../assets/livi-link/imx6ul_iw416/livi-link-imx6ull.lfwb");
+pub(crate) const IMX6UL_RTL8822CS_LFWB: &[u8] = include_bytes!(
+    "../../../../../../../../assets/livi-link/imx6ul_rtl8822cs/livi-link-imx6ull-rtl8822cs.lfwb"
+);
+
+/// The Wi-Fi/Bluetooth modules the board comes with and has a build for, by SDIO device id. LIVI
+/// Link tells them apart the same way.
+const MODULES: [(&str, &str); 2] = [("0x9159", "imx6ul_iw416"), ("0xc822", "imx6ul_rtl8822cs")];
+
+/// The firmware target for the dongle's module, `None` for a module without a build.
+pub fn module_target(sh: &Shell) -> Result<Option<&'static str>, String> {
+    Ok(target_of(&sh.sh("cat /sys/bus/sdio/devices/*/device 2>/dev/null; true")?))
+}
+
+fn target_of(ids: &str) -> Option<&'static str> {
+    MODULES
+        .iter()
+        .find(|(id, _)| ids.lines().any(|found| found.trim() == *id))
+        .map(|&(_, target)| target)
+}
 
 #[derive(Debug, PartialEq, Eq)]
 pub enum Running {
@@ -140,5 +159,13 @@ mod tests {
         let ours = "/dev/root / squashfs ro,relatime 0 0\ntmpfs /tmp tmpfs rw 0 0";
         assert_eq!(running_from(ours), Running::Livi);
         assert_eq!(running_from("none / rootfs rw 0 0\nproc /proc proc rw 0 0"), Running::Rescue);
+    }
+
+    #[test]
+    fn the_module_picks_the_target() {
+        assert_eq!(target_of("0x9159\n"), Some("imx6ul_iw416"));
+        assert_eq!(target_of("0xc822\r\n"), Some("imx6ul_rtl8822cs"));
+        assert_eq!(target_of("0xb822\n"), None);
+        assert_eq!(target_of(""), None);
     }
 }

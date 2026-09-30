@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
-# LIVI-Link i.MX6ULL+IW416 dongle kernel: zImage with the initramfs built in and our DTB appended,
-# which the provisioner stages for the vendor U-Boot (dongle arm imx6ul kernel <image> --write), and
-# the Bluetooth modules and livid for the rootfs.
+# LIVI-Link i.MX6ULL dongle kernel for the module RADIO names (board.sh): zImage with the initramfs
+# built in and our DTB appended, which the provisioner stages for the vendor U-Boot (dongle arm
+# imx6ul kernel <image> --write), and the Bluetooth modules and livid for the rootfs.
 # Order: ../build-userspace.sh <this dir>, build.sh, ../../common/build-rootfs.sh <this dir>,
 # ../../common/pack-bundle.sh <this dir>.
 set -euo pipefail
@@ -20,9 +20,10 @@ fetch_firmware
 log "apply kernel patches (bus clocks on the ULL, USB gadget without BSV wait, no charger detection, MX25L128 without SFDP, mwifiex AP receive rate)"
 apply_patches "$HERE/kernel-patches" "$KDIR"
 
-log "install the board DTS"
+log "install the board DTS with the $RADIO part"
 DTS_DIR=$KDIR/arch/arm/boot/dts/nxp/imx
 cp -f "$HERE/imx6ull.dts" "$DTS_DIR/imx6ull-livi-link.dts"
+cp -f "$HERE/imx6ull-$RADIO.dtsi" "$DTS_DIR/imx6ull-livi-link-radio.dtsi"
 grep -q 'imx6ull-livi-link.dtb' "$DTS_DIR/Makefile" \
   || echo 'dtb-$(CONFIG_SOC_IMX6UL) += imx6ull-livi-link.dtb' >> "$DTS_DIR/Makefile"
 
@@ -32,18 +33,35 @@ INITRAMFS_LIST=$OUT/initramfs.list
   cat <<EOF
 dir /lib 0755 0 0
 dir /lib/firmware 0755 0 0
-dir /lib/firmware/mrvl 0755 0 0
 file /usr/sbin/hostapd $HOSTAPD 0755 0 0
 file /sbin/wifi-up $HERE/initramfs/wifi-up 0755 0 0
-file /lib/firmware/mrvl/sdiouartiw416_combo_v0.bin $IW416_FW 0644 0 0
 file /lib/firmware/regulatory.db $REGDB 0644 0 0
 EOF
+  wifi_firmware_initramfs
 } > "$INITRAMFS_LIST"
 check_initramfs_scripts "$INITRAMFS_LIST"
 
 log "make allnoconfig"
 cd "$KDIR"
 make ARCH=arm allnoconfig >/dev/null
+
+# The module's Wi-Fi driver is built in, the Wi-Fi AP is one of the two ways in. Its Bluetooth
+# driver is a module in the rootfs.
+case $RADIO in
+  iw416)
+    RADIO_CONFIG=(--enable WLAN_VENDOR_MARVELL --enable MWIFIEX --enable MWIFIEX_SDIO --module BT_NXPUART)
+    RADIO_BUILTIN=(MWIFIEX_SDIO)
+    RADIO_MODULES=(BT_NXPUART)
+    ;;
+  rtl8822cs)
+    RADIO_CONFIG=(
+      --enable MAC80211 --enable WLAN_VENDOR_REALTEK --enable RTW88 --enable RTW88_8822CS
+      --enable BT_HCIUART_SERDEV --enable BT_HCIUART_3WIRE --enable BT_HCIUART_RTL
+    )
+    RADIO_BUILTIN=(MAC80211 RTW88_8822CS BT_HCIUART_SERDEV BT_HCIUART_RTL)
+    RADIO_MODULES=(BT_HCIUART BT_RTL)
+    ;;
+esac
 
 # Built from allnoconfig: only what the board, the boot path, the two ways in and the rootfs need.
 # No cpufreq: the CPU keeps the clock U-Boot set. Bluetooth and the crypto it selects do not fit
@@ -174,17 +192,14 @@ log "layer the LIVI i.MX6ULL config onto allnoconfig"
   --disable CFG80211_REQUIRE_SIGNED_REGDB \
   --disable CFG80211_CRDA_SUPPORT \
   --enable FW_LOADER \
-  --enable WLAN_VENDOR_MARVELL \
-  --enable MWIFIEX \
-  --enable MWIFIEX_SDIO \
   \
   --module BT \
   --enable BT_BREDR \
   --enable BT_LE \
   --module BT_RFCOMM \
   --module BT_HCIUART \
-  --module BT_NXPUART \
   --disable IMX_MU_MSI \
+  "${RADIO_CONFIG[@]}" \
   \
   --enable DEVMEM \
   --disable STRICT_DEVMEM \
@@ -195,12 +210,12 @@ make ARCH=arm CROSS_COMPILE="$CROSS_COMPILE" olddefconfig
 
 # Everything the ways in hang on has to have survived olddefconfig, a dropped dependency is silent.
 for sym in SOC_IMX6UL ARM_APPENDED_DTB SERIAL_IMX USB_CHIPIDEA_UDC USB_CHIPIDEA_IMX USB_MXS_PHY USB_CONFIGFS_NCM \
-           MMC_SDHCI_ESDHC_IMX MWIFIEX_SDIO CFG80211 BRIDGE SPI_FSL_QUADSPI MTD_SPI_NOR NVMEM_IMX_OCOTP \
+           MMC_SDHCI_ESDHC_IMX CFG80211 BRIDGE SPI_FSL_QUADSPI MTD_SPI_NOR NVMEM_IMX_OCOTP \
            LEDS_TRIGGER_HEARTBEAT IMX2_WDT MTD_BLOCK SQUASHFS SQUASHFS_XZ I2C_IMX I2C_CHARDEV \
-           SERIAL_DEV_CTRL_TTYPORT BLK_DEV_WRITE_MOUNTED; do
+           SERIAL_DEV_CTRL_TTYPORT BLK_DEV_WRITE_MOUNTED "${RADIO_BUILTIN[@]}"; do
   grep -q "^CONFIG_$sym=y" .config || { log "CONFIG_$sym did not make it into .config"; exit 4; }
 done
-for sym in BT BT_RFCOMM BT_NXPUART; do
+for sym in BT BT_RFCOMM "${RADIO_MODULES[@]}"; do
   grep -q "^CONFIG_$sym=m" .config || { log "CONFIG_$sym did not make it into .config as a module"; exit 4; }
 done
 
@@ -220,7 +235,8 @@ while read -r o; do
   ko=${o%.*}.ko
   n=$(basename "$ko" .ko); n=${n//-/_}
   names+=("$n"); file[$n]=$ko
-  deps[$n]=$("${CROSS_COMPILE}readelf" -p .modinfo "$ko" | sed -n 's/.*depends=//p' | tr , ' ')
+  # depends= names a module by its file name (crc-ccitt), the kernel by its module name (crc_ccitt).
+  deps[$n]=$("${CROSS_COMPILE}readelf" -p .modinfo "$ko" | sed -n 's/.*depends=//p' | tr ,- ' _')
 done < modules.order
 loaded=" "
 while (( ${#names[@]} )); do

@@ -73,6 +73,10 @@ first. The backup is taken before anything is written and goes to
 `~/Library/Application Support/LIVI/backup/dongle-backup/` on macOS, or
 `~/.local/share/LIVI/dongle-backup/` on Linux.
 
+Some i.MX6UL dongles offer no network over USB on their vendor firmware. The tool notices that
+after the replug and asks you to join the dongle's own Wi-Fi instead, with the name and password
+the dongle normally uses.
+
 A CPC200-CCPA that got LIVI Link from an earlier release runs it on top of the vendor firmware.
 Its web interface cannot flash the current firmware, please use provisioning tool.
 

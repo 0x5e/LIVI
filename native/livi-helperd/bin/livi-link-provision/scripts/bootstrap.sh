@@ -29,10 +29,14 @@
   echo 1 > "$A/enable"
   sleep 2
 
-  [ -e /sys/class/net/ncm0 ] && ifconfig ncm0 hw ether c2:8e:30:53:48:01
-  ifconfig ncm0 10.10.10.1 netmask 255.255.255.0 mtu 1500 up
-  printf 'start 10.10.10.100\nend 10.10.10.200\ninterface ncm0\nopt subnet 255.255.255.0\nopt lease 86400\nlease_file /tmp/livi-udhcpd.leases\npidfile /tmp/livi-udhcpd.pid\nmax_leases 20\n' > /tmp/livi-udhcpd.conf
-  touch /tmp/livi-udhcpd.leases
-  busybox udhcpd /tmp/livi-udhcpd.conf
+  # A kernel without NCM leaves no ncm0. The vendor then opens its own access point, which it only
+  # does while no udhcpd runs.
+  if [ -e /sys/class/net/ncm0 ]; then
+    ifconfig ncm0 hw ether c2:8e:30:53:48:01
+    ifconfig ncm0 10.10.10.1 netmask 255.255.255.0 mtu 1500 up
+    printf 'start 10.10.10.100\nend 10.10.10.200\ninterface ncm0\nopt subnet 255.255.255.0\nopt lease 86400\nlease_file /tmp/livi-udhcpd.leases\npidfile /tmp/livi-udhcpd.pid\nmax_leases 20\n' > /tmp/livi-udhcpd.conf
+    touch /tmp/livi-udhcpd.leases
+    busybox udhcpd /tmp/livi-udhcpd.conf
+  fi
   busybox telnetd -l /bin/sh -p 2323
 ) &

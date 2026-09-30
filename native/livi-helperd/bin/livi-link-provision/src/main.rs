@@ -219,6 +219,7 @@ const VERSION: &str = match option_env!("LIVI_VERSION") {
 enum Found {
     StockCpc,
     Net(livi_link_provision::detect::Detected),
+    LinkOnUsb(bootstrap::LinkOnUsb),
     Nothing,
 }
 
@@ -262,7 +263,10 @@ fn wait_for_dongle() -> Found {
     let found = rx.recv_timeout(Duration::from_secs(60)).unwrap_or(Found::Nothing);
     stop.store(true, Ordering::Relaxed);
     let _ = usb.join();
-    found
+    match found {
+        Found::Nothing => bootstrap::livi_link_on_usb().map_or(Found::Nothing, Found::LinkOnUsb),
+        found => found,
+    }
 }
 
 /// Started without arguments the tool asks rather than expecting commands. The subcommands stay
@@ -271,16 +275,30 @@ fn menu() -> std::process::ExitCode {
     use livi_link_provision::detect::Detected;
     loop {
         println!("\nsearching for a dongle (USB and network)…");
-        let (stock_usb, detected) = match wait_for_dongle() {
-            Found::StockCpc => (true, Detected::Nothing),
-            Found::Net(d) => (false, d),
-            Found::Nothing => (false, Detected::Nothing),
+        let (stock_usb, link_usb, detected) = match wait_for_dongle() {
+            Found::StockCpc => (true, None, Detected::Nothing),
+            Found::Net(d) => (false, None, d),
+            Found::LinkOnUsb(usb) => (false, Some(usb), Detected::Nothing),
+            Found::Nothing => (false, None, Detected::Nothing),
         };
+        let wifi_only = link_usb == Some(bootstrap::LinkOnUsb::NoNcm);
         println!("\nLIVI Link provisioning tool v{VERSION}");
         if stock_usb {
             println!("Detected: i.MX6UL dongle in stock firmware, on USB (no shell yet)");
         } else {
-            println!("Detected: {}", detected.label());
+            match link_usb {
+                Some(bootstrap::LinkOnUsb::NoNcm) => println!(
+                    "Detected: i.MX6UL dongle with the bootstrap, its kernel has no network over USB (no NCM)"
+                ),
+                Some(bootstrap::LinkOnUsb::Ncm) => {
+                    println!("Detected: LIVI Link on USB, but this computer has no network to it");
+                    println!(
+                        "  check that its new network interface got an address next to {}",
+                        shell::DEFAULT_HOST
+                    );
+                }
+                None => println!("Detected: {}", detected.label()),
+            }
         }
 
         let family = match &detected {
@@ -311,6 +329,9 @@ fn menu() -> std::process::ExitCode {
             Detected::Nothing if stock_usb => {
                 println!("  1  bootstrap + install LIVI Link (over USB)");
             }
+            Detected::Nothing if wifi_only => {
+                println!("  1  install LIVI Link over the dongle's Wi-Fi");
+            }
             Detected::Nothing => {}
         }
         println!("  q  quit");
@@ -339,7 +360,7 @@ fn menu() -> std::process::ExitCode {
                 Ok(()) => return std::process::ExitCode::SUCCESS,
                 Err(e) => Err(e),
             },
-            ("1", Detected::Nothing) if stock_usb => match imx6ul_provision(None) {
+            ("1", Detected::Nothing) if stock_usb || wifi_only => match imx6ul_provision(None) {
                 Ok(()) => return std::process::ExitCode::SUCCESS,
                 Err(e) => Err(e),
             },
@@ -373,11 +394,13 @@ fn imx6ul_provision(lfwb: Option<&Path>) -> Result<(), String> {
     let sh = Shell::new(&host);
     // A stock dongle offers the host no network, so the bootstrap rides into the next boot.
     if !sh.port_open(shell::TELNET_PORT) {
-        println!("== this dongle has no way in yet, so it needs one unplug and plug back in");
-        println!("== writing the bootstrap over USB");
-        bootstrap::boot_hook()?;
-        ask("unplug the dongle, plug it back in, then press enter")?;
-        println!("== waiting, it takes about half a minute after the dongle has booted");
+        if bootstrap::livi_link_on_usb() != Some(bootstrap::LinkOnUsb::NoNcm) {
+            println!("== this dongle has no way in yet, so it needs one unplug and plug back in");
+            println!("== writing the bootstrap over USB");
+            bootstrap::boot_hook()?;
+            ask("unplug the dongle, plug it back in, then press enter")?;
+            println!("== waiting, it takes about half a minute after the dongle has booted");
+        }
         wait_for_shell(&sh)?;
     }
     // Whoever put it there, it goes before the backup, so the image is the dongle's own again.
@@ -486,16 +509,45 @@ fn wait_for_livi_link(host: &str) -> Result<link::Status, String> {
     Err("the dongle did not come back as LIVI Link within four minutes".into())
 }
 
-/// Waits for the shell the bootstrap brings up.
+/// Waits for the shell the bootstrap brings up, over USB, or over the dongle's own Wi-Fi where its
+/// kernel has no NCM.
 fn wait_for_shell(sh: &Shell) -> Result<(), String> {
     for _ in 0..60 {
         if sh.port_open(shell::TELNET_PORT) {
             println!("== shell is up");
             return Ok(());
         }
+        if bootstrap::livi_link_on_usb() == Some(bootstrap::LinkOnUsb::NoNcm) {
+            return shell_over_wifi(sh);
+        }
         std::thread::sleep(Duration::from_secs(2));
     }
-    Err("no shell after two minutes, see LIVI-LINK.md".into())
+    Err(match bootstrap::livi_link_on_usb() {
+        Some(bootstrap::LinkOnUsb::Ncm) => format!(
+            "the bootstrap is up and offers a network over USB, but this computer did not bring it \
+             up, check that its new network interface got an address next to {}",
+            shell::DEFAULT_HOST
+        ),
+        _ => "no shell after two minutes, see LIVI-LINK.md".into(),
+    })
+}
+
+/// The bootstrap leaves the vendor's access point up where the kernel has no NCM.
+fn shell_over_wifi(sh: &Shell) -> Result<(), String> {
+    println!("== the dongle's kernel has no network over USB (no NCM), its Wi-Fi is the way in");
+    ask("join the dongle's own Wi-Fi from this computer, then press enter")?;
+    for _ in 0..30 {
+        let answering = bootstrap::VENDOR_AP_HOSTS
+            .into_iter()
+            .find(|host| Shell::new(host).port_open(shell::TELNET_PORT));
+        if let Some(host) = answering {
+            sh.move_to(host);
+            println!("== shell is up at {host}");
+            return Ok(());
+        }
+        std::thread::sleep(Duration::from_secs(2));
+    }
+    Err("no shell on the dongle's Wi-Fi either, see LIVI-LINK.md".into())
 }
 
 fn ask(what: &str) -> Result<String, String> {

@@ -68,6 +68,39 @@ pub fn stock_dongle_once() -> bool {
     })
 }
 
+/// Where the shell answers on the vendor's own access point: its usual address.
+pub const VENDOR_AP_HOSTS: [&str; 2] = ["192.168.50.2", "192.168.43.1"];
+
+/// A dongle on the bus that already calls itself LIVI Link: the bootstrap on the vendor firmware,
+/// or LIVI Link itself.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum LinkOnUsb {
+    /// Its gadget carries NCM.
+    Ncm,
+    /// Its kernel offers no NCM.
+    NoNcm,
+}
+
+/// A dongle that calls itself LIVI Link on the bus, and whether its gadget carries NCM.
+pub fn livi_link_on_usb() -> Option<LinkOnUsb> {
+    let runtime = tokio::runtime::Builder::new_current_thread().enable_all().build().ok()?;
+    runtime.block_on(async {
+        let devices = nusb::list_devices().await.ok()?;
+        let link = devices
+            .into_iter()
+            .find(|d| livi_dongle::is_dongle(d) && livi_dongle::is_livi_link(d))?;
+        let interfaces = link.interfaces().map(|i| (i.class(), i.subclass()));
+        Some(if carries_ncm(interfaces) { LinkOnUsb::Ncm } else { LinkOnUsb::NoNcm })
+    })
+}
+
+/// NCM is a CDC communication interface of subclass 0x0d.
+fn carries_ncm(interfaces: impl IntoIterator<Item = (u8, u8)>) -> bool {
+    const CDC: u8 = 0x02;
+    const NCM: u8 = 0x0d;
+    interfaces.into_iter().any(|(class, subclass)| class == CDC && subclass == NCM)
+}
+
 /// Every USB device nusb can see, as (vid, pid, product-string) — for diagnosing detection.
 pub fn scan() -> Vec<(u16, u16, String)> {
     let runtime = match tokio::runtime::Builder::new_current_thread().enable_all().build() {
@@ -128,6 +161,14 @@ async fn send(path: &str, content: &[u8]) -> Result<(), String> {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn only_a_cdc_ncm_interface_counts_as_ncm() {
+        assert!(carries_ncm([(0x02, 0x0d), (0x0a, 0x00)]));
+        assert!(!carries_ncm([(0x02, 0x06), (0x0a, 0x00)])); // ECM
+        assert!(!carries_ncm([(0xff, 0x0d)]));
+        assert!(!carries_ncm([]));
+    }
 
     #[test]
     fn a_send_file_payload_carries_the_path_and_the_bytes() {

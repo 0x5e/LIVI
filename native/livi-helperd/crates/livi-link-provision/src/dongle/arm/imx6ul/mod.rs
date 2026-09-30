@@ -136,11 +136,22 @@ fn reboot(sh: &Shell, progress: &dyn Fn(&str)) -> Result<(), String> {
     Ok(())
 }
 
+/// Our kernel brings NCM, so a dongle installed over the vendor's Wi-Fi comes back on USB.
 fn wait_for_dongle(sh: &Shell, progress: &dyn Fn(&str)) -> Result<(), String> {
+    let usb = Shell::new(shell::DEFAULT_HOST);
     let start = Instant::now();
     while start.elapsed() < REBOOT_TIMEOUT {
         if sh.port_open(shell::TELNET_PORT) {
             progress(&format!("dongle back after {}s", start.elapsed().as_secs()));
+            return Ok(());
+        }
+        if sh.host() != shell::DEFAULT_HOST && usb.port_open(shell::TELNET_PORT) {
+            sh.move_to(shell::DEFAULT_HOST);
+            progress(&format!(
+                "dongle back on USB at {} after {}s",
+                shell::DEFAULT_HOST,
+                start.elapsed().as_secs()
+            ));
             return Ok(());
         }
         sleep(Duration::from_secs(3));

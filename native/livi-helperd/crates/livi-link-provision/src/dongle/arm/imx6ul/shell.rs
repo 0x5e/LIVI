@@ -5,6 +5,7 @@
 
 use std::io::{Read, Write};
 use std::net::{Shutdown, SocketAddr, TcpStream, ToSocketAddrs};
+use std::sync::Mutex;
 use std::thread::sleep;
 use std::time::{Duration, Instant};
 
@@ -18,31 +19,38 @@ const CONNECT_TIMEOUT: Duration = Duration::from_secs(5);
 const READ_SLICE: Duration = Duration::from_millis(500);
 
 pub struct Shell {
-    host: String,
+    // A dongle reached over the vendor's Wi-Fi comes back on USB once our kernel runs.
+    host: Mutex<String>,
 }
 
 impl Shell {
     pub fn new(host: &str) -> Self {
-        Self { host: host.to_string() }
+        Self { host: Mutex::new(host.to_string()) }
     }
 
-    pub fn host(&self) -> &str {
-        &self.host
+    pub fn host(&self) -> String {
+        self.host.lock().unwrap_or_else(|e| e.into_inner()).clone()
+    }
+
+    /// Talks to the dongle at `host` from now on.
+    pub fn move_to(&self, host: &str) {
+        *self.host.lock().unwrap_or_else(|e| e.into_inner()) = host.to_string();
     }
 
     /// Resolves "host:port" once, for the callers that open their own sockets.
     pub fn socket_addr(&self, port: u16) -> Result<SocketAddr, String> {
-        (self.host.as_str(), port)
+        let host = self.host();
+        (host.as_str(), port)
             .to_socket_addrs()
-            .map_err(|e| format!("resolve {}:{port}: {e}", self.host))?
+            .map_err(|e| format!("resolve {host}:{port}: {e}"))?
             .next()
-            .ok_or_else(|| format!("{}:{port} resolved to nothing", self.host))
+            .ok_or_else(|| format!("{host}:{port} resolved to nothing"))
     }
 
     /// Runs one command and returns its output (stdout and stderr).
     pub fn run(&self, cmd: &str, timeout: Duration) -> Result<String, String> {
         let mut s = TcpStream::connect_timeout(&self.socket_addr(TELNET_PORT)?, CONNECT_TIMEOUT)
-            .map_err(|e| format!("connect {}:{TELNET_PORT}: {e}", self.host))?;
+            .map_err(|e| format!("connect {}:{TELNET_PORT}: {e}", self.host()))?;
         s.set_read_timeout(Some(READ_SLICE)).map_err(|e| e.to_string())?;
 
         sleep(Duration::from_millis(300));
@@ -214,6 +222,14 @@ fn between(lines: &[String]) -> Option<String> {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn a_shell_follows_the_dongle_to_its_new_address() {
+        let sh = Shell::new("192.168.50.2");
+        sh.move_to(DEFAULT_HOST);
+        assert_eq!(sh.host(), DEFAULT_HOST);
+        assert_eq!(sh.socket_addr(TELNET_PORT).unwrap().to_string(), "10.10.10.1:2323");
+    }
 
     #[test]
     fn hashes_like_md5sum() {

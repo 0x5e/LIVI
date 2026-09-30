@@ -1,7 +1,7 @@
 import { CustomProxy } from '@main/services/custom/CustomProxy'
 import { createServer, get, type Server } from 'http'
 import type { AddressInfo } from 'net'
-import { connect } from 'net'
+import { connect, createServer as createNetServer, type Server as NetServer } from 'net'
 import type { Duplex } from 'stream'
 
 type Origin = {
@@ -43,6 +43,18 @@ function startOrigin(
   )
 }
 
+type Refusing = { server: NetServer; port: number }
+
+/** Holds its port for the whole test, a closed one could be taken over by a parallel worker. */
+function startRefusing(): Promise<Refusing> {
+  const server = createNetServer((socket) => socket.resetAndDestroy())
+  return new Promise((resolve) =>
+    server.listen(0, '127.0.0.1', () =>
+      resolve({ server, port: (server.address() as AddressInfo).port })
+    )
+  )
+}
+
 function fetchText(
   url: string
 ): Promise<{ status: number; headers: Record<string, unknown>; body: string }> {
@@ -64,6 +76,7 @@ function fetchText(
 describe('CustomProxy', () => {
   const proxy = new CustomProxy()
   let origin: Origin | undefined
+  let refusing: Refusing | undefined
 
   afterEach(async () => {
     proxy.stop()
@@ -71,6 +84,8 @@ describe('CustomProxy', () => {
     origin?.server.closeAllConnections()
     await new Promise((r) => origin?.server.close(r) ?? r(undefined))
     origin = undefined
+    await new Promise((r) => refusing?.server.close(r) ?? r(undefined))
+    refusing = undefined
     vi.restoreAllMocks()
   })
 
@@ -163,25 +178,17 @@ describe('CustomProxy', () => {
   })
 
   test('answers 502 when the target refuses', async () => {
-    origin = await startOrigin()
-    const dead = origin.port
-    origin.server.closeAllConnections()
-    await new Promise((r) => origin?.server.close(r))
-    origin = undefined
+    refusing = await startRefusing()
 
-    const base = await proxy.start(`http://127.0.0.1:${dead}/`)
+    const base = await proxy.start(`http://127.0.0.1:${refusing.port}/`)
 
     expect((await fetchText(`${base}x`)).status).toBe(502)
   })
 
   test('drops the socket when the upgrade target refuses', async () => {
-    origin = await startOrigin()
-    const dead = origin.port
-    origin.server.closeAllConnections()
-    await new Promise((r) => origin?.server.close(r))
-    origin = undefined
+    refusing = await startRefusing()
 
-    const base = await proxy.start(`http://127.0.0.1:${dead}/`)
+    const base = await proxy.start(`http://127.0.0.1:${refusing.port}/`)
     const port = Number(new URL(base as string).port)
 
     await new Promise<void>((resolve) => {

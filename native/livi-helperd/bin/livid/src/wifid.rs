@@ -1,11 +1,15 @@
 use std::net::TcpListener;
 use std::process::Command;
+use std::sync::{Arc, Mutex};
+use std::time::Duration;
 
 use livi_wifi::server::{Ap, PORT, serve};
 
 const BASE: &str = "/tmp/livi/hostapd.conf.saved";
 const LIVE: [&str; 2] = ["/tmp/livi/hostapd.conf", "/tmp/livi/hostapd.alt"];
 const LOG: &str = "/tmp/livi/hostapd.log";
+/// A client that went quiet is let go, its thread would otherwise wait for good.
+const IDLE: Duration = Duration::from_secs(5);
 
 pub fn run(_args: Vec<String>) -> i32 {
     let listener = match TcpListener::bind(("0.0.0.0", PORT)) {
@@ -17,7 +21,7 @@ pub fn run(_args: Vec<String>) -> i32 {
     };
     println!("[wifid] listening on :{PORT}");
     let standards = crate::wifi_standards(crate::board().1);
-    let mut ap = Ap::new(BASE, LIVE, LOG).with_standards(standards).with_on_save(Box::new(|| {
+    let ap = Ap::new(BASE, LIVE, LOG).with_standards(standards).with_on_save(Box::new(|| {
         let _ = Command::new("/usr/bin/livid")
             .arg("config")
             .arg("save")
@@ -26,9 +30,14 @@ pub fn run(_args: Vec<String>) -> i32 {
             .stderr(std::process::Stdio::null())
             .spawn();
     }));
-    for stream in listener.incoming().flatten() {
-        let mut stream = stream;
-        serve(&mut stream, &mut ap);
+    let ap = Arc::new(Mutex::new(ap));
+    // A thread each, so an accessory order does not queue behind an apply
+    for mut stream in livi_net::bridge::from_usb(&listener) {
+        let ap = ap.clone();
+        std::thread::spawn(move || {
+            let _ = stream.set_read_timeout(Some(IDLE));
+            serve(&mut stream, &ap);
+        });
     }
     0
 }

@@ -1177,6 +1177,7 @@ name = "livi-btd"
 version = "0.1.0"
 dependencies = [
  "libc",
+ "livi-net",
 ]
 
 [[package]]
@@ -1218,6 +1219,7 @@ name = "livi-iapd"
 version = "0.1.0"
 dependencies = [
  "libc",
+ "livi-net",
 ]
 
 [[package]]
@@ -1286,6 +1288,7 @@ name = "livi-web"
 version = "0.1.0"
 dependencies = [
  "libc",
+ "livi-net",
  "livi-wifi",
 ]
 
@@ -1307,6 +1310,7 @@ dependencies = [
  "livi-btd",
  "livi-iapd",
  "livi-mdns",
+ "livi-net",
  "livi-web",
  "livi-wifi",
 ]

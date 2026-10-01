@@ -6,6 +6,8 @@ use std::io;
 use std::net::{SocketAddr, TcpStream, ToSocketAddrs};
 use std::time::Duration;
 
+pub mod bridge;
+
 /// Connects to the first address of `addr` that answers within `timeout`, IPv4 before IPv6.
 pub fn connect(addr: impl ToSocketAddrs, timeout: Duration) -> io::Result<TcpStream> {
     let mut last = None;

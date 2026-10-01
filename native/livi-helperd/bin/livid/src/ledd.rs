@@ -223,21 +223,9 @@ fn exists(name: &str) -> bool {
     Path::new(&format!("{STATE_DIR}/{name}")).exists()
 }
 
-/// True while a wifi station is associated to the access point, read from the bridge forwarding
-/// table (wlan0's stations show up behind its br0 port). Same source as the web UI's client
-/// count, so the LED and the page agree; a cheap /sys read, no netlink.
+/// Counted like the web page counts its clients, so the LED and the page agree.
 fn wifi_client() -> bool {
-    let Ok(port) = fs::read_to_string("/sys/class/net/wlan0/brport/port_no") else {
-        return false;
-    };
-    let Ok(port_no) = u8::from_str_radix(port.trim().trim_start_matches("0x"), 16) else {
-        return false;
-    };
-    let Ok(fdb) = fs::read("/sys/class/net/br0/brforward") else {
-        return false;
-    };
-    // 16-byte entries: mac[6], port_no @6, is_local @7. A non-local mac on wlan0's port = a station.
-    fdb.as_chunks::<16>().0.iter().any(|e| e[6] == port_no && e[7] == 0)
+    livi_net::bridge::stations("br0", "wlan0") > 0
 }
 
 // ---------------------------------------------------------------------------

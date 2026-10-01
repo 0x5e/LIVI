@@ -283,7 +283,7 @@ fn attend(host: &Mutex<Option<TcpStream>>) {
             return;
         }
     };
-    for stream in listener.incoming().flatten() {
+    for stream in livi_net::bridge::from_usb(&listener) {
         let _ = stream.set_nodelay(true);
         println!("[iapd] a host is ready for the next session");
         *host.lock().unwrap() = Some(stream);
@@ -517,9 +517,10 @@ fn drop_phone(phone: &[u8; 6]) -> Result<(), String> {
     Ok(())
 }
 
-/// The control port: whether the car is offered, and who may be paged.
+/// The control port: whether the car is offered, and who may be paged. Hosts give these orders
+/// through wifid's port, so this one stays on the device.
 fn control(offered: &AtomicBool, phones: &Mutex<Phones>) {
-    let listener = match TcpListener::bind(("0.0.0.0", CONTROL_PORT)) {
+    let listener = match TcpListener::bind(("127.0.0.1", CONTROL_PORT)) {
         Ok(l) => l,
         Err(e) => {
             eprintln!("[iapd] bind :{CONTROL_PORT}: {e}");

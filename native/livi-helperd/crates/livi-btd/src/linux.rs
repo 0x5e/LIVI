@@ -64,7 +64,7 @@ pub fn run() -> ExitCode {
     }
     println!("[btd] listening on :{PORT}");
     let _ = crate::hci::up(DEV);
-    for stream in listener.incoming().flatten() {
+    for stream in livi_net::bridge::from_usb(&listener) {
         let _ = stream.set_nodelay(true);
         tell_accessory("off");
         if let Err(e) = crate::hci::down(DEV) {

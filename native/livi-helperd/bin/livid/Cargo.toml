@@ -13,6 +13,7 @@ livi-wifi = { path = "../../crates/livi-wifi" }
 livi-web  = { path = "../../crates/livi-web" }
 livi-btd  = { path = "../../crates/livi-btd" }
 livi-iapd = { path = "../../crates/livi-iapd" }
+livi-net  = { path = "../../crates/livi-net" }
 iap2-mfi  = { path = "../../crates/iap2-mfi" }
 imx6ul-uboot = { path = "../../crates/imx6ul-uboot" }
 libc = "0.2"

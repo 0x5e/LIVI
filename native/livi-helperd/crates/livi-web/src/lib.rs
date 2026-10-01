@@ -825,7 +825,7 @@ fn wifi_json() -> String {
     // Clients from the bridge forwarding table where there is a bridge, else via an nl80211
     // station dump.
     let clients = match caps().bridge.as_deref() {
-        Some(br) => bridge_port_clients(br, iface),
+        Some(br) => livi_net::bridge::stations(br, iface),
         None => livi_wifi::station_count(iface),
     };
     let (downrate, uprate) = livi_wifi::station_rates(iface).unwrap_or((0, 0));
@@ -849,20 +849,6 @@ fn wifi_json() -> String {
         downbytes,
         upbytes
     )
-}
-
-/// Stations behind one bridge port, from the bridge's forwarding table: with wlan0 inside br0
-/// the ARP table names br0, not the port. brforward is 16-byte entries — mac[6], port_no,
-/// is_local, then ageing and padding.
-fn bridge_port_clients(bridge: &str, port: &str) -> usize {
-    let port_no = read_trim(&format!("/sys/class/net/{port}/brport/port_no"));
-    let Ok(port_no) = u8::from_str_radix(port_no.trim_start_matches("0x"), 16) else {
-        return 0;
-    };
-    let Ok(fdb) = fs::read(format!("/sys/class/net/{bridge}/brforward")) else {
-        return 0;
-    };
-    fdb.as_chunks::<16>().0.iter().filter(|entry| entry[6] == port_no && entry[7] == 0).count()
 }
 
 fn status_json() -> String {

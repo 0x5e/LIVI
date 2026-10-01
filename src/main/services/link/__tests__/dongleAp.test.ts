@@ -106,7 +106,7 @@ describe('what the dongle is told', () => {
   })
 
   it('follows the bluetooth setting, not the wifi one', () => {
-    expect(btCommandsFor(config)).toEqual(['off'])
+    expect(btCommandsFor(config)).toEqual(['iap off'])
     const chosen = {
       ...config,
       btAdapter: DONGLE_LINK,
@@ -114,8 +114,8 @@ describe('what the dongle is told', () => {
       autoConn: true
     } as Config
     on('darwin', () => {
-      expect(btCommandsFor(chosen)).toEqual(['on'])
-      expect(btCommandsFor({ ...chosen, autoConn: false } as Config)).toEqual(['on'])
+      expect(btCommandsFor(chosen)).toEqual(['iap on'])
+      expect(btCommandsFor({ ...chosen, autoConn: false } as Config)).toEqual(['iap on'])
     })
   })
 
@@ -134,12 +134,12 @@ describe('what the dongle is told', () => {
 
   it('leaves the accessory off where the host holds the controller', () => {
     const chosen = { ...config, btAdapter: DONGLE_LINK, wirelessCpEnabled: true } as Config
-    on('linux', () => expect(btCommandsFor(chosen)).toEqual(['off']))
+    on('linux', () => expect(btCommandsFor(chosen)).toEqual(['iap off']))
   })
 
   it('silences the accessory when wireless CarPlay is off', () => {
     const chosen = { ...config, btAdapter: DONGLE_LINK, wirelessCpEnabled: false } as Config
-    expect(btCommandsFor(chosen)).toEqual(['off'])
+    expect(btCommandsFor(chosen)).toEqual(['iap off'])
   })
 
   it('hands over the settings once it is the access point', () => {
@@ -231,7 +231,8 @@ describe('talking to the dongle', () => {
     await answer(sockets[1], 1)
     await done
     expect(sockets[0].sent).toEqual(['status\n'])
-    expect(sockets[1].sent).toEqual(['off\n'])
+    expect(sockets[1].sent).toEqual(['iap off\n'])
+    expect(createConnection).toHaveBeenLastCalledWith({ host: 'livi-link.local', port: 5001 })
   })
 
   it('leaves the accessory alone while the dongle has Bluetooth switched off', async () => {

@@ -2,12 +2,15 @@
 //!   channels | status | on | off | apply | save
 //!   set <ssid|country|channel|passphrase> <value>
 //!   bt on | bt off
+//!   iap <order>   for the Bluetooth accessory, answered the way iapd answers
 //! `on`, `off` and `bt` are kept on the dongle, a boot brings back what was switched last.
 //! Responses end in `ok\n` or `error <reason>\n`.
 
 use std::io::{BufRead, BufReader, Write};
+use std::net::{Ipv4Addr, SocketAddr, SocketAddrV4, TcpStream};
 use std::path::PathBuf;
 use std::process::{Child, Command, Stdio};
+use std::sync::{Mutex, MutexGuard, PoisonError};
 use std::time::Duration;
 
 use crate::listing;
@@ -25,6 +28,8 @@ const BT: &str = "hci0";
 const BT_DEV: u16 = 0;
 /// Loads the driver and brings hci0 up with btd and iapd, for what a boot left out.
 const LIVI_RADIO: &str = "/usr/bin/livi-radio";
+const ACCESSORY: SocketAddr = SocketAddr::V4(SocketAddrV4::new(Ipv4Addr::LOCALHOST, 5005));
+const ACCESSORY_WAIT: Duration = Duration::from_secs(3);
 
 /// The hostapd instance the daemon manages, with the paths it works on.
 pub type OnSave = Box<dyn Fn() + Send + Sync>;
@@ -102,11 +107,12 @@ enum Cmd<'a> {
     On,
     Off,
     Bt(bool),
+    Iap(&'a str),
     Empty,
     Unknown(&'a str),
 }
 
-pub fn serve<S: std::io::Read + Write>(io: &mut S, ap: &mut Ap) {
+pub fn serve<S: std::io::Read + Write>(io: &mut S, ap: &Mutex<Ap>) {
     let mut reader = BufReader::new(io);
     let mut wanted = Wanted::default();
     let mut line = String::new();
@@ -121,13 +127,13 @@ pub fn serve<S: std::io::Read + Write>(io: &mut S, ap: &mut Ap) {
                 Ok(text) => format!("{text}ok\n"),
                 Err(e) => format!("error {e}\n"),
             },
-            Cmd::Status => status(ap),
+            Cmd::Status => status(&held(ap)),
             Cmd::Set(key, value) => match remember(&mut wanted, key, value) {
                 Ok(()) => "ok\n".into(),
                 Err(e) => format!("error {e}\n"),
             },
             Cmd::Apply => {
-                let answer = match apply(ap, &wanted) {
+                let answer = match apply(&mut held(ap), &wanted) {
                     Ok(()) => "ok\n".into(),
                     Err(e) => format!("error {e}\n"),
                 };
@@ -135,28 +141,33 @@ pub fn serve<S: std::io::Read + Write>(io: &mut S, ap: &mut Ap) {
                 answer
             }
             Cmd::On => {
-                keep(ap, Radio::Wifi, true);
-                match on(ap) {
+                let mut ap = held(ap);
+                keep(&ap, Radio::Wifi, true);
+                match on(&mut ap) {
                     Ok(()) => "ok\n".into(),
                     Err(e) => format!("error {e}\n"),
                 }
             }
             Cmd::Off => {
-                keep(ap, Radio::Wifi, false);
-                off(ap);
+                let mut ap = held(ap);
+                keep(&ap, Radio::Wifi, false);
+                off(&mut ap);
                 "ok\n".into()
             }
-            Cmd::Save => match save(ap) {
+            Cmd::Save => match save(&held(ap)) {
                 Ok(()) => "ok\n".into(),
                 Err(e) => format!("error {e}\n"),
             },
             Cmd::Bt(up) => {
-                keep(ap, Radio::Bt, up);
+                let ap = held(ap);
+                keep(&ap, Radio::Bt, up);
                 match bluetooth(up) {
                     Ok(()) => "ok\n".into(),
                     Err(e) => format!("error {e}\n"),
                 }
             }
+            // Never waits for the access point, an apply can take half a minute
+            Cmd::Iap(order) => accessory(ACCESSORY, order),
             Cmd::Empty => continue,
             Cmd::Unknown(what) => format!("error unknown command {what}\n"),
         };
@@ -182,11 +193,38 @@ fn command(line: &str) -> Cmd<'_> {
             "off" => Cmd::Bt(false),
             _ => Cmd::Unknown(line),
         },
+        "iap" if !rest.trim().is_empty() => Cmd::Iap(rest.trim()),
         "set" => match rest.split_once(' ') {
             Some((key, value)) => Cmd::Set(key, value),
             None => Cmd::Unknown(line),
         },
         _ => Cmd::Unknown(head),
+    }
+}
+
+fn held(ap: &Mutex<Ap>) -> MutexGuard<'_, Ap> {
+    ap.lock().unwrap_or_else(PoisonError::into_inner)
+}
+
+fn accessory(at: SocketAddr, order: &str) -> String {
+    ask(at, order).unwrap_or_else(|e| format!("error accessory: {e}\n"))
+}
+
+fn ask(at: SocketAddr, order: &str) -> std::io::Result<String> {
+    let mut stream = TcpStream::connect_timeout(&at, ACCESSORY_WAIT)?;
+    stream.set_read_timeout(Some(ACCESSORY_WAIT))?;
+    writeln!(stream, "{order}")?;
+    let mut reader = BufReader::new(stream);
+    let (mut answer, mut line) = (String::new(), String::new());
+    loop {
+        line.clear();
+        if reader.read_line(&mut line)? == 0 {
+            return Err(std::io::ErrorKind::UnexpectedEof.into());
+        }
+        answer.push_str(&line);
+        if line == "ok\n" || line.starts_with("error ") {
+            return Ok(answer);
+        }
     }
 }
 
@@ -900,5 +938,40 @@ mod tests {
         assert_eq!(w.width, Some(80));
         assert!(remember(&mut w, "width", "160").is_err());
         assert!(remember(&mut w, "width", "wide").is_err());
+    }
+
+    /// An iapd stand-in that answers one order with `answer` and hangs up.
+    fn iapd(answer: &'static str) -> (SocketAddr, std::thread::JoinHandle<String>) {
+        let listener = std::net::TcpListener::bind("127.0.0.1:0").unwrap();
+        let at = listener.local_addr().unwrap();
+        let heard = std::thread::spawn(move || {
+            let (mut stream, _) = listener.accept().unwrap();
+            let mut order = String::new();
+            BufReader::new(&stream).read_line(&mut order).unwrap();
+            stream.write_all(answer.as_bytes()).unwrap();
+            order
+        });
+        (at, heard)
+    }
+
+    #[test]
+    fn an_iap_order_goes_to_the_accessory_and_comes_back_whole() {
+        assert!(matches!(command("iap targets aa bb"), Cmd::Iap("targets aa bb")));
+        assert!(matches!(command("iap"), Cmd::Unknown("iap")));
+
+        let (at, heard) = iapd("bonds 1\noffered on\ntargets 0\nok\n");
+        assert_eq!(accessory(at, "status"), "bonds 1\noffered on\ntargets 0\nok\n");
+        assert_eq!(heard.join().unwrap(), "status\n");
+
+        let (at, _) = iapd("error not an address\n");
+        assert_eq!(accessory(at, "disconnect x"), "error not an address\n");
+    }
+
+    #[test]
+    fn an_accessory_that_is_gone_or_hangs_up_is_an_error() {
+        let (at, _) = iapd("bonds 1\n");
+        assert!(accessory(at, "status").starts_with("error accessory: "));
+        let gone = std::net::TcpListener::bind("127.0.0.1:0").unwrap().local_addr().unwrap();
+        assert!(accessory(gone, "on").starts_with("error accessory: "));
     }
 }

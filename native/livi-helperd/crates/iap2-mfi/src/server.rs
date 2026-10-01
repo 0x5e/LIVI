@@ -97,7 +97,7 @@ impl<C: AuthCoprocessor> AuthCoprocessor for Shared<C> {
 /// Serves each connection on a thread of its own.
 pub fn listen<C: AuthCoprocessor + Send + 'static>(listener: TcpListener, chip: C) {
     let chip = Arc::new(Mutex::new(chip));
-    for mut stream in listener.incoming().flatten() {
+    for mut stream in livi_net::bridge::from_usb(&listener) {
         let mut chip = Shared(chip.clone());
         std::thread::spawn(move || {
             keepalive(&stream);

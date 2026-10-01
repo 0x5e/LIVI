@@ -8,9 +8,8 @@ export const DONGLE_LINK = 'livi-link'
 const HOST = 'livi-link.local'
 /** The dongle's USB link and its own access point both hand out addresses here. */
 const LINK_SUBNET = '10.10.10.'
-/** The access point answers here, the Bluetooth accessory on its own port. */
+/** The dongle takes every order here, the Bluetooth accessory's with an `iap` in front. */
 const PORT = 5001
-const BT_PORT = 5005
 /** Applying waits for the radio, and a 5 GHz start spends the first seconds scanning. */
 const APPLY_MS = 30_000
 const PROBE_MS = 1500
@@ -20,9 +19,9 @@ const DRIFT_RETRY_MS = 30_000
  * Runs commands on one connection, in order, and gives up on the first one the dongle refuses.
  * Every answer ends in `ok` or `error <reason>`, so the next command goes out on the `ok`.
  */
-function talk(commands: string[], timeoutMs = APPLY_MS, port = PORT): Promise<string[]> {
+function talk(commands: string[], timeoutMs = APPLY_MS): Promise<string[]> {
   return new Promise((resolve, reject) => {
-    const socket = net.createConnection({ host: HOST, port })
+    const socket = net.createConnection({ host: HOST, port: PORT })
     const answers: string[] = []
     let buffer = ''
     let at = 0
@@ -96,10 +95,10 @@ function accessoryOnDongle(): boolean {
 }
 
 export function btCommandsFor(config: Config): string[] {
-  if (config.btAdapter !== DONGLE_LINK || !config.wirelessCpEnabled) return ['off']
-  if (!accessoryOnDongle()) return ['off']
+  if (config.btAdapter !== DONGLE_LINK || !config.wirelessCpEnabled) return ['iap off']
+  if (!accessoryOnDongle()) return ['iap off']
   // Who may be paged comes from the paging list the helper hands over, not from here.
-  return ['on']
+  return ['iap on']
 }
 
 /** The access point's MAC, as of the last exchange with the dongle. */
@@ -227,7 +226,7 @@ async function reconcile(config: Config): Promise<void> {
   // The accessory only runs while the dongle's Bluetooth is switched on.
   if (status['bt-enabled'] !== 'off') {
     try {
-      await talk(btCommandsFor(config), APPLY_MS, BT_PORT)
+      await talk(btCommandsFor(config))
     } catch (err) {
       heard = false
       report('bluetooth', err)

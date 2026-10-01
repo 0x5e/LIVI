@@ -10,8 +10,6 @@ use tokio::sync::mpsc;
 use crate::link;
 
 pub const PORT: u16 = 5004;
-/// Where the dongle takes orders about its accessory.
-pub const CONTROL_PORT: u16 = 5005;
 /// How long a dongle that is not answering is left alone.
 const RETRY: Duration = Duration::from_secs(5);
 /// A header line is well under this, so anything longer is not one.
@@ -195,10 +193,10 @@ async fn read_line(stream: &mut TcpStream) -> Result<String, String> {
 /// One order to the dongle's accessory, and the line it answers with.
 fn order(line: &str) -> Result<(), String> {
     use std::io::{BufRead, BufReader, Write as _};
-    let mut stream = livi_net::connect((link::LINK_NAME, CONTROL_PORT), ORDER_TIMEOUT)
+    let mut stream = livi_net::connect((link::LINK_NAME, crate::ap::PORT), ORDER_TIMEOUT)
         .map_err(|e| format!("dongle: {e}"))?;
     stream.set_read_timeout(Some(ORDER_TIMEOUT)).map_err(|e| format!("dongle: {e}"))?;
-    writeln!(stream, "{line}").map_err(|e| format!("dongle: {e}"))?;
+    writeln!(stream, "iap {line}").map_err(|e| format!("dongle: {e}"))?;
     let mut answer = String::new();
     BufReader::new(&stream).read_line(&mut answer).map_err(|e| format!("dongle: {e}"))?;
     match answer.trim() {

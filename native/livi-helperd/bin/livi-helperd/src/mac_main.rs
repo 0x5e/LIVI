@@ -1,7 +1,7 @@
-// macOS: the phone hangs on a LIVI Link dongle, which serves its USB port (`livi-usbproxy`) and
-// the MFi chip (`mfid`) over NCM. The CarPlay stack is `wired::watch`, as on Linux. Wireless
-// CarPlay comes from the dongle too: it is the Bluetooth accessory itself and hands the session
-// up on TCP, because macOS has no way to lend a foreign controller to its own stack.
+// macOS: a wired phone sits on a Mac port and is reached through the system usbmuxd, the MFi chip
+// (`mfid`) comes from the LIVI Link dongle over NCM. Wireless CarPlay comes from the dongle too:
+// it is the Bluetooth accessory itself and hands the session up on TCP, because macOS has no way
+// to lend a foreign controller to its own stack.
 
 use std::process::ExitCode;
 use std::sync::Arc;
@@ -182,15 +182,14 @@ fn start_carplay_seam(link: Arc<LinkPresence>) {
     // the socket has to identify the same way. Announcing a USB accessory to it gets turned down.
     let over_dongle = env_s("LIVI_BT_ADAPTER", "") == livi_dongle::link::CHOICE;
 
-    // The dongle's usbproxy and mfid, once its address is known.
+    // The dongle's mfid, once its address is known.
     let (up_auth, down_auth) = (auth.clone(), auth.clone());
     let arriving = state.clone();
     let (arrived, left) = (bcast.clone(), bcast.clone());
     tokio::spawn(link.clone().resolve(
         move || {
-            iap2_usbmux::set_remote(&livi_dongle::link::addr(iap2_usbmux::remote::DEFAULT_PORT));
             up_auth.replace(Box::new(NcmCoprocessor::new(&livi_dongle::link::addr(
-                iap2_mfi::ncm::DEFAULT_PORT,
+                livi_net::port::MFI,
             ))));
             // A dongle that arrives while LIVI runs has heard nothing yet.
             if over_dongle {
@@ -234,14 +233,6 @@ fn start_carplay_seam(link: Arc<LinkPresence>) {
     let (auth_wireless, identity_wireless, cp_wireless) =
         (auth.clone(), identity.clone(), cp.clone());
     tokio::spawn(identify_on_link(link.clone(), auth.clone()));
-    tokio::spawn(crate::wired::watch(
-        auth.clone(),
-        identity.clone(),
-        cp.clone(),
-        bcast.clone(),
-        state.clone(),
-        link.clone(),
-    ));
     tokio::spawn(crate::wired::watch_usbmuxd(
         auth,
         identity,
@@ -250,9 +241,7 @@ fn start_carplay_seam(link: Arc<LinkPresence>) {
         state.clone(),
         link.clone(),
     ));
-    println!(
-        "[helperd] wired CarPlay watchers started (dongle + system usbmuxd), waiting for the LIVI Link"
-    );
+    println!("[helperd] wired CarPlay watcher started (system usbmuxd), waiting for the LIVI Link");
     // Wireless CarPlay comes over the dongle's own Bluetooth, and only when it is the chosen one.
     if env_s("LIVI_BT_ADAPTER", "") == livi_dongle::link::CHOICE {
         tokio::spawn(wireless_sessions(

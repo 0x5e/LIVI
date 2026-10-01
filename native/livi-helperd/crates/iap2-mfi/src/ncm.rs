@@ -16,9 +16,6 @@ pub struct NcmCoprocessor {
     protocol_major: Option<u8>,
 }
 
-/// The port the dongle's `mfid` listens on.
-pub const DEFAULT_PORT: u16 = 5000;
-
 impl NcmCoprocessor {
     /// Names the dongle's `mfid` ("host:port"); connects on first use.
     pub fn new(addr: &str) -> Self {

@@ -21,4 +21,4 @@ pub fn probe() -> std::process::ExitCode {
 #[cfg(target_os = "linux")]
 mod linux;
 #[cfg(target_os = "linux")]
-pub use linux::{PORT, probe, run};
+pub use linux::{probe, run};

@@ -546,6 +546,16 @@ export class ProjectionService {
     // The spawn env only carries the initial AA/CP wireless state. Later changes go
     // over the control socket.
     const starting = !this.helperSupervisor
+
+    // CpManager owns the CarPlay listener and the helper event feed.
+    if (wantCp && !this.cpActive) {
+      this.cpActive = true
+      void this.drivers.startCp()
+    } else if (!wantCp && this.cpActive) {
+      this.cpActive = false
+      void this.drivers.releaseCp()
+    }
+
     if (starting) {
       const sup = new HelperSupervisor({ maxRestarts: 5 })
       sup.on('stdout', (line) => console.log(`[helper] ${line}`))
@@ -555,7 +565,9 @@ export class ProjectionService {
       console.log(
         `[ProjectionService] starting unified BT supervisor (aaWireless=${wantAaWireless} cpWireless=${wantCpWireless})`
       )
-      sup.start(this.config)
+      void Promise.resolve(this.cpActive ? this.drivers.startCp() : undefined).then((port) => {
+        if (this.helperSupervisor === sup) sup.start(this.config, port)
+      })
       this.drivers.attachHelper(this.aaHelperSource())
       // The helper is wanted on every platform (USB AA), so it is never stopped here.
     } else if (this.btAaWireless !== wantAaWireless) {
@@ -582,15 +594,6 @@ export class ProjectionService {
       this.drivers.stopAaWireless()
     }
 
-    // CpManager owns the CarPlay :7000 listener and the helper event feed; it runs whenever
-    // CarPlay is possible (wantCp), wired or wireless.
-    if (wantCp && !this.cpActive) {
-      this.cpActive = true
-      this.drivers.startCp()
-    } else if (!wantCp && this.cpActive) {
-      this.cpActive = false
-      void this.drivers.releaseCp()
-    }
     // cpWireless only toggles the wireless CP BT profile live over the control socket.
     if (this.cpActive && !starting && this.btCpWireless !== wantCpWireless) {
       console.log(`[ProjectionService] toggling wireless CP live (cpWireless=${wantCpWireless})`)
@@ -1766,9 +1769,9 @@ export class ProjectionService {
         this.navStore.reset('session-start')
 
         if (target === 'cp') {
-          // The CarPlay :7000 listener + helper feed are owned by CpManager. Ensure
+          // The CarPlay listener + helper feed are owned by CpManager. Ensure
           // they are up. A CpSession spawns and auto-activates when the phone connects.
-          this.drivers.startCp()
+          void this.drivers.startCp()
           this.started = true
           this.clearStartRetry()
           console.log(

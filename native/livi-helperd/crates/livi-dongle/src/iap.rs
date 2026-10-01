@@ -9,7 +9,6 @@ use tokio::sync::mpsc;
 
 use crate::link;
 
-pub const PORT: u16 = 5004;
 /// How long a dongle that is not answering is left alone.
 const RETRY: Duration = Duration::from_secs(5);
 /// A header line is well under this, so anything longer is not one.
@@ -108,8 +107,9 @@ pub fn sessions(ready: impl Fn() -> bool + Send + 'static) -> mpsc::Receiver<Ses
 
 /// Holds a connection open until the dongle says a phone is on it.
 async fn waiting() -> Result<Session, String> {
-    let mut stream =
-        TcpStream::connect(link::addr(PORT)).await.map_err(|e| format!("dongle: {e}"))?;
+    let mut stream = TcpStream::connect(link::addr(livi_net::port::IAP))
+        .await
+        .map_err(|e| format!("dongle: {e}"))?;
     stream.set_nodelay(true).map_err(|e| format!("nodelay: {e}"))?;
     // Waiting for a phone means a long silence, so the link itself has to say when the dongle is
     // gone. Without this a restarted dongle leaves us listening to nobody.
@@ -193,7 +193,7 @@ async fn read_line(stream: &mut TcpStream) -> Result<String, String> {
 /// One order to the dongle's accessory, and the line it answers with.
 fn order(line: &str) -> Result<(), String> {
     use std::io::{BufRead, BufReader, Write as _};
-    let mut stream = livi_net::connect((link::LINK_NAME, crate::ap::PORT), ORDER_TIMEOUT)
+    let mut stream = livi_net::connect((link::LINK_NAME, livi_net::port::CONTROL), ORDER_TIMEOUT)
         .map_err(|e| format!("dongle: {e}"))?;
     stream.set_read_timeout(Some(ORDER_TIMEOUT)).map_err(|e| format!("dongle: {e}"))?;
     writeln!(stream, "iap {line}").map_err(|e| format!("dongle: {e}"))?;

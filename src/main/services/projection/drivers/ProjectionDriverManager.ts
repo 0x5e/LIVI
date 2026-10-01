@@ -156,8 +156,8 @@ export class ProjectionDriverManager {
     return mgr
   }
 
-  startCp(): void {
-    this.ensureCpManager().start()
+  startCp(): Promise<number | undefined> {
+    return this.ensureCpManager().start()
   }
 
   setCpHevcSupported(supported: boolean): void {

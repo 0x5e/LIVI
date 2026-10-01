@@ -6,13 +6,12 @@ use std::time::Duration;
 
 use crate::link;
 
-pub const PORT: u16 = 5001;
 const TIMEOUT: Duration = Duration::from_secs(3);
 const POLL: Duration = Duration::from_millis(500);
 
 /// All of `status`, or None when the dongle does not answer.
 fn status() -> Option<HashMap<String, String>> {
-    let mut stream = livi_net::connect((link::LINK_NAME, PORT), TIMEOUT).ok()?;
+    let mut stream = livi_net::connect((link::LINK_NAME, livi_net::port::CONTROL), TIMEOUT).ok()?;
     stream.set_read_timeout(Some(TIMEOUT)).ok()?;
     stream.write_all(b"status\n").ok()?;
     let mut fields = HashMap::new();

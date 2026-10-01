@@ -7,7 +7,9 @@ use std::time::Duration;
 use tokio::sync::Notify;
 
 use iap2_link::LinkConfig;
-use iap2_usbmux::{MuxRegistry, try_find_iphones};
+#[cfg(target_os = "linux")]
+use iap2_usbmux::{MuxRegistry, find_iphones};
+#[cfg(target_os = "linux")]
 use iap2_wired::open_carkit;
 use livi_runtime::bringup::{CpConfig, run_accessory};
 use livi_runtime::driver::spawn_link_stream;
@@ -27,8 +29,10 @@ fn announce_gone(bcast: &Broadcaster, serial: &str) {
 
 const SCAN_INTERVAL: Duration = Duration::from_secs(2);
 // A device that keeps failing the config probe is no iPhone (e.g. a dongle emulating one).
+#[cfg(target_os = "linux")]
 const GIVE_UP_ATTEMPTS: u32 = 3;
 
+#[cfg(target_os = "linux")]
 pub async fn watch(
     auth: SharedCoprocessor,
     identity: Identity,
@@ -65,11 +69,7 @@ pub async fn watch(
             continue;
         }
 
-        // An unreachable proxy on a present link is a hiccup: nothing is retired on it.
-        let Ok(found) = try_find_iphones() else {
-            continue;
-        };
-        let present: Vec<String> = found.into_iter().map(|d| d.serial).collect();
+        let present: Vec<String> = find_iphones().into_iter().map(|d| d.serial).collect();
         failed.retain(|serial, _| present.contains(serial));
         for serial in registry.serials() {
             if !present.contains(&serial) {
@@ -151,8 +151,8 @@ pub async fn watch(
     }
 }
 
-/// The phone directly on a Mac port, reached through the system usbmuxd instead of the dongle's
-/// proxy. Same iAP2 session, MFi still from the dongle, so it also waits for the link.
+/// The phone on a Mac port, reached through the system usbmuxd. MFi comes from the dongle, so it
+/// waits for the link.
 #[cfg(target_os = "macos")]
 pub async fn watch_usbmuxd(
     auth: SharedCoprocessor,
@@ -225,7 +225,7 @@ pub async fn watch_usbmuxd(
                         None
                     }
                 };
-                let ncm = LocalNcm::Bridged(iface);
+                let ncm = LocalNcm::System(iface);
                 match iap2_wired::usbmuxd::open(&device).await {
                     Ok(stream) => {
                         println!(
@@ -302,11 +302,11 @@ fn short(serial: &str) -> &str {
 
 /// Where the phone's USB network function shows up for this session.
 enum LocalNcm {
-    /// Phone on this machine's bus: brought up here.
+    /// Brought up here.
     #[cfg(target_os = "linux")]
     Local(iap2_usbmux::NcmBridge),
-    /// Phone on a dongle: bridged onto the interface facing it.
-    Bridged(Option<String>),
+    /// Brought up by the system, if it was found.
+    System(Option<String>),
 }
 
 impl LocalNcm {
@@ -314,30 +314,18 @@ impl LocalNcm {
         match self {
             #[cfg(target_os = "linux")]
             LocalNcm::Local(b) => Some(b.ifname.as_str()),
-            LocalNcm::Bridged(name) => name.as_deref(),
+            LocalNcm::System(name) => name.as_deref(),
         }
     }
 }
 
+#[cfg(target_os = "linux")]
 fn start_ncm_bridge(serial: &str) -> LocalNcm {
-    let _ = serial;
-    if let Some(addr) = iap2_usbmux::remote_addr() {
-        let iface = livi_runtime::net::iface_facing(&addr);
-        if iface.is_none() {
-            eprintln!("[wired] no interface facing the LIVI Link at {addr} yet");
-        }
-        return LocalNcm::Bridged(iface);
-    }
-    #[cfg(target_os = "linux")]
-    {
-        match iap2_usbmux::NcmBridge::start(serial) {
-            Ok(b) => LocalNcm::Local(b),
-            Err(e) => {
-                eprintln!("[wired] {}: ncm bridge unavailable: {e}", short(serial));
-                LocalNcm::Bridged(None)
-            }
+    match iap2_usbmux::NcmBridge::start(serial) {
+        Ok(b) => LocalNcm::Local(b),
+        Err(e) => {
+            eprintln!("[wired] {}: ncm bridge unavailable: {e}", short(serial));
+            LocalNcm::System(None)
         }
     }
-    #[cfg(not(target_os = "linux"))]
-    LocalNcm::Bridged(None)
 }

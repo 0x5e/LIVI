@@ -91,4 +91,4 @@ pub use ncm::NcmCoprocessor;
 
 // Dongle-side TCP server for MFi authentication.
 pub mod server;
-pub use server::{PORT as SERVER_PORT, serve};
+pub use server::serve;

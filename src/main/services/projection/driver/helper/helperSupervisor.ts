@@ -74,7 +74,7 @@ export function resolveHelperBin(): string {
 
   return join(__dirname, 'driver', HELPER_BIN)
 }
-function envFromConfig(cfg: Config): NodeJS.ProcessEnv {
+function envFromConfig(cfg: Config, airplayPort: number | undefined): NodeJS.ProcessEnv {
   const wantAaWireless = cfg.wirelessAaEnabled === true
   const wantCpWireless = cfg.wirelessCpEnabled === true
   const identity = loadOrCreateIdentity()
@@ -92,7 +92,8 @@ function envFromConfig(cfg: Config): NodeJS.ProcessEnv {
     LIVI_PASSPHRASE: cfg.wifiPassword || '',
     LIVI_CHANNEL: String(cfg.wifiChannel || ''),
     LIVI_COUNTRY: cfg.country || '',
-    LIVI_CP_DEBUG: DEBUG ? '1' : ''
+    LIVI_CP_DEBUG: DEBUG ? '1' : '',
+    ...(airplayPort ? { LIVI_CP_AIRPLAY_PORT: String(airplayPort) } : {})
   }
 }
 
@@ -113,6 +114,7 @@ export class HelperSupervisor extends EventEmitter {
   private _restartCount = 0
   private _restartTimer: NodeJS.Timeout | null = null
   private _cfg: Config | null = null
+  private _airplayPort: number | undefined
   private readonly _restartDelayMs: number
   private readonly _maxRestarts: number
 
@@ -122,9 +124,11 @@ export class HelperSupervisor extends EventEmitter {
     this._maxRestarts = opts.maxRestarts ?? -1
   }
 
-  start(cfg: Config): void {
+  /** `airplayPort` is where LIVI listens for CarPlay, which the helper tells the phones. */
+  start(cfg: Config, airplayPort?: number): void {
     this._stopped = false
     this._cfg = cfg
+    this._airplayPort = airplayPort
     this._restartCount = 0
     this._spawn()
   }
@@ -162,7 +166,7 @@ export class HelperSupervisor extends EventEmitter {
       return
     }
 
-    const env = envFromConfig(this._cfg)
+    const env = envFromConfig(this._cfg, this._airplayPort)
     const useSudo = process.platform === 'linux'
     const cmd = useSudo ? 'sudo' : bin
     const args = useSudo ? ['-n', '-E', bin] : []

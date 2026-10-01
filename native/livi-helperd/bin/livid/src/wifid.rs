@@ -3,7 +3,8 @@ use std::process::Command;
 use std::sync::{Arc, Mutex};
 use std::time::Duration;
 
-use livi_wifi::server::{Ap, PORT, serve};
+use livi_net::port::CONTROL;
+use livi_wifi::server::{Ap, serve};
 
 const BASE: &str = "/tmp/livi/hostapd.conf.saved";
 const LIVE: [&str; 2] = ["/tmp/livi/hostapd.conf", "/tmp/livi/hostapd.alt"];
@@ -12,14 +13,14 @@ const LOG: &str = "/tmp/livi/hostapd.log";
 const IDLE: Duration = Duration::from_secs(5);
 
 pub fn run(_args: Vec<String>) -> i32 {
-    let listener = match TcpListener::bind(("0.0.0.0", PORT)) {
+    let listener = match TcpListener::bind(("0.0.0.0", CONTROL)) {
         Ok(l) => l,
         Err(e) => {
-            eprintln!("[wifid] bind :{PORT}: {e}");
+            eprintln!("[wifid] bind :{CONTROL}: {e}");
             return 1;
         }
     };
-    println!("[wifid] listening on :{PORT}");
+    println!("[wifid] listening on :{CONTROL}");
     let standards = crate::wifi_standards(crate::board().1);
     let ap = Ap::new(BASE, LIVE, LOG).with_standards(standards).with_on_save(Box::new(|| {
         let _ = Command::new("/usr/bin/livid")

@@ -10,6 +10,8 @@ use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::{Arc, Mutex};
 use std::time::{Duration, Instant};
 
+use livi_net::port::{ACCESSORY, IAP};
+
 use crate::mgmt::{self, Mgmt};
 use crate::sdp;
 
@@ -40,15 +42,12 @@ const WITH_CHANNEL: usize = KEY_LEN + 1;
 const SDP_PSM: u16 = 1;
 /// The blue light: a flash per call, lit while iAP runs over Bluetooth, dark at the handover.
 const PULSE: std::time::Duration = std::time::Duration::from_millis(120);
-pub const CONTROL_PORT: u16 = 5005;
 /// One phone per tick, quick tries first, then slow ones.
 const RING_TICK: Duration = Duration::from_secs(1);
 const RING_FAST_TRIES: u32 = 15;
 const RING_SLOW: Duration = Duration::from_secs(30);
 /// How long a phone the host still wants may hold the link before it is disconnected.
 const STALE: Duration = Duration::from_secs(10);
-/// Where the host picks up the iAP session.
-pub const PORT: u16 = 5004;
 
 /// Which phones the host wants paged, and what is known about them. No list at all means the
 /// stored bonds are used, an empty list means nobody is paged.
@@ -248,7 +247,7 @@ fn channel(local: &str, host: Arc<Mutex<Option<TcpStream>>>) -> Result<(), Strin
         let local = local.to_string();
         open.push(std::thread::spawn(move || take(&listener, channel, name, &local, &slot)));
     }
-    println!("[iapd] waiting for a phone, host on :{PORT}");
+    println!("[iapd] waiting for a phone, host on :{IAP}");
     for thread in open {
         let _ = thread.join();
     }
@@ -276,10 +275,10 @@ fn take(listener: &OwnedFd, channel: u8, name: &str, local: &str, host: &Mutex<O
 
 /// Holds the host that wants the next session, keeping only the newest.
 fn attend(host: &Mutex<Option<TcpStream>>) {
-    let listener = match TcpListener::bind(("0.0.0.0", PORT)) {
+    let listener = match TcpListener::bind(("0.0.0.0", IAP)) {
         Ok(l) => l,
         Err(e) => {
-            eprintln!("[iapd] bind :{PORT}: {e}");
+            eprintln!("[iapd] bind :{IAP}: {e}");
             return;
         }
     };
@@ -520,14 +519,14 @@ fn drop_phone(phone: &[u8; 6]) -> Result<(), String> {
 /// The control port: whether the car is offered, and who may be paged. Hosts give these orders
 /// through wifid's port, so this one stays on the device.
 fn control(offered: &AtomicBool, phones: &Mutex<Phones>) {
-    let listener = match TcpListener::bind(("127.0.0.1", CONTROL_PORT)) {
+    let listener = match TcpListener::bind(("127.0.0.1", ACCESSORY)) {
         Ok(l) => l,
         Err(e) => {
-            eprintln!("[iapd] bind :{CONTROL_PORT}: {e}");
+            eprintln!("[iapd] bind :{ACCESSORY}: {e}");
             return;
         }
     };
-    println!("[iapd] taking orders on :{CONTROL_PORT}");
+    println!("[iapd] taking orders on :{ACCESSORY}");
     for stream in listener.incoming().flatten() {
         let Ok(mut out) = stream.try_clone() else {
             continue;

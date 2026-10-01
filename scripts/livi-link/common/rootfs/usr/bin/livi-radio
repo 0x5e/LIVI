@@ -30,7 +30,7 @@ bt() {
             fi
             if ! pidof livi-iapd >/dev/null; then
                 /usr/bin/livi-iapd >/tmp/livi/iapd.log 2>&1 &
-                echo "[livi] iapd pid=$! :5004/:5005"
+                echo "[livi] iapd pid=$! :5003/:5004"
             fi
             return 0
         fi

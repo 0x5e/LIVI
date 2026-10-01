@@ -269,7 +269,7 @@ async fn serve() -> Result<(), Box<dyn std::error::Error>> {
             tokio::spawn(link.clone().resolve(
                 move || {
                     up_auth.replace(Box::new(NcmCoprocessor::new(&livi_dongle::link::addr(
-                        iap2_mfi::ncm::DEFAULT_PORT,
+                        livi_net::port::MFI,
                     ))))
                 },
                 move || down_auth.replace(Box::new(NoCoprocessor)),

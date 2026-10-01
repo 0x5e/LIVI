@@ -1072,7 +1072,7 @@ fn switch_radio(body: Option<&[u8]>, radio: Radio) -> (&'static str, &'static st
 }
 
 fn wifid(command: &str) -> Result<(), String> {
-    let addr = SocketAddr::from(([127, 0, 0, 1], livi_wifi::server::PORT));
+    let addr = SocketAddr::from(([127, 0, 0, 1], livi_net::port::CONTROL));
     let mut stream = TcpStream::connect_timeout(&addr, Duration::from_secs(2))
         .map_err(|e| format!("wifid: {e}"))?;
     // Bringing the AP or hci0 up takes a while.

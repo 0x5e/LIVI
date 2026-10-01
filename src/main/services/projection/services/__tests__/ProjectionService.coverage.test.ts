@@ -1395,6 +1395,51 @@ describe('ProjectionService syncHelperSupervisor (linux)', () => {
 
     expect(cpm.setCpWireless).toHaveBeenCalledWith(true)
   })
+
+  async function flushMicrotasks(): Promise<void> {
+    for (let i = 0; i < 5; i++) await Promise.resolve()
+  }
+
+  test('opens the CarPlay listener first and starts the helper with its port', async () => {
+    const svc = makeSvc()
+    primeDrivers(svc)
+    svc.drivers.startCp = vi.fn(async () => 51234)
+    svc.config = { wirelessCpEnabled: true }
+
+    svc.syncHelperSupervisor()
+    const sup = svc.helperSupervisor
+    expect(sup.start).not.toHaveBeenCalled()
+    await flushMicrotasks()
+
+    expect(sup.start).toHaveBeenCalledWith(svc.config, 51234)
+  })
+
+  test('a helper stopped before the port arrives stays stopped', async () => {
+    const svc = makeSvc()
+    primeDrivers(svc)
+    let givePort: (port: number) => void = () => {}
+    svc.drivers.startCp = vi.fn(() => new Promise<number>((resolve) => (givePort = resolve)))
+
+    svc.syncHelperSupervisor()
+    const sup = svc.helperSupervisor
+    svc.helperSupervisor = null
+    givePort(51234)
+    await flushMicrotasks()
+
+    expect(sup.start).not.toHaveBeenCalled()
+  })
+
+  test('starts the helper without a port where CarPlay does not run', async () => {
+    const svc = makeSvc()
+    primeDrivers(svc)
+    Object.defineProperty(process, 'platform', { value: 'win32', configurable: true })
+
+    svc.syncHelperSupervisor()
+    await flushMicrotasks()
+
+    expect(svc.drivers.startCp).not.toHaveBeenCalled()
+    expect(svc.helperSupervisor.start).toHaveBeenCalledWith(svc.config, undefined)
+  })
 })
 
 describe('ProjectionService BT helpers', () => {

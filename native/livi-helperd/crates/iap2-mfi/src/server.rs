@@ -9,8 +9,6 @@ use std::sync::{Arc, Mutex};
 
 use crate::{AuthCoprocessor, CHALLENGE_MAX, CHALLENGE_MIN, MfiError};
 
-pub const PORT: u16 = 5000;
-
 pub const OP_GET_CERT: u8 = 0x01;
 pub const OP_SIGN: u8 = 0x02;
 pub const OP_PROTOCOL_MAJOR: u8 = 0x03;

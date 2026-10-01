@@ -12,7 +12,6 @@ use std::time::Duration;
 
 use crate::link;
 
-pub const PORT: u16 = 5002;
 const VHCI: &str = "/dev/vhci";
 /// Where the kernel lists what is radio blocked.
 const RFKILL: &str = "/sys/class/rfkill";
@@ -48,7 +47,7 @@ pub fn attach(
 
 /// Runs the tunnel until the dongle or the local stack lets go, saying whether an adapter existed.
 pub fn tunnel(on_adapter: &(impl Fn(u16) + Sync)) -> Result<bool, String> {
-    let stream = livi_net::connect((link::LINK_NAME, PORT), CONNECT_TIMEOUT)
+    let stream = livi_net::connect((link::LINK_NAME, livi_net::port::HCI), CONNECT_TIMEOUT)
         .map_err(|e| format!("dongle: {e}"))?;
     stream.set_nodelay(true).map_err(|e| format!("nodelay: {e}"))?;
     notice_loss(&stream);

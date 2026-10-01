@@ -7,7 +7,7 @@ use std::process::ExitCode;
 use std::sync::Arc;
 use std::sync::atomic::{AtomicBool, Ordering};
 
-pub const PORT: u16 = 5002;
+use livi_net::port::{ACCESSORY, HCI};
 
 const AF_BLUETOOTH: libc::c_int = 31;
 const BTPROTO_HCI: libc::c_int = 1;
@@ -24,9 +24,6 @@ const POLL_MS: i32 = 200;
 const ORDER_WAIT: std::time::Duration = std::time::Duration::from_secs(3);
 const CONTROLLER_TRIES: u32 = 120;
 const CONTROLLER_POLL: std::time::Duration = std::time::Duration::from_millis(500);
-
-// LIVI Link iapd control endpoint. While it is not running the accessory notification is a no-op.
-const IAPD_CONTROL_PORT: u16 = 5005;
 
 #[repr(C)]
 struct SockaddrHci {
@@ -51,10 +48,10 @@ pub fn probe() -> ExitCode {
 }
 
 pub fn run() -> ExitCode {
-    let listener = match TcpListener::bind(("0.0.0.0", PORT)) {
+    let listener = match TcpListener::bind(("0.0.0.0", HCI)) {
         Ok(l) => l,
         Err(e) => {
-            eprintln!("[btd] bind :{PORT}: {e}");
+            eprintln!("[btd] bind :{HCI}: {e}");
             return ExitCode::FAILURE;
         }
     };
@@ -62,7 +59,7 @@ pub fn run() -> ExitCode {
         eprintln!("[btd] {IFACE} never appeared");
         return ExitCode::FAILURE;
     }
-    println!("[btd] listening on :{PORT}");
+    println!("[btd] listening on :{HCI}");
     let _ = crate::hci::up(DEV);
     for stream in livi_net::bridge::from_usb(&listener) {
         let _ = stream.set_nodelay(true);
@@ -86,7 +83,7 @@ pub fn run() -> ExitCode {
 }
 
 fn tell_accessory(order: &str) {
-    let Ok(mut control) = TcpStream::connect(("127.0.0.1", IAPD_CONTROL_PORT)) else {
+    let Ok(mut control) = TcpStream::connect(("127.0.0.1", ACCESSORY)) else {
         return;
     };
     let _ = control.write_all(format!("{order}\n").as_bytes());

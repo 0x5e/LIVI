@@ -2,7 +2,8 @@ use std::fs;
 use std::net::TcpListener;
 
 use iap2_mfi::I2cCoprocessor;
-use iap2_mfi::server::{PORT, listen, protocol_major};
+use iap2_mfi::server::{listen, protocol_major};
+use livi_net::port::MFI;
 
 /// The coprocessor this mfid serves, as the web page shows it.
 pub const STATE: &str = "/tmp/livi/mfi";
@@ -32,14 +33,14 @@ pub fn run(args: Vec<String>) -> i32 {
     );
     let _ = fs::write(STATE, format!("Gen{} @ /dev/i2c-{bus}\n", major.as_deref().unwrap_or("?")));
 
-    let listener = match TcpListener::bind(("0.0.0.0", PORT)) {
+    let listener = match TcpListener::bind(("0.0.0.0", MFI)) {
         Ok(l) => l,
         Err(e) => {
-            eprintln!("[mfid] bind :{PORT}: {e}");
+            eprintln!("[mfid] bind :{MFI}: {e}");
             return 1;
         }
     };
-    println!("[mfid] listening on :{PORT}");
+    println!("[mfid] listening on :{MFI}");
     listen(listener, chip);
     0
 }

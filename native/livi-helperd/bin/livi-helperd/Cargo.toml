@@ -10,6 +10,7 @@ path = "src/main.rs"
 [dependencies]
 livi-runtime = { path = "../../crates/livi-runtime" }
 livi-wifi = { path = "../../crates/livi-wifi" }
+livi-net = { path = "../../crates/livi-net" }
 iap2-csm = { path = "../../crates/iap2-csm" }
 iap2-mfi = { path = "../../crates/iap2-mfi" }
 iap2-link = { path = "../../crates/iap2-link" }

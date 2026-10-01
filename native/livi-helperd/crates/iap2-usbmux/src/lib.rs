@@ -1,5 +1,4 @@
 // USB access for CarPlay: selects the phone's CarPlay configuration without a role switch.
-// The phone sits on local usbfs or on a LIVI Link dongle; `backend::set_remote` picks which.
 
 pub const APPLE_VID: u16 = 0x05ac;
 pub const CP_CONFIG: u8 = 6;
@@ -10,12 +9,7 @@ mod pipe;
 pub use pipe::{MuxReader, MuxWriter, PhoneInfo};
 
 mod backend;
-pub use backend::{
-    ensure_carplay_config, find_iphones, open_pipes, remote_addr, restore_default_config,
-    set_remote, try_find_iphones,
-};
-
-pub mod remote;
+pub use backend::{ensure_carplay_config, find_iphones, open_pipes, restore_default_config};
 
 pub const EP_OUT: u8 = 0x04;
 pub const EP_IN: u8 = 0x85;

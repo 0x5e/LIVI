@@ -887,7 +887,6 @@ name = "iap2-usbmux"
 version = "0.1.0"
 dependencies = [
  "libc",
- "livi-net",
  "nusb",
  "tokio",
 ]
@@ -1203,6 +1202,7 @@ dependencies = [
  "libc",
  "livi-aa",
  "livi-dongle",
+ "livi-net",
  "livi-runtime",
  "livi-wifi",
  "nusb",
@@ -1298,6 +1298,7 @@ version = "0.1.0"
 dependencies = [
  "libc",
  "livi-btd",
+ "livi-net",
 ]
 
 [[package]]

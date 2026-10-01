@@ -1,4 +1,4 @@
-//! LIVI-Link wifid wire: line-oriented TCP `:5001`. Commands:
+//! LIVI-Link wifid wire: line-oriented TCP on the dongle's control port. Commands:
 //!   channels | status | on | off | apply | save
 //!   set <ssid|country|channel|passphrase> <value>
 //!   bt on | bt off
@@ -16,7 +16,6 @@ use std::time::Duration;
 use crate::listing;
 use crate::radio::{self, Radio};
 
-pub const PORT: u16 = 5001;
 const RADIO_TRIES: u32 = 40;
 const RADIO_POLL: Duration = Duration::from_millis(500);
 const START_TIMEOUT: Duration = Duration::from_secs(20);
@@ -28,7 +27,8 @@ const BT: &str = "hci0";
 const BT_DEV: u16 = 0;
 /// Loads the driver and brings hci0 up with btd and iapd, for what a boot left out.
 const LIVI_RADIO: &str = "/usr/bin/livi-radio";
-const ACCESSORY: SocketAddr = SocketAddr::V4(SocketAddrV4::new(Ipv4Addr::LOCALHOST, 5005));
+const ACCESSORY: SocketAddr =
+    SocketAddr::V4(SocketAddrV4::new(Ipv4Addr::LOCALHOST, livi_net::port::ACCESSORY));
 const ACCESSORY_WAIT: Duration = Duration::from_secs(3);
 
 /// The hostapd instance the daemon manages, with the paths it works on.

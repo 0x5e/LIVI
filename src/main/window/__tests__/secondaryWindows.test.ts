@@ -372,7 +372,8 @@ describe('secondaryWindows — bounds + ready-to-show', () => {
     expect(shell.openExternal).toHaveBeenCalledWith('https://example.com')
     expect(result).toEqual({ action: 'deny' })
     const check = win.webContents.session.setPermissionCheckHandler.mock.calls[0][0]
-    expect(check({}, 'usb')).toBe(true)
+    expect(check({}, 'media')).toBe(true)
+    expect(check({}, 'usb')).toBe(false)
     expect(check({}, 'geolocation')).toBe(false)
     const request = win.webContents.session.setPermissionRequestHandler.mock.calls[0][0]
     const cb = vi.fn()

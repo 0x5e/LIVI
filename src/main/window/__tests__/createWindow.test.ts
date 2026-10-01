@@ -19,8 +19,7 @@ vi.mock('electron', async () => {
       webContents: {
         session: {
           setPermissionCheckHandler: vi.fn(),
-          setPermissionRequestHandler: vi.fn(),
-          setUSBProtectedClassesHandler: vi.fn()
+          setPermissionRequestHandler: vi.fn()
         },
         setWindowOpenHandler: vi.fn(),
         setZoomFactor: vi.fn(),
@@ -160,7 +159,6 @@ describe('createMainWindow', () => {
     const win = browserWindowInstances[0]
     expect(win.webContents.session.setPermissionCheckHandler).toHaveBeenCalled()
     expect(win.webContents.session.setPermissionRequestHandler).toHaveBeenCalled()
-    expect(win.webContents.session.setUSBProtectedClassesHandler).toHaveBeenCalled()
     expect(session.defaultSession.webRequest.onHeadersReceived).toHaveBeenCalled()
   })
 
@@ -463,12 +461,12 @@ describe('createMainWindow', () => {
     const handler = win.webContents.session.setPermissionRequestHandler.mock.calls[0][0]
     const cb = vi.fn()
 
-    handler({}, 'usb', cb)
+    handler({}, 'media', cb)
 
     expect(cb).toHaveBeenCalledWith(true)
   })
 
-  test('permission request handler rejects unsupported permission', async () => {
+  test('permission handlers reject usb, hid and anything else unsupported', async () => {
     const runtimeState = {
       config: {
         mainScreenWidth: 800,
@@ -483,36 +481,15 @@ describe('createMainWindow', () => {
     createMainWindow(runtimeState, services)
 
     const win = browserWindowInstances[0]
-    const handler = win.webContents.session.setPermissionRequestHandler.mock.calls[0][0]
-    const cb = vi.fn()
+    const request = win.webContents.session.setPermissionRequestHandler.mock.calls[0][0]
+    const check = win.webContents.session.setPermissionCheckHandler.mock.calls[0][0]
 
-    handler({}, 'notifications', cb)
-
-    expect(cb).toHaveBeenCalledWith(false)
-  })
-
-  test('usb protected classes handler keeps only allowed classes', async () => {
-    const runtimeState = {
-      config: {
-        mainScreenWidth: 800,
-        mainScreenHeight: 480,
-        kiosk: { main: false, dash: false, aux: false },
-        uiZoomPercent: 100
-      },
-      isQuitting: false
-    } as any
-    const services = { projectionService: { attachRenderer: vi.fn() } } as any
-
-    createMainWindow(runtimeState, services)
-
-    const win = browserWindowInstances[0]
-    const handler = win.webContents.session.setUSBProtectedClassesHandler.mock.calls[0][0]
-
-    const result = handler({
-      protectedClasses: ['audio', 'hid', 'video', 'mass-storage', 'vendor-specific']
-    })
-
-    expect(result).toEqual(['audio', 'video', 'vendor-specific'])
+    for (const permission of ['usb', 'hid', 'notifications']) {
+      const cb = vi.fn()
+      request({}, permission, cb)
+      expect(cb).toHaveBeenCalledWith(false)
+      expect(check({}, permission)).toBe(false)
+    }
   })
 
   test('headers received handler injects COOP COEP and CORP headers', async () => {

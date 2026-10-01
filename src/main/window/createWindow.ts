@@ -125,13 +125,8 @@ export function createMainWindow(runtimeState: runtimeStateProps, services: Serv
   attachResizeReflow()
 
   const ses = mainWindow.webContents.session
-  ses.setPermissionCheckHandler((_w, p) => ['usb', 'hid', 'media', 'display-capture'].includes(p))
-  ses.setPermissionRequestHandler((_w, p, cb) =>
-    cb(['usb', 'hid', 'media', 'display-capture'].includes(p))
-  )
-  ses.setUSBProtectedClassesHandler(({ protectedClasses }) =>
-    protectedClasses.filter((c) => ['audio', 'video', 'vendor-specific'].includes(c))
-  )
+  ses.setPermissionCheckHandler((_w, p) => ['media', 'display-capture'].includes(p))
+  ses.setPermissionRequestHandler((_w, p, cb) => cb(['media', 'display-capture'].includes(p)))
 
   session.defaultSession.webRequest.onHeadersReceived(
     { urls: ['*://*/*', 'file://*/*'] },

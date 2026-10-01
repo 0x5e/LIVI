@@ -175,10 +175,8 @@ function spawn(spec: SecondaryWindowSpec, runtimeState: runtimeStateProps) {
   })
 
   const ses = win.webContents.session
-  ses.setPermissionCheckHandler((_w, p) => ['usb', 'hid', 'media', 'display-capture'].includes(p))
-  ses.setPermissionRequestHandler((_w, p, cb) =>
-    cb(['usb', 'hid', 'media', 'display-capture'].includes(p))
-  )
+  ses.setPermissionCheckHandler((_w, p) => ['media', 'display-capture'].includes(p))
+  ses.setPermissionRequestHandler((_w, p, cb) => cb(['media', 'display-capture'].includes(p)))
 
   const url =
     isDev() && process.env.ELECTRON_RENDERER_URL

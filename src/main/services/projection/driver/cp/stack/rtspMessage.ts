@@ -1,7 +1,7 @@
 /**
  * rtspMessage — RTSP/HTTP-style request framing for the CarPlay control channel.
  *
- * The control connection on TCP :7000 speaks a text request line + headers +
+ * The control connection speaks a text request line + headers +
  * optional binary-plist body, same framing as RTSP and HTTP share. This parses
  * incoming requests incrementally and builds responses. Encryption (once the
  * handshake completes) wraps this framing in a separate layer.

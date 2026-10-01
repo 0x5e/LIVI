@@ -17,7 +17,6 @@ function baseConfig(overrides: Partial<CpStackConfig> = {}): CpStackConfig {
     hevc: false,
     h264: true,
     main: { widthPixels: 800, heightPixels: 480 },
-    port: 7000,
     entertainmentSampleRate: 44100,
     mfi: {} as CpStackConfig['mfi'],
     oemLabel: 'LIVI',

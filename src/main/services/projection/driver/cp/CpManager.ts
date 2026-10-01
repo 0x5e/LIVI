@@ -1,7 +1,7 @@
 /**
  * CpManager — shared Apple CarPlay infrastructure (singleton).
  *
- * Owns the single :7000 RTSP control listener, the shared MFi signer + BlueZ
+ * Owns the single RTSP control listener, the shared MFi signer + BlueZ
  * control socket (CpHelperSock), and the one helper event subscription. Every
  * accepted control connection spawns ONE CpSession handed off via onSpawn. Holds
  * the codec / night-mode / cluster seed applied to each new CpSession, drives the
@@ -14,8 +14,6 @@ import { applyPhoneUtcOffset } from '@main/services/time/hostTimezone'
 import type { Config } from '@shared/types'
 import { CpHelperSock } from './CpHelperSock'
 import { CpSession, type CpSessionSeed } from './CpSession'
-
-const CP_CONTROL_PORT = 7000
 
 /** A registry-level identity seen on a helper wifi/device event, awaiting its session. */
 interface PendingDevice {
@@ -39,6 +37,7 @@ function str(v: unknown): string {
 
 export class CpManager {
   private _server: net.Server | null = null
+  private _listening: Promise<number | undefined> | null = null
   private readonly _helper = new CpHelperSock()
   private _eventSub: { close: () => void } | null = null
   private readonly _sessions = new Set<CpSession>()
@@ -148,27 +147,41 @@ export class CpManager {
     }
   }
 
-  // ── :7000 control listener ─────────────────────────────────────────────────
+  // ── control listener ───────────────────────────────────────────────────────
 
-  start(): void {
-    if (this._server) return
+  /**
+   * Opens the control listener and resolves with its port, undefined if it could not open.
+   * The phone learns the port from the helper, so the system may pick any free one: a fixed
+   * port collides with whatever else wants it, such as the AirPlay receiver on macOS.
+   */
+  start(): Promise<number | undefined> {
+    if (this._listening) return this._listening
     const server = net.createServer((sock) => this._spawn(sock))
-    server.on('error', (err) => console.warn(`[CpManager] server error: ${err.message}`))
-    // CarPlay wireless is IPv6-first (link-local); listen dual-stack so the
-    // phone can reach :7000 over IPv6 or IPv4.
-    server.listen({ port: CP_CONTROL_PORT, host: '::', ipv6Only: false }, () =>
-      console.log(`[CpManager] listening on :${CP_CONTROL_PORT} (dual-stack)`)
-    )
+    this._listening = new Promise((resolve) => {
+      server.on('error', (err) => {
+        console.warn(`[CpManager] server error: ${err.message}`)
+        resolve(undefined)
+      })
+      // CarPlay wireless is IPv6-first (link-local); listen dual-stack so the
+      // phone can reach it over IPv6 or IPv4.
+      server.listen({ port: 0, host: '::', ipv6Only: false }, () => {
+        const { port } = server.address() as net.AddressInfo
+        console.log(`[CpManager] listening on :${port} (dual-stack)`)
+        resolve(port)
+      })
+    })
     this._server = server
     this._eventSub = this._helper.subscribeEvents(
       (ev) => this._onHelperEvent(ev),
       () => this._onHelperConnect?.()
     )
+    return this._listening
   }
 
   async close(): Promise<void> {
     this._eventSub?.close()
     this._eventSub = null
+    this._listening = null
     if (this._server) {
       try {
         this._server.close()

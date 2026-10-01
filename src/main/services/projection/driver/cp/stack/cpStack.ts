@@ -1,7 +1,7 @@
 /**
  * CpStack — the CarPlay Wi-Fi session engine (skeleton).
  *
- * Owns the RTSP-style control connection on TCP :7000 that the phone opens
+ * Owns the RTSP-style control connection that the phone opens
  * after joining our AP and finding the Bonjour service. This skeleton stands up
  * the server, frames requests, logs the phone's request sequence, and answers
  * GetInfo (classic displays + per-HW codec). The encrypted handshake
@@ -244,7 +244,7 @@ export class CpStack extends EventEmitter {
     this._conns.clear()
   }
 
-  /** Adopt an already-accepted control connection (CpManager owns the :7000 listener). */
+  /** Adopt an already-accepted control connection (CpManager owns the listener). */
   attachSocket(sock: net.Socket): void {
     const peer = `${sock.remoteAddress}:${sock.remotePort}`
     console.log(`[cpStack] control connection from ${peer}`)

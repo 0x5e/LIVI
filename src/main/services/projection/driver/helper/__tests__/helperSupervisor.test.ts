@@ -175,7 +175,25 @@ describe('spawning', () => {
     expect(opts.env.LIVI_CP_PK).toBe('aabbcc')
     expect(opts.env.LIVI_CP_PI).toBe('pi-123')
     expect(opts.env.DEBUG).toBe('')
+    expect(opts.env.LIVI_CP_AIRPLAY_PORT).toBeUndefined()
     expect(sup.running).toBe(true)
+  })
+
+  test('tells the helper the CarPlay port, and keeps it for a restart', async () => {
+    vi.useFakeTimers()
+    vi.spyOn(console, 'log').mockImplementation(() => {})
+    devBinOnly()
+    const { HelperSupervisor } = await load(false)
+    const first = makeChild()
+    mockedSpawn.mockReturnValue(first)
+    new HelperSupervisor({ restartDelayMs: 100 }).start(CONFIG, 51234)
+
+    mockedSpawn.mockReturnValue(makeChild())
+    first.emit('exit', 1, null)
+    vi.advanceTimersByTime(150)
+
+    const ports = mockedSpawn.mock.calls.map(([, , opts]) => opts.env.LIVI_CP_AIRPLAY_PORT)
+    expect(ports).toEqual(['51234', '51234'])
   })
 
   test('runs the binary directly off linux', async () => {

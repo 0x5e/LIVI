@@ -1,9 +1,9 @@
 /**
  * CpSession — IPhoneDriver for ONE Apple CarPlay connection.
  *
- * Wraps a single CpStack that adopts an already-accepted :7000 control socket via
+ * Wraps a single CpStack that adopts an already-accepted control socket via
  * attachSocket (no listener of its own). CpManager owns the shared infra (the
- * :7000 listener, the MFi signer, the helper event feed) and constructs one
+ * control listener, the MFi signer, the helper event feed) and constructs one
  * CpSession per accepted connection. The session bridges its stack's stream
  * events into the driver contract (video/audio/message/device-presence) and
  * ingests the per-phone iAP2 metadata the manager routes to it.
@@ -117,7 +117,7 @@ export class CpSession extends EventEmitter implements IPhoneDriver {
     if (opts.socket) this.attachSocket(opts.socket)
   }
 
-  /** Adopt the accepted :7000 control socket. Split from construction so a CpSession can be
+  /** Adopt the accepted control socket. Split from construction so a CpSession can be
    *  born at iAP2 identification and gain its AirPlay transport when the phone connects. */
   attachSocket(socket: net.Socket): void {
     this._peerIp = normHost(socket.remoteAddress ?? '')
@@ -616,7 +616,6 @@ export class CpSession extends EventEmitter implements IPhoneDriver {
             }
           }
         : undefined,
-      port: 7000,
       // samplingFrequency: 1 = 48 kHz, 0 = 44.1 kHz — drives the advertised
       // entertainment (type 102) AAC-LC rate so the phone streams at the user's choice.
       entertainmentSampleRate: cfg.samplingFrequency === 1 ? 48000 : 44100,

@@ -73,7 +73,7 @@ function fakeServer(): FakeServer {
     return s
   })
   s.close = vi.fn()
-  s.address = vi.fn(() => ({ port: 7000 }))
+  s.address = vi.fn(() => ({ port: 51234 }))
   return s
 }
 
@@ -332,8 +332,8 @@ describe('CpManager telemetry push', () => {
   })
 })
 
-describe('CpManager :7000 listener lifecycle', () => {
-  it('starts the server and helper subscription once', () => {
+describe('CpManager listener lifecycle', () => {
+  it('starts the server and helper subscription once, on a port the system picks', async () => {
     const onHelperConnect = vi.fn()
     const { mgr } = makeManager({ onHelperConnect })
     const server = fakeServer()
@@ -351,10 +351,14 @@ describe('CpManager :7000 listener lifecycle', () => {
       return sub
     })
 
-    mgr.start()
-    mgr.start()
+    const first = mgr.start()
+    expect(mgr.start()).toBe(first)
+    await expect(first).resolves.toBe(51234)
     expect(createServerMock).toHaveBeenCalledTimes(1)
-    expect(server.listen).toHaveBeenCalled()
+    expect(server.listen).toHaveBeenCalledWith(
+      expect.objectContaining({ port: 0, host: '::' }),
+      expect.any(Function)
+    )
     capturedOnConnect?.()
     capturedOnEvent?.({ type: 'wifi', mac: 'AA', ip: '1.2.3.4', event: 'joined' })
     expect(onHelperConnect).toHaveBeenCalled()
@@ -365,6 +369,23 @@ describe('CpManager :7000 listener lifecycle', () => {
     connHandler?.(sock as unknown as net.Socket)
     expect(sock.setKeepAlive).toHaveBeenCalledWith(true, 3000)
     expect(spawned).toHaveLength(1)
+  })
+
+  it('has no port to give when the listener cannot open, and opens anew after close', async () => {
+    const { mgr } = makeManager()
+    const failing = fakeServer()
+    failing.listen = vi.fn(() => failing)
+    createServerMock.mockReturnValueOnce(failing as unknown as net.Server)
+    vi.spyOn(mgr._helper, 'subscribeEvents').mockReturnValue({ close: vi.fn() })
+    vi.spyOn(console, 'warn').mockImplementation(() => {})
+
+    const port = mgr.start()
+    failing.emit('error', new Error('EACCES'))
+    await expect(port).resolves.toBeUndefined()
+
+    await mgr.close()
+    createServerMock.mockReturnValueOnce(fakeServer() as unknown as net.Server)
+    await expect(mgr.start()).resolves.toBe(51234)
   })
 
   it('closes the server, subscription and every session', async () => {

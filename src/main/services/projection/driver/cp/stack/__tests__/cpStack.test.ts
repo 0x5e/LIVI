@@ -215,7 +215,6 @@ function baseCfg(over: Partial<CpStackConfig> = {}): CpStackConfig {
     h264: false,
     main: { widthPixels: 1920, heightPixels: 1080, fps: 60 },
     cluster: { widthPixels: 1280, heightPixels: 720, fps: 60 },
-    port: 7000,
     entertainmentSampleRate: 48000,
     disableAudioOutput: false,
     mfi: {

@@ -68,8 +68,6 @@ export interface CpStackConfig {
   main: CpDisplayConfig
   /** Instrument-cluster screen (classic CarPlay second stream), if enabled. */
   cluster?: CpDisplayConfig
-  /** TCP control port (Bonjour-advertised). */
-  port: number
   /** Entertainment (type 102) AAC-LC sample rate, from the samplingFrequency setting. */
   entertainmentSampleRate: 44100 | 48000
   /** When true the head unit does not advertise media audio sinks, so the phone plays media itself. */

@@ -1,7 +1,7 @@
 /**
  * controlCipher — ChaCha20-Poly1305 framing for the CarPlay control channel.
  *
- * After pair-verify, every RTSP message on TCP :7000 travels as one or more
+ * After pair-verify, every RTSP message on the control connection travels as one or more
  * frames: [2B length LE (ciphertext only)][ciphertext][16B tag]. The 2-byte
  * length header is the AEAD associated data. The nonce is a per-direction
  * 8-byte little-endian counter that increments after each frame. Read and write

@@ -142,7 +142,7 @@ fn to_rescue(sh: &Shell, progress: &dyn Fn(&str)) -> Result<(), String> {
     progress("restarting into the rescue system, it writes the rootfs");
     sh.sh("(sleep 1; sync; reboot; sleep 5; reboot -f) >/dev/null 2>&1 &")?;
     let gone = Instant::now();
-    while sh.port_open(shell::TELNET_PORT) && gone.elapsed() < Duration::from_secs(30) {
+    while sh.reachable() && gone.elapsed() < Duration::from_secs(30) {
         sleep(Duration::from_secs(1));
     }
     wait_for_dongle(sh, progress)?;
@@ -164,11 +164,11 @@ fn wait_for_dongle(sh: &Shell, progress: &dyn Fn(&str)) -> Result<(), String> {
     let usb = Shell::new(shell::DEFAULT_HOST);
     let start = Instant::now();
     while start.elapsed() < REBOOT_TIMEOUT {
-        if sh.port_open(shell::TELNET_PORT) {
+        if sh.reachable() {
             progress(&format!("dongle back after {}s", start.elapsed().as_secs()));
             return Ok(());
         }
-        if sh.host() != shell::DEFAULT_HOST && usb.port_open(shell::TELNET_PORT) {
+        if sh.host() != shell::DEFAULT_HOST && usb.reachable() {
             sh.move_to(shell::DEFAULT_HOST);
             progress(&format!(
                 "dongle back on USB at {} after {}s",

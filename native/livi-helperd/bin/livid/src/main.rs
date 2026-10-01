@@ -1,6 +1,6 @@
 // livid — multi-call binary for the LIVI Link dongles.
 //
-// Symlinks (livi-tinyshell, livi-netd, livi-httpd, livi-bt-up, livi-ledd)
+// Symlinks (livi-netd, livi-httpd, livi-bt-up, livi-ledd)
 // point at this binary; argv[0]'s basename selects the module. Every module
 // exposes `pub fn run(args: Vec<String>) -> i32`. Sharing the Rust runtime
 // across all tools cuts >3 MiB of duplicated allocator/panic/std code.
@@ -17,7 +17,6 @@ mod imx6ul;
 mod ledd;
 mod mfid;
 mod netd;
-mod tinyshell;
 mod wifid;
 
 /// Model and firmware target. One livid build per CPU arch serves every board of that arch, so the
@@ -128,7 +127,7 @@ fn main() -> ExitCode {
             Some(sub) => (sub.as_str(), args[2..].to_vec()),
             None => {
                 eprintln!(
-                    "usage: livid <bt-up|bt-mgmt|bt-probe|btd|config|httpd|iapd|ledd|mfid|netd|tinyshell|wifid> [args…]"
+                    "usage: livid <bt-up|bt-mgmt|bt-probe|btd|config|httpd|iapd|ledd|mfid|netd|wifid> [args…]"
                 );
                 return ExitCode::from(2);
             }
@@ -149,7 +148,6 @@ fn main() -> ExitCode {
         "livi-httpd" | "httpd" => livi_web::run(web_caps()),
         "livi-ledd" | "ledd" => ledd::run(rest),
         "livi-netd" | "netd" => netd::run(rest),
-        "livi-tinyshell" | "tinyshell" => tinyshell::run(rest),
         "livi-config" | "config" => config::run(rest),
         "livi-mfid" | "mfid" => mfid::run(rest),
         "livi-wifid" | "wifid" => wifid::run(rest),

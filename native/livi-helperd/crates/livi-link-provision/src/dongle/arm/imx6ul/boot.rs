@@ -224,7 +224,7 @@ pub fn install(sh: &Shell, plan: &Install, progress: &dyn Fn(&str)) -> Result<()
     // A shell as PID 1 (our initramfs) ignores the signal a plain reboot sends it.
     sh.sh("(sleep 1; sync; reboot; sleep 5; reboot -f) >/dev/null 2>&1 &")?;
     let gone = Instant::now();
-    while sh.port_open(super::shell::TELNET_PORT) && gone.elapsed() < Duration::from_secs(30) {
+    while sh.reachable() && gone.elapsed() < Duration::from_secs(30) {
         sleep(Duration::from_secs(1));
     }
     super::wait_for_dongle(sh, progress)?;

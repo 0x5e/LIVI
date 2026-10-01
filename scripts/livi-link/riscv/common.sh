@@ -11,7 +11,7 @@ CROSS_COMPILE=${CROSS_COMPILE:-riscv64-linux-gnu-}
 
 source "$COMMON/kernel.sh"
 
-# livid, the multi-call Rust binary (netd, httpd, tinyshell, wifid, ...), to $OUT/livid. Rust ships no
+# livid, the multi-call Rust binary (netd, httpd, wifid, ...), to $OUT/livid. Rust ships no
 # std for riscv32 Linux, so nightly builds it, and the Andes gcc links it statically (.cargo/config.toml).
 build_livid() {
   local helperd=$REPO/native/livi-helperd rtarget=riscv32gc-unknown-linux-gnu livid

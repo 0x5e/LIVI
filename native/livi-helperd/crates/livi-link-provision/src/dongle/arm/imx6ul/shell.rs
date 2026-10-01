@@ -1,4 +1,5 @@
-//! Root shell on the dongle: busybox telnetd on :2323, one connection per command.
+//! Root shell on the dongle: busybox telnetd, one connection per command. The bootstrap and the
+//! rescue system listen on :2323, a running LIVI Link on the usual :23.
 //!
 //! The shell has no usable prompt, so the command is wrapped in markers and everything between
 //! them is the output. Telnet option negotiation is answered with a refusal (WONT/DONT)
@@ -11,6 +12,7 @@ use std::time::{Duration, Instant};
 
 pub const DEFAULT_HOST: &str = "10.10.10.1";
 pub const TELNET_PORT: u16 = 2323;
+pub const LIVI_TELNET_PORT: u16 = 23;
 pub const PUSH_PORT: u16 = 5610;
 
 const BEGIN: &str = "__LIVI_B__";
@@ -49,8 +51,9 @@ impl Shell {
 
     /// Runs one command and returns its output (stdout and stderr).
     pub fn run(&self, cmd: &str, timeout: Duration) -> Result<String, String> {
-        let mut s = TcpStream::connect_timeout(&self.socket_addr(TELNET_PORT)?, CONNECT_TIMEOUT)
-            .map_err(|e| format!("connect {}:{TELNET_PORT}: {e}", self.host()))?;
+        let port = self.shell_port();
+        let mut s = TcpStream::connect_timeout(&self.socket_addr(port)?, CONNECT_TIMEOUT)
+            .map_err(|e| format!("connect {}:{port}: {e}", self.host()))?;
         s.set_read_timeout(Some(READ_SLICE)).map_err(|e| e.to_string())?;
 
         sleep(Duration::from_millis(300));
@@ -111,6 +114,15 @@ impl Shell {
         let out = self.sh(&format!("md5sum {path} 2>/dev/null | cut -d' ' -f1")).ok()?;
         let out = out.trim();
         (out.len() >= 32).then(|| out[out.len() - 32..].to_string())
+    }
+
+    /// Whether a shell answers, whichever system the dongle runs.
+    pub fn reachable(&self) -> bool {
+        self.port_open(TELNET_PORT) || self.port_open(LIVI_TELNET_PORT)
+    }
+
+    fn shell_port(&self) -> u16 {
+        if self.port_open(TELNET_PORT) { TELNET_PORT } else { LIVI_TELNET_PORT }
     }
 
     /// Whether something accepts connections on that port.

@@ -409,7 +409,7 @@ fn imx6ul_provision(lfwb: Option<&Path>) -> Result<(), String> {
     let host = pick_host();
     let sh = Shell::new(&host);
     // A stock dongle offers the host no network, so the bootstrap rides into the next boot.
-    if !sh.port_open(shell::TELNET_PORT) {
+    if !sh.reachable() {
         if bootstrap::livi_link_on_usb() != Some(bootstrap::LinkOnUsb::NoNcm) {
             println!("== this dongle has no way in yet, so it needs one unplug and plug back in");
             println!("== writing the bootstrap over USB");

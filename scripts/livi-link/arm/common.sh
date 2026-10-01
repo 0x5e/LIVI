@@ -10,7 +10,7 @@ CROSS_COMPILE=${CROSS_COMPILE:-arm-linux-gnu-}
 
 source "$COMMON/kernel.sh"
 
-# livid, the multi-call Rust binary (netd, httpd, tinyshell, wifid, ...), to $OUT/livid. musl target,
+# livid, the multi-call Rust binary (netd, httpd, wifid, ...), to $OUT/livid. musl target,
 # so it is fully static like everything else on the rootfs.
 build_livid() {
   local helperd=$REPO/native/livi-helperd rtarget=armv7-unknown-linux-musleabihf livid

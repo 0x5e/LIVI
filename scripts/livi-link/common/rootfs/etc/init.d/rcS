@@ -1,5 +1,5 @@
 #!/bin/sh
-# LIVI-Link boot, the same on every board: NCM+DHCP+mDNS, WiFi AP, HTTP, tinyshell, LEDs, MFi, BT.
+# LIVI-Link boot, the same on every board: NCM+DHCP+mDNS, WiFi AP, HTTP, telnet, LEDs, MFi, BT.
 # What differs per board (early setup, WiFi power and driver, the MFi bus) is in /etc/livi/board.sh.
 mkdir -p /tmp/livi /tmp/livi/led
 exec >/tmp/livi/rcS.log 2>&1
@@ -27,8 +27,10 @@ echo '[livi] br0 10.10.10.1/24 up (usb0 attached)'
 echo "[livi] netd/br0 pid=$!"
 /usr/bin/livi-httpd >/tmp/livi/httpd.log 2>&1 &
 echo "[livi] httpd pid=$! :80"
-/usr/bin/livi-tinyshell 2323 >/tmp/livi/tinyshell.log 2>&1 &
-echo "[livi] tinyshell pid=$! :2323"
+# The initramfs telnetds do not survive the switch_root. A dongle running LIVI takes updates over
+# its web page and needs no provisioner, so the usual port is enough.
+killall telnetd 2>/dev/null
+telnetd -l /bin/sh -p 23 && echo "[livi] telnetd :23"
 
 /usr/bin/livi-ledd >/tmp/livi/ledd.log 2>&1 &
 echo "[livi] ledd pid=$!"
@@ -46,10 +48,6 @@ if [ -n "$MFI_I2C" ]; then
         done
     ) &
 fi
-
-# A telnetd of the initramfs does not survive the switch_root, so this one serves :23.
-killall telnetd 2>/dev/null
-telnetd -l /bin/sh -p 23 && echo "[livi] telnetd :23"
 
 # The ways in are up: clear the mark the initramfs set for this boot, the next one takes this rootfs again.
 for n in /sys/class/mtd/mtd[0-9]*; do

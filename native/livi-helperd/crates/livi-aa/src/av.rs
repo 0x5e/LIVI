@@ -19,11 +19,6 @@ pub fn start_session_id(payload: &[u8]) -> Option<u32> {
     varint_field(payload, 1).map(|v| v as u32)
 }
 
-/// `SetupRequest { media_codec_type = 1 }`.
-pub fn setup_codec(payload: &[u8]) -> Option<u64> {
-    varint_field(payload, 1)
-}
-
 /// `Ack { session_id = 1, ack = 2 }`, one ack per media message.
 pub fn ack(session_id: u32) -> Vec<u8> {
     let mut out = pb_varint(1, session_id as u64);

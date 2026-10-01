@@ -355,10 +355,6 @@ pub async fn pump_artwork(
 
 pub type SharedTag = Arc<Mutex<events::EventTag>>;
 
-pub async fn pump_events(rx: mpsc::Receiver<BringupEvent>, bcast: Broadcaster, tag: &'static str) {
-    pump_events_for(rx, bcast, tag, None, Arc::new(Mutex::new(events::EventTag::default()))).await
-}
-
 /// Forwards bring-up telemetry to the UI: decodes incoming CSM into JSON and broadcasts it.
 /// `usb_udid` marks a wired session; every metadata event carries the phone's iAP2 identity.
 pub async fn pump_events_for(

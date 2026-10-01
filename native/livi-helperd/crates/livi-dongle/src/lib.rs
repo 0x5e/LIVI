@@ -5,7 +5,6 @@ pub mod ap;
 pub mod bt;
 pub mod iap;
 pub mod link;
-pub mod wire;
 
 use std::sync::{Arc, Mutex};
 use std::time::Duration;

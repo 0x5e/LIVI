@@ -1,5 +1,5 @@
 // Wireless-projection AP: owns hostapd + dnsmasq on the dedicated interface.
-// Ported from the python-era wifi_ap.py; runs as root via `livi-helperd --wifi-ap`.
+// Runs as root via `livi-helperd --wifi-ap`.
 
 use std::io::Write;
 use std::process::{Child, Command, Stdio};

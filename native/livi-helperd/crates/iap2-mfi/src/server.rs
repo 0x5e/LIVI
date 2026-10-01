@@ -160,13 +160,6 @@ fn respond<S: Write>(io: &mut S, status: u8, data: &[u8]) -> std::io::Result<()>
     io.write_all(&msg)
 }
 
-// Kept for symmetry with the NcmCoprocessor's public error surface —
-// callers may want to bubble a serve() failure up as MfiError::Io.
-#[allow(dead_code)]
-fn wrap_io(e: std::io::Error) -> MfiError {
-    MfiError::Io(e.to_string())
-}
-
 #[cfg(test)]
 mod tests {
     use super::*;

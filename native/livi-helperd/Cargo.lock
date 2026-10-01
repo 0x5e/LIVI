@@ -1318,19 +1318,6 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "f9f8bd3e56ce4dfc153cf470fffbfa98c7620958b312ca5c3a4b8d5181fd13c6"
 
 [[package]]
-name = "mac-usbmuxd-probe"
-version = "0.1.0"
-dependencies = [
- "iap2-csm",
- "iap2-link",
- "iap2-mfi",
- "iap2-wired",
- "livi-dongle",
- "livi-runtime",
- "tokio",
-]
-
-[[package]]
 name = "mach2"
 version = "0.5.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -1365,13 +1352,6 @@ dependencies = [
 ]
 
 [[package]]
-name = "mfi-probe"
-version = "0.1.0"
-dependencies = [
- "iap2-mfi",
-]
-
-[[package]]
 name = "miniz_oxide"
 version = "0.9.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -1397,15 +1377,6 @@ name = "mkbootimg-v821b"
 version = "0.1.0"
 dependencies = [
  "flate2",
-]
-
-[[package]]
-name = "muxd-probe"
-version = "0.1.0"
-dependencies = [
- "iap2-usbmux",
- "iap2-wired",
- "tokio",
 ]
 
 [[package]]

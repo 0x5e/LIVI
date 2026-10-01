@@ -1,4 +1,3 @@
-// Ported from bin/livi-ledd/src/main.rs — see livid dispatcher in main.rs.
 pub fn run(_args: Vec<String>) -> i32 {
     match livid_main() {
         Ok(()) => 0,
@@ -53,13 +52,8 @@ const CONFIG_PATH: &str = "/tmp/livi/led.toml";
 const PID_PATH: &str = "/tmp/livi/livi-ledd.pid";
 const STATE_DIR: &str = "/tmp/livi/led";
 
-// WS2812 timing: bit-0 = 0b1000, bit-1 = 0b1110 → 4 SPI bits per 1 LED bit.
-// At 3.2 MHz SPI clock: each SPI bit = 312 ns → 4 bits = 1.25 µs (WS2812 spec).
-//   bit-0: T0H = 312 ns  (spec 220-380 ns)  T0L = 937 ns  (spec 580-1000 ns)
-//   bit-1: T1H = 937 ns  (spec 580-1000 ns) T1L = 312 ns  (spec 220-420 ns)
-// The earlier 3-bit / 2.4 MHz variant had T0H = 417 ns which some WS2812
-// clones latch as bit-1 → the G channel stayed permanently on because every
-// "0" bit in the G byte was read as "1". GRB byte order (WS2812 native).
+// Each LED bit is 4 SPI bits at 3.2 MHz (312 ns each): 0 = 0b1000, 1 = 0b1110. A longer high
+// time for a 0 makes some WS2812 clones read it as a 1. Bytes go out in GRB order.
 const SPI_HZ: u32 = 3_200_000;
 const TICK_HZ: u64 = 50;
 const TICK: Duration = Duration::from_millis(1000 / TICK_HZ);

@@ -5,6 +5,7 @@
 // for a machine that cannot reach the vendor's server.
 
 mod bootstrap;
+mod wire;
 
 use std::path::{Path, PathBuf};
 use std::time::{Duration, Instant};

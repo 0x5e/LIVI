@@ -1,4 +1,4 @@
-// livid — multi-call binary for the LIVI-Link (V821B) dongle.
+// livid — multi-call binary for the LIVI Link dongles.
 //
 // Symlinks (livi-tinyshell, livi-netd, livi-httpd, livi-bt-up, livi-ledd)
 // point at this binary; argv[0]'s basename selects the module. Every module

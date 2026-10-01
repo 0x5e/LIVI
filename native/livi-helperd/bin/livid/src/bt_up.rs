@@ -1,4 +1,3 @@
-// Ported from bin/livi-bt-up/src/main.rs — see livid dispatcher in main.rs.
 pub fn run(_args: Vec<String>) -> i32 {
     livid_main()
 }

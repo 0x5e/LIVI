@@ -1,7 +1,7 @@
 // Gets a shell onto a stock dongle. The wire writes files with no execute bit, so the bootstrap
 // rides on /etc/profile, which rcS sources at boot rather than executing.
 
-use livi_dongle::wire;
+use crate::wire;
 use livi_session_io::usb::{UsbStream, open_pipe};
 use tokio::io::AsyncWriteExt;
 

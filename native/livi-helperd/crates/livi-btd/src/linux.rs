@@ -25,8 +25,7 @@ const ORDER_WAIT: std::time::Duration = std::time::Duration::from_secs(3);
 const CONTROLLER_TRIES: u32 = 120;
 const CONTROLLER_POLL: std::time::Duration = std::time::Duration::from_millis(500);
 
-// LIVI-Link iapd control endpoint. If it's not running (e.g. V821B before
-// livid iapd lands) the accessory notification just no-ops.
+// LIVI Link iapd control endpoint. While it is not running the accessory notification is a no-op.
 const IAPD_CONTROL_PORT: u16 = 5005;
 
 #[repr(C)]

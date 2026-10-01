@@ -1,4 +1,3 @@
-// Ported from bin/livi-tinyshell/src/main.rs — see livid dispatcher in main.rs.
 pub fn run(_args: Vec<String>) -> i32 {
     match livid_main() {
         Ok(()) => 0,
@@ -9,7 +8,7 @@ pub fn run(_args: Vec<String>) -> i32 {
     }
 }
 
-// livi-tinyshell — TCP shell for LIVI-Link (V821B) bring-up.
+// livi-tinyshell — TCP shell for LIVI Link bring-up.
 //
 // Binds 0.0.0.0:2323, forks a subprocess per connection, connects stdin/stdout/stderr
 // to the socket, execs /bin/sh. Zero authentication. Only intended for the isolated

@@ -59,17 +59,6 @@ struct SockaddrL2 {
     bdaddr_type: u8,
 }
 
-/// Prints the answer to a plain browse.
-pub fn dump() {
-    let mut request = Vec::new();
-    request.extend_from_slice(&seq(&uuid16(UUID_BROWSE_ROOT)));
-    request.extend_from_slice(&u16::MAX.to_be_bytes());
-    request.extend_from_slice(&seq(&uint32(0x0000_ffff)));
-    request.push(0);
-    let reply = answer(&packet(REQ_SEARCH_ATTRIBUTE, 1, &request));
-    println!("{}", reply.iter().map(|b| format!("{b:02x}")).collect::<String>());
-}
-
 /// Serves the record until the socket dies, one client at a time.
 pub fn serve() -> Result<(), String> {
     let listener = listen()?;

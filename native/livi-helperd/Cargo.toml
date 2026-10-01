@@ -18,13 +18,10 @@ members = [
     "crates/livi-iapd",
     "crates/livi-mdns",
     "crates/livi-net",
-    "bin/mfi-probe",
     "bin/livi-helperd",
     "bin/livi-link-provision",
     "bin/mkbootimg-v821b",
     "bin/livid",
-    "bin/muxd-probe",
-    "bin/mac-usbmuxd-probe",
     "bin/usb-probe",
 ]
 

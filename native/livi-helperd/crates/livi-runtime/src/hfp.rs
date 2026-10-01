@@ -160,7 +160,7 @@ impl Slc {
     }
 }
 
-/// Trigger + cooldown + per-phone channel cache around the raw RFCOMM prober.
+/// The hands-free side of HFP: runs the service-level connection the phone opens and reports it.
 #[derive(Clone, Default)]
 pub struct Hfp {
     inner: Arc<HfpInner>,
@@ -170,7 +170,6 @@ pub struct Hfp {
 #[cfg_attr(not(target_os = "linux"), allow(dead_code))]
 struct HfpInner {
     established: AtomicBool,
-    owned_elsewhere: AtomicBool,
     events: Mutex<Option<crate::livi_sock::Broadcaster>>,
 }
 
@@ -179,20 +178,10 @@ impl Hfp {
         self.inner.established.load(Ordering::SeqCst)
     }
 
-    /// The audio daemon holds the HF profile (incl. SCO)
-    pub fn set_owned_elsewhere(&self) {
-        self.inner.owned_elsewhere.store(true, Ordering::SeqCst);
-    }
-
     /// Event sink for SLC state and battery updates.
     pub fn set_events(&self, events: crate::livi_sock::Broadcaster) {
         *self.inner.events.lock().unwrap() = Some(events);
     }
-
-    /// Channel probing is retired: LIVI's keeper connects via the registered
-    /// profile (ConnectProfile), incoming SLCs land in accept().
-    #[cfg(target_os = "linux")]
-    pub fn trigger(&self, _mac: &str) {}
 
     /// Incoming Profile1 connection: the AG connected to us, run the SLC on its fd.
     #[cfg(target_os = "linux")]

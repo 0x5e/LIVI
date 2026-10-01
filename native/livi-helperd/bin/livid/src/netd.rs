@@ -1,4 +1,3 @@
-// Ported from bin/livi-netd/src/main.rs — see livid dispatcher in main.rs.
 pub fn run(_args: Vec<String>) -> i32 {
     // ExitCode is opaque; the module either loops forever (returning implicitly)
     // or calls std::process::exit on setup failure. Treat any normal return as 0.
@@ -6,7 +5,7 @@ pub fn run(_args: Vec<String>) -> i32 {
     0
 }
 
-// livi-netd — DHCPv4 server for the LIVI-Link (V821B) dongle.
+// livi-netd — DHCPv4 server for the LIVI Link dongle.
 //
 // - Serves DHCPv4 on the given interface: pool 10.10.10.100..149, gw/DNS = 10.10.10.1.
 // - Delegates mDNS announce/response to the shared livi-mdns daemon.

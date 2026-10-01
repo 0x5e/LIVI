@@ -128,10 +128,6 @@ impl I2cCoprocessor {
         self.power.as_ref().map(|(gpio, _)| *gpio)
     }
 
-    pub fn device_version(&mut self) -> Result<u8, MfiError> {
-        Ok(self.read_reg(REG_DEVICE_VERSION, 1)?[0])
-    }
-
     fn probe(bus_path: &str) -> Result<u16, MfiError> {
         let deadline = Instant::now() + PROBE_TIMEOUT;
         while Instant::now() < deadline {

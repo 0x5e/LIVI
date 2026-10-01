@@ -335,7 +335,7 @@ impl HfpProfile {
 /// The audio daemon usually holds HFP HF (incl. SCO); ours registers only as fallback,
 /// and calls go through the daemon's — a second SLC just makes the phone drop one.
 pub async fn start_hfp(conn: &Connection, hfp: crate::hfp::Hfp) -> Result<(), Box<dyn Error>> {
-    conn.object_server().at(HFP_PATH, HfpProfile { hfp: hfp.clone() }).await?;
+    conn.object_server().at(HFP_PATH, HfpProfile { hfp }).await?;
     let mut opts: HashMap<&str, Value> = HashMap::new();
     opts.insert("Name", Value::from("HFP Hands-Free"));
     opts.insert("Role", Value::from("client"));
@@ -345,10 +345,7 @@ pub async fn start_hfp(conn: &Connection, hfp: crate::hfp::Hfp) -> Result<(), Bo
     opts.insert("Version", Value::from(0x0108u16));
     match register_profile(conn, HFP_PATH, HFP_HF_UUID, opts).await {
         Ok(()) => println!("[hfp] HF profile registered"),
-        Err(e) => {
-            println!("[hfp] HF profile held by the audio daemon, prober stands down ({e})");
-            hfp.set_owned_elsewhere();
-        }
+        Err(e) => println!("[hfp] HF profile held by the audio daemon ({e})"),
     }
     Ok(())
 }

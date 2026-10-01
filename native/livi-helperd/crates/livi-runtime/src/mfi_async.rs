@@ -50,21 +50,3 @@ impl AsyncAuth for SharedCoprocessor {
         .map_err(|e| e.to_string())?
     }
 }
-
-/// AsyncAuth that always errors (no MFi chip).
-#[derive(Clone)]
-pub struct NoAuth;
-
-impl AsyncAuth for NoAuth {
-    async fn read_certificate(&mut self) -> Result<Vec<u8>, String> {
-        Err("no MFi coprocessor".into())
-    }
-
-    async fn sign(&mut self, _challenge: Vec<u8>) -> Result<Vec<u8>, String> {
-        Err("no MFi coprocessor".into())
-    }
-
-    async fn protocol_major(&mut self) -> Result<u8, String> {
-        Err("no MFi coprocessor".into())
-    }
-}

@@ -629,7 +629,7 @@ fn flash_matches(path: &str, expected: &[u8]) -> std::io::Result<bool> {
     Ok(crc32(&buf) == crc32(expected))
 }
 
-/// IEEE CRC-32 (poly 0xEDB88320) — matches Python zlib.crc32.
+/// IEEE CRC-32 (poly 0xEDB88320), the one zlib computes.
 fn crc32(data: &[u8]) -> u32 {
     let mut crc = 0xFFFF_FFFFu32;
     for &b in data {

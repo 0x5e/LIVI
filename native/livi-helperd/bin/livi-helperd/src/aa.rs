@@ -81,12 +81,10 @@ pub async fn watch(
     cfg: AaConfig,
     bcast: Broadcaster,
     wired: WiredPhones,
-    hfp: livi_runtime::hfp::Hfp,
     state: Arc<livi_runtime::state::HelperState>,
 ) {
     while let Some(conn) = incoming.recv().await {
         println!("[aa] phone connected mac={}", conn.peer_mac);
-        hfp.trigger(&conn.peer_mac);
         let (cfg, bcast, wired, state) = (cfg.clone(), bcast.clone(), wired.clone(), state.clone());
         tokio::spawn(async move {
             state.link_up(&conn.peer_mac);

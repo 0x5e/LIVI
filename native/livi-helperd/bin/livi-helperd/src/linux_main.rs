@@ -13,7 +13,7 @@ use livi_runtime::ident::{Identity, Transport};
 use livi_runtime::livi_sock::{
     self, Broadcaster, LiviSockConfig, SharedTag, pump_artwork, pump_events_for,
 };
-use livi_runtime::mfi_async::{NoAuth, SharedCoprocessor};
+use livi_runtime::mfi_async::SharedCoprocessor;
 use livi_runtime::reconnect;
 use livi_runtime::state::HelperState;
 
@@ -51,7 +51,7 @@ impl DeviceConfig {
         Self { json }
     }
 
-    // config.json wins, then env, then default. Mirrors the previous helper.
+    // config.json wins, then env, then default.
     pub fn string(&self, json_key: &str, env_key: &str, default: &str) -> String {
         if let Some(s) = self.json.get(json_key).and_then(|v| v.as_str())
             && !s.is_empty()
@@ -260,7 +260,7 @@ async fn serve() -> Result<(), Box<dyn std::error::Error>> {
     let (auth, mfi_link) = match I2cCoprocessor::open(bus_num, gpio) {
         Ok(chip) => {
             println!("[helperd] MFi addr=0x{:02X}", chip.address());
-            (Some(SharedCoprocessor::new(Box::new(chip))), crate::link::LinkPresence::always())
+            (SharedCoprocessor::new(Box::new(chip)), crate::link::LinkPresence::always())
         }
         Err(e) => {
             println!(
@@ -277,7 +277,7 @@ async fn serve() -> Result<(), Box<dyn std::error::Error>> {
                 },
                 move || down_auth.replace(Box::new(NoCoprocessor)),
             ));
-            (Some(auth), link)
+            (auth, link)
         }
     };
 
@@ -315,26 +315,12 @@ async fn serve() -> Result<(), Box<dyn std::error::Error>> {
         let bus = conn.clone();
         let bcast = bcast.clone();
         let state = state.clone();
-        // Also serves subscribe/reconnect/disconnect, so it runs without MFi.
-        match auth.clone() {
-            Some(auth) => {
-                tokio::spawn(async move {
-                    if let Err(e) = livi_sock::serve(sock_cfg, auth, Some(bus), bcast, state).await
-                    {
-                        eprintln!("[helperd] livi_sock ended: {e}");
-                    }
-                });
+        let auth = auth.clone();
+        tokio::spawn(async move {
+            if let Err(e) = livi_sock::serve(sock_cfg, auth, Some(bus), bcast, state).await {
+                eprintln!("[helperd] livi_sock ended: {e}");
             }
-            None => {
-                tokio::spawn(async move {
-                    if let Err(e) =
-                        livi_sock::serve(sock_cfg, NoAuth, Some(bus), bcast, state).await
-                    {
-                        eprintln!("[helperd] livi_sock ended: {e}");
-                    }
-                });
-            }
-        }
+        });
     }
 
     tokio::spawn(reconnect::run(
@@ -346,8 +332,9 @@ async fn serve() -> Result<(), Box<dyn std::error::Error>> {
 
     if std::env::var("LIVI_AA_WIRELESS").unwrap_or_else(|_| "1".into()) != "0" {
         // The projection listener the WPP bootstrap points the phone at.
+        let aa_port = env_or("LIVI_PORT", livi_aa::consts::TCP_PORT);
         let events = aa_events.clone();
-        tokio::spawn(livi_aa::server::run(env_or("LIVI_PORT", 5277u16), move |socket, peer| {
+        tokio::spawn(livi_aa::server::run(aa_port, move |socket, peer| {
             events.push_json(format!(
                 "{{\"event\":\"aa-session\",\"socket\":\"{socket}\",\"peer\":\"{peer}\",\"transport\":\"wifi\"}}"
             ));
@@ -360,11 +347,11 @@ async fn serve() -> Result<(), Box<dyn std::error::Error>> {
                     channel: cp.channel as u16,
                     wifi_iface: wifi_iface.clone(),
                     ap_ip: std::env::var("LIVI_AP_IP").unwrap_or_else(|_| "10.10.0.1".into()),
-                    port: env_or("LIVI_PORT", 5277u16),
+                    port: aa_port,
                 };
                 let hfp = livi_runtime::hfp::Hfp::default();
                 hfp.set_events(aa_events.clone());
-                if let Err(e) = bt::start_hfp(&conn, hfp.clone()).await {
+                if let Err(e) = bt::start_hfp(&conn, hfp).await {
                     eprintln!("[hfp] profile registration failed: {e}");
                 }
                 livi_runtime::sco::serve(aa_events.clone(), sco_sink.clone());
@@ -376,7 +363,6 @@ async fn serve() -> Result<(), Box<dyn std::error::Error>> {
                     aa_cfg,
                     aa_events.clone(),
                     wired_phones.clone(),
-                    hfp,
                     state.clone(),
                 ));
             }
@@ -445,12 +431,10 @@ async fn serve() -> Result<(), Box<dyn std::error::Error>> {
         });
     }
 
-    if let Some(auth) = auth.clone()
-        && std::env::var("LIVI_CP_WIRED").unwrap_or_else(|_| "1".into()) != "0"
-    {
+    if std::env::var("LIVI_CP_WIRED").unwrap_or_else(|_| "1".into()) != "0" {
         let wired_cp = CpConfig { transport: Transport::Wired, av_iface: None, ..cp.clone() };
         tokio::spawn(crate::wired::watch(
-            auth,
+            auth.clone(),
             identity.clone(),
             wired_cp,
             bcast.clone(),
@@ -486,10 +470,7 @@ async fn serve() -> Result<(), Box<dyn std::error::Error>> {
             }
             session = async { dongle_iap.as_mut().unwrap().recv().await }, if dongle_iap.is_some() => {
                 let Some(session) = session else { return Ok(()) };
-                let Some(auth) = auth.clone() else {
-                    println!("[helperd] phone on the dongle but MFi off; CarPlay link ignored");
-                    continue;
-                };
+                let auth = auth.clone();
                 println!("[helperd] phone connected mac={}", session.peer);
                 let cfg = LinkConfig { max_outgoing: 4, control_version: 2, ..LinkConfig::default() };
                 let (channel, art_rx) = spawn_link_stream(session.stream, cfg, false);
@@ -507,10 +488,7 @@ async fn serve() -> Result<(), Box<dyn std::error::Error>> {
             }
             conn = incoming.recv() => {
                 let Some(conn) = conn else { return Ok(()) };
-                let Some(auth) = auth.clone() else {
-                    println!("[helperd] BT phone connected but MFi off; CarPlay link ignored");
-                    continue;
-                };
+                let auth = auth.clone();
                 println!("[helperd] phone connected mac={}", conn.peer_mac);
                 let cfg = LinkConfig { max_outgoing: 4, control_version: 2, ..LinkConfig::default() };
                 let (channel, art_rx) = spawn_link(conn.fd, cfg, false);

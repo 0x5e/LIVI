@@ -1,9 +1,10 @@
 //! LIVI-Link wifid wire: line-oriented TCP on the dongle's control port. Commands:
-//!   channels | status | on | off | apply | save
+//!   channels | status | on | off | apply | save | down
 //!   set <ssid|country|channel|passphrase> <value>
 //!   bt on | bt off
 //!   iap <order>   for the Bluetooth accessory, answered the way iapd answers
 //! `on`, `off` and `bt` are kept on the dongle, a boot brings back what was switched last.
+//! `down` takes the access point off the air until the next apply or boot, nothing is kept.
 //! Responses end in `ok\n` or `error <reason>\n`.
 
 use std::io::{BufRead, BufReader, Write};
@@ -104,6 +105,7 @@ enum Cmd<'a> {
     Set(&'a str, &'a str),
     Apply,
     Save,
+    Down,
     On,
     Off,
     Bt(bool),
@@ -158,6 +160,11 @@ pub fn serve<S: std::io::Read + Write>(io: &mut S, ap: &Mutex<Ap>) {
                 Ok(()) => "ok\n".into(),
                 Err(e) => format!("error {e}\n"),
             },
+            Cmd::Down => {
+                stop(&mut held(ap));
+                println!("[wifid] access point down until the next apply");
+                "ok\n".into()
+            }
             Cmd::Bt(up) => {
                 let ap = held(ap);
                 keep(&ap, Radio::Bt, up);
@@ -186,6 +193,7 @@ fn command(line: &str) -> Cmd<'_> {
         "status" => Cmd::Status,
         "apply" => Cmd::Apply,
         "save" => Cmd::Save,
+        "down" => Cmd::Down,
         "on" => Cmd::On,
         "off" => Cmd::Off,
         "bt" => match rest.trim() {
@@ -952,6 +960,11 @@ mod tests {
             order
         });
         (at, heard)
+    }
+
+    #[test]
+    fn down_is_a_command_of_its_own() {
+        assert!(matches!(command("down"), Cmd::Down));
     }
 
     #[test]

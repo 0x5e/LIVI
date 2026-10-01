@@ -14,6 +14,8 @@ const PORT = 5001
 const APPLY_MS = 30_000
 const PROBE_MS = 1500
 const DRIFT_RETRY_MS = 30_000
+/** Quitting waits for each order this long at most. */
+const QUIT_MS = 1500
 
 /**
  * Runs commands on one connection, in order, and gives up on the first one the dongle refuses.
@@ -251,6 +253,23 @@ export async function switchDongle(radio: DongleRadio, on: boolean, config: Conf
   }
   // The accessory learns its part once the controller is up.
   if (radio === 'bt' && on) await reconcileDongleAp(config)
+}
+
+/**
+ * LIVI is quitting: the accessory stops calling the phone back and the access point goes off the
+ * air, because a phone thrown off a network that is still there joins it again. The next start
+ * brings it back. Each order on its own connection, because a refused one ends a connection and
+ * the other must still arrive.
+ */
+export async function releaseDongleForQuit(): Promise<void> {
+  if (!attached()) return
+  for (const command of ['iap off', 'down']) {
+    try {
+      await talk([command], QUIT_MS)
+    } catch (err) {
+      report(command, err)
+    }
+  }
 }
 
 /** Picking the dongle as an adapter switches that radio on, picking another one switches it off. */

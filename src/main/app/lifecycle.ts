@@ -1,5 +1,6 @@
 import { stopSystemVolumeMonitor } from '@main/services/audio/SystemVolume'
 import { stopPhoneSuppression } from '@main/services/gvfsPhoneGuard'
+import { releaseDongleForQuit } from '@main/services/link/dongleAp'
 import { runPendingPowerAction } from '@main/services/power/hostPower'
 import { releaseWifiApForQuit } from '@main/services/projection/driver/helper/wifiApUnit'
 import { runtimeStateProps, ServicesProps } from '@main/types'
@@ -116,6 +117,10 @@ export function setupLifecycle(runtimeState: runtimeStateProps, services: Servic
 
       await measureStep('projection.stop()', async () => {
         await withTimeout('projection.stop()', projectionService.stop(), tCarplayStop)
+      })
+
+      await measureStep('dongle.release()', async () => {
+        await withTimeout('dongle.release()', releaseDongleForQuit(), 3500)
       })
 
       await measureStep('wifiAp.release()', async () => {

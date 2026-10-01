@@ -64,7 +64,7 @@ fetch() {
     log "fetch $(basename "$out")"
     curl -sSL "$url" -o "$out"
     if [[ -n "$sha" ]]; then
-        echo "$sha  $out" | sha256sum -c || log "WARN sha mismatch, continuing"
+        echo "$sha  $out" | sha256sum -c || { rm -f "$out"; log "$(basename "$out") does not match its hash"; exit 3; }
     fi
     log "$(sha256sum "$out" | awk '{print $1}')  $out"
 }

@@ -2,7 +2,7 @@
  * Hardware address auto-detection for Bluetooth and WiFi interfaces.
  */
 
-import { execSync } from 'node:child_process'
+import { execFileSync } from 'node:child_process'
 import * as fs from 'node:fs'
 import * as path from 'node:path'
 
@@ -42,7 +42,8 @@ function listSysfsDir(dir: string): string[] {
 // These tools exist only on Linux.
 function readBtMacFromHciconfig(iface = 'hci0'): string | null {
   try {
-    const out = execSync(`hciconfig ${iface}`, {
+    // An argument list, not a shell line: the name comes from the settings.
+    const out = execFileSync('hciconfig', [iface], {
       encoding: 'utf8',
       timeout: 2000,
       stdio: ['ignore', 'pipe', 'ignore']
@@ -56,8 +57,16 @@ function readBtMacFromHciconfig(iface = 'hci0'): string | null {
 
 function readBtMacFromBusctl(iface = 'hci0'): string | null {
   try {
-    const out = execSync(
-      `busctl --system get-property org.bluez /org/bluez/${iface} org.bluez.Adapter1 Address`,
+    const out = execFileSync(
+      'busctl',
+      [
+        '--system',
+        'get-property',
+        'org.bluez',
+        `/org/bluez/${iface}`,
+        'org.bluez.Adapter1',
+        'Address'
+      ],
       { encoding: 'utf8', timeout: 2000, stdio: ['ignore', 'pipe', 'ignore'] }
     )
     // Output format: s "AA:BB:CC:DD:EE:FF"

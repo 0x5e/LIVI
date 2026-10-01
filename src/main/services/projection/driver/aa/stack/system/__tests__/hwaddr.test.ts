@@ -9,17 +9,17 @@ vi.mock('node:fs', () => {
   return { ...__m, default: __m }
 })
 vi.mock('node:child_process', () => ({
-  execSync: vi.fn()
+  execFileSync: vi.fn()
 }))
 
-import { execSync } from 'node:child_process'
+import { execFileSync } from 'node:child_process'
 import * as fs from 'node:fs'
 import { detectBtMac, detectWifiBssid, isTunnelledBtAdapter } from '../hwaddr'
 
 const mockReadFileSync = fs.readFileSync as Mock
 const mockReaddirSync = fs.readdirSync as Mock
 const mockRealpathSync = fs.realpathSync as Mock
-const mockExecSync = execSync as Mock
+const mockExecFileSync = execFileSync as Mock
 
 describe('detectBtMac', () => {
   beforeEach(() => {
@@ -54,22 +54,41 @@ describe('detectBtMac', () => {
 
   test('falls back to busctl when sysfs has nothing', () => {
     mockReaddirSync.mockReturnValueOnce([])
-    mockExecSync.mockReturnValueOnce('s "AA:BB:CC:DD:EE:FF"\n')
+    mockExecFileSync.mockReturnValueOnce('s "AA:BB:CC:DD:EE:FF"\n')
     expect(detectBtMac()).toBe('AA:BB:CC:DD:EE:FF')
+  })
+
+  test('hands the adapter name over as one argument, never to a shell', () => {
+    const hostile = 'hci0; touch /tmp/owned'
+    mockReadFileSync.mockReturnValueOnce('')
+    mockExecFileSync.mockReturnValueOnce('s "AA:BB:CC:DD:EE:FF"\n')
+    expect(detectBtMac(hostile)).toBe('AA:BB:CC:DD:EE:FF')
+    expect(mockExecFileSync).toHaveBeenCalledWith(
+      'busctl',
+      [
+        '--system',
+        'get-property',
+        'org.bluez',
+        `/org/bluez/${hostile}`,
+        'org.bluez.Adapter1',
+        'Address'
+      ],
+      expect.objectContaining({ timeout: 2000 })
+    )
   })
 
   test('falls back to hciconfig when sysfs and busctl have nothing', () => {
     mockReaddirSync.mockReturnValueOnce([])
-    mockExecSync.mockImplementationOnce(() => {
+    mockExecFileSync.mockImplementationOnce(() => {
       throw new Error('busctl missing')
     })
-    mockExecSync.mockReturnValueOnce('BD Address: AA:BB:CC:DD:EE:FF  ACL MTU: ...\n')
+    mockExecFileSync.mockReturnValueOnce('BD Address: AA:BB:CC:DD:EE:FF  ACL MTU: ...\n')
     expect(detectBtMac()).toBe('AA:BB:CC:DD:EE:FF')
   })
 
   test('returns undefined when nothing is detected', () => {
     mockReaddirSync.mockReturnValueOnce([])
-    mockExecSync.mockImplementation(function () {
+    mockExecFileSync.mockImplementation(function () {
       throw new Error('not found')
     })
     expect(detectBtMac()).toBeUndefined()
@@ -86,14 +105,14 @@ describe('detectBtMac', () => {
     mockReadFileSync.mockImplementationOnce(() => {
       throw new Error('EACCES')
     })
-    mockExecSync.mockReturnValueOnce('s "AA:BB:CC:DD:EE:FF"\n')
+    mockExecFileSync.mockReturnValueOnce('s "AA:BB:CC:DD:EE:FF"\n')
     expect(detectBtMac()).toBe('AA:BB:CC:DD:EE:FF')
   })
 
   test('returns undefined when busctl and hciconfig output has no MAC', () => {
     mockReaddirSync.mockReturnValueOnce([])
-    mockExecSync.mockReturnValueOnce('s ""\n')
-    mockExecSync.mockReturnValueOnce('no address here\n')
+    mockExecFileSync.mockReturnValueOnce('s ""\n')
+    mockExecFileSync.mockReturnValueOnce('no address here\n')
     expect(detectBtMac()).toBeUndefined()
   })
 

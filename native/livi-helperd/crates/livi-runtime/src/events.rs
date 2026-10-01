@@ -269,8 +269,7 @@ fn cellular(frame: &[u8]) -> Option<String> {
 /// The phone's offset from UTC, daylight saving included.
 fn utc_offset(frame: &[u8]) -> Option<String> {
     let m = DeviceTimeUpdate::decode(frame).ok()?;
-    let minutes = i32::from(m.time_zone_offset_minutes?)
-        + i32::from(m.daylight_savings_offset_minutes.unwrap_or(0));
+    let minutes = i32::from(m.time_zone_offset_minutes?);
     let mut o = Obj::new("deviceTime");
     o.num("utcOffsetMinutes", minutes);
     o.finish()
@@ -461,17 +460,21 @@ mod device_tests {
     }
 
     #[test]
-    fn the_utc_offset_includes_daylight_saving() {
-        let update = DeviceTimeUpdate {
+    fn daylight_saving_is_not_counted_twice() {
+        let summer = DeviceTimeUpdate {
             seconds_since_reference_date: Some(0),
-            time_zone_offset_minutes: Some(60),
+            time_zone_offset_minutes: Some(120),
             daylight_savings_offset_minutes: Some(60),
         };
         assert_eq!(
-            to_json(&update.encode()).as_deref(),
+            to_json(&summer.encode()).as_deref(),
             Some("{\"type\":\"deviceTime\",\"utcOffsetMinutes\":120}")
         );
-        let winter = DeviceTimeUpdate { daylight_savings_offset_minutes: None, ..update };
+        let winter = DeviceTimeUpdate {
+            time_zone_offset_minutes: Some(60),
+            daylight_savings_offset_minutes: None,
+            ..summer
+        };
         assert!(to_json(&winter.encode()).unwrap().ends_with(":60}"));
     }
 

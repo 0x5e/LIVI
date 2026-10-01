@@ -26,6 +26,8 @@ const PACKET_MAX: usize = 4096;
 const POLL_MS: i32 = 200;
 /// How long a lost dongle is left alone before the tunnel is tried again.
 const RETRY: Duration = Duration::from_secs(5);
+/// A dongle still booting takes no connection, so the tunnel tries again rather than waits.
+const CONNECT_TIMEOUT: Duration = Duration::from_secs(3);
 
 /// Keeps the dongle's controller attached.
 pub fn attach(
@@ -46,7 +48,8 @@ pub fn attach(
 
 /// Runs the tunnel until the dongle or the local stack lets go, saying whether an adapter existed.
 pub fn tunnel(on_adapter: &(impl Fn(u16) + Sync)) -> Result<bool, String> {
-    let stream = TcpStream::connect(link::addr(PORT)).map_err(|e| format!("dongle: {e}"))?;
+    let stream = livi_net::connect((link::LINK_NAME, PORT), CONNECT_TIMEOUT)
+        .map_err(|e| format!("dongle: {e}"))?;
     stream.set_nodelay(true).map_err(|e| format!("nodelay: {e}"))?;
     notice_loss(&stream);
     let mut dev =

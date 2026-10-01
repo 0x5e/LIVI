@@ -17,11 +17,6 @@ use livi_runtime::mfi_async::SharedCoprocessor;
 use livi_runtime::reconnect;
 use livi_runtime::state::HelperState;
 
-/// How long the dongle's controller is waited for before Bluetooth carries on without it.
-const ATTACH_WAIT: std::time::Duration = std::time::Duration::from_secs(10);
-/// The adapter used when the chosen one never turns up.
-const BT_FALLBACK: &str = "hci0";
-
 fn env_or<T: std::str::FromStr>(key: &str, default: T) -> T {
     std::env::var(key).ok().and_then(|v| v.parse().ok()).unwrap_or(default)
 }
@@ -86,20 +81,21 @@ fn ap_iface(dc: &DeviceConfig) -> String {
 }
 
 /// The configured Bluetooth adapter. Choosing the dongle attaches its controller to this machine
-/// first, and the adapter the kernel then hands out is the one BlueZ is pointed at.
-fn bt_adapter(dc: &DeviceConfig) -> String {
+/// first, and the adapter the kernel then hands out is the one BlueZ is pointed at. No other
+/// controller stands in while it is missing, as only the chosen one may be made discoverable.
+async fn bt_adapter(dc: &DeviceConfig) -> String {
     let adapter = dc.string("btAdapter", "LIVI_BT_ADAPTER", "hci0");
     if adapter != livi_dongle::link::CHOICE {
         return adapter;
     }
-    let (tx, rx) = std::sync::mpsc::channel();
+    let (tx, mut rx) = tokio::sync::mpsc::unbounded_channel();
     let ours = Arc::new(std::sync::atomic::AtomicBool::new(false));
     let lost = ours.clone();
     livi_dongle::bt::attach(
         move |index| {
             ours.store(true, std::sync::atomic::Ordering::Relaxed);
             if tx.send(index).is_err() {
-                eprintln!("[bt] the dongle's controller arrived late, starting over with it");
+                eprintln!("[bt] the dongle's controller came back, starting over with it");
                 std::process::exit(1);
             }
         },
@@ -110,11 +106,12 @@ fn bt_adapter(dc: &DeviceConfig) -> String {
             }
         },
     );
-    match rx.recv_timeout(ATTACH_WAIT) {
-        Ok(index) => format!("hci{index}"),
-        Err(_) => {
-            eprintln!("[bt] the dongle's controller did not arrive, falling back to {BT_FALLBACK}");
-            BT_FALLBACK.to_string()
+    println!("[bt] waiting for the dongle's controller");
+    match rx.recv().await {
+        Some(index) => format!("hci{index}"),
+        None => {
+            eprintln!("[bt] the dongle's controller is out of reach, starting over");
+            std::process::exit(1);
         }
     }
 }
@@ -225,7 +222,7 @@ async fn serve() -> Result<(), Box<dyn std::error::Error>> {
     let dc = DeviceConfig::load();
     let bus_num: u32 = dc.int("carPlayMfiI2cBus", "LIVI_CP_MFI_I2C_BUS", 2);
     let gpio: i32 = dc.int("carPlayMfiPowerGpio", "LIVI_CP_MFI_POWER_GPIO", 21);
-    let adapter = bt_adapter(&dc);
+    let adapter = bt_adapter(&dc).await;
     let name = dc.string("carName", "LIVI_CP_NAME", "LIVI");
     let ssid = name.clone();
     let wifi_iface = ap_iface(&dc);
@@ -339,7 +336,7 @@ async fn serve() -> Result<(), Box<dyn std::error::Error>> {
                 "{{\"event\":\"aa-session\",\"socket\":\"{socket}\",\"peer\":\"{peer}\",\"transport\":\"wifi\"}}"
             ));
         }));
-        match bt::start_aa(&conn).await {
+        match bt::start_aa(&conn, &adapter).await {
             Ok(incoming) => {
                 let aa_cfg = crate::aa::AaConfig {
                     ssid: cp.ssid.clone(),
@@ -351,7 +348,7 @@ async fn serve() -> Result<(), Box<dyn std::error::Error>> {
                 };
                 let hfp = livi_runtime::hfp::Hfp::default();
                 hfp.set_events(aa_events.clone());
-                if let Err(e) = bt::start_hfp(&conn, hfp).await {
+                if let Err(e) = bt::start_hfp(&conn, &adapter, hfp).await {
                     eprintln!("[hfp] profile registration failed: {e}");
                 }
                 livi_runtime::sco::serve(aa_events.clone(), sco_sink.clone());

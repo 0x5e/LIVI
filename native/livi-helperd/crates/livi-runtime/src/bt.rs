@@ -72,6 +72,7 @@ pub struct IncomingConn {
 
 struct Profile {
     tx: mpsc::UnboundedSender<IncomingConn>,
+    adapter: String,
 }
 
 #[zbus::interface(name = "org.bluez.Profile1")]
@@ -82,11 +83,13 @@ impl Profile {
         fd: zbus::zvariant::OwnedFd,
         _options: HashMap<String, OwnedValue>,
         #[zbus(connection)] conn: &Connection,
-    ) {
+    ) -> zbus::fdo::Result<()> {
+        refuse_other_adapter(device.as_str(), &self.adapter)?;
         trust(conn, device.as_str()).await;
         let peer_mac = mac_from_device_path(device.as_str());
         let fd = OwnedFd::from(fd);
         let _ = self.tx.send(IncomingConn { fd, peer_mac });
+        Ok(())
     }
 
     fn request_disconnection(&self, _device: ObjectPath<'_>) {}
@@ -111,6 +114,18 @@ impl Agent {
     fn request_confirmation(&self, _device: ObjectPath<'_>, _passkey: u32) {}
     fn request_authorization(&self, _device: ObjectPath<'_>) {}
     fn cancel(&self) {}
+}
+
+/// BlueZ offers a profile on every controller, but only the chosen one is LIVI's.
+fn refuse_other_adapter(device: &str, adapter: &str) -> zbus::fdo::Result<()> {
+    if device.starts_with(&format!("/org/bluez/{adapter}/")) {
+        return Ok(());
+    }
+    println!(
+        "[bt] {} came in over another controller than {adapter}, turned away",
+        mac_from_device_path(device)
+    );
+    Err(zbus::fdo::Error::AccessDenied(format!("LIVI listens on {adapter} only")))
 }
 
 fn mac_from_device_path(path: &str) -> String {
@@ -148,9 +163,10 @@ pub async fn start(
     let conn = Connection::system().await?;
     let (tx, rx) = mpsc::unbounded_channel();
 
-    conn.object_server().at(IAP_SERVER_PATH, Profile { tx: tx.clone() }).await?;
-    conn.object_server().at(IAP_CLIENT_PATH, Profile { tx: tx.clone() }).await?;
-    conn.object_server().at(CARPLAY_PATH, Profile { tx }).await?;
+    let ours = || adapter.to_string();
+    conn.object_server().at(IAP_SERVER_PATH, Profile { tx: tx.clone(), adapter: ours() }).await?;
+    conn.object_server().at(IAP_CLIENT_PATH, Profile { tx: tx.clone(), adapter: ours() }).await?;
+    conn.object_server().at(CARPLAY_PATH, Profile { tx, adapter: ours() }).await?;
     conn.object_server().at(AGENT_PATH, Agent).await?;
 
     let mut iap_opts: HashMap<&str, Value> = HashMap::new();
@@ -290,9 +306,10 @@ fn busy(e: &zbus::Error) -> bool {
 /// carries the Wi-Fi bootstrap.
 pub async fn start_aa(
     conn: &Connection,
+    adapter: &str,
 ) -> Result<mpsc::UnboundedReceiver<IncomingConn>, Box<dyn Error>> {
     let (tx, rx) = mpsc::unbounded_channel();
-    conn.object_server().at(AA_PATH, Profile { tx }).await?;
+    conn.object_server().at(AA_PATH, Profile { tx, adapter: adapter.to_string() }).await?;
 
     let mut opts: HashMap<&str, Value> = HashMap::new();
     opts.insert("Role", Value::from("server"));
@@ -312,6 +329,7 @@ const PLAYER_PATH: &str = "/livi/bt/player";
 
 struct HfpProfile {
     hfp: crate::hfp::Hfp,
+    adapter: String,
 }
 
 #[zbus::interface(name = "org.bluez.Profile1")]
@@ -321,10 +339,12 @@ impl HfpProfile {
         device: ObjectPath<'_>,
         fd: zbus::zvariant::OwnedFd,
         _options: HashMap<String, OwnedValue>,
-    ) {
+    ) -> zbus::fdo::Result<()> {
+        refuse_other_adapter(device.as_str(), &self.adapter)?;
         let mac = mac_from_device_path(device.as_str());
         println!("[hfp] connection from {mac}");
         self.hfp.accept(OwnedFd::from(fd), mac);
+        Ok(())
     }
 
     fn request_disconnection(&self, _device: ObjectPath<'_>) {}
@@ -334,8 +354,12 @@ impl HfpProfile {
 
 /// The audio daemon usually holds HFP HF (incl. SCO); ours registers only as fallback,
 /// and calls go through the daemon's — a second SLC just makes the phone drop one.
-pub async fn start_hfp(conn: &Connection, hfp: crate::hfp::Hfp) -> Result<(), Box<dyn Error>> {
-    conn.object_server().at(HFP_PATH, HfpProfile { hfp }).await?;
+pub async fn start_hfp(
+    conn: &Connection,
+    adapter: &str,
+    hfp: crate::hfp::Hfp,
+) -> Result<(), Box<dyn Error>> {
+    conn.object_server().at(HFP_PATH, HfpProfile { hfp, adapter: adapter.to_string() }).await?;
     let mut opts: HashMap<&str, Value> = HashMap::new();
     opts.insert("Name", Value::from("HFP Hands-Free"));
     opts.insert("Role", Value::from("client"));
@@ -637,4 +661,17 @@ pub async fn adapter_address(conn: &Connection, adapter: &str) -> Result<[u8; 6]
         mac[i] = u8::from_str_radix(part, 16).unwrap_or(0);
     }
     Ok(mac)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn only_the_chosen_controller_is_answered() {
+        let phone = "/org/bluez/hci2/dev_0C_6A_C4_4E_F3_2A";
+        assert!(refuse_other_adapter(phone, "hci2").is_ok());
+        assert!(refuse_other_adapter(phone, "hci0").is_err());
+        assert!(refuse_other_adapter("/org/bluez/hci10/dev_0C_6A_C4_4E_F3_2A", "hci1").is_err());
+    }
 }

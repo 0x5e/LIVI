@@ -110,21 +110,6 @@ describe('preload api bridge', () => {
     expect(cb).not.toHaveBeenCalled()
   })
 
-  test('onUSBResetStatus subscribes to both channels and cleanup removes both listeners', async () => {
-    const { projection } = await loadPreload()
-    const cb = vi.fn()
-
-    const cleanup = projection.onUSBResetStatus(cb)
-
-    expect(ipcRendererMock.on).toHaveBeenCalledWith('usb-reset-start', cb)
-    expect(ipcRendererMock.on).toHaveBeenCalledWith('usb-reset-done', cb)
-
-    cleanup()
-
-    expect(ipcRendererMock.removeListener).toHaveBeenCalledWith('usb-reset-start', cb)
-    expect(ipcRendererMock.removeListener).toHaveBeenCalledWith('usb-reset-done', cb)
-  })
-
   test('settings onUpdate subscribes and cleanup removes listener', async () => {
     const { projection } = await loadPreload()
     const cb = vi.fn()
@@ -281,32 +266,23 @@ describe('preload api bridge', () => {
     const { projection } = await loadPreload()
     ipcRendererMock.invoke.mockResolvedValue({ ok: true })
 
-    await projection.usb.getSysdefaultPrettyName()
     await projection.settings.get()
     await projection.settings.save({ language: 'de' })
     await projection.ipc.start()
     await projection.ipc.stop()
     await projection.ipc.sendFrame()
-    await projection.ipc.setBluetoothPairedList('abc')
     await projection.ipc.connectBluetoothPairedDevice('AA:BB:CC:DD:EE:FF')
-    await projection.ipc.forgetBluetoothPairedDevice('AA:BB:CC:DD:EE:FF')
     await projection.ipc.readMedia()
     await projection.ipc.readNavigation()
     await projection.ipc.requestCluster(true)
 
-    expect(ipcRendererMock.invoke).toHaveBeenCalledWith('get-sysdefault-mic-label')
     expect(ipcRendererMock.invoke).toHaveBeenCalledWith('getSettings')
     expect(ipcRendererMock.invoke).toHaveBeenCalledWith('save-settings', { language: 'de' })
     expect(ipcRendererMock.invoke).toHaveBeenCalledWith('projection-start')
     expect(ipcRendererMock.invoke).toHaveBeenCalledWith('projection-stop')
     expect(ipcRendererMock.invoke).toHaveBeenCalledWith('projection-sendframe')
-    expect(ipcRendererMock.invoke).toHaveBeenCalledWith('projection-bt-pairedlist-set', 'abc')
     expect(ipcRendererMock.invoke).toHaveBeenCalledWith(
       'projection-bt-connect-device',
-      'AA:BB:CC:DD:EE:FF'
-    )
-    expect(ipcRendererMock.invoke).toHaveBeenCalledWith(
-      'projection-bt-forget-device',
       'AA:BB:CC:DD:EE:FF'
     )
     expect(ipcRendererMock.invoke).toHaveBeenCalledWith('projection-media-read')

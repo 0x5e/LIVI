@@ -12,8 +12,6 @@
     "forceConsistentCasingInFileNames": true,
     "noFallthroughCasesInSwitch": true,
     "paths": {
-      "@audio": ["./src/main/audio/index.ts"],
-      "@audio/*": ["./src/main/audio/*"],
       "@renderer/*": ["./src/renderer/src/*"],
       "@projection/messages": ["./src/main/services/projection/messages/index.ts"],
       "@projection/messages/*": ["./src/main/services/projection/messages/*"],

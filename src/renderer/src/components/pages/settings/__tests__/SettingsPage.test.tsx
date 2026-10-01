@@ -6,16 +6,13 @@ let mockNode: any = null
 let mockSplat: string | undefined = 'audio'
 const handleFieldChange = vi.fn()
 const restartMock = vi.fn()
-const applyBtList = vi.fn()
 
 const statusState = {
   isDongleHardwarePresent: true,
   activeProtocol: null as 'carplay' | 'androidauto' | null
 }
 const liviState = {
-  settings: { some: 'settings', wirelessAaEnabled: false } as Record<string, unknown>,
-  bluetoothPairedDirty: false,
-  applyBluetoothPairedList: applyBtList
+  settings: { some: 'settings', wirelessAaEnabled: false } as Record<string, unknown>
 }
 const smartState = {
   state: { audio: { mute: false } } as unknown,
@@ -122,12 +119,10 @@ describe('SettingsPage', () => {
     mockSplat = 'audio'
     navigateMock.mockReset()
     restartMock.mockReset()
-    applyBtList.mockReset()
     handleFieldChange.mockReset()
     statusState.isDongleHardwarePresent = true
     statusState.activeProtocol = null
     liviState.settings = { some: 'settings', wirelessAaEnabled: false }
-    liviState.bluetoothPairedDirty = false
     smartState.needsRestart = false
   })
 
@@ -232,7 +227,6 @@ describe('SettingsPage', () => {
     render(<SettingsPage />)
     fireEvent.click(screen.getByTestId('restart'))
     expect(restartMock).not.toHaveBeenCalled()
-    expect(applyBtList).not.toHaveBeenCalled()
   })
 
   test('handleRestart no-ops when restart is available but nothing is pending', () => {
@@ -240,7 +234,6 @@ describe('SettingsPage', () => {
     render(<SettingsPage />)
     fireEvent.click(screen.getByTestId('restart'))
     expect(restartMock).not.toHaveBeenCalled()
-    expect(applyBtList).not.toHaveBeenCalled()
   })
 
   test('handleRestart calls restart() when needsRestart is true', () => {
@@ -249,16 +242,6 @@ describe('SettingsPage', () => {
     render(<SettingsPage />)
     fireEvent.click(screen.getByTestId('restart'))
     expect(restartMock).toHaveBeenCalled()
-    expect(applyBtList).not.toHaveBeenCalled()
-  })
-
-  test('handleRestart applies the BT list when dirty and no restart is pending', () => {
-    liviState.bluetoothPairedDirty = true
-    mockNode = { type: 'route', label: 'Audio', children: [] }
-    render(<SettingsPage />)
-    fireEvent.click(screen.getByTestId('restart'))
-    expect(applyBtList).toHaveBeenCalled()
-    expect(restartMock).not.toHaveBeenCalled()
   })
 
   test('AA-active alone is enough to enable restart', () => {

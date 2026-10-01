@@ -54,7 +54,6 @@ export default defineConfig({
         define,
         resolve: {
           alias: {
-            '@audio': r('src/main/audio'),
             '@projection/messages': r('src/main/services/projection/messages'),
             '@projection': r('src/main/services/projection'),
             '@main': r('src/main'),

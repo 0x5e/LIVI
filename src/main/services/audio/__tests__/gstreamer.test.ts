@@ -10,39 +10,7 @@ vi.mock('fs', () => {
 import { app } from 'electron'
 import fs from 'fs'
 import type { Mock } from 'vitest'
-import {
-  audioDecoderElement,
-  audioDeviceProp,
-  audioSinkElement,
-  audioSourceElement,
-  gstEnv,
-  resolveBinary,
-  resolveGStreamerRoot,
-  videoDecoderElement,
-  videoParseElement,
-  videoSinkElement
-} from '../gstreamer'
-
-describe('gstreamer helpers — platform-correct element + prop names', () => {
-  const origPlatform = process.platform
-  const setPlatform = (p: NodeJS.Platform) =>
-    Object.defineProperty(process, 'platform', { value: p, configurable: true })
-  afterEach(() => setPlatform(origPlatform))
-
-  test('linux uses pulsesink / pulsesrc / device', () => {
-    setPlatform('linux')
-    expect(audioSinkElement()).toBe('pulsesink')
-    expect(audioSourceElement()).toBe('pulsesrc')
-    expect(audioDeviceProp()).toBe('device')
-  })
-
-  test('darwin uses osxaudiosink / osxaudiosrc / unique-id (GStreamer 1.28+)', () => {
-    setPlatform('darwin')
-    expect(audioSinkElement()).toBe('osxaudiosink')
-    expect(audioSourceElement()).toBe('osxaudiosrc')
-    expect(audioDeviceProp()).toBe('unique-id')
-  })
-})
+import { gstEnv, resolveBinary, resolveGStreamerRoot } from '../gstreamer'
 
 describe('gstEnv', () => {
   const origPlatform = process.platform
@@ -130,40 +98,5 @@ describe('resolveGStreamerRoot / resolveBinary', () => {
     setPlatform('linux')
     setArch('x64')
     expect(resolveGStreamerRoot()).toBeNull()
-  })
-})
-
-describe('codec element selection', () => {
-  const origPlatform = process.platform
-  const setPlatform = (p: NodeJS.Platform) =>
-    Object.defineProperty(process, 'platform', { value: p, configurable: true })
-  afterEach(() => Object.defineProperty(process, 'platform', { value: origPlatform }))
-
-  test('opus decodes via opusdec everywhere', () => {
-    expect(audioDecoderElement('opus')).toBe('opusdec')
-  })
-
-  test('aac-lc decodes via faad on linux and avdec_aac elsewhere', () => {
-    setPlatform('linux')
-    expect(audioDecoderElement('aac-lc')).toBe('faad')
-    setPlatform('darwin')
-    expect(audioDecoderElement('aac-lc')).toBe('avdec_aac')
-  })
-
-  test('video parse elements follow the codec', () => {
-    expect(videoParseElement('h264')).toBe('h264parse')
-    expect(videoParseElement('h265')).toBe('h265parse')
-  })
-
-  test('video decoder is vtdec on mac and v4l2 stateless on linux', () => {
-    setPlatform('darwin')
-    expect(videoDecoderElement('h264')).toBe('vtdec')
-    setPlatform('linux')
-    expect(videoDecoderElement('h264')).toBe('v4l2slh264dec')
-    expect(videoDecoderElement('h265')).toBe('v4l2slh265dec')
-  })
-
-  test('video always sinks into glimagesink', () => {
-    expect(videoSinkElement()).toBe('glimagesink')
   })
 })

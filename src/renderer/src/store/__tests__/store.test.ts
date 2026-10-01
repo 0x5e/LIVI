@@ -8,14 +8,8 @@ type ProjectionApiOverrides = {
     save?: Mock | undefined
     onUpdate?: Mock | undefined
   }
-  usb?: {
-    forceReset?: Mock | undefined
-  }
   ipc?: {
     setVolume?: Mock | undefined
-    setBluetoothPairedList?: Mock | undefined
-    connectBluetoothPairedDevice?: Mock | undefined
-    forgetBluetoothPairedDevice?: Mock | undefined
     sendCommand?: Mock | undefined
     onTelemetry?: Mock | undefined
     offTelemetry?: Mock | undefined
@@ -28,14 +22,8 @@ type TestProjectionApi = {
     save: Mock
     onUpdate: Mock
   }
-  usb: {
-    forceReset: Mock
-  }
   ipc: {
     setVolume: Mock | undefined
-    setBluetoothPairedList: Mock | undefined
-    connectBluetoothPairedDevice: Mock | undefined
-    forgetBluetoothPairedDevice: Mock | undefined
     sendCommand: Mock | undefined
     onTelemetry: Mock | undefined
     offTelemetry: Mock | undefined
@@ -53,14 +41,8 @@ describe('store', () => {
       save: Mock
       onUpdate: Mock
     }>
-    usb?: Partial<{
-      forceReset: Mock
-    }>
     ipc?: Partial<{
       setVolume: Mock | undefined
-      setBluetoothPairedList: Mock | undefined
-      connectBluetoothPairedDevice: Mock | undefined
-      forgetBluetoothPairedDevice: Mock | undefined
       sendCommand: Mock | undefined
       onTelemetry: Mock | undefined
       offTelemetry: Mock | undefined
@@ -72,15 +54,8 @@ describe('store', () => {
       onUpdate: vi.fn(),
       ...(overrides?.settings ?? {})
     },
-    usb: {
-      forceReset: vi.fn(),
-      ...(overrides?.usb ?? {})
-    },
     ipc: {
       setVolume: vi.fn(),
-      setBluetoothPairedList: vi.fn(),
-      connectBluetoothPairedDevice: vi.fn(),
-      forgetBluetoothPairedDevice: vi.fn(),
       sendCommand: vi.fn(),
       onTelemetry: vi.fn(),
       offTelemetry: vi.fn(),
@@ -160,27 +135,6 @@ describe('store', () => {
     expect(projection.ipc.setVolume).toHaveBeenCalledWith('call', 0.6)
   })
 
-  test('getSettings refreshes state from main settings api', async () => {
-    const projection = makeProjectionApi({
-      settings: {
-        get: vi.fn().mockResolvedValue({
-          ...baseSettings,
-          audioVolume: 0.2,
-          navVolume: 0.3
-        })
-      }
-    })
-
-    const { useLiviStore } = await loadFreshStore(projection)
-
-    await waitForStoreSettings(useLiviStore)
-    await useLiviStore.getState().getSettings()
-
-    const state = useLiviStore.getState()
-    expect(state.audioVolume).toBe(0.2)
-    expect(state.navVolume).toBe(0.3)
-  })
-
   test('markRestartBaseline stores current settings as restart baseline', async () => {
     const projection = makeProjectionApi({
       settings: {
@@ -203,24 +157,6 @@ describe('store', () => {
       ...baseSettings,
       darkMode: true
     })
-  })
-
-  test('setDarkMode delegates to saveSettings without touching wire night mode', async () => {
-    const projection = makeProjectionApi({
-      settings: {
-        get: vi.fn().mockResolvedValue(baseSettings),
-        save: vi.fn().mockResolvedValue(undefined)
-      }
-    })
-
-    const { useLiviStore } = await loadFreshStore(projection)
-
-    await waitForStoreSettings(useLiviStore)
-    await useLiviStore.getState().setDarkMode(true)
-
-    expect(projection.settings.save).toHaveBeenCalledWith({ darkMode: true })
-    expect(projection.ipc.sendCommand).not.toHaveBeenCalledWith('enableNightMode')
-    expect(projection.ipc.sendCommand).not.toHaveBeenCalledWith('disableNightMode')
   })
 
   test('saveSettings updates store optimistically, persists patch and refreshes from main', async () => {
@@ -293,124 +229,7 @@ describe('store', () => {
     expect(projection.settings.save).toHaveBeenCalledWith({ dashboards: dashboardsOn })
   })
 
-  test('setAudioVolume/setNavVolume/setVoiceAssistantVolume/setCallVolume update state and persist', async () => {
-    const projection = makeProjectionApi({
-      settings: {
-        get: vi.fn().mockResolvedValue(baseSettings),
-        save: vi.fn().mockResolvedValue(undefined)
-      }
-    })
-
-    const { useLiviStore } = await loadFreshStore(projection)
-
-    await waitForStoreSettings(useLiviStore)
-
-    useLiviStore.getState().setAudioVolume(0.11)
-    useLiviStore.getState().setNavVolume(0.22)
-    useLiviStore.getState().setVoiceAssistantVolume(0.33)
-    useLiviStore.getState().setCallVolume(0.44)
-
-    await Promise.resolve()
-    await Promise.resolve()
-
-    const state = useLiviStore.getState()
-    expect(state.audioVolume).toBe(0.11)
-    expect(state.navVolume).toBe(0.22)
-    expect(state.voiceAssistantVolume).toBe(0.33)
-    expect(state.callVolume).toBe(0.44)
-
-    expect(projection.settings.save).toHaveBeenCalledWith({ audioVolume: 0.11 })
-    expect(projection.settings.save).toHaveBeenCalledWith({ navVolume: 0.22 })
-    expect(projection.settings.save).toHaveBeenCalledWith({ voiceAssistantVolume: 0.33 })
-    expect(projection.settings.save).toHaveBeenCalledWith({ callVolume: 0.44 })
-  })
-
-  test('setBluetoothPairedList parses raw device list', async () => {
-    const projection = makeProjectionApi({
-      settings: {
-        get: vi.fn().mockResolvedValue(baseSettings)
-      }
-    })
-
-    const { useLiviStore } = await loadFreshStore(projection)
-
-    await waitForStoreSettings(useLiviStore)
-
-    useLiviStore
-      .getState()
-      .setBluetoothPairedList('AA:BB:CC:DD:EE:FFPhone A\n11:22:33:44:55:66Phone B\n\0')
-
-    expect(useLiviStore.getState().bluetoothPairedDevices).toEqual([
-      { mac: 'AA:BB:CC:DD:EE:FF', name: 'Phone A' },
-      { mac: '11:22:33:44:55:66', name: 'Phone B' }
-    ])
-    expect(useLiviStore.getState().bluetoothPairedDirty).toBe(false)
-    expect(useLiviStore.getState().bluetoothPairedDeleteNeedsRestart).toBe(false)
-  })
-
-  test('buildBluetoothPairedListText reconstructs payload from devices', async () => {
-    const projection = makeProjectionApi({
-      settings: {
-        get: vi.fn().mockResolvedValue(baseSettings)
-      }
-    })
-
-    const { useLiviStore } = await loadFreshStore(projection)
-
-    await waitForStoreSettings(useLiviStore)
-
-    useLiviStore.setState({
-      bluetoothPairedDevices: [
-        { mac: 'AA:BB:CC:DD:EE:FF', name: 'Phone A' },
-        { mac: '11:22:33:44:55:66', name: 'Phone B' }
-      ]
-    })
-
-    expect(useLiviStore.getState().buildBluetoothPairedListText()).toBe(
-      'AA:BB:CC:DD:EE:FFPhone A\n11:22:33:44:55:66Phone B\n'
-    )
-  })
-
-  test('applyBluetoothPairedList sends list to ipc and triggers usb reset when restart is needed', async () => {
-    const projection = makeProjectionApi({
-      settings: {
-        get: vi.fn().mockResolvedValue(baseSettings)
-      },
-      ipc: {
-        setBluetoothPairedList: vi.fn().mockResolvedValue({ ok: true })
-      },
-      usb: {
-        forceReset: vi.fn().mockResolvedValue(undefined)
-      }
-    })
-
-    const { useLiviStore } = await loadFreshStore(projection)
-
-    await waitForStoreSettings(useLiviStore)
-
-    useLiviStore.setState({
-      bluetoothPairedDevices: [{ mac: 'AA:BB:CC:DD:EE:FF', name: 'Phone A' }],
-      bluetoothPairedDirty: true,
-      bluetoothPairedDeleteNeedsRestart: true
-    })
-
-    const ok = await useLiviStore.getState().applyBluetoothPairedList()
-
-    expect(ok).toBe(true)
-    expect(projection.ipc.setBluetoothPairedList).toHaveBeenCalledWith('AA:BB:CC:DD:EE:FFPhone A\n')
-    expect(projection.usb.forceReset).toHaveBeenCalledTimes(1)
-    expect(useLiviStore.getState().bluetoothPairedDirty).toBe(false)
-    expect(useLiviStore.getState().bluetoothPairedDeleteNeedsRestart).toBe(false)
-  })
-
-  test('applyBluetoothPairedList returns false when ipc api is missing', async () => {
-    const { useLiviStore } = await loadFreshStore()
-
-    const ok = await useLiviStore.getState().applyBluetoothPairedList()
-    expect(ok).toBe(false)
-  })
-
-  test('setDeviceInfo, setAudioInfo and setPcmData update store', async () => {
+  test('setAudioInfo and setPcmData update store', async () => {
     const projection = makeProjectionApi({
       settings: {
         get: vi.fn().mockResolvedValue(baseSettings)
@@ -423,56 +242,12 @@ describe('store', () => {
 
     const pcm = new Float32Array([0.1, 0.2])
 
-    useLiviStore.getState().setDeviceInfo({
-      vendorId: 4660,
-      productId: 22136,
-      usbFwVersion: ' 1.2.3 '
-    })
     useLiviStore.getState().setAudioInfo({ sampleRate: 48000 })
     useLiviStore.getState().setPcmData(pcm)
 
     const state = useLiviStore.getState()
-    expect(state.vendorId).toBe(4660)
-    expect(state.productId).toBe(22136)
-    expect(state.usbFwVersion).toBe('1.2.3')
     expect(state.audioSampleRate).toBe(48000)
     expect(state.audioPcmData).toBe(pcm)
-  })
-
-  test('resetInfo clears volatile info fields', async () => {
-    const projection = makeProjectionApi({
-      settings: {
-        get: vi.fn().mockResolvedValue(baseSettings)
-      }
-    })
-
-    const { useLiviStore } = await loadFreshStore(projection)
-
-    await waitForStoreSettings(useLiviStore)
-
-    useLiviStore.setState({
-      negotiatedWidth: 800,
-      negotiatedHeight: 480,
-      vendorId: 1,
-      productId: 2,
-      usbFwVersion: '1.0',
-      audioSampleRate: 48000,
-      audioPcmData: new Float32Array([1])
-    })
-
-    useLiviStore.getState().resetInfo()
-
-    expect(useLiviStore.getState()).toEqual(
-      expect.objectContaining({
-        negotiatedWidth: null,
-        negotiatedHeight: null,
-        vendorId: null,
-        productId: null,
-        usbFwVersion: null,
-        audioSampleRate: null,
-        audioPcmData: null
-      })
-    )
   })
 
   test('telemetry onTelemetry handler persists incoming nightMode and bridges to wire', async () => {
@@ -520,30 +295,6 @@ describe('store', () => {
     )
   })
 
-  test('getSettings keeps defaults when projection settings api is missing', async () => {
-    const { useLiviStore } = await loadFreshStore({
-      ipc: {
-        setVolume: vi.fn(),
-        setBluetoothPairedList: vi.fn(),
-        sendCommand: vi.fn(),
-        onTelemetry: vi.fn(),
-        offTelemetry: vi.fn()
-      },
-      usb: {
-        forceReset: vi.fn()
-      }
-    })
-
-    await useLiviStore.getState().getSettings()
-
-    const state = useLiviStore.getState()
-    expect(state.settings).toBeNull()
-    expect(state.audioVolume).toBe(0.95)
-    expect(state.navVolume).toBe(0.95)
-    expect(state.voiceAssistantVolume).toBe(0.95)
-    expect(state.callVolume).toBe(0.95)
-  })
-
   test('getSettings swallows settings.get errors and keeps state stable', async () => {
     const warnSpy = vi.spyOn(console, 'warn').mockImplementation(() => {})
     const projection = makeProjectionApi({
@@ -586,7 +337,7 @@ describe('store', () => {
     expect(warnSpy).toHaveBeenCalledWith('settings-save IPC failed', expect.any(Error))
   })
 
-  test('setAudioVolume clamps outgoing ipc volume to 0..1', async () => {
+  test('saveSettings clamps the outgoing music volume to 0..1', async () => {
     const projection = makeProjectionApi({
       settings: {
         get: vi
@@ -604,7 +355,7 @@ describe('store', () => {
     expect(projection.ipc.setVolume).toHaveBeenCalledWith('music', 1)
   })
 
-  test('setNavVolume clamps negative outgoing ipc volume to 0', async () => {
+  test('saveSettings clamps a negative outgoing nav volume to 0', async () => {
     const projection = makeProjectionApi({
       settings: {
         get: vi
@@ -620,6 +371,23 @@ describe('store', () => {
     await useLiviStore.getState().saveSettings({ navVolume: -1 })
 
     expect(projection.ipc.setVolume).toHaveBeenCalledWith('nav', 0)
+  })
+
+  test('saveSettings sends a changed voice assistant and call volume to the mixer', async () => {
+    const projection = makeProjectionApi({
+      settings: {
+        get: vi.fn().mockResolvedValue(baseSettings)
+      }
+    })
+
+    const { useLiviStore } = await loadFreshStore(projection)
+
+    await waitForStoreSettings(useLiviStore)
+    vi.mocked(projection.ipc.setVolume!).mockClear()
+    await useLiviStore.getState().saveSettings({ voiceAssistantVolume: 0.33, callVolume: 0.44 })
+
+    expect(projection.ipc.setVolume).toHaveBeenCalledWith('voiceAssistant', 0.33)
+    expect(projection.ipc.setVolume).toHaveBeenCalledWith('call', 0.44)
   })
 
   test('saveSettings sends disableNightMode for false', async () => {
@@ -639,35 +407,6 @@ describe('store', () => {
     await useLiviStore.getState().saveSettings({ nightMode: false })
 
     expect(projection.ipc.sendCommand).toHaveBeenCalledWith('disableNightMode')
-  })
-
-  test('applyBluetoothPairedList returns false when ipc call throws', async () => {
-    const warnSpy = vi.spyOn(console, 'warn').mockImplementation(() => {})
-    const projection = makeProjectionApi({
-      settings: {
-        get: vi.fn().mockResolvedValue(baseSettings)
-      },
-      ipc: {
-        setBluetoothPairedList: vi.fn().mockRejectedValue(new Error('bt failed'))
-      }
-    })
-
-    const { useLiviStore } = await loadFreshStore(projection)
-
-    await waitForStoreSettings(useLiviStore)
-
-    useLiviStore.setState({
-      bluetoothPairedDevices: [{ mac: 'AA:BB:CC:DD:EE:FF', name: 'Phone A' }],
-      bluetoothPairedDirty: true,
-      bluetoothPairedDeleteNeedsRestart: true
-    })
-
-    const ok = await useLiviStore.getState().applyBluetoothPairedList()
-
-    expect(ok).toBe(false)
-    expect(warnSpy).toHaveBeenCalledWith('[BT] applyBluetoothPairedList failed', expect.any(Error))
-    expect(useLiviStore.getState().bluetoothPairedDirty).toBe(true)
-    expect(useLiviStore.getState().bluetoothPairedDeleteNeedsRestart).toBe(true)
   })
 
   test('telemetry handler ignores non-object payloads', async () => {
@@ -833,36 +572,6 @@ describe('store', () => {
     expect(projection.settings.save).toHaveBeenCalledWith({ audioVolume: 0.42 })
   })
 
-  test('applyBluetoothPairedList succeeds without usb reset when restart is not needed', async () => {
-    const projection = makeProjectionApi({
-      settings: {
-        get: vi.fn().mockResolvedValue(baseSettings)
-      },
-      ipc: {
-        setBluetoothPairedList: vi.fn().mockResolvedValue({ ok: true })
-      },
-      usb: {
-        forceReset: vi.fn().mockResolvedValue(undefined)
-      }
-    })
-
-    const { useLiviStore } = await loadFreshStore(projection)
-
-    await waitForStoreSettings(useLiviStore)
-
-    useLiviStore.setState({
-      bluetoothPairedDevices: [{ mac: 'AA:BB:CC:DD:EE:FF', name: 'Phone A' }],
-      bluetoothPairedDirty: true,
-      bluetoothPairedDeleteNeedsRestart: false
-    })
-
-    const ok = await useLiviStore.getState().applyBluetoothPairedList()
-
-    expect(ok).toBe(true)
-    expect(projection.ipc.setBluetoothPairedList).toHaveBeenCalledWith('AA:BB:CC:DD:EE:FFPhone A\n')
-    expect(projection.usb.forceReset).not.toHaveBeenCalled()
-  })
-
   test('init keeps settings null when projection settings.get is missing', async () => {
     const { useLiviStore } = await loadFreshStore({
       settings: {
@@ -918,65 +627,6 @@ describe('store', () => {
     expect(projection.settings.get).toHaveBeenCalledTimes(1)
   })
 
-  test('setBluetoothPairedList ignores clearly invalid and empty bluetooth lines', async () => {
-    const projection = makeProjectionApi({
-      settings: {
-        get: vi.fn().mockResolvedValue(baseSettings)
-      }
-    })
-
-    const { useLiviStore } = await loadFreshStore(projection)
-
-    await waitForStoreSettings(useLiviStore)
-
-    useLiviStore
-      .getState()
-      .setBluetoothPairedList(
-        [
-          '',
-          'invalid-line',
-          'AABBCCDDEEFFNoColons',
-          'short',
-          'AA:BB:CC:DD:EE:FFValid Device',
-          '11:22:33:44:55:66 Another Device',
-          '\0'
-        ].join('\n')
-      )
-
-    expect(useLiviStore.getState().bluetoothPairedDevices).toEqual([
-      { mac: 'AA:BB:CC:DD:EE:FF', name: 'Valid Device' },
-      { mac: '11:22:33:44:55:66', name: 'Another Device' }
-    ])
-  })
-
-  test('forgetBluetoothPairedDevice does not require restart when deleted device is not connected', async () => {
-    const projection = makeProjectionApi({
-      settings: {
-        get: vi.fn().mockResolvedValue(baseSettings)
-      },
-      ipc: {
-        forgetBluetoothPairedDevice: vi.fn().mockResolvedValue({ ok: true })
-      }
-    })
-    const { useLiviStore } = await loadFreshStore(projection)
-
-    await waitForStoreSettings(useLiviStore)
-
-    useLiviStore.setState({
-      bluetoothPairedDevices: [
-        { mac: 'AA:BB:CC:DD:EE:FF', name: 'Phone A' },
-        { mac: '11:22:33:44:55:66', name: 'Phone B' }
-      ],
-      bluetoothPairedDeleteNeedsRestart: false,
-      boxInfo: { btMacAddr: '77:88:99:AA:BB:CC' }
-    })
-
-    await useLiviStore.getState().forgetBluetoothPairedDevice('11:22:33:44:55:66')
-    expect(projection.ipc.forgetBluetoothPairedDevice).toHaveBeenCalledWith('11:22:33:44:55:66')
-
-    expect(useLiviStore.getState().bluetoothPairedDeleteNeedsRestart).toBe(false)
-  })
-
   test('init live update preserves existing restartBaseline', async () => {
     let onUpdateHandler: ((event: unknown, settings: Config) => void) | undefined
 
@@ -1012,105 +662,7 @@ describe('store', () => {
     expect(useLiviStore.getState().audioVolume).toBe(0.25)
   })
 
-  test('setDeviceInfo normalizes blank usb firmware version to null', async () => {
-    const projection = makeProjectionApi({
-      settings: {
-        get: vi.fn().mockResolvedValue(baseSettings)
-      }
-    })
-
-    const { useLiviStore } = await loadFreshStore(projection)
-
-    await waitForStoreSettings(useLiviStore)
-
-    useLiviStore.getState().setDeviceInfo({
-      vendorId: 1,
-      productId: 2,
-      usbFwVersion: '   '
-    })
-
-    expect(useLiviStore.getState().vendorId).toBe(1)
-    expect(useLiviStore.getState().productId).toBe(2)
-    expect(useLiviStore.getState().usbFwVersion).toBeNull()
-  })
-
-  test('forgetBluetoothPairedDevice preserves existing restart flag when already true', async () => {
-    const projection = makeProjectionApi({
-      settings: {
-        get: vi.fn().mockResolvedValue(baseSettings)
-      },
-      ipc: {
-        forgetBluetoothPairedDevice: vi.fn().mockResolvedValue({ ok: true })
-      }
-    })
-
-    const { useLiviStore } = await loadFreshStore(projection)
-
-    await waitForStoreSettings(useLiviStore)
-
-    useLiviStore.setState({
-      bluetoothPairedDevices: [
-        { mac: 'AA:BB:CC:DD:EE:FF', name: 'Phone A' },
-        { mac: '11:22:33:44:55:66', name: 'Phone B' }
-      ],
-      bluetoothPairedDeleteNeedsRestart: true,
-      boxInfo: null
-    })
-
-    await useLiviStore.getState().forgetBluetoothPairedDevice('AA:BB:CC:DD:EE:FF')
-
-    expect(projection.ipc.forgetBluetoothPairedDevice).toHaveBeenCalledWith('AA:BB:CC:DD:EE:FF')
-    expect(useLiviStore.getState().bluetoothPairedDeleteNeedsRestart).toBe(false)
-  })
-
-  test('applyBluetoothPairedList returns false when ipc responds with ok false', async () => {
-    const projection = makeProjectionApi({
-      settings: {
-        get: vi.fn().mockResolvedValue(baseSettings)
-      },
-      ipc: {
-        setBluetoothPairedList: vi.fn().mockResolvedValue({ ok: false })
-      },
-      usb: {
-        forceReset: vi.fn().mockResolvedValue(undefined)
-      }
-    })
-
-    const { useLiviStore } = await loadFreshStore(projection)
-
-    await waitForStoreSettings(useLiviStore)
-
-    useLiviStore.setState({
-      bluetoothPairedDevices: [{ mac: 'AA:BB:CC:DD:EE:FF', name: 'Phone A' }],
-      bluetoothPairedDirty: true,
-      bluetoothPairedDeleteNeedsRestart: true
-    })
-
-    const ok = await useLiviStore.getState().applyBluetoothPairedList()
-
-    expect(ok).toBe(false)
-    expect(useLiviStore.getState().bluetoothPairedDirty).toBe(true)
-    expect(useLiviStore.getState().bluetoothPairedDeleteNeedsRestart).toBe(true)
-    expect(projection.usb.forceReset).not.toHaveBeenCalled()
-  })
-
-  test('setBluetoothPairedList trims trailing null bytes from raw list', async () => {
-    const projection = makeProjectionApi({
-      settings: {
-        get: vi.fn().mockResolvedValue(baseSettings)
-      }
-    })
-
-    const { useLiviStore } = await loadFreshStore(projection)
-
-    await waitForStoreSettings(useLiviStore)
-
-    useLiviStore.getState().setBluetoothPairedList('AA:BB:CC:DD:EE:FFPhone A\n\0\0\0')
-
-    expect(useLiviStore.getState().bluetoothPairedListRaw).toBe('AA:BB:CC:DD:EE:FFPhone A\n')
-  })
-
-  test('getSettings returns early when settings api resolves null', async () => {
+  test('init keeps the defaults when the settings api resolves null', async () => {
     const projection = makeProjectionApi({
       settings: {
         get: vi.fn().mockResolvedValue(null)
@@ -1120,7 +672,7 @@ describe('store', () => {
     const { useLiviStore } = await loadFreshStore(projection)
 
     await Promise.resolve()
-    await useLiviStore.getState().getSettings()
+    await Promise.resolve()
 
     expect(useLiviStore.getState().settings).toBeNull()
     expect(useLiviStore.getState().audioVolume).toBe(0.95)
@@ -1188,134 +740,6 @@ describe('store', () => {
     expect(useLiviStore.getState().settings).toEqual(baseSettings)
   })
 
-  test('forgetBluetoothPairedDevice handles non-string btMacAddr without restart requirement', async () => {
-    const projection = makeProjectionApi({
-      settings: {
-        get: vi.fn().mockResolvedValue(baseSettings)
-      },
-      ipc: {
-        forgetBluetoothPairedDevice: vi.fn().mockResolvedValue({ ok: true })
-      }
-    })
-
-    const { useLiviStore } = await loadFreshStore(projection)
-
-    await waitForStoreSettings(useLiviStore)
-
-    useLiviStore.setState({
-      bluetoothPairedDevices: [
-        { mac: 'AA:BB:CC:DD:EE:FF', name: 'Phone A' },
-        { mac: '11:22:33:44:55:66', name: 'Phone B' }
-      ],
-      bluetoothPairedDeleteNeedsRestart: false,
-      boxInfo: { btMacAddr: 12345 }
-    })
-
-    await useLiviStore.getState().forgetBluetoothPairedDevice('AA:BB:CC:DD:EE:FF')
-    expect(projection.ipc.forgetBluetoothPairedDevice).toHaveBeenCalledWith('AA:BB:CC:DD:EE:FF')
-
-    expect(useLiviStore.getState().bluetoothPairedDevices).toEqual([
-      { mac: '11:22:33:44:55:66', name: 'Phone B' }
-    ])
-    expect(useLiviStore.getState().bluetoothPairedDeleteNeedsRestart).toBe(false)
-  })
-
-  test('connectBluetoothPairedDevice returns false when ipc api is missing', async () => {
-    const { useLiviStore } = await loadFreshStore()
-
-    const ok = await useLiviStore.getState().connectBluetoothPairedDevice('AA:BB:CC:DD:EE:FF')
-
-    expect(ok).toBe(false)
-  })
-
-  test('connectBluetoothPairedDevice returns true when ipc responds with ok true', async () => {
-    const projection = makeProjectionApi({
-      settings: {
-        get: vi.fn().mockResolvedValue(baseSettings)
-      },
-      ipc: {
-        connectBluetoothPairedDevice: vi.fn().mockResolvedValue({ ok: true })
-      }
-    })
-
-    const { useLiviStore } = await loadFreshStore(projection)
-
-    await waitForStoreSettings(useLiviStore)
-
-    const ok = await useLiviStore.getState().connectBluetoothPairedDevice('AA:BB:CC:DD:EE:FF')
-
-    expect(ok).toBe(true)
-    expect(projection.ipc.connectBluetoothPairedDevice).toHaveBeenCalledWith('AA:BB:CC:DD:EE:FF')
-  })
-
-  test('connectBluetoothPairedDevice returns false when ipc responds with ok false', async () => {
-    const projection = makeProjectionApi({
-      settings: {
-        get: vi.fn().mockResolvedValue(baseSettings)
-      },
-      ipc: {
-        connectBluetoothPairedDevice: vi.fn().mockResolvedValue({ ok: false })
-      }
-    })
-
-    const { useLiviStore } = await loadFreshStore(projection)
-
-    await waitForStoreSettings(useLiviStore)
-
-    const ok = await useLiviStore.getState().connectBluetoothPairedDevice('AA:BB:CC:DD:EE:FF')
-
-    expect(ok).toBe(false)
-    expect(projection.ipc.connectBluetoothPairedDevice).toHaveBeenCalledWith('AA:BB:CC:DD:EE:FF')
-  })
-
-  test('connectBluetoothPairedDevice returns false and warns when ipc throws', async () => {
-    const warnSpy = vi.spyOn(console, 'warn').mockImplementation(() => {})
-    const projection = makeProjectionApi({
-      settings: {
-        get: vi.fn().mockResolvedValue(baseSettings)
-      },
-      ipc: {
-        connectBluetoothPairedDevice: vi.fn().mockRejectedValue(new Error('connect failed'))
-      }
-    })
-
-    const { useLiviStore } = await loadFreshStore(projection)
-
-    await waitForStoreSettings(useLiviStore)
-
-    const ok = await useLiviStore.getState().connectBluetoothPairedDevice('AA:BB:CC:DD:EE:FF')
-
-    expect(ok).toBe(false)
-    expect(warnSpy).toHaveBeenCalledWith(
-      '[BT] connectBluetoothPairedDevice failed',
-      expect.any(Error)
-    )
-  })
-
-  test('forgetBluetoothPairedDevice returns false and warns when ipc throws', async () => {
-    const warnSpy = vi.spyOn(console, 'warn').mockImplementation(() => {})
-    const projection = makeProjectionApi({
-      settings: {
-        get: vi.fn().mockResolvedValue(baseSettings)
-      },
-      ipc: {
-        forgetBluetoothPairedDevice: vi.fn().mockRejectedValue(new Error('forget failed'))
-      }
-    })
-
-    const { useLiviStore } = await loadFreshStore(projection)
-
-    await waitForStoreSettings(useLiviStore)
-
-    const ok = await useLiviStore.getState().forgetBluetoothPairedDevice('AA:BB:CC:DD:EE:FF')
-
-    expect(ok).toBe(false)
-    expect(warnSpy).toHaveBeenCalledWith(
-      '[BT] forgetBluetoothPairedDevice failed',
-      expect.any(Error)
-    )
-  })
-
   test('markRestartBaseline does nothing when settings are null', async () => {
     const { useLiviStore } = await loadFreshStore()
 
@@ -1353,118 +777,6 @@ describe('store', () => {
     telemetryHandler?.({ other: true })
 
     expect(projection.settings.save).not.toHaveBeenCalled()
-  })
-
-  test('forgetBluetoothPairedDevice returns false when ipc api is missing', async () => {
-    const { useLiviStore } = await loadFreshStore()
-
-    const ok = await useLiviStore.getState().forgetBluetoothPairedDevice('AA:BB:CC:DD:EE:FF')
-
-    expect(ok).toBe(false)
-  })
-
-  test('forgetBluetoothPairedDevice returns false when ipc responds with ok false', async () => {
-    const projection = makeProjectionApi({
-      settings: {
-        get: vi.fn().mockResolvedValue(baseSettings)
-      },
-      ipc: {
-        forgetBluetoothPairedDevice: vi.fn().mockResolvedValue({ ok: false })
-      }
-    })
-
-    const { useLiviStore } = await loadFreshStore(projection)
-
-    await waitForStoreSettings(useLiviStore)
-
-    useLiviStore.setState({
-      bluetoothPairedDevices: [{ mac: 'AA:BB:CC:DD:EE:FF', name: 'Phone A' }]
-    })
-
-    const ok = await useLiviStore.getState().forgetBluetoothPairedDevice('AA:BB:CC:DD:EE:FF')
-
-    expect(ok).toBe(false)
-    expect(useLiviStore.getState().bluetoothPairedDevices).toEqual([
-      { mac: 'AA:BB:CC:DD:EE:FF', name: 'Phone A' }
-    ])
-  })
-
-  test('forgetBluetoothPairedDevice treats non-object ipc response as success', async () => {
-    const projection = makeProjectionApi({
-      settings: {
-        get: vi.fn().mockResolvedValue(baseSettings)
-      },
-      ipc: {
-        forgetBluetoothPairedDevice: vi.fn().mockResolvedValue(undefined)
-      }
-    })
-
-    const { useLiviStore } = await loadFreshStore(projection)
-
-    await waitForStoreSettings(useLiviStore)
-
-    useLiviStore.setState({
-      bluetoothPairedDevices: [
-        { mac: 'AA:BB:CC:DD:EE:FF', name: 'Phone A' },
-        { mac: '11:22:33:44:55:66', name: 'Phone B' }
-      ]
-    })
-
-    const ok = await useLiviStore.getState().forgetBluetoothPairedDevice('AA:BB:CC:DD:EE:FF')
-
-    expect(ok).toBe(true)
-    expect(useLiviStore.getState().bluetoothPairedDevices).toEqual([
-      { mac: '11:22:33:44:55:66', name: 'Phone B' }
-    ])
-  })
-
-  test('connectBluetoothPairedDevice treats non-object ipc response as success', async () => {
-    const projection = makeProjectionApi({
-      settings: {
-        get: vi.fn().mockResolvedValue(baseSettings)
-      },
-      ipc: {
-        connectBluetoothPairedDevice: vi.fn().mockResolvedValue(undefined)
-      }
-    })
-
-    const { useLiviStore } = await loadFreshStore(projection)
-
-    await waitForStoreSettings(useLiviStore)
-
-    const ok = await useLiviStore.getState().connectBluetoothPairedDevice('AA:BB:CC:DD:EE:FF')
-
-    expect(ok).toBe(true)
-    expect(projection.ipc.connectBluetoothPairedDevice).toHaveBeenCalledWith('AA:BB:CC:DD:EE:FF')
-  })
-
-  test('applyBluetoothPairedList succeeds when restart is needed but usb api is missing', async () => {
-    const projection = makeProjectionApi({
-      settings: {
-        get: vi.fn().mockResolvedValue(baseSettings)
-      },
-      ipc: {
-        setBluetoothPairedList: vi.fn().mockResolvedValue({ ok: true })
-      },
-      usb: {
-        forceReset: undefined
-      }
-    })
-
-    const { useLiviStore } = await loadFreshStore(projection)
-
-    await waitForStoreSettings(useLiviStore)
-
-    useLiviStore.setState({
-      bluetoothPairedDevices: [{ mac: 'AA:BB:CC:DD:EE:FF', name: 'Phone A' }],
-      bluetoothPairedDirty: true,
-      bluetoothPairedDeleteNeedsRestart: true
-    })
-
-    const ok = await useLiviStore.getState().applyBluetoothPairedList()
-
-    expect(ok).toBe(true)
-    expect(projection.ipc.setBluetoothPairedList).toHaveBeenCalledWith('AA:BB:CC:DD:EE:FFPhone A\n')
   })
 
   test('saveSettings returns after optimistic update when settings.save api is missing', async () => {
@@ -1512,10 +824,9 @@ describe('store', () => {
     expect(projection.settings.save).toHaveBeenCalledWith({ dashboards: dashboardsOff })
   })
 
-  test('getSettings keeps defaults when projection api is completely missing', async () => {
+  test('init keeps defaults when projection api is completely missing', async () => {
     const { useLiviStore } = await loadFreshStore()
-
-    await useLiviStore.getState().getSettings()
+    await Promise.resolve()
 
     expect(useLiviStore.getState().settings).toBeNull()
     expect(useLiviStore.getState().audioVolume).toBe(0.95)
@@ -1533,53 +844,11 @@ describe('store', () => {
 
     const { useLiviStore } = await import('../store')
 
-    await expect(useLiviStore.getState().getSettings()).resolves.toBeUndefined()
-    await expect(
-      useLiviStore.getState().connectBluetoothPairedDevice('AA:BB:CC:DD:EE:FF')
-    ).resolves.toBe(false)
-    await expect(
-      useLiviStore.getState().forgetBluetoothPairedDevice('AA:BB:CC:DD:EE:FF')
-    ).resolves.toBe(false)
-    await expect(useLiviStore.getState().applyBluetoothPairedList()).resolves.toBe(false)
+    await expect(useLiviStore.getState().saveSettings({ darkMode: true })).resolves.toBeUndefined()
 
     expect(useLiviStore.getState().settings).toBeNull()
 
     w.projection = originalProjection
-  })
-
-  test('setBluetoothPairedList handles undefined raw input', async () => {
-    const projection = makeProjectionApi({
-      settings: {
-        get: vi.fn().mockResolvedValue(baseSettings)
-      }
-    })
-
-    const { useLiviStore } = await loadFreshStore(projection)
-
-    await waitForStoreSettings(useLiviStore)
-
-    useLiviStore.getState().setBluetoothPairedList(undefined as never)
-
-    expect(useLiviStore.getState().bluetoothPairedListRaw).toBe('')
-    expect(useLiviStore.getState().bluetoothPairedDevices).toEqual([])
-  })
-
-  test('buildBluetoothPairedListText falls back to empty string for missing device names', async () => {
-    const projection = makeProjectionApi({
-      settings: {
-        get: vi.fn().mockResolvedValue(baseSettings)
-      }
-    })
-
-    const { useLiviStore } = await loadFreshStore(projection)
-
-    await waitForStoreSettings(useLiviStore)
-
-    useLiviStore.setState({
-      bluetoothPairedDevices: [{ mac: 'AA:BB:CC:DD:EE:FF', name: undefined as never }]
-    })
-
-    expect(useLiviStore.getState().buildBluetoothPairedListText()).toBe('AA:BB:CC:DD:EE:FF\n')
   })
 
   test('init live update sets restartBaseline to incoming settings when baseline is null', async () => {
@@ -1612,23 +881,6 @@ describe('store', () => {
 
     expect(useLiviStore.getState().settings).toEqual(nextSettings)
     expect(useLiviStore.getState().restartBaseline).toEqual(nextSettings)
-  })
-
-  test('setBluetoothPairedList normalizes undefined raw input to an empty string', async () => {
-    const projection = makeProjectionApi({
-      settings: {
-        get: vi.fn().mockResolvedValue(baseSettings)
-      }
-    })
-
-    const { useLiviStore } = await loadFreshStore(projection)
-
-    await waitForStoreSettings(useLiviStore)
-
-    useLiviStore.getState().setBluetoothPairedList(undefined as never)
-
-    expect(useLiviStore.getState().bluetoothPairedListRaw).toBe('')
-    expect(useLiviStore.getState().bluetoothPairedDevices).toEqual([])
   })
 
   test('telemetry handler forwards explicit reverse and lights to the status store', async () => {

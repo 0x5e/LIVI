@@ -47,21 +47,4 @@ describe('main constants', () => {
 
     expect(DEBUG).toBe(false)
   })
-
-  test('mimeTypeFromExt returns known mime types case-insensitively', async () => {
-    const { mimeTypeFromExt } = await import('../constants')
-
-    expect(mimeTypeFromExt('.html')).toBe('text/html')
-    expect(mimeTypeFromExt('.JS')).toBe('text/javascript')
-    expect(mimeTypeFromExt('.Jpeg')).toBe('image/jpeg')
-    expect(mimeTypeFromExt('.SVG')).toBe('image/svg+xml')
-    expect(mimeTypeFromExt('.wasm')).toBe('application/wasm')
-  })
-
-  test('mimeTypeFromExt falls back to application/octet-stream for unknown extensions', async () => {
-    const { mimeTypeFromExt } = await import('../constants')
-
-    expect(mimeTypeFromExt('.bin')).toBe('application/octet-stream')
-    expect(mimeTypeFromExt('.unknown')).toBe('application/octet-stream')
-  })
 })

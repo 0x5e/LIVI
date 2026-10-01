@@ -74,19 +74,7 @@ ipcRenderer.on('app:media-key', (_event, command: unknown) => {
 const api = {
   quit: (): Promise<void> => ipcRenderer.invoke('quit'),
 
-  onUSBResetStatus: (callback: ApiCallback): (() => void) => {
-    const s = 'usb-reset-start'
-    const d = 'usb-reset-done'
-    ipcRenderer.on(s, callback)
-    ipcRenderer.on(d, callback)
-    return () => {
-      ipcRenderer.removeListener(s, callback)
-      ipcRenderer.removeListener(d, callback)
-    }
-  },
-
   usb: {
-    getSysdefaultPrettyName: (): Promise<string> => ipcRenderer.invoke('get-sysdefault-mic-label'),
     listenForEvents: (callback: ApiCallback): (() => void) => {
       usbEventHandlers.push(callback)
       usbEventQueue.forEach(([evt, ...args]) => callback(evt, ...args))
@@ -130,12 +118,8 @@ const api = {
     setVisible: (visible: boolean): Promise<void> =>
       ipcRenderer.invoke('projection-set-visible', visible),
     sendFrame: (): Promise<void> => ipcRenderer.invoke('projection-sendframe'),
-    setBluetoothPairedList: (listText: string): Promise<{ ok: boolean }> =>
-      ipcRenderer.invoke('projection-bt-pairedlist-set', listText),
     connectBluetoothPairedDevice: (mac: string): Promise<{ ok: boolean }> =>
       ipcRenderer.invoke('projection-bt-connect-device', mac),
-    forgetBluetoothPairedDevice: (mac: string): Promise<{ ok: boolean }> =>
-      ipcRenderer.invoke('projection-bt-forget-device', mac),
     switchTransport: (): Promise<{ ok: boolean; active: 'aa' | 'cp' | null }> =>
       ipcRenderer.invoke('transport:switch'),
     getTransportState: (): Promise<TransportSnapshot> => ipcRenderer.invoke('transport:state'),

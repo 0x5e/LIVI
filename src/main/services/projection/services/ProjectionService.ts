@@ -177,10 +177,7 @@ export class ProjectionService {
   private hostDevList: DevListEntry[] = []
   private lastAudioMetaEmitKey = ''
   private readonly bluez = new BluezDeviceClient()
-  private readonly btPaired = new BtPairedRegistry({
-    emit: (p) => this.emitProjectionEvent(p),
-    hasRenderer: () => this.webContents != null
-  })
+  private readonly btPaired = new BtPairedRegistry()
   private aaBtSubscription: { close: () => void } | null = null
   private readonly aaBtMacByInstance = new Map<string, string>()
   private readonly hfpKeepers = new Map<string, NodeJS.Timeout>()
@@ -206,7 +203,6 @@ export class ProjectionService {
   private readonly statusFile = new StatusFileWriter()
 
   private helperSupervisor: HelperSupervisor | null = null
-  private btEnableKey = ''
   private btAaWireless = false
   private btCpWireless = false
   private readonly deviceRegistry = new DeviceRegistry()
@@ -484,10 +480,6 @@ export class ProjectionService {
   private lastClusterVideoHeight?: number
   private readonly clusterRequestedBy = new Set<number>()
 
-  // Per-channel buffers for video chunks that arrive from the phone before
-  // the renderer is attached.
-  private earlyVideoQueues: Map<string, Array<Record<string, unknown>>> = new Map()
-  private static readonly EARLY_QUEUE_MAX_PER_CHANNEL = 256
   private lastPluggedProtocol?: SessionProtocol
   /** Canonical MediaPlayStatus (1 = playing, 0 = paused), inferred from AA audio commands. */
   private aaPlaybackInferred: 1 | 0 = 1
@@ -551,30 +543,22 @@ export class ProjectionService {
     const wantCp = linux || isMac
     // Wired CP (carkit) always runs on Linux; wireless (Wi-Fi AP + BT profiles) is toggled
     // live over the control socket, without restarting the helper. The helper runs everywhere.
-    const enableKey = 'h'
     // The spawn env only carries the initial AA/CP wireless state. Later changes go
     // over the control socket.
-    const restarting = !this.helperSupervisor || this.btEnableKey !== enableKey
-
-    if (restarting) {
-      if (this.helperSupervisor) {
-        const old = this.helperSupervisor
-        this.helperSupervisor = null
-        old.stop().catch(() => {})
-      }
+    const starting = !this.helperSupervisor
+    if (starting) {
       const sup = new HelperSupervisor({ maxRestarts: 5 })
       sup.on('stdout', (line) => console.log(`[helper] ${line}`))
       sup.on('stderr', (line) => console.warn(`[helper!] ${line}`))
       sup.on('error', (err) => console.warn(`[bt] supervisor error: ${err.message}`))
       this.helperSupervisor = sup
-      this.btEnableKey = enableKey
       console.log(
         `[ProjectionService] starting unified BT supervisor (aaWireless=${wantAaWireless} cpWireless=${wantCpWireless})`
       )
       sup.start(this.config)
       this.drivers.attachHelper(this.aaHelperSource())
       // The helper is wanted on every platform (USB AA), so it is never stopped here.
-    } else if (this.helperSupervisor && this.btAaWireless !== wantAaWireless) {
+    } else if (this.btAaWireless !== wantAaWireless) {
       console.log(`[ProjectionService] toggling wireless AA live (aaWireless=${wantAaWireless})`)
       this.drivers.getCpManager()?.setAaWireless(wantAaWireless)
     }
@@ -608,7 +592,7 @@ export class ProjectionService {
       void this.drivers.releaseCp()
     }
     // cpWireless only toggles the wireless CP BT profile live over the control socket.
-    if (this.cpActive && !restarting && this.btCpWireless !== wantCpWireless) {
+    if (this.cpActive && !starting && this.btCpWireless !== wantCpWireless) {
       console.log(`[ProjectionService] toggling wireless CP live (cpWireless=${wantCpWireless})`)
       this.drivers.getCpManager()?.setCpWireless(wantCpWireless)
     }
@@ -796,16 +780,6 @@ export class ProjectionService {
     }
   }
 
-  private readonly onDriverFailure = (): void => {
-    const wc = this.webContents
-    if (!wc || wc.isDestroyed?.()) return
-    wc.send('projection-event', { type: 'failure' })
-  }
-
-  private readonly onDriverTargetedConnect = (): void => {
-    /* native drivers don't dispatch targeted connects; nothing to do */
-  }
-
   // phone announces which advertised codec it picked
   private readonly onDriverVideoCodec = (codec: 'h264' | 'h265' | 'vp9' | 'av1'): void => {
     this.planes.setMainCodec(codec)
@@ -973,8 +947,6 @@ export class ProjectionService {
       handlers: {
         onMessage: (msg) => this.onDriverMessage(msg as Message),
         onMetaMessage: (driver, msg) => this.onMetaMessage(driver, msg),
-        onFailure: () => this.onDriverFailure(),
-        onTargetedConnect: () => this.onDriverTargetedConnect(),
         onVideoCodec: (c) => this.onDriverVideoCodec(c),
         onClusterVideoCodec: (c) => this.onDriverClusterVideoCodec(c),
         onVideoConfig: (cd) => this.onDriverVideoConfig(cd),
@@ -984,7 +956,6 @@ export class ProjectionService {
       onAaDisconnected: (s) => this.onAaDisconnected(s as AaSession),
       onAaPresence: (s, p) => this.onAaPresence(s as AaSession, p),
       onAaCreated: (s) => this.attachCodecCapture(s),
-      onAaReleased: () => {},
       getAaConfigSeed: () => ({
         hevcSupported: this.codecCaps.hevc,
         vp9Supported: this.codecCaps.vp9,
@@ -997,7 +968,6 @@ export class ProjectionService {
       onCpHelperPresence: (p) => this.onCpHelperPresence(p),
       onCpHelperConnect: () => this.deviceController.resendReconnectTargets(),
       onCpCreated: (s) => this.attachCodecCapture(s as CpSession),
-      onCpReleased: () => {},
       getCpConfigSeed: () => ({
         hevcSupported: this.codecCaps.hevc,
         vp9Supported: this.codecCaps.vp9,
@@ -1064,14 +1034,7 @@ export class ProjectionService {
         this.sessions.all().some((s) => s.protocol === 'androidauto' && s.transport === 'usb'),
       hasWiredCpSession: () =>
         this.sessions.all().some((s) => s.protocol === 'carplay' && s.transport === 'usb'),
-      onChange: () => this.emitTransportState(),
-      onShouldStop: async () => {
-        const a = this.sessions.active()
-        if (a) this.sessions.close(a.index)
-      },
-      onShouldAutoStart: () => {
-        this.autoStartIfNeeded().catch(console.error)
-      }
+      onChange: () => this.emitTransportState()
     })
 
     this.audio = new ProjectionAudio(
@@ -1166,26 +1129,6 @@ export class ProjectionService {
 
   public attachRenderer(webContents: WebContents) {
     this.webContents = webContents
-
-    // Drain any video chunks that arrived from the phone before the renderer
-    // window had finished loading. Per-channel so cluster IDR is preserved.
-    if (this.earlyVideoQueues.size > 0) {
-      const queues = this.earlyVideoQueues
-      this.earlyVideoQueues = new Map()
-      for (const [channel, queued] of queues) {
-        console.log(
-          `[ProjectionService] draining ${queued.length} early '${channel}' chunk(s) to attached renderer`
-        )
-        for (const envelope of queued) {
-          try {
-            if (typeof webContents.isDestroyed === 'function' && webContents.isDestroyed()) return
-            webContents.send(channel, envelope)
-          } catch {
-            /* detached */
-          }
-        }
-      }
-    }
   }
 
   public applyConfigPatch(patch: Partial<Config>): void {
@@ -1428,8 +1371,7 @@ export class ProjectionService {
 
     const { connectedMac: connected, phones } = this.btPaired.ingest(devices, {
       cpClaimedBtMacs: this.cpClaimedBtMacs(),
-      preferMac: opts.preferMac,
-      keepHostRawIfEmpty: this.hostDevList.length > 0
+      preferMac: opts.preferMac
     })
     for (const p of phones) if (p.name) this.deviceRegistry.noteName(p.mac, p.name)
     const wasSettled = this.btInitialQueryDone
@@ -1789,12 +1731,6 @@ export class ProjectionService {
       console.log('[ProjectionService] autoStart skipped: no start candidate')
       return
     }
-    if (decision.kind === 'defer') {
-      setTimeout(() => {
-        this.autoStartIfNeeded().catch(console.error)
-      }, decision.retryMs)
-      return
-    }
 
     await this.start()
   }
@@ -1979,7 +1915,6 @@ export class ProjectionService {
     if (!this.started) return
 
     this.sessions.clear()
-    this.arbiter.resetNativeProbeDefer()
 
     this.stopPromise = (async () => {
       this.clearTimeouts()
@@ -2053,8 +1988,6 @@ export class ProjectionService {
   ) {
     if (!data) return
     const wcs = targets ?? (this.webContents ? [this.webContents] : [])
-    const isVideoChannel = channel === 'projection-video-chunk' || channel === 'cluster-video-chunk'
-    const noTargets = wcs.length === 0
 
     let offset = 0
     const total = data.byteLength
@@ -2079,25 +2012,12 @@ export class ProjectionService {
         ...(extra ?? {})
       }
 
-      if (noTargets && isVideoChannel) {
-        // Buffers the chunk for replay once the renderer attaches, capped per channel.
-        let q = this.earlyVideoQueues.get(channel)
-        if (!q) {
-          q = []
-          this.earlyVideoQueues.set(channel, q)
-        }
-        q.push(envelope)
-        if (q.length > ProjectionService.EARLY_QUEUE_MAX_PER_CHANNEL) {
-          q.shift()
-        }
-      } else {
-        for (const wc of wcs) {
-          try {
-            if (typeof wc.isDestroyed === 'function' && wc.isDestroyed()) continue
-            wc.send(channel, envelope)
-          } catch {
-            // ignored: detached webContents
-          }
+      for (const wc of wcs) {
+        try {
+          if (typeof wc.isDestroyed === 'function' && wc.isDestroyed()) continue
+          wc.send(channel, envelope)
+        } catch {
+          // ignored: detached webContents
         }
       }
       offset = end

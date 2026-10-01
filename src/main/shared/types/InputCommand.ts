@@ -16,8 +16,6 @@ export enum InputCommand {
   VoiceAssistant = 'voiceAssistant'
 }
 
-export type InputCommandKey = `${InputCommand}`
-
 export function isInputCommand(value: unknown): value is InputCommand {
   return typeof value === 'string' && (Object.values(InputCommand) as string[]).includes(value)
 }

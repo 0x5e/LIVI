@@ -3,26 +3,14 @@ import { create } from 'zustand'
 
 type VolumeStreamKey = 'music' | 'nav' | 'voiceAssistant' | 'call'
 
-export type BluetoothPairedDevice = {
-  mac: string
-  name: string
-}
-
 type CarplaySettingsApi = {
   get?: () => Promise<Config>
   save?: (settings: Partial<Config>) => Promise<void>
   onUpdate?: (cb: (event: unknown, settings: Config) => void) => () => void
 }
 
-type CarplayUsbApi = {
-  forceReset?: () => Promise<void> | void
-}
-
 type CarplayIpcApi = {
   setVolume?: (stream: VolumeStreamKey, volume: number) => void
-  setBluetoothPairedList?: (listText: string) => Promise<{ ok: boolean }>
-  connectBluetoothPairedDevice?: (mac: string) => Promise<{ ok: boolean }> | { ok: boolean } | void
-  forgetBluetoothPairedDevice?: (mac: string) => Promise<{ ok: boolean }> | { ok: boolean } | void
   sendCommand?: (command: string) => void
   onTelemetry?: (handler: (payload: unknown) => void) => void
   offTelemetry?: (handler: (payload: unknown) => void) => void
@@ -31,7 +19,6 @@ type CarplayIpcApi = {
 
 type ProjectionApi = {
   settings?: CarplaySettingsApi
-  usb?: CarplayUsbApi
   ipc?: CarplayIpcApi
 }
 
@@ -141,21 +128,13 @@ export interface CarplayStore {
 
   // Bootstrapping
   init: () => void
-  getSettings: () => Promise<void>
 
   // Save patches (main merges them into config.json)
   saveSettings: (patch: Partial<Config>) => Promise<void>
-  setDarkMode: (darkMode: boolean) => Promise<void>
 
   // Display resolution
   negotiatedWidth: number | null
   negotiatedHeight: number | null
-
-  // USB descriptor
-  vendorId: number | null
-  productId: number | null
-  usbFwVersion: string | null
-  setDeviceInfo: (info: { vendorId: number; productId: number; usbFwVersion: string }) => void
 
   // Audio metadata
   audioSampleRate: number | null
@@ -172,66 +151,14 @@ export interface CarplayStore {
   callVolume: number
   visualAudioDelayMs: number
 
-  // Audio setters
-  setAudioVolume: (volume: number) => void
-  setNavVolume: (volume: number) => void
-  setVoiceAssistantVolume: (volume: number) => void
-  setCallVolume: (volume: number) => void
-
-  // Bluetooth paired list
-  bluetoothPairedListRaw: string
-  bluetoothPairedDevices: BluetoothPairedDevice[]
-  setBluetoothPairedList: (raw: string) => void
-
   // Bumped on every audio-device topology change from gst-device-monitor
   audioDevicesRevision: number
   bumpAudioDevicesRevision: () => void
-
-  // Local edits (pending apply)
-  bluetoothPairedDirty: boolean
-  bluetoothPairedDeleteNeedsRestart: boolean
-  applyBluetoothPairedList: () => Promise<boolean>
-
-  // BT (forget, connect)
-  // warning forget does have a dongle firmware bug!
-  forgetBluetoothPairedDevice: (mac: string) => Promise<boolean>
-  connectBluetoothPairedDevice: (mac: string) => Promise<boolean>
-
-  // Reconstruct text payload to send back to dongle
-  buildBluetoothPairedListText: () => string
-
-  // Reset volatile info
-  resetInfo: () => void
 }
 
 export const useLiviStore = create<CarplayStore>((set, get) => {
   // Prevent double init (strict mode / hot reload)
   let didInit = false
-
-  const parseBluetoothPairedList = (raw: string): BluetoothPairedDevice[] => {
-    const clean = String(raw).replace(/\0+$/g, '')
-    const lines = clean.split('\n')
-
-    const out: BluetoothPairedDevice[] = []
-
-    for (const lineRaw of lines) {
-      const line = String(lineRaw).replace(/\0+$/g, '').replace(/\r$/, '').trim()
-      if (!line) continue
-
-      const mac = line.slice(0, 17)
-      if (mac.length !== 17 || !mac.includes(':')) continue
-
-      const name = line.slice(17).trim()
-      out.push({ mac, name })
-    }
-
-    return out
-  }
-
-  const buildBluetoothPairedListFromDevices = (devices: BluetoothPairedDevice[]): string => {
-    const lines = devices.map((d) => `${d.mac}${String(d.name ?? '').trim()}`)
-    return lines.join('\n') + '\n'
-  }
 
   const refreshFromMain = async () => {
     const s = await getSettingsIpc()
@@ -256,98 +183,9 @@ export const useLiviStore = create<CarplayStore>((set, get) => {
   return {
     settings: null,
 
-    bluetoothPairedListRaw: '',
-    bluetoothPairedDevices: [],
-    bluetoothPairedDirty: false,
-    bluetoothPairedDeleteNeedsRestart: false,
-
     audioDevicesRevision: 0,
     bumpAudioDevicesRevision: () =>
       set((s) => ({ audioDevicesRevision: s.audioDevicesRevision + 1 })),
-
-    setBluetoothPairedList: (raw) => {
-      const clean = String(raw ?? '').replace(/\0+$/g, '')
-      set({
-        bluetoothPairedListRaw: clean,
-        bluetoothPairedDevices: parseBluetoothPairedList(clean),
-        bluetoothPairedDirty: false,
-        bluetoothPairedDeleteNeedsRestart: false
-      })
-    },
-
-    forgetBluetoothPairedDevice: async (mac) => {
-      const api = getProjectionApi()
-      if (!api?.ipc?.forgetBluetoothPairedDevice) return false
-
-      try {
-        const res = await api.ipc.forgetBluetoothPairedDevice(mac)
-        const ok = Boolean(res && typeof res === 'object' && 'ok' in res ? res.ok : true)
-
-        if (ok) {
-          set((s) => {
-            const next = s.bluetoothPairedDevices.filter((d) => d.mac !== mac)
-            return {
-              bluetoothPairedDevices: next,
-              bluetoothPairedListRaw: buildBluetoothPairedListFromDevices(next),
-              bluetoothPairedDirty: false,
-              bluetoothPairedDeleteNeedsRestart: false
-            }
-          })
-        }
-
-        return ok
-      } catch (err) {
-        console.warn('[BT] forgetBluetoothPairedDevice failed', err)
-        return false
-      }
-    },
-
-    connectBluetoothPairedDevice: async (mac) => {
-      const api = getProjectionApi()
-      if (!api?.ipc?.connectBluetoothPairedDevice) return false
-
-      try {
-        const res = await api.ipc.connectBluetoothPairedDevice(mac)
-        return Boolean(res && typeof res === 'object' && 'ok' in res ? res.ok : true)
-      } catch (err) {
-        console.warn('[BT] connectBluetoothPairedDevice failed', err)
-        return false
-      }
-    },
-
-    buildBluetoothPairedListText: () => {
-      const { bluetoothPairedDevices } = get()
-      return buildBluetoothPairedListFromDevices(bluetoothPairedDevices)
-    },
-
-    applyBluetoothPairedList: async () => {
-      const api = getProjectionApi()
-      if (!api?.ipc?.setBluetoothPairedList) return false
-
-      try {
-        const text = get().buildBluetoothPairedListText()
-        const res = await api.ipc.setBluetoothPairedList(text)
-        const ok = Boolean(res?.ok)
-
-        if (ok) {
-          const needsRestart = get().bluetoothPairedDeleteNeedsRestart
-
-          set({
-            bluetoothPairedDirty: false,
-            bluetoothPairedDeleteNeedsRestart: false
-          })
-
-          if (needsRestart) {
-            await api.usb?.forceReset?.()
-          }
-        }
-
-        return ok
-      } catch (err) {
-        console.warn('[BT] applyBluetoothPairedList failed', err)
-        return false
-      }
-    },
 
     restartBaseline: null,
     markRestartBaseline: () => {
@@ -399,14 +237,6 @@ export const useLiviStore = create<CarplayStore>((set, get) => {
       }
     },
 
-    getSettings: async () => {
-      await refreshFromMain()
-    },
-
-    setDarkMode: async (darkMode) => {
-      await get().saveSettings({ darkMode })
-    },
-
     saveSettings: async (patchArg) => {
       let patch = patchArg
 
@@ -447,16 +277,6 @@ export const useLiviStore = create<CarplayStore>((set, get) => {
     negotiatedWidth: null,
     negotiatedHeight: null,
 
-    vendorId: null,
-    productId: null,
-    usbFwVersion: null,
-    setDeviceInfo: ({ vendorId, productId, usbFwVersion }) =>
-      set({
-        vendorId,
-        productId,
-        usbFwVersion: usbFwVersion?.trim() ? usbFwVersion.trim() : null
-      }),
-
     audioSampleRate: null,
     setAudioInfo: ({ sampleRate }) => set({ audioSampleRate: sampleRate }),
 
@@ -468,35 +288,7 @@ export const useLiviStore = create<CarplayStore>((set, get) => {
     navVolume: 0.95,
     voiceAssistantVolume: 0.95,
     callVolume: 0.95,
-    visualAudioDelayMs: 120,
-
-    setAudioVolume: (audioVolume) => {
-      set({ audioVolume })
-      void get().saveSettings({ audioVolume })
-    },
-    setNavVolume: (navVolume) => {
-      set({ navVolume })
-      void get().saveSettings({ navVolume })
-    },
-    setVoiceAssistantVolume: (voiceAssistantVolume) => {
-      set({ voiceAssistantVolume })
-      void get().saveSettings({ voiceAssistantVolume })
-    },
-    setCallVolume: (callVolume) => {
-      set({ callVolume })
-      void get().saveSettings({ callVolume })
-    },
-
-    resetInfo: () =>
-      set({
-        negotiatedWidth: null,
-        negotiatedHeight: null,
-        vendorId: null,
-        productId: null,
-        usbFwVersion: null,
-        audioSampleRate: null,
-        audioPcmData: null
-      })
+    visualAudioDelayMs: 120
   }
 })
 

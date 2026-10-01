@@ -14,7 +14,7 @@
 
 import { EventEmitter } from 'node:events'
 import { AV_MSG, FRAME_FLAGS } from '../constants.js'
-import type { RawFrame } from '../frame/codec.js'
+import type { RawFrame } from '../frame/types.js'
 import { decodeFields, decodeVarintValue, fieldVarint } from './protoEnc.js'
 
 type SendFn = (channelId: number, flags: number, msgId: number, data: Buffer) => void

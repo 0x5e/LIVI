@@ -83,9 +83,4 @@ export class TelemetrySocket {
       }
     })
   }
-
-  async connect(): Promise<void> {
-    await new Promise((r) => setTimeout(r, 200))
-    this.startServer()
-  }
 }

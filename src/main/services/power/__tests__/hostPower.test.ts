@@ -1,12 +1,7 @@
 import { spawn } from 'node:child_process'
 import fs from 'node:fs'
 import type { Mock } from 'vitest'
-import {
-  hostPowerAvailable,
-  pendingPowerAction,
-  requestPowerAction,
-  runPendingPowerAction
-} from '../hostPower'
+import { hostPowerAvailable, requestPowerAction, runPendingPowerAction } from '../hostPower'
 
 vi.mock('node:child_process', () => ({ spawn: vi.fn(() => ({ unref: vi.fn() })) }))
 vi.mock('node:fs', () => ({ default: { existsSync: vi.fn(() => true) } }))
@@ -103,15 +98,5 @@ describe('runPendingPowerAction', () => {
     requestPowerAction('reboot')
     expect(() => runPendingPowerAction()).not.toThrow()
     expect(warn).toHaveBeenCalledWith('[power] could not reboot:', 'EPERM')
-  })
-})
-
-describe('pendingPowerAction', () => {
-  test('reports what is queued and clears on run', () => {
-    expect(pendingPowerAction()).toBeNull()
-    requestPowerAction('poweroff')
-    expect(pendingPowerAction()).toBe('poweroff')
-    runPendingPowerAction()
-    expect(pendingPowerAction()).toBeNull()
   })
 })

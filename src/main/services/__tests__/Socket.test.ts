@@ -107,14 +107,6 @@ describe('TelemetrySocket', () => {
     expect(io.close).toHaveBeenCalled()
   })
 
-  test('connect() spins a new server back up', async () => {
-    const store = new TelemetryStore()
-    const ts = new TelemetrySocket(store, 4007)
-    await ts.disconnect()
-    await ts.connect()
-    expect(ts.io).not.toBeNull()
-  })
-
   test('disconnect resolves directly when there is no httpServer', async () => {
     const store = new TelemetryStore()
     const ts = new TelemetrySocket(store, 4008)

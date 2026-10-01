@@ -19,10 +19,6 @@ export function requestPowerAction(action: PowerAction): void {
   pending = action
 }
 
-export function pendingPowerAction(): PowerAction | null {
-  return pending
-}
-
 /** Detached, so the helper outlives the process that asked for it. */
 export function runPendingPowerAction(): void {
   const action = pending

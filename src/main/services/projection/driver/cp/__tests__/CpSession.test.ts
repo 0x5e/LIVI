@@ -227,9 +227,8 @@ describe('CpSession construction and stack config', () => {
 })
 
 describe('CpSession driver surface', () => {
-  it('start resolves true and reports wireless mode', async () => {
+  it('reports wireless mode', () => {
     const { session } = makeSession()
-    await expect(session.start(baseConfig())).resolves.toBe(true)
     expect(session.isWiredMode()).toBe(false)
   })
 

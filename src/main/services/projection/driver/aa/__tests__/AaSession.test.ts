@@ -91,7 +91,6 @@ import { CarType } from '@shared/types/Config'
 import { InputCommand } from '@shared/types/InputCommand'
 import { CommandMapping, MultiTouchAction, TouchAction } from '@shared/types/ProjectionEnums'
 import {
-  SendCloseDongle,
   SendCommand,
   SendDisconnectPhone,
   SendMultiTouch,
@@ -294,12 +293,6 @@ describe('AaSession: construction', () => {
   test('isWiredMode reflects the ctor flag', () => {
     expect(makeSession({ wired: false }).isWiredMode()).toBe(false)
     expect(makeSession({ wired: true }).isWiredMode()).toBe(true)
-  })
-
-  test('start() resolves true, the link was adopted at construction already', async () => {
-    const d = makeSession()
-    await expect(d.start(baseCfg())).resolves.toBe(true)
-    expect(lastAaStack.instance!.attachLink).toHaveBeenCalledTimes(1)
   })
 })
 
@@ -512,12 +505,6 @@ describe('AaSession.send: shutdown messages', () => {
   test('SendDisconnectPhone calls AAStack.requestShutdown', async () => {
     const d = makeSession()
     await d.send(new SendDisconnectPhone())
-    expect(lastAaStack.instance!.requestShutdown).toHaveBeenCalled()
-  })
-
-  test('SendCloseDongle calls AAStack.requestShutdown', async () => {
-    const d = makeSession()
-    await d.send(new SendCloseDongle())
     expect(lastAaStack.instance!.requestShutdown).toHaveBeenCalled()
   })
 })

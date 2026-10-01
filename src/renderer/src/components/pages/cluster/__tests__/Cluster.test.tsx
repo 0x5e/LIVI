@@ -165,7 +165,6 @@ describe('Cluster page', () => {
       act(() => {
         cbs.forEach((cb) => cb(undefined))
         cbs.forEach((cb) => cb(undefined, { type: 'zzz' }))
-        cbs.forEach((cb) => cb(undefined, { type: 'failure' }))
       })
     ).not.toThrow()
   })

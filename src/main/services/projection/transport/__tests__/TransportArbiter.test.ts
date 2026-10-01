@@ -11,8 +11,6 @@ type DepStubs = {
   wiredAaSession: boolean
   wiredCpSession: boolean
   onChange: Mock
-  onShouldStop: Mock
-  onShouldAutoStart: Mock
 }
 
 // Wired phones are helper sessions, the two wired stubs stand in for the session manager
@@ -26,8 +24,6 @@ function makeArbiter(overrides: Partial<DepStubs> = {}) {
     wiredAaSession: false,
     wiredCpSession: false,
     onChange: vi.fn(),
-    onShouldStop: vi.fn(async () => {}),
-    onShouldAutoStart: vi.fn(),
     ...overrides
   }
   const deps: ArbiterDeps = {
@@ -38,9 +34,7 @@ function makeArbiter(overrides: Partial<DepStubs> = {}) {
     isWiredCpSessionActive: () => stubs.wiredCpSessionActive,
     hasWiredAaSession: () => stubs.wiredAaSession,
     hasWiredCpSession: () => stubs.wiredCpSession,
-    onChange: stubs.onChange,
-    onShouldStop: stubs.onShouldStop,
-    onShouldAutoStart: stubs.onShouldAutoStart
+    onChange: stubs.onChange
   }
   return { arbiter: new TransportArbiter(deps), stubs }
 }
@@ -76,7 +70,6 @@ describe('TransportArbiter', () => {
 
       stubs.wiredAaSession = false
       expect(arbiter.pickPreferred()).toBeNull()
-      expect(arbiter.hasNativeCandidate()).toBe(false)
     })
 
     test('the snapshot reports a wired phone for either wired session', () => {
@@ -87,28 +80,6 @@ describe('TransportArbiter', () => {
       expect(makeArbiter({ wiredCpSession: true }).arbiter.getSnapshot().wiredPhoneDetected).toBe(
         true
       )
-    })
-  })
-
-  describe('hasNativeCandidate', () => {
-    test('true when the helper holds a wired AA session', () => {
-      const { arbiter } = makeArbiter({ wiredAaSession: true })
-      expect(arbiter.hasNativeCandidate()).toBe(true)
-    })
-
-    test('true when the helper holds a wired CP session', () => {
-      const { arbiter } = makeArbiter({ wiredCpSession: true })
-      expect(arbiter.hasNativeCandidate()).toBe(true)
-    })
-
-    test('true when wireless is enabled and a phone is in range', () => {
-      const { arbiter } = makeArbiter({ wirelessAaEnabled: true, wirelessPhoneInRange: true })
-      expect(arbiter.hasNativeCandidate()).toBe(true)
-    })
-
-    test('false when wireless is disabled and no wired session exists', () => {
-      const { arbiter } = makeArbiter({ wirelessAaEnabled: false })
-      expect(arbiter.hasNativeCandidate()).toBe(false)
     })
   })
 

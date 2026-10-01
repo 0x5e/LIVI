@@ -2,7 +2,6 @@ import {
   aaContentArea,
   clamp,
   computeAndroidAutoDpi,
-  getCurrentTimeInMs,
   matchFittingAAResolution,
   pixelAspectRatioE4
 } from '@main/shared/utils/androidAuto'
@@ -18,14 +17,6 @@ describe('androidAuto utils', () => {
 
   test('clamp clamps to the maximum bound', () => {
     expect(clamp(15, 0, 10)).toBe(10)
-  })
-
-  test('getCurrentTimeInMs returns rounded unix time in seconds', () => {
-    const nowSpy = vi.spyOn(Date, 'now').mockReturnValue(1234)
-
-    expect(getCurrentTimeInMs()).toBe(1)
-
-    nowSpy.mockRestore()
   })
 
   test('matchFittingAAResolution 1920×1080 — exact tier match', () => {

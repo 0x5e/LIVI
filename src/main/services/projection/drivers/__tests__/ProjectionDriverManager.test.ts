@@ -67,14 +67,12 @@ type Spies = {
   onAaDisconnected: Mock
   onAaPresence: Mock
   onAaCreated: Mock
-  onAaReleased: Mock
   onCpConnected: Mock
   onCpDisconnected: Mock
   onCpPresence: Mock
   onCpHelperPresence: Mock
   onCpHelperConnect: Mock
   onCpCreated: Mock
-  onCpReleased: Mock
 }
 
 function buildDeps(over: Partial<DriverManagerDeps> = {}): {
@@ -84,8 +82,6 @@ function buildDeps(over: Partial<DriverManagerDeps> = {}): {
   const handlers = {
     onMessage: vi.fn(),
     onMetaMessage: vi.fn(),
-    onFailure: vi.fn(),
-    onTargetedConnect: vi.fn(),
     onVideoCodec: vi.fn(),
     onClusterVideoCodec: vi.fn(),
     onVideoConfig: vi.fn(),
@@ -95,21 +91,18 @@ function buildDeps(over: Partial<DriverManagerDeps> = {}): {
   const onAaDisconnected = vi.fn()
   const onAaPresence = vi.fn()
   const onAaCreated = vi.fn()
-  const onAaReleased = vi.fn()
   const onCpConnected = vi.fn()
   const onCpDisconnected = vi.fn()
   const onCpPresence = vi.fn()
   const onCpHelperPresence = vi.fn()
   const onCpHelperConnect = vi.fn()
   const onCpCreated = vi.fn()
-  const onCpReleased = vi.fn()
   const deps: DriverManagerDeps = {
     handlers,
     onAaConnected,
     onAaDisconnected,
     onAaPresence,
     onAaCreated,
-    onAaReleased,
     getAaConfigSeed: () => ({
       hevcSupported: true,
       vp9Supported: false,
@@ -122,7 +115,6 @@ function buildDeps(over: Partial<DriverManagerDeps> = {}): {
     onCpHelperPresence,
     onCpHelperConnect,
     onCpCreated,
-    onCpReleased,
     getCpConfigSeed: () => ({
       hevcSupported: false,
       vp9Supported: false,
@@ -140,14 +132,12 @@ function buildDeps(over: Partial<DriverManagerDeps> = {}): {
       onAaDisconnected,
       onAaPresence,
       onAaCreated,
-      onAaReleased,
       onCpConnected,
       onCpDisconnected,
       onCpPresence,
       onCpHelperPresence,
       onCpHelperConnect,
-      onCpCreated,
-      onCpReleased
+      onCpCreated
     }
   }
 }
@@ -185,14 +175,10 @@ describe('ProjectionDriverManager', () => {
     mgr.route(session as never)
 
     session.emit('message', { type: 1 })
-    session.emit('failure')
-    session.emit('targeted-connect-dispatched')
     session.emit('video-codec', 'h264')
     session.emit('cluster-video-codec', 'h265')
 
     expect(spies.handlers.onMessage).toHaveBeenCalledWith({ type: 1 })
-    expect(spies.handlers.onFailure).toHaveBeenCalled()
-    expect(spies.handlers.onTargetedConnect).toHaveBeenCalled()
     expect(spies.handlers.onVideoCodec).toHaveBeenCalledWith('h264')
     expect(spies.handlers.onClusterVideoCodec).toHaveBeenCalledWith('h265')
   })
@@ -284,7 +270,6 @@ describe('ProjectionDriverManager', () => {
 
     session.emit('disconnected')
     expect(spies.onAaDisconnected).toHaveBeenCalledWith(session)
-    expect(spies.onAaReleased).toHaveBeenCalledWith(session)
   })
 
   test('every supervisor reconnect cycle closes its session again', () => {
@@ -387,7 +372,6 @@ describe('ProjectionDriverManager', () => {
     mgr.route(session as never)
     session.emit('disconnected')
     expect(spies.onCpDisconnected).toHaveBeenCalledWith(session)
-    expect(spies.onCpReleased).toHaveBeenCalledWith(session)
     expect(mgr.getActive()).toBeNull()
   })
 

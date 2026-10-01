@@ -69,11 +69,3 @@ export function startLinkSpeedMonitor(): void {
   timer = setInterval(() => void sample(), POLL_MS)
   timer.unref?.()
 }
-
-export function stopLinkSpeedMonitor(): void {
-  if (timer) {
-    clearInterval(timer)
-    timer = null
-  }
-  prev = null
-}

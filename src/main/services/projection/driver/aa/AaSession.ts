@@ -11,7 +11,6 @@ import { MicTap } from '@main/services/audio/micTap'
 import { DONGLE_LINK, dongleApMac } from '@main/services/link/dongleAp'
 import {
   type SendableMessage,
-  SendCloseDongle,
   SendCommand,
   SendDisconnectPhone,
   SendMultiTouch,
@@ -140,10 +139,6 @@ export class AaSession extends EventEmitter implements IPhoneDriver {
         void this.close()
       })
     })
-  }
-
-  async start(_cfg: Config): Promise<boolean> {
-    return true
   }
 
   setHevcSupported(supported: boolean): void {
@@ -485,7 +480,7 @@ export class AaSession extends EventEmitter implements IPhoneDriver {
    *   - SendTouch         (single pointer, normalised 0..1 coordinates)
    *   - SendMultiTouch    (multi-pointer, normalised 0..1 coordinates)
    *   - SendCommand       (subset: 'frame', 'requestVideoFocus' → keyframe, rest no-op)
-   *   - SendDisconnectPhone / SendCloseDongle  → ByeByeRequest(USER_SELECTION)
+   *   - SendDisconnectPhone → ByeByeRequest(USER_SELECTION)
    *
    */
   async send(msg: SendableMessage): Promise<boolean> {
@@ -618,7 +613,7 @@ export class AaSession extends EventEmitter implements IPhoneDriver {
       }
     }
 
-    if (msg instanceof SendDisconnectPhone || msg instanceof SendCloseDongle) {
+    if (msg instanceof SendDisconnectPhone) {
       await this._aa.requestShutdown()
       return true
     }

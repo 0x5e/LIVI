@@ -4,10 +4,6 @@ import type { ProjectionIpcHost } from './types'
 type Deps = Pick<ProjectionIpcHost, 'isStarted' | 'isUsingAa' | 'connectBt' | 'refreshBtPaired'>
 
 export function registerBluetoothIpc(host: Deps): void {
-  registerIpcHandle('projection-bt-pairedlist-set', async () => {
-    return { ok: host.isStarted() }
-  })
-
   registerIpcHandle('projection-bt-connect-device', async (_evt, mac: string) => {
     if (!host.isStarted()) return { ok: false }
     const btMac = String(mac ?? '').trim()
@@ -20,10 +16,5 @@ export function registerBluetoothIpc(host: Deps): void {
     } catch (e) {
       return { ok: false, error: (e as Error).message }
     }
-  })
-
-  registerIpcHandle('projection-bt-forget-device', async (_evt, mac: string) => {
-    if (!host.isStarted() || !String(mac ?? '').trim()) return { ok: false }
-    return { ok: false, error: 'forget is not available without a dongle' }
   })
 }

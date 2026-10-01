@@ -9,10 +9,7 @@ export const candidateEquals = (a: Candidate, b: Candidate): boolean =>
 
 export type { TransportSnapshot } from '@shared/types'
 
-export type StartDecision =
-  | { kind: 'none' }
-  | { kind: 'start'; candidate: Candidate }
-  | { kind: 'defer'; retryMs: number }
+export type StartDecision = { kind: 'none' } | { kind: 'start'; candidate: Candidate }
 
 export type ArbiterDeps = {
   isWirelessEnabled: () => boolean
@@ -23,6 +20,4 @@ export type ArbiterDeps = {
   hasWiredAaSession: () => boolean
   hasWiredCpSession: () => boolean
   onChange: () => void
-  onShouldStop: () => Promise<void>
-  onShouldAutoStart: () => void
 }

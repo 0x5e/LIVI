@@ -38,22 +38,3 @@ export interface runtimeStateProps {
 }
 
 export type NullDeleteKey = (typeof NULL_DELETES)[number]
-
-export interface Stream {
-  speed: number
-  rpm: number
-  temperature: number
-}
-
-export interface ServerToClientEvents {
-  settings: (config: Config) => void
-  reverse: (reverse: boolean) => void
-  lights: (lights: boolean) => void
-}
-
-export interface ClientToServerEvents {
-  connection: () => void
-  getSettings: () => void
-  saveSettings: (settings: Config) => void
-  stream: (stream: Stream) => void
-}

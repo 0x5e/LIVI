@@ -1,30 +1,11 @@
 export enum CommandMapping {
-  invalid = 0, // 'invalid'
-  startRecordAudio = 1,
-  stopRecordAudio = 2,
   requestHostUI = 3, // 'Projection interface My Car button clicked'
   disableBluetooth = 4,
   voiceAssistant = 5, // PTT press (VOICE_ASSIST keycode)
   voiceAssistantRelease = 6, // PTT release
-  mic = 7, // 'Car Microphone'
-  boxMic = 8, // 'Dongle integrated Microphone'
   frame = 12,
-  hideUI = 14,
-  boxMici2s = 15, // 'Box Microphone'
   enableNightMode = 16,
   disableNightMode = 17,
-  startGnssReport = 18,
-  stopGnssReport = 19,
-  phoneMic = 21, // 'Phone Microphone'
-  audioTransferOn = 22, // Disable audio
-  audioTransferOff = 23, // Default - Phone streams audio to LIVI
-  wifi24g = 24, // '2.4G Wifi'
-  wifi5g = 25, // '5G Wifi'
-  refreshFrame = 26,
-  enableStandbyMode = 28,
-  disableStandbyMode = 29,
-  startBleAdvertising = 30,
-  stopBleAdvertising = 31,
 
   // D-PAD
   left = 100, // 'Button Left'
@@ -73,28 +54,8 @@ export enum CommandMapping {
   // Android Auto
   requestVideoFocus = 500,
   releaseVideoFocus = 501,
-  requestAudioFocusDuck = 504,
-  releaseAudioFocus = 505,
   requestClusterFocus = 506,
-  releaseClusterFocus = 507,
-  requestClusterStreamFocus = 508,
-  releaseClusterStreamFocus = 509,
-
-  // Connection Status Commands
-  wifiEnable = 1000,
-  autoConnetEnable = 1001,
-  wifiConnect = 1002,
-  scanningDevice = 1003,
-  deviceFound = 1004,
-  deviceNotFound = 1005,
-  connectDeviceFailed = 1006,
-  btConnected = 1007,
-  btDisconnected = 1008,
-  wifiConnected = 1009,
-  wifiDisconnected = 1010,
-  btPairStart = 1011,
-  wifiPair = 1012,
-  getBtOnlineList = 1013
+  requestClusterStreamFocus = 508
 }
 
 export type CommandValue = keyof typeof CommandMapping

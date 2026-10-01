@@ -87,7 +87,6 @@ export const VERSION = {
   STATUS_MISMATCH: 0xffff
 } as const
 
-export const TCP_PORT = 5277
 export const STATUS_OK = 0
 
 export const VIDEO_RESOLUTION = {

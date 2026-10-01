@@ -41,7 +41,6 @@ export const DEFAULT_CONFIG: Config = {
   hand: HandDriveType.LHD,
   samplingFrequency: 1,
   autoConn: true,
-  UseBTPhone: false,
   disableAudioOutput: false,
   wifiType: '5ghz',
   wifiChannel: 36,

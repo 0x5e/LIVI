@@ -16,21 +16,12 @@ const CP_WIRELESS: Candidate = { transport: 'cp', mode: 'wireless' }
 export class TransportArbiter {
   private override: Candidate | null = null
 
-  private nativeProbeDeferred = false
-  private nativeProbeStartedAt = 0
-  private nativeProbeDeadline = 0
-
   constructor(private readonly deps: ArbiterDeps) {}
 
   // Queries -----------------------------------------------------------------
 
   getOverride(): Candidate | null {
     return this.override
-  }
-
-  hasNativeCandidate(): boolean {
-    if (this.deps.hasWiredAaSession() || this.deps.hasWiredCpSession()) return true
-    return this.deps.isWirelessEnabled() && this.deps.isWirelessPhoneInRange()
   }
 
   detectedCandidates(): Candidate[] {
@@ -72,12 +63,6 @@ export class TransportArbiter {
     return { kind: 'start', candidate: target }
   }
 
-  resetNativeProbeDefer(): void {
-    this.nativeProbeDeferred = false
-    this.nativeProbeStartedAt = 0
-    this.nativeProbeDeadline = 0
-  }
-
   getSnapshot(): TransportSnapshot {
     const active = this.deps.getActiveTransport()
     const isPhoneActive = active === 'aa' || active === 'cp'
@@ -111,7 +96,6 @@ export class TransportArbiter {
   // Force the override to a specific candidate (used by device-list connect)
   setOverride(candidate: Candidate): void {
     this.override = candidate
-    this.resetNativeProbeDefer()
     this.deps.onChange()
   }
 
@@ -124,7 +108,6 @@ export class TransportArbiter {
     const idx = detected.findIndex((c) => candidateEquals(c, anchor))
     const next = detected[(idx + 1) % detected.length]
     this.override = next
-    this.resetNativeProbeDefer()
     this.deps.onChange()
     return { ok: true, target: next }
   }

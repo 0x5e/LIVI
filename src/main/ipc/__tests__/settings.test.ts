@@ -3,16 +3,11 @@ import { registerIpcHandle } from '@main/ipc/register'
 import { registerSettingsIpc } from '@main/ipc/settings'
 import { pickAssetForPlatform } from '@main/ipc/update/pickAsset'
 import { configEvents, saveSettings } from '@main/ipc/utils'
-import { currentKiosk } from '@main/window/utils'
 import { app } from 'electron'
 import type { Mock } from 'vitest'
 
 vi.mock('@main/ipc/register', () => ({
   registerIpcHandle: vi.fn()
-}))
-
-vi.mock('@main/window/utils', () => ({
-  currentKiosk: vi.fn(() => true)
 }))
 
 vi.mock('@main/ipc/update/pickAsset', () => ({
@@ -71,7 +66,6 @@ describe('registerSettingsIpc', () => {
     const channels = (registerIpcHandle as Mock).mock.calls.map(([ch]) => ch)
     expect(channels).toEqual(
       expect.arrayContaining([
-        'settings:get-kiosk',
         'getSettings',
         'save-settings',
         'app:getVersion',
@@ -91,14 +85,6 @@ describe('registerSettingsIpc', () => {
 
     expect(saveSettings).toHaveBeenCalledWith(runtimeState, patch)
     expect(result).toBe(true)
-  })
-
-  test('settings:get-kiosk returns currentKiosk(runtimeState.config)', async () => {
-    registerSettingsIpc(runtimeState)
-    const handler = getHandler<() => boolean>('settings:get-kiosk')
-
-    expect(handler()).toBe(true)
-    expect(currentKiosk).toHaveBeenCalledWith(runtimeState.config)
   })
 
   test('app:getVersion returns electron app version', async () => {

@@ -18,13 +18,10 @@ import {
   switchDongle
 } from '@main/services/link/dongleAp'
 import { GhRelease, runtimeStateProps } from '@main/types'
-import { currentKiosk } from '@main/window/utils'
 import type { Config } from '@shared/types'
 import { app } from 'electron'
 
 export function registerSettingsIpc(runtimeState: runtimeStateProps) {
-  registerIpcHandle('settings:get-kiosk', () => currentKiosk(runtimeState.config))
-
   registerIpcHandle('getSettings', () => runtimeState.config)
 
   registerIpcHandle('save-settings', (_evt, settings: Partial<Config>) => {

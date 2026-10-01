@@ -34,7 +34,6 @@ vi.mock('../../messages', async () => {
     SendTouch: Stub,
     SendMultiTouch: Stub,
     SendDisconnectPhone: Stub,
-    SendCloseDongle: Stub,
     decodeTypeMap: {},
     DEFAULT_CONFIG: { apkVer: '1.0.0', language: 'en' }
   }

@@ -43,7 +43,6 @@ import { loadConfig } from './config/loadConfig'
 import { restartApp } from './ipc/app'
 import { CarBridgeService } from './services/carBridge/CarBridgeService'
 import { checkAndInstallUdevRule } from './services/usb/udevRule'
-import { registerUsbIpc } from './services/usb/usbIpc'
 import {
   backdropHex,
   setCompositorBackdrop,
@@ -75,7 +74,6 @@ if (bootstrapCompositor()) {
 app.whenReady().then(async () => {
   if (!bootAllowed) return
   const projectionService = new ProjectionService()
-  registerUsbIpc()
   const telemetryStore = new TelemetryStore()
   const telemetrySocket = new TelemetrySocket(telemetryStore, 4000)
 

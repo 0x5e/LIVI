@@ -54,6 +54,4 @@ export class SendMultiTouch extends SendableMessage {
   }
 }
 
-export class SendCloseDongle extends SendableMessage {}
-
 export class SendDisconnectPhone extends SendableMessage {}

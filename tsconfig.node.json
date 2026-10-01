@@ -23,8 +23,7 @@
       "@shared/*": ["./src/main/shared/*"],
       "@projection/messages": ["./src/main/services/projection/messages/index.ts"],
       "@projection/messages/*": ["./src/main/services/projection/messages/*"],
-      "@projection/*": ["./src/main/services/projection/*"],
-      "@audio": ["./src/main/audio/index.ts"]
+      "@projection/*": ["./src/main/services/projection/*"]
     }
   }
 }

@@ -1,6 +1,6 @@
 import type { Mock } from 'vitest'
 import { AV_MSG, CH, FRAME_FLAGS } from '../../constants'
-import type { RawFrame } from '../../frame/codec'
+import type { RawFrame } from '../../frame/types'
 import { AudioChannel, type AudioChannelType } from '../AudioChannel'
 import { fieldVarint } from '../protoEnc'
 

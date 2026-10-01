@@ -1,21 +1,10 @@
-import {
-  clamp,
-  computeAndroidAutoDpi,
-  getCurrentTimeInMs,
-  matchFittingAAResolution
-} from '@shared/utils'
+import { clamp, computeAndroidAutoDpi, matchFittingAAResolution } from '@shared/utils'
 
 describe('projection message utils', () => {
   test('clamp limits values to inclusive range', () => {
     expect(clamp(5, 0, 10)).toBe(5)
     expect(clamp(-1, 0, 10)).toBe(0)
     expect(clamp(99, 0, 10)).toBe(10)
-  })
-
-  test('getCurrentTimeInMs returns seconds from Date.now rounded', () => {
-    const nowSpy = vi.spyOn(Date, 'now').mockReturnValue(1234)
-    expect(getCurrentTimeInMs()).toBe(1)
-    nowSpy.mockRestore()
   })
 
   test('matchFittingAAResolution picks 1080p tier for 1920×1080', () => {

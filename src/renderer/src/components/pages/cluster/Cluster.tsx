@@ -58,7 +58,7 @@ export const Cluster: React.FC<ClusterProps> = ({ visible, showLoadingPlaceholde
   useEffect(() => {
     const handler = (_evt: unknown, ...args: unknown[]) => {
       const msg = (args[0] ?? {}) as { type?: string }
-      if (msg.type !== 'unplugged' && msg.type !== 'failure') return
+      if (msg.type !== 'unplugged') return
       setClusterStreamActive(false)
       void window.projection.ipc.requestCluster(false).catch(() => {})
     }

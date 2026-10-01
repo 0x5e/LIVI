@@ -42,8 +42,7 @@ const mainAlias = {
   '@projection/messages': resolve(import.meta.dirname, 'src/main/services/projection/messages'),
   '@projection': resolve(import.meta.dirname, 'src/main/services/projection'),
   '@main': path.resolve(import.meta.dirname, 'src/main'),
-  '@shared': path.resolve(import.meta.dirname, 'src/main/shared'),
-  '@audio': path.resolve(import.meta.dirname, 'src/main/audio')
+  '@shared': path.resolve(import.meta.dirname, 'src/main/shared')
 }
 
 const rendererAlias = {

@@ -95,7 +95,6 @@ const CarplayComponent: React.FC<CarplayProps> = ({
   const setActiveProtocol = useStatusStore((s) => s.setActiveProtocol)
   const isProjectionActive = useProjectionActive()
   const setAudioInfo = useLiviStore((s) => s.setAudioInfo)
-  const setBluetoothPairedList = useLiviStore((s) => s.setBluetoothPairedList)
   const bumpAudioDevicesRevision = useLiviStore((s) => s.bumpAudioDevicesRevision)
   const negotiatedWidth = useLiviStore((s) => s.negotiatedWidth)
   const negotiatedHeight = useLiviStore((s) => s.negotiatedHeight)
@@ -227,19 +226,6 @@ const CarplayComponent: React.FC<CarplayProps> = ({
       const t = typeof d.type === 'string' ? d.type : undefined
 
       switch (t) {
-        case 'bluetoothPairedList': {
-          const raw =
-            typeof d.payload === 'string'
-              ? d.payload
-              : typeof (d.payload as { data?: unknown } | undefined)?.data === 'string'
-                ? ((d.payload as { data?: string }).data as string)
-                : typeof d.data === 'string'
-                  ? (d.data as string)
-                  : ''
-
-          setBluetoothPairedList(raw)
-          break
-        }
         case 'audioDevicesChanged': {
           bumpAudioDevicesRevision()
           break
@@ -310,13 +296,6 @@ const CarplayComponent: React.FC<CarplayProps> = ({
           setActiveProtocol(protocol)
           break
         }
-
-        case 'failure': {
-          setStreaming(false)
-          setActiveProtocol(null)
-          setReceivingVideo(false)
-          break
-        }
       }
     }
 
@@ -331,7 +310,6 @@ const CarplayComponent: React.FC<CarplayProps> = ({
     setActiveProtocol,
     applyAttention,
     setAudioInfo,
-    setBluetoothPairedList,
     bumpAudioDevicesRevision,
     settings.dashboards
   ])

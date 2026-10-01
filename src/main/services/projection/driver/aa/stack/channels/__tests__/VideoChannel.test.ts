@@ -1,5 +1,5 @@
 import { AV_MSG, CH, FRAME_FLAGS } from '../../constants'
-import type { RawFrame } from '../../frame/codec'
+import type { RawFrame } from '../../frame/types'
 import { decodeFields, decodeVarintValue, fieldVarint } from '../protoEnc'
 import { VideoChannel } from '../VideoChannel'
 

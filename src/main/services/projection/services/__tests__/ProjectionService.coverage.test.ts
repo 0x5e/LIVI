@@ -99,7 +99,6 @@ vi.mock('../../messages', async () => {
     SendServerCgiScript: StubMsg,
     SendLiviWeb: StubMsg,
     SendDisconnectPhone: StubMsg,
-    SendCloseDongle: StubMsg,
     FileAddress: { ICON_120: '/120', ICON_180: '/180', ICON_256: '/256' },
     BoxUpdateProgress: class {
       constructor(public progress?: number) {}
@@ -659,23 +658,6 @@ describe('ProjectionService video handling', () => {
     expect(svc.planes.setClusterCodec).toHaveBeenCalledWith('vp9')
   })
 
-  test('onDriverFailure sends a failure event to a live renderer', () => {
-    const svc = makeSvc()
-    const send = vi.fn()
-    svc.webContents = { send, isDestroyed: () => false }
-    svc.onDriverFailure()
-    expect(send).toHaveBeenCalledWith('projection-event', { type: 'failure' })
-  })
-
-  test('onDriverFailure is a no-op without a live renderer', () => {
-    const svc = makeSvc()
-    svc.webContents = null
-    expect(() => svc.onDriverFailure()).not.toThrow()
-    svc.webContents = { send: vi.fn(), isDestroyed: () => true }
-    svc.onDriverFailure()
-    expect(svc.webContents.send).not.toHaveBeenCalled()
-  })
-
   test('setVideoVisible and setClusterVisible delegate to plane manager', () => {
     const svc = makeSvc()
     svc.planes.setVideoVisible = vi.fn()
@@ -1185,42 +1167,7 @@ describe('ProjectionService delegations and ipc host', () => {
   })
 })
 
-describe('ProjectionService renderer draining and chunking', () => {
-  test('attachRenderer drains buffered early video chunks to the renderer', () => {
-    const svc = makeSvc()
-    const send = vi.fn()
-    const wc = { send, isDestroyed: () => false }
-    svc.earlyVideoQueues = new Map([['projection-video-chunk', [{ id: 'a' }, { id: 'b' }]]])
-    svc.attachRenderer(wc)
-    expect(send).toHaveBeenCalledTimes(2)
-    expect(svc.earlyVideoQueues.size).toBe(0)
-  })
-
-  test('attachRenderer stops draining when the renderer is destroyed mid-flush', () => {
-    const svc = makeSvc()
-    let destroyed = false
-    const wc = {
-      send: vi.fn(() => {
-        destroyed = true
-      }),
-      isDestroyed: () => destroyed
-    }
-    svc.earlyVideoQueues = new Map([
-      ['cluster-video-chunk', [{ id: 'a' }, { id: 'b' }, { id: 'c' }]]
-    ])
-    svc.attachRenderer(wc)
-    expect(wc.send).toHaveBeenCalledTimes(1)
-  })
-
-  test('sendChunked buffers video chunks when no renderer is attached and caps the queue', () => {
-    const svc = makeSvc()
-    svc.webContents = null
-    const big = new Uint8Array(260).fill(1).buffer
-    svc.sendChunked('projection-video-chunk', big, 1)
-    const q = svc.earlyVideoQueues.get('projection-video-chunk')
-    expect(q.length).toBe(256)
-  })
-
+describe('ProjectionService chunking', () => {
   test('sendChunked sends to explicit targets and skips destroyed ones', () => {
     const svc = makeSvc()
     const good = { isDestroyed: () => false, send: vi.fn() }
@@ -1428,7 +1375,6 @@ describe('ProjectionService syncHelperSupervisor (linux)', () => {
     Object.defineProperty(process, 'platform', { value: 'darwin', configurable: true })
     const sup = { stop: vi.fn(async () => undefined) }
     svc.helperSupervisor = sup
-    svc.btEnableKey = 'h'
     svc.config = {}
     svc.syncHelperSupervisor()
     expect(svc.helperSupervisor).toBe(sup)
@@ -1703,8 +1649,6 @@ describe('ProjectionService constructor wiring closures', () => {
 
     const d = fakeDriver()
     deps.handlers.onMetaMessage(d, new MediaData())
-    deps.handlers.onFailure()
-    deps.handlers.onTargetedConnect()
     deps.handlers.onVideoCodec('h264')
     deps.handlers.onClusterVideoCodec('h264')
     deps.handlers.onVideoConfig(Buffer.from([1]))
@@ -1713,7 +1657,6 @@ describe('ProjectionService constructor wiring closures', () => {
     deps.onAaDisconnected(d)
     deps.onAaPresence(d, {})
     deps.onAaCreated(d)
-    deps.onAaReleased(d)
     expect(deps.getAaConfigSeed()).toMatchObject({ hevcSupported: expect.any(Boolean) })
     deps.onCpConnected(d)
     deps.onCpDisconnected(d)
@@ -1721,7 +1664,6 @@ describe('ProjectionService constructor wiring closures', () => {
     deps.onCpHelperPresence({})
     deps.onCpHelperConnect()
     deps.onCpCreated(d)
-    deps.onCpReleased(d)
     expect(deps.getCpConfigSeed()).toMatchObject({ vp9Supported: expect.any(Boolean) })
     expect(deps.getConfig()).toBe(svc.config)
 
@@ -1733,9 +1675,6 @@ describe('ProjectionService constructor wiring closures', () => {
   test('arbiter dependency closures reflect service state and drive callbacks', () => {
     const svc = makeSvc()
     svc.emitTransportState = vi.fn()
-    svc.autoStartIfNeeded = vi.fn(async () => undefined)
-    svc.sessions.active = vi.fn(() => ({ index: 3 }))
-    svc.sessions.close = vi.fn()
     svc.getActiveTransport = vi.fn(() => 'aa')
     svc.started = true
 
@@ -1751,12 +1690,8 @@ describe('ProjectionService constructor wiring closures', () => {
     expect(deps.hasWiredAaSession()).toBe(false)
     expect(deps.hasWiredCpSession()).toBe(false)
     deps.onChange()
-    deps.onShouldStop()
-    deps.onShouldAutoStart()
 
     expect(svc.emitTransportState).toHaveBeenCalled()
-    expect(svc.sessions.close).toHaveBeenCalledWith(3)
-    expect(svc.autoStartIfNeeded).toHaveBeenCalled()
   })
 
   test('audio closures wire projection events, chunking and stream levels back to the service', () => {
@@ -1889,23 +1824,12 @@ describe('ProjectionService start / autoStart', () => {
     expect(svc.start).not.toHaveBeenCalled()
   })
 
-  test('autoStartIfNeeded returns for a none decision and reschedules for defer', async () => {
-    vi.useFakeTimers()
+  test('autoStartIfNeeded returns for a none decision', async () => {
     const svc = makeSvc()
     svc.start = vi.fn(async () => undefined)
     svc.arbiter.decideNextStart = vi.fn(() => ({ kind: 'none' }))
     await svc.autoStartIfNeeded()
     expect(svc.start).not.toHaveBeenCalled()
-
-    svc.arbiter.decideNextStart = vi
-      .fn()
-      .mockReturnValueOnce({ kind: 'defer', retryMs: 10 })
-      .mockReturnValue({ kind: 'none' })
-    const spy = vi.spyOn(svc, 'autoStartIfNeeded')
-    await svc.autoStartIfNeeded()
-    await vi.advanceTimersByTimeAsync(20)
-    expect(spy).toHaveBeenCalledTimes(2)
-    vi.useRealTimers()
   })
 })
 
@@ -2422,24 +2346,6 @@ describe('ProjectionService syncHelperSupervisor edge branches', () => {
     if (realPlatform) Object.defineProperty(process, 'platform', realPlatform)
   })
 
-  test('restarts and stops an existing supervisor when the enable key changes', () => {
-    Object.defineProperty(process, 'platform', { value: 'linux', configurable: true })
-    const svc = makeSvc()
-    svc.drivers.startCp = vi.fn()
-    svc.drivers.attachHelper = vi.fn()
-    svc.openAaBtSubscription = vi.fn()
-    svc.populateAaBtPairedListInitial = vi.fn(async () => undefined)
-    const oldSup = { stop: vi.fn(async () => undefined) }
-    svc.helperSupervisor = oldSup
-    svc.btEnableKey = ''
-    svc.config = { wirelessAaEnabled: true }
-
-    svc.syncHelperSupervisor()
-
-    expect(oldSup.stop).toHaveBeenCalled()
-    expect(svc.helperSupervisor).not.toBe(oldSup)
-  })
-
   test('releases CP when CP is no longer wanted', () => {
     // win32: neither linux nor macOS, so wantCp is false and an active CP is released.
     Object.defineProperty(process, 'platform', { value: 'win32', configurable: true })
@@ -2665,32 +2571,6 @@ describe('ProjectionService error-lambda and small-branch coverage', () => {
     }
   })
 
-  test('syncHelperSupervisor swallows rejected old + stop supervisor stops', async () => {
-    Object.defineProperty(process, 'platform', { value: 'linux', configurable: true })
-    try {
-      const svc = makeSvc()
-      svc.drivers.startCp = vi.fn()
-      svc.drivers.attachHelper = vi.fn()
-      svc.openAaBtSubscription = vi.fn()
-      svc.populateAaBtPairedListInitial = vi.fn(async () => undefined)
-      svc.helperSupervisor = { stop: vi.fn(() => Promise.reject(new Error('old boom'))) }
-      svc.btEnableKey = ''
-      svc.config = { wirelessAaEnabled: true }
-      svc.syncHelperSupervisor()
-      await Promise.resolve()
-
-      Object.defineProperty(process, 'platform', { value: 'darwin', configurable: true })
-      svc.helperSupervisor = { stop: vi.fn(() => Promise.reject(new Error('stop boom'))) }
-      svc.btEnableKey = 'h'
-      svc.config = {}
-      svc.drivers.releaseCp = vi.fn(async () => undefined)
-      svc.syncHelperSupervisor()
-      await Promise.resolve()
-    } finally {
-      Object.defineProperty(process, 'platform', { value: 'darwin', configurable: true })
-    }
-  })
-
   test('syncHelperSupervisor wireless-AA start settles its populate promise', async () => {
     Object.defineProperty(process, 'platform', { value: 'linux', configurable: true })
     try {
@@ -2856,14 +2736,6 @@ describe('ProjectionService final branch fill', () => {
     svc.lastClusterVideoWidth = undefined
     svc.lastClusterVideoHeight = undefined
     expect(svc.planes.deps.getClusterVideoSize()).toEqual({ width: 0, height: 0 })
-  })
-
-  test('arbiter onShouldStop closure is a no-op without an active session', () => {
-    const svc = makeSvc()
-    svc.sessions.active = vi.fn(() => null)
-    svc.sessions.close = vi.fn()
-    svc.arbiter.deps.onShouldStop()
-    expect(svc.sessions.close).not.toHaveBeenCalled()
   })
 
   test('switchTransport breaks immediately when the override is already gone', async () => {
@@ -3677,25 +3549,6 @@ describe('ProjectionService 100%-coverage fill', () => {
     const mgr = { setAaWireless: vi.fn() }
     svc.drivers.getCpManager = vi.fn(() => mgr)
     expect(svc.getCpDriver()).toBe(mgr)
-  })
-
-  test('the BtPairedRegistry emit dep forwards the paired-list event to a live renderer', async () => {
-    const svc = makeSvc()
-    svc.webContents = { send: vi.fn() }
-    svc.deviceController.emitDevices = vi.fn()
-    bluezMock.listPaired.mockResolvedValueOnce([
-      { mac: 'AA:BB:CC:DD:EE:FF', name: 'Phone', class: 0x200404, connected: true }
-    ])
-    await svc.refreshBtPairedList()
-    expect(svc.webContents.send).toHaveBeenCalledWith(
-      'projection-event',
-      expect.objectContaining({ type: 'bluetoothPairedList' })
-    )
-  })
-
-  test('onDriverTargetedConnect is a no-op for native drivers', () => {
-    const svc = makeSvc()
-    expect(() => svc.onDriverTargetedConnect()).not.toThrow()
   })
 
   test('the audio-device monitor callback emits audioDevicesChanged', () => {

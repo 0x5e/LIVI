@@ -7,7 +7,6 @@ vi.mock('@main/window/broadcast', () => ({ broadcastToRenderers }))
 const POLL_MS = 1500
 
 let startLinkSpeedMonitor: () => void
-let stopLinkSpeedMonitor: () => void
 
 // Each test gets its own module instance: the monitor keeps the interval, the in-flight flag and
 // the previous sample in module scope.
@@ -16,11 +15,11 @@ beforeEach(async () => {
   vi.useFakeTimers()
   dongleStatus.mockReset()
   broadcastToRenderers.mockReset()
-  ;({ startLinkSpeedMonitor, stopLinkSpeedMonitor } = await import('../linkSpeed'))
+  ;({ startLinkSpeedMonitor } = await import('../linkSpeed'))
 })
 
 afterEach(() => {
-  stopLinkSpeedMonitor()
+  vi.clearAllTimers()
   vi.useRealTimers()
   vi.restoreAllMocks()
 })
@@ -144,20 +143,5 @@ describe('link speed monitor', () => {
     await poll()
 
     expect(dongleStatus).toHaveBeenCalledTimes(1)
-  })
-
-  it('stops polling once it is stopped', async () => {
-    dongleStatus.mockResolvedValue(null)
-    startLinkSpeedMonitor()
-    await poll()
-    stopLinkSpeedMonitor()
-    await poll(2)
-
-    expect(dongleStatus).toHaveBeenCalledTimes(1)
-  })
-
-  it('stopping a monitor that never started is a no-op', () => {
-    expect(() => stopLinkSpeedMonitor()).not.toThrow()
-    expect(broadcastToRenderers).not.toHaveBeenCalled()
   })
 })

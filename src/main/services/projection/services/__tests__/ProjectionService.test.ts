@@ -57,7 +57,6 @@ vi.mock('../../messages', async () => {
     SendServerCgiScript: StubMsg,
     SendLiviWeb: StubMsg,
     SendDisconnectPhone: StubMsg,
-    SendCloseDongle: StubMsg,
     FileAddress: { ICON_120: '/120', ICON_180: '/180', ICON_256: '/256' },
     BoxUpdateProgress: class {
       constructor(public progress?: number) {}
@@ -220,7 +219,7 @@ describe('ProjectionService', () => {
     svc.webContents = null
 
     expect(() =>
-      svc.sendChunked('projection-video-chunk', new Uint8Array([1, 2, 3]).buffer, 2)
+      svc.sendChunked('projection-audio-chunk', new Uint8Array([1, 2, 3]).buffer, 2)
     ).not.toThrow()
   })
 
@@ -229,7 +228,7 @@ describe('ProjectionService', () => {
     routeMockDriver(svc)
     svc.webContents = { send: vi.fn() }
 
-    svc.sendChunked('projection-video-chunk', undefined, 2)
+    svc.sendChunked('projection-audio-chunk', undefined, 2)
 
     expect(svc.webContents.send).not.toHaveBeenCalled()
   })
@@ -240,8 +239,8 @@ describe('ProjectionService', () => {
     const send = vi.fn()
     svc.webContents = { send }
 
-    svc.sendChunked('projection-video-chunk', new Uint8Array([1, 2, 3, 4, 5]).buffer, 2, {
-      kind: 'video'
+    svc.sendChunked('projection-audio-chunk', new Uint8Array([1, 2, 3, 4, 5]).buffer, 2, {
+      audioType: 1
     })
 
     expect(send).toHaveBeenCalledTimes(3)
@@ -250,11 +249,11 @@ describe('ProjectionService', () => {
     const second = send.mock.calls[1][1]
     const third = send.mock.calls[2][1]
 
-    expect(send.mock.calls[0][0]).toBe('projection-video-chunk')
+    expect(send.mock.calls[0][0]).toBe('projection-audio-chunk')
     expect(first.offset).toBe(0)
     expect(first.total).toBe(5)
     expect(first.isLast).toBe(false)
-    expect(first.kind).toBe('video')
+    expect(first.audioType).toBe(1)
     expect(Buffer.isBuffer(first.chunk)).toBe(true)
 
     expect(second.offset).toBe(2)
@@ -729,17 +728,6 @@ describe('ProjectionService', () => {
     const out = await getHandle('projection-navigation-read').call(svc)
 
     expect(out.payload).toEqual(nav)
-  })
-
-  test('driver failure event emits projection failure to renderer', async () => {
-    const svc = new ProjectionService() as any
-    routeMockDriver(svc)
-    const send = vi.fn()
-    svc.webContents = { send }
-
-    svc.driver.emit('failure')
-
-    expect(send).toHaveBeenCalledWith('projection-event', { type: 'failure' })
   })
 
   test('driver Command message emits command event and requests navi focus when value is 508', async () => {

@@ -1,20 +1,5 @@
-import type { ElectronAPI } from '@electron-toolkit/preload'
 import type { Config, DeviceView, TransportSnapshot } from '@shared/types'
 import type { MultiTouchPoint } from '@shared/types/TouchTypes'
-
-// Should move to src/types/usb.ts
-interface USBDevice {
-  readonly productName?: string
-  readonly manufacturerName?: string
-  readonly serialNumber?: string
-  readonly deviceVersionMajor?: number
-  readonly deviceVersionMinor?: number
-  readonly vendorId: number
-  readonly productId: number
-}
-interface USBDeviceRequestOptions {
-  filters?: Array<Partial<USBDevice>>
-}
 
 declare global {
   type UpdateEvent =
@@ -42,10 +27,6 @@ declare global {
   const __BUILD_BRANCH__: string
 }
 
-type UsbDeviceInfo =
-  | { device: false; vendorId: null; productId: null; usbFwVersion: string }
-  | { device: true; vendorId: number; productId: number; usbFwVersion: string }
-
 type MediaPayload = {
   timestamp: string
   payload: {
@@ -64,35 +45,12 @@ type MediaPayload = {
   }
 } | null
 
-type DevToolsUploadResult = {
-  ok: boolean
-  cgiOk: boolean
-  webOk: boolean
-  urls: string[]
-  startedAt: string
-  finishedAt: string
-  durationMs: number
-}
-
 declare global {
-  interface Navigator {
-    usb: {
-      getDevices(): Promise<USBDevice[]>
-      requestDevice(options?: USBDeviceRequestOptions): Promise<USBDevice>
-      addEventListener(type: 'connect' | 'disconnect', listener: (ev: Event) => void): void
-      removeEventListener(type: 'connect' | 'disconnect', listener: (ev: Event) => void): void
-    }
-  }
-
   interface Window {
-    electron: ElectronAPI
-
     projection: {
       quit(): Promise<void>
-      onUSBResetStatus(callback: (event: unknown, ...args: unknown[]) => void): void
 
       usb: {
-        getSysdefaultPrettyName(): Promise<string>
         listenForEvents(callback: (event: unknown, ...args: unknown[]) => void): () => void
       }
 

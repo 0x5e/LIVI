@@ -11,7 +11,6 @@ import {
   persistKioskAndBroadcast,
   restoreKioskAfterWmExit,
   sanitizeBounds,
-  sendKioskSync,
   uiZoomFactor
 } from '@main/window/utils'
 import { screen } from 'electron'
@@ -230,16 +229,6 @@ describe('window utils', () => {
       kiosk: { main: false, dash: false, aux: false }
     })
     expect(saveSettings).not.toHaveBeenCalled()
-  })
-
-  test('sendKioskSync emits kiosk sync event', () => {
-    const send = vi.fn()
-    sendKioskSync(true, { webContents: { send } } as any)
-    expect(send).toHaveBeenCalledWith('settings:kiosk-sync', true)
-  })
-
-  test('sendKioskSync does nothing when window is null', () => {
-    expect(() => sendKioskSync(true, null)).not.toThrow()
   })
 
   test('restoreKioskAfterWmExit returns early on non-linux', () => {

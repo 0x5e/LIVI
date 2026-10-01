@@ -19,7 +19,6 @@ const liviState: Record<string, any> = {
   negotiatedHeight: 0,
   setAudioInfo: vi.fn(),
   setPcmData: vi.fn(),
-  setBluetoothPairedList: vi.fn(),
   bumpAudioDevicesRevision: vi.fn()
 }
 
@@ -66,7 +65,6 @@ describe('Projection page', () => {
     liviState.negotiatedHeight = 0
     liviState.setAudioInfo.mockClear()
     liviState.setPcmData.mockClear()
-    liviState.setBluetoothPairedList.mockClear()
     liviState.bumpAudioDevicesRevision.mockClear()
 
     ;(global as any).ResizeObserver = vi.fn(function () {
@@ -106,19 +104,6 @@ describe('Projection page', () => {
     expect(setReceivingVideo).toHaveBeenCalledWith(false)
   })
 
-  test('handles bluetoothPairedList event from payload string', async () => {
-    render(<Projection {...baseProps()} />)
-
-    act(() => {
-      onEventCb?.(null, {
-        type: 'bluetoothPairedList',
-        payload: 'device-a\ndevice-b'
-      })
-    })
-
-    expect(liviState.setBluetoothPairedList).toHaveBeenCalledWith('device-a\ndevice-b')
-  })
-
   test('handles audioInfo event', async () => {
     render(<Projection {...baseProps()} />)
 
@@ -150,19 +135,6 @@ describe('Projection page', () => {
     await waitFor(() => {
       expect(navigateMock).toHaveBeenCalledWith('/media', { replace: true })
     })
-  })
-
-  test('handles bluetoothPairedList event', async () => {
-    render(<Projection {...baseProps()} />)
-
-    act(() => {
-      onEventCb?.(null, {
-        type: 'bluetoothPairedList',
-        payload: 'device-a\ndevice-b'
-      })
-    })
-
-    expect(liviState.setBluetoothPairedList).toHaveBeenCalledWith('device-a\ndevice-b')
   })
 
   test('handles audioInfo event', async () => {
@@ -244,20 +216,6 @@ describe('Projection page', () => {
     expect(statusState.setActiveProtocol).toHaveBeenCalledWith(null)
     expect(setReceivingVideo).not.toHaveBeenCalled()
     expect(statusState.setStreaming).not.toHaveBeenCalled()
-  })
-
-  test('IPC failure event clears all streaming state', async () => {
-    const setReceivingVideo = vi.fn()
-
-    render(<Projection {...baseProps({ setReceivingVideo })} />)
-
-    act(() => {
-      onEventCb?.(null, { type: 'failure' })
-    })
-
-    expect(statusState.setStreaming).toHaveBeenCalledWith(false)
-    expect(statusState.setActiveProtocol).toHaveBeenCalledWith(null)
-    expect(setReceivingVideo).toHaveBeenCalledWith(false)
   })
 
   // ── Audio command events ──────────────────────────────────────────────────
@@ -624,36 +582,6 @@ describe('Projection page', () => {
 
     ;(global as any).ResizeObserver = original
     document.body.removeChild(anchor)
-  })
-
-  test('bluetoothPairedList reads a nested payload.data string', async () => {
-    render(<Projection {...baseProps()} />)
-
-    act(() => {
-      onEventCb?.(null, { type: 'bluetoothPairedList', payload: { data: 'nested-a\nnested-b' } })
-    })
-
-    expect(liviState.setBluetoothPairedList).toHaveBeenCalledWith('nested-a\nnested-b')
-  })
-
-  test('bluetoothPairedList reads a top-level data string', async () => {
-    render(<Projection {...baseProps()} />)
-
-    act(() => {
-      onEventCb?.(null, { type: 'bluetoothPairedList', data: 'top-a\ntop-b' })
-    })
-
-    expect(liviState.setBluetoothPairedList).toHaveBeenCalledWith('top-a\ntop-b')
-  })
-
-  test('bluetoothPairedList falls back to an empty string', async () => {
-    render(<Projection {...baseProps()} />)
-
-    act(() => {
-      onEventCb?.(null, { type: 'bluetoothPairedList' })
-    })
-
-    expect(liviState.setBluetoothPairedList).toHaveBeenCalledWith('')
   })
 
   test('audioDevicesChanged bumps the audio devices revision', async () => {

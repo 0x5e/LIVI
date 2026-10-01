@@ -2,7 +2,6 @@ import { getSecondaryWindow } from '@main/window/secondaryWindows'
 import type { Config } from '@shared/types'
 import type { WebContents } from 'electron'
 import { GstVideo } from '../../../video/GstVideo'
-import { classifyNal } from '../../../video/keyframe'
 import { VideoPlaneManager, type VideoPlaneManagerDeps } from '../VideoPlaneManager'
 
 vi.mock('../../../video/GstVideo', () => ({
@@ -23,16 +22,11 @@ vi.mock('../../../video/gstHost', () => ({
   clusterPlaneId: vi.fn(() => 202)
 }))
 
-vi.mock('../../../video/keyframe', () => ({
-  classifyNal: vi.fn(() => 'keyframe')
-}))
-
 vi.mock('@main/window/secondaryWindows', () => ({
   getSecondaryWindow: vi.fn()
 }))
 
 const gstMock = vi.mocked(GstVideo)
-const classifyMock = vi.mocked(classifyNal)
 const secondaryMock = vi.mocked(getSecondaryWindow)
 
 type PlaneMock = {
@@ -84,7 +78,6 @@ function mkSecondary(): { isDestroyed: () => boolean; webContents: Record<string
 describe('VideoPlaneManager', () => {
   beforeEach(() => {
     vi.clearAllMocks()
-    classifyMock.mockReturnValue('keyframe')
   })
 
   describe('main plane', () => {

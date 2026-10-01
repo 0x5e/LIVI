@@ -106,10 +106,6 @@ export function persistKioskAndBroadcast(kiosk: boolean, runtimeState: runtimeSt
   saveSettings(runtimeState, { kiosk: withMainKiosk(runtimeState.config, kiosk) })
 }
 
-export function sendKioskSync(kiosk: boolean, mainWindow: BrowserWindow | null = null) {
-  mainWindow?.webContents.send('settings:kiosk-sync', kiosk)
-}
-
 export function restoreKioskAfterWmExit(runtimeState: runtimeStateProps) {
   const mainWindow: BrowserWindow | null = getMainWindow()
 

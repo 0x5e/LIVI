@@ -26,9 +26,6 @@ export function SettingsPage() {
   const { state, handleFieldChange, needsRestart, restart, requestRestart } =
     useSmartSettingsFromSchema(settingsSchema, settings)
 
-  const btDirty = useLiviStore((s) => s.bluetoothPairedDirty)
-  const applyBtList = useLiviStore((s) => s.applyBluetoothPairedList)
-
   const wirelessAaEnabled = Boolean(settings?.wirelessAaEnabled)
   const wirelessCpEnabled = Boolean(settings?.wirelessCpEnabled)
   const restartAvailable = useProjectionActive() || wirelessAaEnabled || wirelessCpEnabled
@@ -36,20 +33,13 @@ export function SettingsPage() {
   const handleRestart = async () => {
     if (!restartAvailable) return
 
-    if (needsRestart) {
-      await restart()
-      return
-    }
-
-    if (btDirty && typeof applyBtList === 'function') {
-      await applyBtList()
-    }
+    if (needsRestart) await restart()
   }
 
   if (!node) return null
 
   const title = node.labelKey ? t(node.labelKey) : node.label
-  const showRestart = restartAvailable && (Boolean(needsRestart) || Boolean(btDirty))
+  const showRestart = restartAvailable && Boolean(needsRestart)
 
   if ('path' in node && node.page) {
     const labelPath = node.type === 'select' ? node.labelPath : undefined

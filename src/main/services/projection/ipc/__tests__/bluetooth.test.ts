@@ -29,18 +29,6 @@ beforeEach(() => {
   handlers.clear()
 })
 
-describe('bluetooth ipc — projection-bt-pairedlist-set', () => {
-  test('returns { ok: false } when not started', async () => {
-    registerBluetoothIpc(fakeHost({ isStarted: vi.fn(() => false) }))
-    expect(await handlers.get('projection-bt-pairedlist-set')!(null, 'x')).toEqual({ ok: false })
-  })
-
-  test('returns { ok: true } when started', async () => {
-    registerBluetoothIpc(fakeHost())
-    expect(await handlers.get('projection-bt-pairedlist-set')!(null, 'x')).toEqual({ ok: true })
-  })
-})
-
 describe('bluetooth ipc — projection-bt-connect-device', () => {
   test('rejects when not started or mac empty', async () => {
     registerBluetoothIpc(fakeHost({ isStarted: vi.fn(() => false) }))
@@ -98,28 +86,6 @@ describe('bluetooth ipc — projection-bt-connect-device', () => {
   test('a missing mac is treated as empty', async () => {
     registerBluetoothIpc(fakeHost())
     expect(await handlers.get('projection-bt-connect-device')!(null, undefined)).toEqual({
-      ok: false
-    })
-  })
-})
-
-describe('bluetooth ipc — projection-bt-forget-device', () => {
-  test('rejects when not started or mac empty', async () => {
-    registerBluetoothIpc(fakeHost({ isStarted: vi.fn(() => false) }))
-    expect(await handlers.get('projection-bt-forget-device')!(null, 'AA')).toEqual({ ok: false })
-  })
-
-  test('forget is not available without a dongle', async () => {
-    registerBluetoothIpc(fakeHost())
-    const res = (await handlers.get('projection-bt-forget-device')!(null, 'AA:BB')) as {
-      ok: boolean
-    }
-    expect(res.ok).toBe(false)
-  })
-
-  test('forget with a missing mac rejects', async () => {
-    registerBluetoothIpc(fakeHost())
-    expect(await handlers.get('projection-bt-forget-device')!(null, undefined)).toEqual({
       ok: false
     })
   })

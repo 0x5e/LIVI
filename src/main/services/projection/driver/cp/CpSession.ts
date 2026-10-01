@@ -124,10 +124,6 @@ export class CpSession extends EventEmitter implements IPhoneDriver {
     this._stack?.attachSocket(socket)
   }
 
-  async start(_cfg: Config): Promise<boolean> {
-    return true
-  }
-
   /** CarPlay is wireless-only here; the wired-carkit label is tracked by ProjectionService. */
   isWiredMode(): boolean {
     return false

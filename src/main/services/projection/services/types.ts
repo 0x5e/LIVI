@@ -60,7 +60,6 @@ export type ProjectionEvent =
   | { type: 'projection'; shown: boolean }
   | { type: 'audioDevicesChanged' }
   | { type: 'transportState'; payload: TransportSnapshot }
-  | { type: 'bluetoothPairedList'; payload: string }
   | { type: 'session'; protocol: SessionProtocol | null; position: number; total: number }
   | { type: 'devices'; payload: DeviceView[] }
   | { type: 'media'; payload: { payload: PersistedMediaPayload } }
@@ -75,4 +74,3 @@ export type ProjectionEvent =
         phase?: 'incoming' | 'ended'
       }
     }
-  | { type: 'failure' }

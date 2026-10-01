@@ -154,7 +154,6 @@ export type Config = {
 
   // Audio
   samplingFrequency: 0 | 1
-  UseBTPhone: boolean
   disableAudioOutput: boolean
   huVolume: number
   huVolumeLinkSystem: boolean

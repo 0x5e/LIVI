@@ -56,10 +56,6 @@ vi.mock('@main/services/projection/services/ProjectionService', () => ({
   })
 }))
 
-vi.mock('../services/usb/usbIpc', () => ({
-  registerUsbIpc: vi.fn()
-}))
-
 vi.mock('@main/services/Socket', () => ({
   TelemetrySocket: vi.fn().mockImplementation(function () {
     return { disconnect: vi.fn() }
@@ -169,7 +165,6 @@ describe('main index bootstrap', () => {
     const { ProjectionService } = await import(
       '@main/services/projection/services/ProjectionService'
     )
-    const { registerUsbIpc } = await import('../services/usb/usbIpc')
     const { TelemetrySocket } = await import('@main/services/Socket')
     const { seedCustomPage, setCustomPageConfig } = await import('@main/protocol/appProtocol')
 
@@ -183,7 +178,6 @@ describe('main index bootstrap', () => {
     expect(app.whenReady as Mock).toHaveBeenCalledTimes(1)
 
     expect(ProjectionService).toHaveBeenCalledTimes(1)
-    expect(registerUsbIpc).toHaveBeenCalledTimes(1)
     expect(TelemetrySocket).toHaveBeenCalledTimes(1)
     expect((TelemetrySocket as Mock).mock.calls[0][1]).toBe(4000)
 

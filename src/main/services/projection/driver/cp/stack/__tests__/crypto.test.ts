@@ -8,7 +8,6 @@ import {
   hkdfSha512,
   nonce64,
   nonceLabel,
-  randomId,
   sha1,
   sha256,
   x25519Generate,
@@ -122,12 +121,6 @@ describe('nonces', () => {
     expect(n.length).toBe(12)
     expect(n.subarray(0, 4).equals(Buffer.alloc(4))).toBe(true)
     expect(n.subarray(4).toString('ascii')).toBe('PV-Msg02')
-  })
-})
-
-describe('randomId', () => {
-  test('produces a colon-separated 6-byte hex id', () => {
-    expect(randomId()).toMatch(/^([0-9a-f]{2}:){5}[0-9a-f]{2}$/)
   })
 })
 

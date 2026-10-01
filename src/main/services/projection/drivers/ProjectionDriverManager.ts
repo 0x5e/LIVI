@@ -10,8 +10,6 @@ import { DuckAudio, MediaData, type Message, NavigationData } from '../messages'
 export type DriverEventHandlers = {
   onMessage: (...args: unknown[]) => void
   onMetaMessage: (driver: IPhoneDriver, msg: Message) => void
-  onFailure: (...args: unknown[]) => void
-  onTargetedConnect: (...args: unknown[]) => void
   onVideoCodec: (codec: 'h264' | 'h265' | 'vp9' | 'av1') => void
   onClusterVideoCodec: (codec: 'h264' | 'h265' | 'vp9' | 'av1') => void
   onVideoConfig: (codecData: Buffer) => void
@@ -31,7 +29,6 @@ export type DriverManagerDeps = {
   onAaDisconnected: (session: IPhoneDriver) => void
   onAaPresence?: (session: IPhoneDriver, presence: Record<string, unknown>) => void
   onAaCreated?: (session: IPhoneDriver) => void
-  onAaReleased?: (session: IPhoneDriver) => void
   getAaConfigSeed: () => AaConfigSeed
   onCpConnected: (session: IPhoneDriver) => void
   onCpDisconnected: (session: IPhoneDriver) => void
@@ -39,7 +36,6 @@ export type DriverManagerDeps = {
   onCpHelperPresence?: (presence: Record<string, unknown>) => void
   onCpHelperConnect?: () => void
   onCpCreated?: (session: IPhoneDriver) => void
-  onCpReleased?: (session: IPhoneDriver) => void
   getCpConfigSeed: () => AaConfigSeed
   getConfig: () => Config
   mediaSink?: AaMediaSinkDeps
@@ -137,7 +133,6 @@ export class ProjectionDriverManager {
       this.deps.onAaDisconnected(session)
       this.detachMetaListener(session)
       if (this.routed === session) this.route(null)
-      this.deps.onAaReleased?.(session)
     })
   }
 
@@ -218,15 +213,12 @@ export class ProjectionDriverManager {
       this.deps.onCpDisconnected(session)
       this.detachMetaListener(session)
       if (this.routed === session) this.route(null)
-      this.deps.onCpReleased?.(session)
     })
   }
 
   private attachListeners(d: IPhoneDriver): void {
     const { handlers } = this.deps
     d.on('message', handlers.onMessage)
-    d.on('failure', handlers.onFailure)
-    d.on('targeted-connect-dispatched', handlers.onTargetedConnect)
     d.on('video-codec', handlers.onVideoCodec)
     d.on('cluster-video-codec', handlers.onClusterVideoCodec)
     d.on('video-config', handlers.onVideoConfig)
@@ -236,8 +228,6 @@ export class ProjectionDriverManager {
   private detachListeners(d: IPhoneDriver): void {
     const { handlers } = this.deps
     d.off('message', handlers.onMessage)
-    d.off('failure', handlers.onFailure)
-    d.off('targeted-connect-dispatched', handlers.onTargetedConnect)
     d.off('video-codec', handlers.onVideoCodec)
     d.off('cluster-video-codec', handlers.onClusterVideoCodec)
     d.off('video-config', handlers.onVideoConfig)

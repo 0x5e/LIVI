@@ -22,7 +22,6 @@ coverage/
 .nyc_output/
 
 # Caches
-__pycache__/
 .cache/
 .vite/
 .parcel-cache/
@@ -41,8 +40,6 @@ __pycache__/
 *.deb
 *.rpm
 *.exe
-!assets/gstreamer/win-x86_64/bin/*.exe
-!assets/gstreamer/win-x86_64/libexec/gstreamer-1.0/*.exe
 *.msi
 *.nupkg
 *.zip

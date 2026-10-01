@@ -78,10 +78,8 @@ export default defineConfig({
             rolldownOptions: {
               external: [
                 'electron',
-                'usb',
                 'livi-gst-video',
                 'livi-crypto',
-                'node-gyp-build',
                 ...NODE_BUILTINS
               ],
               input: {

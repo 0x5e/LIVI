@@ -14,11 +14,8 @@ ChaCha20/Poly1305, NEON on aarch64; needs cmake for the AWS-LC build). N-API is
 ABI-stable, so no Electron headers are involved. The cdylib is copied to
 `build/Release/livi_crypto.node`, where `index.js` loads it.
 
-The same crate also provides the AEAD to native consumers as a C ABI
-(`livi_chacha20poly1305_open`/`_seal`, declared in
-`native/livi-gst-video/src/livi_aead.h`); the livi-gst-video Linux targets link it as a
-cargo dependency. Every ChaCha20-Poly1305 in the project is that one
-implementation.
+The livi-gst-video receivers (audio, mic, screen) use the same crate as a cargo
+dependency, so every ChaCha20-Poly1305 in the project is that one implementation.
 
 ## Third-party licences
 

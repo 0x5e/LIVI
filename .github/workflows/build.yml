@@ -171,12 +171,6 @@ jobs:
           VERSION=$(node -p "require('./package.json').version")
           echo "version=$VERSION" >> "$GITHUB_OUTPUT"
 
-      - name: Read Electron semver from package.json
-        id: el
-        shell: bash
-        run: |
-          echo "semver=$(node -p 'require(\"./package.json\").devDependencies.electron')" >> "$GITHUB_OUTPUT"
-
       # ----------------------------
       # Linux x64
       # ----------------------------
@@ -304,7 +298,7 @@ jobs:
             brew list --versions "$pkg" >/dev/null || brew install "$pkg" >/dev/null
           done
 
-      # Runtime + devel framework so node-gyp can build the gst-video addon
+      # Runtime + devel framework so cargo can build the gst-video addon
       # (devel = headers + pkg-config, runtime = the dylibs to link against)
       - name: Resolve GStreamer version [macos-arm64]
         id: gstver_mac
@@ -384,7 +378,6 @@ jobs:
           set -euo pipefail
           pnpm run typecheck
           if [ "${{ matrix.arch }}" = "x64" ]; then
-            npx --yes electron-builder install-app-deps --arch=x64
             pnpm run build:mac:x64
           else
             pnpm run build:mac:arm64

@@ -67,10 +67,7 @@ export default defineConfig({
           setupFiles: ['./vitest.main.setup.ts'],
           include: ['src/main/**/*.test.ts', 'src/preload/**/*.test.ts'],
           // import-heavy tests (ProjectionService module graph) can exceed the 5s default under load
-          testTimeout: 15000,
-          // these ESM deps import named exports from electron (CJS); inline so Vite transforms them
-          // and their electron import resolves to the global mock instead of failing CJS interop
-          server: { deps: { inline: ['@electron-toolkit/utils'] } }
+          testTimeout: 15000
         }
       }
     ]

@@ -15,7 +15,6 @@ files:
   - '!**/.vscode/**'
   - '!**/*.map'
   - '!{.env,.env.*,.npmrc,pnpm-lock.yaml,CHANGELOG.md,README.md}'
-  - '!electron.vite.config.{js,ts,mjs,cjs}'
   - '!src/**'
   - '!out/main/driver/**'
   - '!out/compositor/**'

@@ -3,11 +3,10 @@ import CropPortraitOutlinedIcon from '@mui/icons-material/CropPortraitOutlined'
 import { Box, useTheme } from '@mui/material'
 import type { Config } from '@shared/types'
 import { AudioCommand, CommandMapping } from '@shared/types/ProjectionEnums'
-import { aaContentArea, isClusterDisplayed } from '@shared/utils'
-import { createProjectionWorker } from '@worker/createProjectionWorker'
-import type { KeyCommand, ProjectionWorker, UsbEvent, WorkerToUI } from '@worker/types'
-import React, { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react'
+import { aaContentArea } from '@shared/utils'
+import React, { useCallback, useEffect, useLayoutEffect, useRef, useState } from 'react'
 import { useLocation, useNavigate } from 'react-router'
+import type { KeyCommand } from '../../../hooks/keysControl/types'
 import { useFftPcm } from '../../../hooks/useFftPcm'
 import {
   type ActiveProtocol,
@@ -17,8 +16,6 @@ import {
 } from '../../../store/store'
 import { useProjectionMultiTouch } from './hooks/useProjectionTouch'
 import { ViewAreaMask } from './ViewAreaMask'
-
-const RETRY_DELAY_MS = 3000
 
 interface CarplayProps {
   receivingVideo: boolean
@@ -97,9 +94,7 @@ const CarplayComponent: React.FC<CarplayProps> = ({
   const setStreaming = useStatusStore((s) => s.setStreaming)
   const setActiveProtocol = useStatusStore((s) => s.setActiveProtocol)
   const isProjectionActive = useProjectionActive()
-  const setDeviceInfo = useLiviStore((s) => s.setDeviceInfo)
   const setAudioInfo = useLiviStore((s) => s.setAudioInfo)
-  const setPcmData = useLiviStore((s) => s.setPcmData)
   const setBluetoothPairedList = useLiviStore((s) => s.setBluetoothPairedList)
   const bumpAudioDevicesRevision = useLiviStore((s) => s.bumpAudioDevicesRevision)
   const negotiatedWidth = useLiviStore((s) => s.negotiatedWidth)
@@ -136,12 +131,7 @@ const CarplayComponent: React.FC<CarplayProps> = ({
     console.log('[PROJECTION] projection active:', isProjectionActive)
   }, [isProjectionActive])
 
-  // Refs
-  const mainElem = useRef<HTMLDivElement>(null)
   const videoContainerRef = useRef<HTMLDivElement>(null)
-  const retryTimeoutRef = useRef<NodeJS.Timeout | null>(null)
-  const hasStartedRef = useRef(false)
-  const [rendererError] = useState<string | null>(null)
 
   // If the user manually navigates away from projection, drop the return arm.
   useEffect(() => {
@@ -186,43 +176,8 @@ const CarplayComponent: React.FC<CarplayProps> = ({
     }
   }, [settings?.hand])
 
-  // Visual delay for FFT so spectrum matches audio playback
-  const fftVisualDelayMs = 0
-
-  // Channels
-  const audioChannel = useMemo(() => new MessageChannel(), [])
-
-  // Projection worker setup
-  const carplayWorker = useMemo<ProjectionWorker>(() => {
-    const w = createProjectionWorker()
-
-    w.onerror = (e) => {
-      console.error('Worker error:', e)
-    }
-
-    w.postMessage(
-      {
-        type: 'initialise',
-        payload: {
-          audioPort: audioChannel.port1
-        }
-      },
-      [audioChannel.port1]
-    )
-    return w
-  }, [audioChannel])
-
   // Forward audio chunks to FFT (shared with the secondary windows via useFftPcm)
-  useFftPcm(fftVisualDelayMs)
-
-  // Audio + touch hooks
-
-  const clearRetryTimeout = useCallback(() => {
-    if (retryTimeoutRef.current) {
-      clearTimeout(retryTimeoutRef.current)
-      retryTimeoutRef.current = null
-    }
-  }, [])
+  useFftPcm()
 
   const gotoHostUI = useCallback(() => {
     if (location.pathname !== '/media') {
@@ -264,67 +219,6 @@ const CarplayComponent: React.FC<CarplayProps> = ({
     },
     [location.pathname, navigate]
   )
-
-  // Projection worker messages
-  useEffect(() => {
-    const handler = (ev: MessageEvent<WorkerToUI>) => {
-      const msg = ev.data
-      switch (msg.type) {
-        case 'requestBuffer': {
-          clearRetryTimeout()
-          break
-        }
-
-        case 'audio': {
-          clearRetryTimeout()
-          break
-        }
-
-        case 'audioInfo': {
-          const p = (msg as Extract<WorkerToUI, { type: 'audioInfo' }>).payload as
-            | { sampleRate?: number }
-            | undefined
-          setAudioInfo({ sampleRate: p?.sampleRate ?? 0 })
-          break
-        }
-
-        case 'pcmData':
-          setPcmData(new Float32Array((msg as Extract<WorkerToUI, { type: 'pcmData' }>).payload))
-          break
-
-        case 'command': {
-          const val = (msg as Extract<WorkerToUI, { type: 'command' }>).message?.value
-          if (val === CommandMapping.requestHostUI) gotoHostUI()
-          else if (val === CommandMapping.voiceAssistantUiActive)
-            applyAttention({ kind: 'voiceAssistant', active: true })
-          else if (val === CommandMapping.voiceAssistantUiIdle)
-            applyAttention({ kind: 'voiceAssistant', active: false })
-          break
-        }
-
-        case 'failure':
-          hasStartedRef.current = false
-          if (!retryTimeoutRef.current) {
-            retryTimeoutRef.current = setTimeout(() => window.location.reload(), RETRY_DELAY_MS)
-          }
-          break
-      }
-    }
-
-    carplayWorker.addEventListener('message', handler)
-    return () => carplayWorker.removeEventListener('message', handler)
-  }, [
-    carplayWorker,
-    clearRetryTimeout,
-    gotoHostUI,
-    applyAttention,
-    setDeviceInfo,
-    setAudioInfo,
-    setPcmData,
-    setReceivingVideo
-  ])
-
-  // USB events
 
   // Settings/events from main
   useEffect(() => {
@@ -436,20 +330,11 @@ const CarplayComponent: React.FC<CarplayProps> = ({
     isStreaming,
     setActiveProtocol,
     applyAttention,
-    rendererError,
     setAudioInfo,
     setBluetoothPairedList,
     bumpAudioDevicesRevision,
     settings.dashboards
   ])
-
-  // Resize observer => inform render worker
-  useEffect(() => {
-    const el = mainElem.current as HTMLDivElement
-    const obs = new ResizeObserver(() => carplayWorker.postMessage({ type: 'frame' }))
-    obs.observe(el)
-    return () => obs.disconnect()
-  }, [carplayWorker])
 
   // Key commands. Fire only when the counter actually advances
   const lastSentCommandCounterRef = useRef(0)
@@ -459,18 +344,6 @@ const CarplayComponent: React.FC<CarplayProps> = ({
     lastSentCommandCounterRef.current = commandCounter
     window.projection.ipc.sendCommand(command)
   }, [command, commandCounter])
-
-  // Cleanup
-  useEffect(() => {
-    return () => {
-      if (retryTimeoutRef.current) {
-        clearTimeout(retryTimeoutRef.current)
-        retryTimeoutRef.current = null
-      }
-
-      carplayWorker.terminate()
-    }
-  }, [carplayWorker])
 
   /* ------------------------------- UI binding ------------------------------ */
 
@@ -514,7 +387,6 @@ const CarplayComponent: React.FC<CarplayProps> = ({
   return (
     <div
       id="projection-root"
-      ref={mainElem}
       style={{
         position: 'fixed',
         inset: 0,
@@ -543,17 +415,16 @@ const CarplayComponent: React.FC<CarplayProps> = ({
           margin: 0,
           display: 'block',
           touchAction: 'none',
-          backgroundColor:
-            receivingVideo && !rendererError ? 'transparent' : theme.palette.background.default,
-          visibility: receivingVideo && !rendererError ? 'visible' : 'hidden',
-          zIndex: receivingVideo && !rendererError ? 1 : -1,
+          backgroundColor: receivingVideo ? 'transparent' : theme.palette.background.default,
+          visibility: receivingVideo ? 'visible' : 'hidden',
+          zIndex: receivingVideo ? 1 : -1,
           position: 'relative',
           overflow: 'hidden'
         }}
       />
 
       <ViewAreaMask
-        visible={receivingVideo && !rendererError}
+        visible={receivingVideo}
         displayWidth={settings.projectionWidth}
         displayHeight={settings.projectionHeight}
         insets={{

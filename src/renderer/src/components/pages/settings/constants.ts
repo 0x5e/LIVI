@@ -9,35 +9,14 @@ export const DEFAULT_HEIGHT = 480
 
 export const MIN_FPS = 20
 export const MAX_FPS = 60
-export const DEFAULT_FPS = 60
 
 export const MIN_DPI = 0
 export const MAX_DPI = 640
-export const DEFAULT_DPI_AUTO = 0
 
 export const SAFE_AREA_MIN = 0
 export const SAFE_AREA_MAX_WIDTH = MAX_WIDTH
 export const SAFE_AREA_MAX_HEIGHT = MAX_HEIGHT
-export const SAFE_AREA_DEFAULT = 0
 export const AREA_STEP = 2
-
-export const UI_DEBOUNCED_KEYS = new Set<keyof Config>([
-  'primaryColorDark',
-  'primaryColorLight',
-  'highlightColorDark',
-  'highlightColorLight',
-  'backgroundColorDark',
-  'backgroundColorLight'
-])
-
-export const PRIMARY_KEYS = ['primaryColorDark', 'primaryColorLight'] as const
-export const EDITABLE_KEYS = ['highlightColorDark', 'highlightColorLight'] as const
-export const OEM_LABEL_MAX = 13
-
-export enum WiFiValues {
-  '2.4ghz' = '2.4ghz',
-  '5ghz' = '5ghz'
-}
 
 export const requiresRestartParams: (keyof Config)[] = [
   'wirelessAaEnabled',

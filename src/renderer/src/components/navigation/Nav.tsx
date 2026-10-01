@@ -1,8 +1,6 @@
 import type { Config } from '@shared/types'
 import { ROUTES } from '@shared/types'
 import { useLocation, useNavigate } from 'react-router'
-import { useBlinkingTime } from '../../hooks/useBlinkingTime'
-import { useNetworkStatus } from '../../hooks/useNetworkStatus'
 import { useStatusStore } from '../../store/store'
 import { NavRail, type NavRailItem } from './NavRail'
 import { useTabsConfig } from './useTabsConfig'
@@ -15,9 +13,6 @@ interface NavProps {
 export const Nav = ({ receivingVideo }: NavProps) => {
   const navigate = useNavigate()
   const { pathname } = useLocation()
-
-  useBlinkingTime()
-  useNetworkStatus()
 
   const isStreaming = useStatusStore((s) => s.isStreaming)
   const tabs = useTabsConfig(receivingVideo)

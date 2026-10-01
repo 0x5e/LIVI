@@ -6,10 +6,6 @@ vi.mock('../components/createFFTSpectrum', () => ({
   FFTSpectrum: () => null
 }))
 
-vi.mock('./../hooks/useBelowNavTop', () => ({
-  useBelowNavTop: () => 0
-}))
-
 const sizeHolder = vi.hoisted(() => ({ w: 600, h: 400 }))
 
 const makeDefaultSnap = () => ({

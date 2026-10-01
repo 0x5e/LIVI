@@ -2,10 +2,9 @@ import { ROUTES } from '@shared/types'
 import { useLiviStore } from '@store/store'
 import { useCallback, useContext, useMemo } from 'react'
 import { useLocation } from 'react-router'
-import { KeyCommand } from '../../components/worker/types'
 import { AppContext } from '../../context'
 import { broadcastMediaKey } from '../../utils/broadcastMediaKey'
-import { BindKey, useKeyDownProps } from './types'
+import type { BindKey, KeyCommand, useKeyDownProps } from './types'
 
 type RefLike<T> = { current: T | null }
 

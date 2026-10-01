@@ -1,9 +1,4 @@
-import {
-  _resetSelectOptionsCache,
-  getCachedOptions,
-  resolveOptions,
-  setCachedOptions
-} from '../selectOptionsCache'
+import { _resetSelectOptionsCache, getCachedOptions, resolveOptions } from '../selectOptionsCache'
 
 const baseNode = {
   path: 'someField',
@@ -66,11 +61,6 @@ describe('selectOptionsCache', () => {
     const node = { path: 'p', options: [{ value: 1, label: 'Fallback' }], loadOptions: load }
     const got = await resolveOptions(node)
     expect(got).toEqual([{ value: 1, label: 'Fallback' }])
-  })
-
-  test('setCachedOptions / getCachedOptions round-trip', async () => {
-    setCachedOptions({ path: 'p2' }, [{ value: 'x', label: 'X' }])
-    expect(getCachedOptions({ path: 'p2' })).toEqual([{ value: 'x', label: 'X' }])
   })
 
   test('cache is per-path', async () => {

@@ -22,14 +22,6 @@ vi.mock('react-router', async () => {
   }
 })
 
-vi.mock('../../../hooks/useBlinkingTime', () => ({
-  useBlinkingTime: vi.fn()
-}))
-
-vi.mock('../../../hooks/useNetworkStatus', () => ({
-  useNetworkStatus: vi.fn()
-}))
-
 vi.mock('../../../store/store', () => ({
   useStatusStore: (selector: (s: { isStreaming: boolean }) => unknown) =>
     selector({ isStreaming: mockIsStreaming })

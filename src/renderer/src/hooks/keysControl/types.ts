@@ -1,4 +1,21 @@
-import { KeyCommand } from '../../components/worker/types'
+/** UI-originated key commands */
+export type KeyCommand =
+  | 'left'
+  | 'right'
+  | 'selectDown'
+  | 'selectUp'
+  | 'back'
+  | 'down'
+  | 'home'
+  | 'play'
+  | 'pause'
+  | 'playPause'
+  | 'next'
+  | 'prev'
+  | 'acceptPhone'
+  | 'rejectPhone'
+  | 'voiceAssistant'
+  | 'voiceAssistantRelease'
 
 export type BindKey =
   | 'left'

@@ -5,10 +5,6 @@ import { Projection } from '../Projection'
 const navigateMock = vi.fn()
 let mockPathname = '/'
 
-vi.mock('@worker/createProjectionWorker', () => ({
-  createProjectionWorker: vi.fn()
-}))
-
 type AnyFn = (...args: any[]) => any
 
 const statusState: Record<string, any> = {
@@ -21,8 +17,6 @@ const statusState: Record<string, any> = {
 const liviState: Record<string, any> = {
   negotiatedWidth: 0,
   negotiatedHeight: 0,
-  resetInfo: vi.fn(),
-  setDeviceInfo: vi.fn(),
   setAudioInfo: vi.fn(),
   setPcmData: vi.fn(),
   setBluetoothPairedList: vi.fn(),
@@ -56,50 +50,10 @@ vi.mock('../hooks/useProjectionTouch', () => ({
   useProjectionMultiTouch: () => ({})
 }))
 
-class MockWorker {
-  static instances: MockWorker[] = []
-  public postMessage = vi.fn()
-  public terminate = vi.fn()
-  public onerror: AnyFn | null = null
-  private listeners: Array<(ev: MessageEvent<any>) => void> = []
-
-  constructor(public url: string) {
-    MockWorker.instances.push(this)
-  }
-
-  addEventListener(type: string, cb: (ev: MessageEvent<any>) => void) {
-    if (type === 'message') this.listeners.push(cb)
-  }
-
-  removeEventListener(type: string, cb: (ev: MessageEvent<any>) => void) {
-    if (type === 'message') this.listeners = this.listeners.filter((x) => x !== cb)
-  }
-
-  emit(data: unknown) {
-    this.listeners.forEach((cb) => cb({ data } as MessageEvent))
-  }
-
-  triggerError(ev: unknown) {
-    this.onerror?.(ev)
-  }
-}
-
-class MockMessageChannel {
-  static instances: MockMessageChannel[] = []
-  port1 = { postMessage: vi.fn() }
-  port2 = {}
-  constructor() {
-    MockMessageChannel.instances.push(this)
-  }
-}
-
 describe('Projection page', () => {
   let onEventCb: AnyFn | undefined
-  let usbCb: AnyFn | undefined
 
-  beforeEach(async () => {
-    MockWorker.instances = []
-    MockMessageChannel.instances = []
+  beforeEach(() => {
     navigateMock.mockReset()
     mockPathname = '/'
 
@@ -110,37 +64,16 @@ describe('Projection page', () => {
 
     liviState.negotiatedWidth = 0
     liviState.negotiatedHeight = 0
-    liviState.boxInfo = null
-    liviState.resetInfo.mockClear()
-    liviState.setDeviceInfo.mockClear()
-    liviState.setAudioInfo.mockClear()
-    liviState.setPcmData.mockClear()
-    liviState.setBluetoothPairedList.mockClear()
-
-    liviState.resetInfo.mockClear()
-    liviState.setDeviceInfo.mockClear()
     liviState.setAudioInfo.mockClear()
     liviState.setPcmData.mockClear()
     liviState.setBluetoothPairedList.mockClear()
     liviState.bumpAudioDevicesRevision.mockClear()
-    statusState.setStreaming.mockClear()
-    statusState.setActiveProtocol.mockClear()
 
-    const { createProjectionWorker } = await vi.importMock('@worker/createProjectionWorker')
-
-    createProjectionWorker.mockImplementation(() => new MockWorker('projection'))
-    ;(global as any).Worker = MockWorker
-    ;(global as any).MessageChannel = MockMessageChannel
     ;(global as any).ResizeObserver = vi.fn(function () {
       return {
         observe: vi.fn(),
         disconnect: vi.fn()
       }
-    })
-
-    Object.defineProperty(HTMLCanvasElement.prototype, 'transferControlToOffscreen', {
-      configurable: true,
-      value: vi.fn(() => ({}))
     })
     ;(window as any).projection = {
       ipc: {
@@ -151,14 +84,7 @@ describe('Projection page', () => {
         onAudioChunk: vi.fn(),
         offAudioChunk: vi.fn(),
         onEvent: vi.fn((cb: AnyFn) => (onEventCb = cb)),
-        offEvent: vi.fn(),
         sendCommand: vi.fn()
-      },
-      usb: {
-        getDeviceInfo: vi.fn().mockResolvedValue({ device: true }),
-        getLastEvent: vi.fn().mockResolvedValue(null),
-        listenForEvents: vi.fn((cb: AnyFn) => (usbCb = cb)),
-        unlistenForEvents: vi.fn()
       }
     }
   })
@@ -178,29 +104,6 @@ describe('Projection page', () => {
       onEventCb?.(null, { type: 'projection', shown: false })
     })
     expect(setReceivingVideo).toHaveBeenCalledWith(false)
-  })
-
-  test('handles worker failure and schedules retry timer', async () => {
-    vi.useFakeTimers({ shouldAdvanceTime: true })
-
-    const setTimeoutSpy = vi.spyOn(window, 'setTimeout')
-
-    render(<Projection {...baseProps()} />)
-
-    const projectionWorker = MockWorker.instances[0]
-
-    act(() => {
-      projectionWorker.emit({ type: 'failure' })
-    })
-
-    expect(setTimeoutSpy).toHaveBeenCalled()
-
-    const timeoutCall = setTimeoutSpy.mock.calls.find((call) => call[1] === 3000)
-    expect(timeoutCall).toBeTruthy()
-    expect(typeof timeoutCall?.[0]).toBe('function')
-
-    setTimeoutSpy.mockRestore()
-    vi.useRealTimers()
   })
 
   test('handles bluetoothPairedList event from payload string', async () => {
@@ -533,8 +436,6 @@ describe('Projection page', () => {
     expect(navigateMock).not.toHaveBeenCalled()
   })
 
-  // ── mergeBoxInfo: string variants ────────────────────────────────────────
-
   // ── handleAudio: PCM conversion ───────────────────────────────────────────
 
   test('handleAudio converts int16 chunk to float32 and schedules setPcmData', async () => {
@@ -588,115 +489,6 @@ describe('Projection page', () => {
     vi.useRealTimers()
   })
 
-  // ── projection worker: requestBuffer & audio messages ────────────────────
-
-  test('projection worker requestBuffer message calls clearRetryTimeout', async () => {
-    vi.useFakeTimers({ shouldAdvanceTime: true })
-
-    const clearTimeoutSpy = vi.spyOn(window, 'clearTimeout')
-
-    render(<Projection {...baseProps()} />)
-
-    const projectionWorker = MockWorker.instances[0]
-
-    // Create pending retry timer via 'failure'
-    act(() => {
-      projectionWorker.emit({ type: 'failure' })
-    })
-
-    // requestBuffer clears it
-    act(() => {
-      projectionWorker.emit({ type: 'requestBuffer' })
-    })
-
-    expect(clearTimeoutSpy).toHaveBeenCalled()
-
-    clearTimeoutSpy.mockRestore()
-    vi.useRealTimers()
-  })
-
-  test('projection worker audio message calls clearRetryTimeout', async () => {
-    render(<Projection {...baseProps()} />)
-
-    const projectionWorker = MockWorker.instances[0]
-
-    // Should not throw when no retry timer is set
-    act(() => {
-      projectionWorker.emit({ type: 'audio' })
-    })
-  })
-
-  // ── clearRetryTimeout with active timer ───────────────────────────────────
-
-  test('clearRetryTimeout clears an active retry timeout', async () => {
-    vi.useFakeTimers({ shouldAdvanceTime: true })
-
-    render(<Projection {...baseProps()} />)
-
-    const projectionWorker = MockWorker.instances[0]
-
-    act(() => {
-      projectionWorker.emit({ type: 'failure' })
-    })
-
-    // USB unplug triggers clearRetryTimeout
-    act(() => {
-      usbCb?.(null, { type: 'unplugged' })
-    })
-
-    // Timer was cleared; reload should not fire
-    act(() => vi.advanceTimersByTime(5000))
-
-    vi.useRealTimers()
-  })
-
-  // ── projection worker: audioInfo / pcmData / command / unknown ───────────
-
-  test('projection worker audioInfo message calls setAudioInfo', async () => {
-    render(<Projection {...baseProps()} />)
-
-    const projectionWorker = MockWorker.instances[0]
-
-    act(() => {
-      projectionWorker.emit({
-        type: 'audioInfo',
-        payload: { codec: 'pcm', sampleRate: 44100, channels: 1, bitDepth: 16 }
-      })
-    })
-
-    expect(liviState.setAudioInfo).toHaveBeenCalledWith({ sampleRate: 44100 })
-  })
-
-  test('projection worker pcmData message calls setPcmData', async () => {
-    render(<Projection {...baseProps()} />)
-
-    const projectionWorker = MockWorker.instances[0]
-    const buf = new Float32Array([0.1, 0.2]).buffer
-
-    act(() => {
-      projectionWorker.emit({ type: 'pcmData', payload: buf })
-    })
-
-    expect(liviState.setPcmData).toHaveBeenCalled()
-  })
-
-  test('projection worker command requestHostUI navigates to /media', async () => {
-    mockPathname = '/settings'
-
-    render(<Projection {...baseProps()} />)
-
-    const projectionWorker = MockWorker.instances[0]
-
-    act(() => {
-      projectionWorker.emit({
-        type: 'command',
-        message: { value: CommandMapping.requestHostUI }
-      })
-    })
-
-    await waitFor(() => expect(navigateMock).toHaveBeenCalledWith('/media', { replace: true }))
-  })
-
   test('IPC command with unrecognized value hits final break', async () => {
     render(<Projection {...baseProps()} />)
 
@@ -710,12 +502,6 @@ describe('Projection page', () => {
     // No throw, no navigation
     expect(navigateMock).not.toHaveBeenCalled()
   })
-
-  // ── USB getDeviceInfo failure ─────────────────────────────────────────────
-
-  // ── mergeBoxInfo edge cases ───────────────────────────────────────────────
-
-  // ── projection worker: dongleInfo no-op case ─────────────────────────────
 
   // ── attention back-path cleared when user navigates manually ─────────────
 
@@ -750,21 +536,6 @@ describe('Projection page', () => {
 
     // No back-navigation since attentionSwitchedByRef was cleared
     expect(navigateMock).not.toHaveBeenCalledWith('/media', expect.anything())
-  })
-
-  // ── projection worker onerror handler ────────────────────────────────────
-
-  test('projection worker onerror logs to console.error', async () => {
-    const errorSpy = vi.spyOn(console, 'error').mockImplementation(() => {})
-
-    render(<Projection {...baseProps()} />)
-
-    const projectionWorker = MockWorker.instances[0]
-    projectionWorker.triggerError(new ErrorEvent('error', { message: 'worker crash' }))
-
-    expect(errorSpy).toHaveBeenCalledWith('Worker error:', expect.anything())
-
-    errorSpy.mockRestore()
   })
 
   // ── recalc runs when content-root element is present ─────────────────────
@@ -853,87 +624,6 @@ describe('Projection page', () => {
 
     ;(global as any).ResizeObserver = original
     document.body.removeChild(anchor)
-  })
-
-  test('worker audioInfo without payload defaults sample rate to zero', async () => {
-    render(<Projection {...baseProps()} />)
-
-    act(() => {
-      MockWorker.instances[0]?.emit({ type: 'audioInfo' })
-    })
-
-    expect(liviState.setAudioInfo).toHaveBeenCalledWith({ sampleRate: 0 })
-  })
-
-  test('worker command voiceAssistantUiActive switches to projection', async () => {
-    mockPathname = '/media'
-
-    render(<Projection {...baseProps()} />)
-
-    act(() => {
-      MockWorker.instances[0]?.emit({
-        type: 'command',
-        message: { value: CommandMapping.voiceAssistantUiActive }
-      })
-    })
-
-    await waitFor(() => expect(navigateMock).toHaveBeenCalledWith('/', { replace: true }))
-  })
-
-  test('worker command voiceAssistantUiIdle returns to the previous route', async () => {
-    mockPathname = '/media'
-
-    const { rerender } = render(<Projection {...baseProps()} />)
-
-    act(() => {
-      MockWorker.instances[0]?.emit({
-        type: 'command',
-        message: { value: CommandMapping.voiceAssistantUiActive }
-      })
-    })
-    await waitFor(() => expect(navigateMock).toHaveBeenCalledWith('/', { replace: true }))
-
-    navigateMock.mockClear()
-    mockPathname = '/'
-    rerender(<Projection {...baseProps()} />)
-
-    act(() => {
-      MockWorker.instances[0]?.emit({
-        type: 'command',
-        message: { value: CommandMapping.voiceAssistantUiIdle }
-      })
-    })
-
-    await waitFor(() => expect(navigateMock).toHaveBeenCalledWith('/media', { replace: true }))
-  })
-
-  test('worker failure retry timer reloads the window', async () => {
-    vi.useFakeTimers({ shouldAdvanceTime: true })
-
-    const reloadSpy = vi.fn()
-    const originalLocation = window.location
-    Object.defineProperty(window, 'location', {
-      configurable: true,
-      value: { ...originalLocation, reload: reloadSpy }
-    })
-
-    render(<Projection {...baseProps()} />)
-
-    act(() => {
-      MockWorker.instances[0]?.emit({ type: 'failure' })
-    })
-
-    act(() => {
-      vi.advanceTimersByTime(3000)
-    })
-
-    expect(reloadSpy).toHaveBeenCalled()
-
-    Object.defineProperty(window, 'location', {
-      configurable: true,
-      value: originalLocation
-    })
-    vi.useRealTimers()
   })
 
   test('bluetoothPairedList reads a nested payload.data string', async () => {
@@ -1061,25 +751,6 @@ describe('Projection page', () => {
     })
 
     expect(navigateMock).not.toHaveBeenCalled()
-  })
-
-  test('resize observer forwards frame requests to the worker', async () => {
-    let roCb: (() => void) | undefined
-    ;(global as any).ResizeObserver = vi.fn(function (cb: () => void) {
-      roCb = cb
-      return { observe: vi.fn(), disconnect: vi.fn() }
-    })
-
-    render(<Projection {...baseProps()} />)
-
-    const worker = MockWorker.instances[0]
-    worker.postMessage.mockClear()
-
-    act(() => {
-      roCb?.()
-    })
-
-    expect(worker.postMessage).toHaveBeenCalledWith({ type: 'frame' })
   })
 
   test('key command effect skips when the counter matches the last sent value', async () => {
@@ -1211,38 +882,6 @@ describe('Projection page', () => {
     })
 
     expect(navigateMock).not.toHaveBeenCalled()
-  })
-
-  test('worker command with an unrecognized value is ignored', async () => {
-    render(<Projection {...baseProps()} />)
-
-    act(() => {
-      MockWorker.instances[0]?.emit({ type: 'command', message: { value: 4242 } })
-    })
-
-    expect(navigateMock).not.toHaveBeenCalled()
-  })
-
-  test('worker failure does not schedule a second retry while one is pending', async () => {
-    vi.useFakeTimers({ shouldAdvanceTime: true })
-    const setTimeoutSpy = vi.spyOn(window, 'setTimeout')
-
-    render(<Projection {...baseProps()} />)
-
-    const worker = MockWorker.instances[0]
-
-    act(() => {
-      worker.emit({ type: 'failure' })
-    })
-    act(() => {
-      worker.emit({ type: 'failure' })
-    })
-
-    const retryCalls = setTimeoutSpy.mock.calls.filter((call) => call[1] === 3000)
-    expect(retryCalls).toHaveLength(1)
-
-    setTimeoutSpy.mockRestore()
-    vi.useRealTimers()
   })
 
   test('audio event with an unrecognized numeric command is ignored', async () => {

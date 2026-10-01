@@ -9,10 +9,6 @@ export function getCachedOptions(node: Pick<SelectNode, 'path'>): SelectOption[]
   return cache.get(keyOf(node))
 }
 
-export function setCachedOptions(node: Pick<SelectNode, 'path'>, options: SelectOption[]): void {
-  cache.set(keyOf(node), options)
-}
-
 export async function resolveOptions(
   node: Pick<SelectNode, 'path' | 'options' | 'loadOptions'>,
   { force = false }: { force?: boolean } = {}

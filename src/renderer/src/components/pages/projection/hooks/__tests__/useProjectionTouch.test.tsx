@@ -91,13 +91,42 @@ describe('useProjectionMultiTouch', () => {
 
     result.current.onPointerDown(ptrEvent(target, { pointerType: 'mouse' }))
     expect(sendTouch).toHaveBeenCalledWith(0.5, 0.5, TouchAction.Down)
+    expect(target.setPointerCapture).toHaveBeenCalledWith(1)
 
-    result.current.onPointerMove(ptrEvent(target, { pointerType: 'mouse', clientX: 60 }))
+    result.current.onPointerMove(
+      ptrEvent(target, { pointerType: 'mouse', clientX: 60, buttons: 1 })
+    )
     flushRaf()
     expect(sendTouch).toHaveBeenCalledWith(0.6, 0.5, TouchAction.Move)
 
     result.current.onPointerUp(ptrEvent(target, { pointerType: 'mouse', clientX: 70 }))
     expect(sendTouch).toHaveBeenCalledWith(0.7, 0.5, TouchAction.Up)
+    expect(target.releasePointerCapture).toHaveBeenCalledWith(1)
+  })
+
+  test('a mouse button released outside the window lifts the finger on the next move', () => {
+    const target = createTarget()
+    const videoRef = createRef<HTMLElement>()
+    videoRef.current = target
+
+    const { result } = renderHook(() => useProjectionMultiTouch(videoRef))
+
+    result.current.onPointerDown(ptrEvent(target, { pointerType: 'mouse' }))
+    result.current.onPointerMove(
+      ptrEvent(target, { pointerType: 'mouse', clientX: 60, buttons: 1 })
+    )
+    result.current.onPointerMove(
+      ptrEvent(target, { pointerType: 'mouse', clientX: 80, buttons: 0 })
+    )
+    flushRaf()
+
+    expect(sendTouch).toHaveBeenLastCalledWith(0.6, 0.5, TouchAction.Up)
+    sendTouch.mockClear()
+    result.current.onPointerMove(
+      ptrEvent(target, { pointerType: 'mouse', clientX: 90, buttons: 0 })
+    )
+    flushRaf()
+    expect(sendTouch).not.toHaveBeenCalled()
   })
 
   test('ignores mouse move/up when no active mouse down', () => {
@@ -391,7 +420,7 @@ describe('useProjectionMultiTouch', () => {
     expect(target.releasePointerCapture).not.toHaveBeenCalled()
   })
 
-  test('mouse finish out of bounds clears the drag without sending up', () => {
+  test('a mouse released off the picture lifts the finger where it last was', () => {
     const target = createTarget()
     const videoRef = createRef<HTMLElement>()
     videoRef.current = target
@@ -403,12 +432,14 @@ describe('useProjectionMultiTouch', () => {
       ptrEvent(target, { pointerType: 'mouse', clientX: 200, clientY: 200 })
     )
 
-    expect(sendTouch).toHaveBeenCalledTimes(1)
-    expect(sendTouch).toHaveBeenCalledWith(0.5, 0.5, TouchAction.Down)
+    expect(sendTouch).toHaveBeenCalledTimes(2)
+    expect(sendTouch).toHaveBeenLastCalledWith(0.5, 0.5, TouchAction.Up)
 
-    result.current.onPointerMove(ptrEvent(target, { pointerType: 'mouse', clientX: 60 }))
+    result.current.onPointerMove(
+      ptrEvent(target, { pointerType: 'mouse', clientX: 60, buttons: 1 })
+    )
     flushRaf()
-    expect(sendTouch).toHaveBeenCalledTimes(1)
+    expect(sendTouch).toHaveBeenCalledTimes(2)
   })
 
   test('reuses the existing slot for a repeated pointerdown of the same pointer', () => {

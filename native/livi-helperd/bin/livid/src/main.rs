@@ -20,11 +20,33 @@ mod netd;
 mod tinyshell;
 mod wifid;
 
-/// One livid build per CPU arch serves every board of that arch, so the board is told apart
-/// by its devicetree. Flashing stays off where the partition layout is not wired up.
-fn web_caps() -> livi_web::WebCaps {
+/// Model and firmware target. One livid build per CPU arch serves every board of that arch, so the
+/// board is told apart by its devicetree.
+fn board() -> (&'static str, &'static str) {
     let compatible = std::fs::read("/sys/firmware/devicetree/base/compatible").unwrap_or_default();
     let has = |c: &[u8]| compatible.windows(c.len()).any(|w| w == c);
+    if has(b"axera,ax520") {
+        ("AX520 + AIC8800D80", "ax520_aic8800d80")
+    } else if has(b"livi,link-imx6ull") {
+        imx6ul::module()
+    } else {
+        ("V821B + AIC8800D80", "v821b_aic8800d80")
+    }
+}
+
+/// What the Wi-Fi module of a firmware target speaks beyond 802.11n.
+fn wifi_standards(target: &str) -> livi_wifi::server::Standards {
+    use livi_wifi::server::Standards;
+    match target {
+        "v821b_aic8800d80" | "ax520_aic8800d80" => Standards { vht: true, he: true },
+        "imx6ul_rtl8822cs" | "imx6ul_rtl8822bs" => Standards { vht: true, he: false },
+        _ => Standards::default(),
+    }
+}
+
+/// Flashing stays off where the partition layout is not wired up.
+fn web_caps() -> livi_web::WebCaps {
+    let (model, target) = board();
     let slot = |typ, node: &str, magic: &[u8], size| livi_web::MtdSlot {
         typ,
         node: node.into(),
@@ -35,10 +57,8 @@ fn web_caps() -> livi_web::WebCaps {
     };
     // The bundle types are the MTD numbers. The bootloader partition is never in the table, a bad
     // write there needs the flash off the board (AX520, i.MX6UL) or FEL (V821B).
-    let (model, target, led, flash) = if has(b"axera,ax520") {
+    let (led, flash) = if target == "ax520_aic8800d80" {
         (
-            "AX520 + AIC8800D80",
-            "ax520_aic8800d80",
             true,
             livi_web::Flash {
                 mtd: vec![
@@ -52,11 +72,8 @@ fn web_caps() -> livi_web::WebCaps {
                 check: Some("/usr/sbin/sfc-sr".into()),
             },
         )
-    } else if has(b"livi,link-imx6ull") {
-        let (model, target) = imx6ul::module();
+    } else if target.starts_with("imx6ul_") {
         (
-            model,
-            target,
             false,
             livi_web::Flash {
                 mtd: vec![
@@ -74,8 +91,6 @@ fn web_caps() -> livi_web::WebCaps {
         )
     } else {
         (
-            "V821B + AIC8800D80",
-            "v821b_aic8800d80",
             true,
             livi_web::Flash {
                 mtd: vec![
@@ -148,4 +163,20 @@ fn main() -> ExitCode {
 
 fn exit_rc(code: ExitCode) -> i32 {
     if code == ExitCode::SUCCESS { 0 } else { 1 }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use livi_wifi::server::Standards;
+
+    #[test]
+    fn each_module_is_asked_only_for_what_it_speaks() {
+        let ac_ax = Standards { vht: true, he: true };
+        assert_eq!(wifi_standards("v821b_aic8800d80"), ac_ax);
+        assert_eq!(wifi_standards("ax520_aic8800d80"), ac_ax);
+        assert_eq!(wifi_standards("imx6ul_rtl8822cs"), Standards { vht: true, he: false });
+        assert_eq!(wifi_standards("imx6ul_rtl8822bs"), Standards { vht: true, he: false });
+        assert_eq!(wifi_standards("imx6ul_iw416"), Standards::default());
+    }
 }

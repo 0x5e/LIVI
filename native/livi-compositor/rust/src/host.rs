@@ -462,7 +462,7 @@ pub fn damage_all(state: &mut LiviState) {
     }
 }
 
-/// Physical millimetres of the host output a screen's window sits on.
+/// Physical millimetres of a screen's window, the share of the host output it covers.
 pub fn panel_mm(state: &LiviState, screen_idx: usize) -> Option<(i32, i32)> {
     let outputs = state.host.sctk_outputs.as_ref()?;
     let output =
@@ -472,14 +472,45 @@ pub fn panel_mm(state: &LiviState, screen_idx: usize) -> Option<(i32, i32)> {
     if w <= 0 || h <= 0 {
         return None;
     }
-    // wl_output reports the panel's unrotated mm; our screen size is post-transform.
-    if matches!(
+    // wl_output reports the panel's unrotated mm and modes; our screen size is post-transform.
+    let turned = matches!(
         info.transform,
         CTransform::_90 | CTransform::_270 | CTransform::Flipped90 | CTransform::Flipped270
-    ) {
-        Some((h, w))
-    } else {
-        Some((w, h))
+    );
+    let mm = if turned { (h, w) } else { (w, h) };
+    let screen = state.screens.get(screen_idx)?;
+    let logical = info.logical_size.filter(|&(w, h)| w > 0 && h > 0).or_else(|| {
+        let (w, h) = info.modes.iter().find(|m| m.current)?.dimensions;
+        let scale = info.scale_factor.max(1);
+        let (w, h) = if turned { (h, w) } else { (w, h) };
+        (w > 0 && h > 0).then_some((w / scale, h / scale))
+    });
+    match logical {
+        Some(output) => Some(share_of_panel(mm, (screen.width, screen.height), output)),
+        None => Some(mm),
+    }
+}
+
+/// The panel's millimetres scaled to the part a window of `window` logical pixels covers.
+fn share_of_panel(mm: (i32, i32), window: (i32, i32), output: (i32, i32)) -> (i32, i32) {
+    let scale =
+        |mm: i32, px: i32, of: i32| ((mm as i64 * px as i64 + of as i64 / 2) / of as i64) as i32;
+    (scale(mm.0, window.0, output.0), scale(mm.1, window.1, output.1))
+}
+
+#[cfg(test)]
+mod tests {
+    use super::share_of_panel;
+
+    #[test]
+    fn a_window_gets_the_millimetres_of_the_part_it_covers() {
+        // A 27" panel at 2560x1440 logical, LIVI in a 1280x752 window.
+        assert_eq!(share_of_panel((600, 340), (1280, 752), (2560, 1440)), (300, 178));
+    }
+
+    #[test]
+    fn a_fullscreen_window_keeps_the_whole_panel() {
+        assert_eq!(share_of_panel((600, 340), (2560, 1440), (2560, 1440)), (600, 340));
     }
 }
 

@@ -1,7 +1,7 @@
 {
-  "version": "9.0.1",
-  "build": "ef3343bc",
+  "version": "9.1.0",
+  "build": "f6672c44",
   "file": "livi-link-ax520.lfwb",
-  "size": 4725830,
-  "sha256": "0d53705dc7e8fe64b4542cb36886130da7dfa99bdfce099607a8192efce72976"
+  "size": 4725166,
+  "sha256": "cf71c211e46f312274a58300c3d71ffff664bc629939e593017832f801d15269"
 }

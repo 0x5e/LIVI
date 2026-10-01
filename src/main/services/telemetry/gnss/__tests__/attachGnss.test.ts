@@ -3,7 +3,7 @@ import { configEvents } from '@main/ipc/utils'
 import type { Config } from '@shared/types'
 import type { GnssInfo } from '@shared/types/Gnss'
 import { EMPTY_GNSS_INFO } from '@shared/types/Gnss'
-import { applyTimezone } from '../../../time/hostTimezone'
+import { applyTimezone, noteGpsZone } from '../../../time/hostTimezone'
 import { attachGnss } from '../attachGnss'
 import type { GnssReceiver } from '../GnssReceiver'
 import type { GpsFileWriter } from '../GpsFileWriter'
@@ -11,7 +11,8 @@ import type { GnssClock } from '../gnssClock'
 
 vi.mock('../../../time/hostTimezone', async (orig) => ({
   ...(await orig<typeof import('../../../time/hostTimezone')>()),
-  applyTimezone: vi.fn()
+  applyTimezone: vi.fn(),
+  noteGpsZone: vi.fn()
 }))
 
 class FakeReceiver extends EventEmitter {
@@ -237,25 +238,39 @@ describe('attachGnss — timezone edge cases', () => {
     expect(store.merge).toHaveBeenLastCalledWith({ gnss: INFO })
   })
 
-  test('applies the resolved zone to the host', () => {
+  test('applies the resolved zone to the host and claims it over the phone', () => {
     const { publish } = setup()
     publish()({ lat: 53.3536, lng: 10.5633 })
     expect(applyTimezone).toHaveBeenCalledWith('Europe/Berlin')
+    expect(noteGpsZone).toHaveBeenCalledWith('Europe/Berlin')
   })
 
-  test('applies again only when the zone actually changes', () => {
+  test('applies the zone on every fix that moved, so a zone the phone set gives way', () => {
+    const { publish } = setup({ timezone: 'Europe/Berlin' } as never)
+    vi.mocked(applyTimezone).mockClear()
+    publish()({ lat: 53.3536, lng: 10.5633 })
+    publish()({ lat: 52.52, lng: 13.405 })
+    expect(applyTimezone).toHaveBeenCalledTimes(2)
+    expect(applyTimezone).toHaveBeenLastCalledWith('Europe/Berlin')
+  })
+
+  test('saves again only when the zone actually changes', () => {
+    const save = vi.fn()
+    configEvents.on('requestSave', save)
     const { publish } = setup()
     publish()({ lat: 53.3536, lng: 10.5633 })
     publish()({ lat: 52.52, lng: 13.405 })
-    expect(applyTimezone).toHaveBeenCalledTimes(1)
+    expect(save).toHaveBeenCalledTimes(1)
     publish()({ lat: 22.5726, lng: 88.3639 })
-    expect(applyTimezone).toHaveBeenLastCalledWith('Asia/Kolkata')
+    expect(save).toHaveBeenLastCalledWith({ timezone: 'Asia/Kolkata' })
+    configEvents.off('requestSave', save)
   })
 
   test('does not apply anything for a position outside the map', () => {
     const { publish } = setup()
     publish()({ lat: 999, lng: 999 })
     expect(applyTimezone).not.toHaveBeenCalled()
+    expect(noteGpsZone).not.toHaveBeenCalled()
   })
 
   test('applies the stored zone at startup, before any fix', () => {

@@ -1,5 +1,6 @@
 import { EventEmitter } from 'node:events'
 import type net from 'node:net'
+import { applyPhoneUtcOffset } from '@main/services/time/hostTimezone'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { CpManager } from '../CpManager'
 
@@ -7,6 +8,8 @@ const { createServerMock, createConnectionMock } = vi.hoisted(() => ({
   createServerMock: vi.fn(),
   createConnectionMock: vi.fn()
 }))
+
+vi.mock('@main/services/time/hostTimezone', () => ({ applyPhoneUtcOffset: vi.fn() }))
 
 vi.mock('node:net', async (importOriginal) => {
   const actual = await importOriginal<typeof import('node:net')>()
@@ -113,6 +116,22 @@ beforeEach(() => {
 })
 afterEach(() => {
   vi.restoreAllMocks()
+})
+
+describe('CpManager device time', () => {
+  it('hands the phone UTC offset to the host zone without birthing a session', () => {
+    const { mgr } = makeManager()
+    mgr._onHelperEvent({ type: 'deviceTime', utcOffsetMinutes: 120, phoneId: '0C:6A' })
+    expect(applyPhoneUtcOffset).toHaveBeenCalledWith(120)
+    expect(mgr._sessions.size).toBe(0)
+  })
+
+  it('ignores a device time without an offset', () => {
+    const { mgr } = makeManager()
+    vi.mocked(applyPhoneUtcOffset).mockClear()
+    mgr._onHelperEvent({ type: 'deviceTime' })
+    expect(applyPhoneUtcOffset).not.toHaveBeenCalled()
+  })
 })
 
 describe('CpManager session-at-identification', () => {

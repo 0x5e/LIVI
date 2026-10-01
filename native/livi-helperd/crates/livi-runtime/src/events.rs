@@ -3,6 +3,7 @@
 use iap2_csm::CsmMessage;
 use iap2_csm::messages::communications::CallStateUpdate;
 use iap2_csm::messages::communications::CommunicationsUpdate;
+use iap2_csm::messages::device_notifications::DeviceTimeUpdate;
 use iap2_csm::messages::now_playing::{NowPlayingUpdate, PlaybackStatus};
 use iap2_csm::messages::power::PowerUpdate;
 use iap2_csm::messages::route_guidance::{RouteGuidanceManeuverUpdate, RouteGuidanceUpdate};
@@ -152,8 +153,6 @@ impl EventTag {
 
 /// Seconds since the epoch from a DeviceTimeUpdate, if the phone sent one.
 pub fn device_time(frame: &[u8]) -> Option<i64> {
-    use iap2_csm::messages::device_notifications::DeviceTimeUpdate;
-
     if frame_msg_id(frame)? != 0x4E0B {
         return None;
     }
@@ -166,6 +165,7 @@ pub fn to_json(frame: &[u8]) -> Option<String> {
         0xAE01 => power(frame),
         0x4158 => cellular(frame),
         0x4155 => call(frame),
+        0x4E0B => utc_offset(frame),
         _ => None,
     }
 }
@@ -263,6 +263,16 @@ fn cellular(frame: &[u8]) -> Option<String> {
     if let Some(s) = m.cellular_supported {
         o.bool("cellularSupported", s);
     }
+    o.finish()
+}
+
+/// The phone's offset from UTC, daylight saving included.
+fn utc_offset(frame: &[u8]) -> Option<String> {
+    let m = DeviceTimeUpdate::decode(frame).ok()?;
+    let minutes = i32::from(m.time_zone_offset_minutes?)
+        + i32::from(m.daylight_savings_offset_minutes.unwrap_or(0));
+    let mut o = Obj::new("deviceTime");
+    o.num("utcOffsetMinutes", minutes);
     o.finish()
 }
 
@@ -448,6 +458,31 @@ mod device_tests {
         assert!(json.contains("\"cid\":\"ctrl-1\""), "{json}");
         assert!(json.contains("\"usbTransportId\":\"usb-1\""), "{json}");
         assert!(json.starts_with("{\"type\":\"nowplaying\""));
+    }
+
+    #[test]
+    fn the_utc_offset_includes_daylight_saving() {
+        let update = DeviceTimeUpdate {
+            seconds_since_reference_date: Some(0),
+            time_zone_offset_minutes: Some(60),
+            daylight_savings_offset_minutes: Some(60),
+        };
+        assert_eq!(
+            to_json(&update.encode()).as_deref(),
+            Some("{\"type\":\"deviceTime\",\"utcOffsetMinutes\":120}")
+        );
+        let winter = DeviceTimeUpdate { daylight_savings_offset_minutes: None, ..update };
+        assert!(to_json(&winter.encode()).unwrap().ends_with(":60}"));
+    }
+
+    #[test]
+    fn a_time_without_an_offset_names_no_zone() {
+        let update = DeviceTimeUpdate {
+            seconds_since_reference_date: Some(0),
+            time_zone_offset_minutes: None,
+            daylight_savings_offset_minutes: None,
+        };
+        assert_eq!(to_json(&update.encode()), None);
     }
 
     #[test]

@@ -5,7 +5,7 @@ import type { Config } from '@shared/types'
 import type { GnssInfo } from '@shared/types/Gnss'
 import { EMPTY_GNSS_INFO } from '@shared/types/Gnss'
 import type { GpsPayload } from '@shared/types/Telemetry'
-import { applyTimezone, zoneForPosition } from '../../time/hostTimezone'
+import { applyTimezone, noteGpsZone, zoneForPosition } from '../../time/hostTimezone'
 import type { TelemetryStore } from '../TelemetryStore'
 import { GnssReceiver } from './GnssReceiver'
 import { GpsFileWriter } from './GpsFileWriter'
@@ -52,13 +52,16 @@ export function attachGnss({
       const key = `${gps.lat.toFixed(2)},${gps.lng.toFixed(2)}`
       if (key !== zoneKey) {
         zoneKey = key
-        const zone = zoneForPosition(gps.lat, gps.lng) ?? undefined
-        if (zone && zone !== timezone) {
+        const zone = zoneForPosition(gps.lat, gps.lng)
+        if (zone) {
+          noteGpsZone(zone)
           applyTimezone(zone)
-          // Remembered so the next boot reads right before a fix comes back
-          configEvents.emit('requestSave', { timezone: zone } satisfies Partial<Config>)
+          if (zone !== timezone) {
+            timezone = zone
+            // Remembered so the next boot reads right before a fix comes back
+            configEvents.emit('requestSave', { timezone: zone } satisfies Partial<Config>)
+          }
         }
-        if (zone) timezone = zone
       }
     }
     store.merge({ gps })

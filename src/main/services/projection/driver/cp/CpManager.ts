@@ -10,6 +10,7 @@
  */
 
 import * as net from 'node:net'
+import { applyPhoneUtcOffset } from '@main/services/time/hostTimezone'
 import type { Config } from '@shared/types'
 import { CpHelperSock } from './CpHelperSock'
 import { CpSession, type CpSessionSeed } from './CpSession'
@@ -303,6 +304,10 @@ export class CpManager {
         for (const s of [...this._sessions]) void s.close()
         this._pendingDevices.length = 0
       }
+      return
+    }
+    if (ev.type === 'deviceTime') {
+      if (typeof ev.utcOffsetMinutes === 'number') applyPhoneUtcOffset(ev.utcOffsetMinutes)
       return
     }
     if (ev.type === 'device-gone') {

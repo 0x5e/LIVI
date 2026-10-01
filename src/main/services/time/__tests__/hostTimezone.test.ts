@@ -1,10 +1,5 @@
-import { execFile } from 'node:child_process'
-import fs from 'node:fs'
 import type { Mock } from 'vitest'
 import {
-  applyTimezone,
-  currentZone,
-  listTimezones,
   observesDst,
   resolveZoneForOffset,
   zoneForPosition,
@@ -13,9 +8,6 @@ import {
 
 vi.mock('node:child_process', () => ({ execFile: vi.fn() }))
 vi.mock('node:fs', () => ({ default: { existsSync: vi.fn(() => true) } }))
-
-const mockedExecFile = execFile as unknown as Mock
-const mockedFs = fs as unknown as { existsSync: Mock }
 
 const JAN = Date.UTC(2026, 0, 15)
 const JUL = Date.UTC(2026, 6, 15)
@@ -149,22 +141,29 @@ describe('resolveZoneForOffset', () => {
   })
 })
 
-describe('listTimezones', () => {
-  test('returns a sorted list containing well known zones', () => {
-    const zones = listTimezones()
-    expect(zones.length).toBeGreaterThan(100)
-    expect(zones).toContain('Europe/Berlin')
-    expect([...zones].sort()).toEqual(zones)
-  })
-})
+type Fresh = {
+  tz: typeof import('../hostTimezone')
+  execFile: Mock
+  existsSync: Mock
+}
+
+// The module remembers the zone it set and the one GPS named, so each test starts from a fresh copy.
+async function fresh(): Promise<Fresh> {
+  vi.resetModules()
+  const execFile = (await import('node:child_process')).execFile as unknown as Mock
+  const nodeFs = (await import('node:fs')).default as unknown as { existsSync: Mock }
+  execFile.mockReset()
+  nodeFs.existsSync.mockReset().mockReturnValue(true)
+  return { tz: await import('../hostTimezone'), execFile, existsSync: nodeFs.existsSync }
+}
 
 describe('applyTimezone', () => {
   let warnSpy: ReturnType<typeof vi.spyOn>
   let logSpy: ReturnType<typeof vi.spyOn>
+  let m: Fresh
 
-  beforeEach(() => {
-    vi.clearAllMocks()
-    mockedFs.existsSync.mockReturnValue(true)
+  beforeEach(async () => {
+    m = await fresh()
     warnSpy = vi.spyOn(console, 'warn').mockImplementation(() => {})
     logSpy = vi.spyOn(console, 'log').mockImplementation(() => {})
   })
@@ -175,42 +174,98 @@ describe('applyTimezone', () => {
   })
 
   test('hands a new zone to the root helper', () => {
-    applyTimezone('Asia/Kolkata')
-    expect(mockedExecFile).toHaveBeenCalledWith(
+    m.tz.applyTimezone('Asia/Kolkata')
+    expect(m.execFile).toHaveBeenCalledWith(
       'sudo',
       ['-n', '/usr/local/lib/livi/livi-set-time.sh', 'tz', 'Asia/Kolkata'],
       expect.any(Function)
     )
   })
 
-  test('logs once the helper succeeds', () => {
-    applyTimezone('Asia/Kolkata')
-    mockedExecFile.mock.calls[0][2](null)
+  test('logs once the helper succeeds and takes the zone as current', () => {
+    m.tz.applyTimezone('Asia/Kolkata')
+    m.execFile.mock.calls[0][2](null)
     expect(logSpy).toHaveBeenCalledWith('[timezone] host zone → Asia/Kolkata')
+    expect(m.tz.currentZone()).toBe('Asia/Kolkata')
+    m.tz.applyTimezone('Asia/Kolkata')
+    expect(m.execFile).toHaveBeenCalledTimes(1)
   })
 
-  test('warns when the helper fails', () => {
-    applyTimezone('Asia/Kolkata')
-    mockedExecFile.mock.calls[0][2](new Error('not permitted'))
+  test('warns when the helper fails and keeps the old zone', () => {
+    const before = m.tz.currentZone()
+    m.tz.applyTimezone('Asia/Kolkata')
+    m.execFile.mock.calls[0][2](new Error('not permitted'))
     expect(warnSpy).toHaveBeenCalledWith(expect.stringContaining('could not set'), 'not permitted')
+    expect(m.tz.currentZone()).toBe(before)
   })
 
   test('does nothing when the zone is already active', () => {
-    applyTimezone(currentZone())
-    expect(mockedExecFile).not.toHaveBeenCalled()
+    m.tz.applyTimezone(m.tz.currentZone())
+    expect(m.execFile).not.toHaveBeenCalled()
   })
 
   test('refuses a zone the system does not know', () => {
-    applyTimezone('Middle/Earth')
-    expect(mockedExecFile).not.toHaveBeenCalled()
+    m.tz.applyTimezone('Middle/Earth')
+    expect(m.execFile).not.toHaveBeenCalled()
     expect(warnSpy).toHaveBeenCalledWith(expect.stringContaining('not a zone'))
   })
 
   test('points at the installer when the helper is missing', () => {
-    mockedFs.existsSync.mockReturnValue(false)
-    applyTimezone('Asia/Kolkata')
-    expect(mockedExecFile).not.toHaveBeenCalled()
+    m.existsSync.mockReturnValue(false)
+    m.tz.applyTimezone('Asia/Kolkata')
+    expect(m.execFile).not.toHaveBeenCalled()
     expect(warnSpy).toHaveBeenCalledWith(expect.stringContaining('re-run the installer'))
+  })
+})
+
+describe('applyPhoneUtcOffset', () => {
+  const realPlatform = Object.getOwnPropertyDescriptor(process, 'platform')!
+  let m: Fresh
+
+  // The host runs in Asia/Kolkata (+330) for every case.
+  beforeEach(async () => {
+    m = await fresh()
+    vi.spyOn(console, 'log').mockImplementation(() => {})
+    Object.defineProperty(process, 'platform', { value: 'linux', configurable: true })
+    m.tz.applyTimezone('Asia/Kolkata')
+    m.execFile.mock.calls[0][2](null)
+    m.execFile.mockClear()
+  })
+
+  afterEach(() => {
+    Object.defineProperty(process, 'platform', realPlatform)
+    vi.restoreAllMocks()
+  })
+
+  test('sets a zone for an offset the host zone does not show', () => {
+    m.tz.applyPhoneUtcOffset(120, JUL)
+    expect(m.execFile).toHaveBeenCalledWith(
+      'sudo',
+      ['-n', '/usr/local/lib/livi/livi-set-time.sh', 'tz', 'Etc/GMT-2'],
+      expect.any(Function)
+    )
+  })
+
+  test('keeps a zone that already shows the offset', () => {
+    m.tz.applyPhoneUtcOffset(330, JUL)
+    expect(m.execFile).not.toHaveBeenCalled()
+  })
+
+  test('stands back once GPS has named a zone', () => {
+    m.tz.noteGpsZone('Europe/Berlin')
+    m.tz.applyPhoneUtcOffset(120, JUL)
+    expect(m.execFile).not.toHaveBeenCalled()
+  })
+
+  test('ignores an offset no zone carries', () => {
+    m.tz.applyPhoneUtcOffset(9999, JUL)
+    expect(m.execFile).not.toHaveBeenCalled()
+  })
+
+  test('leaves a Mac alone', () => {
+    Object.defineProperty(process, 'platform', { value: 'darwin', configurable: true })
+    m.tz.applyPhoneUtcOffset(120, JUL)
+    expect(m.execFile).not.toHaveBeenCalled()
   })
 })
 

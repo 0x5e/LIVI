@@ -39,11 +39,6 @@ function allZones(): string[] {
   return zoneCache
 }
 
-/** Every zone the runtime knows, for the manual picker. */
-export function listTimezones(): string[] {
-  return [...allZones()].sort()
-}
-
 /** Zone for a reported offset in minutes east of UTC, preferring one without DST. */
 export function resolveZoneForOffset(offsetMinutes: number, now = Date.now()): string | null {
   if (!Number.isFinite(offsetMinutes)) return null
@@ -71,9 +66,30 @@ export function zoneForPosition(lat: number, lng: number): string | null {
   return tzLookup(lat, lng)
 }
 
+// The process keeps the zone it started with, so a zone set since then is remembered here.
+let applied: string | null = null
+// Once GPS has named a zone this run, the phone's offset no longer has a say.
+let gpsZone: string | null = null
+
 /** The zone the host is currently set to. */
 export function currentZone(): string {
-  return Intl.DateTimeFormat().resolvedOptions().timeZone
+  return applied ?? Intl.DateTimeFormat().resolvedOptions().timeZone
+}
+
+export function noteGpsZone(zone: string): void {
+  gpsZone = zone
+}
+
+/**
+ * The phone's offset from UTC, DST included, for a host GPS has not placed yet. A zone that
+ * already shows this offset stays, it carries the DST rules a bare offset lacks.
+ */
+export function applyPhoneUtcOffset(offsetMinutes: number, now = Date.now()): void {
+  // A Mac keeps its own zone.
+  if (process.platform !== 'linux' || gpsZone) return
+  if (zoneOffsetMinutes(currentZone(), now) === offsetMinutes) return
+  const zone = resolveZoneForOffset(offsetMinutes, now)
+  if (zone) applyTimezone(zone)
 }
 
 /** Apply via the root helper. No helper = installer has not run; the zone stays. */
@@ -88,7 +104,11 @@ export function applyTimezone(zone: string): void {
     return
   }
   execFile('sudo', ['-n', SET_TIME_HELPER, 'tz', zone], (err) => {
-    if (err) console.warn('[timezone] could not set the zone:', err.message)
-    else console.log(`[timezone] host zone → ${zone}`)
+    if (err) {
+      console.warn('[timezone] could not set the zone:', err.message)
+      return
+    }
+    applied = zone
+    console.log(`[timezone] host zone → ${zone}`)
   })
 }

@@ -82,7 +82,7 @@ fn ap_iface(dc: &DeviceConfig) -> String {
     if iface != livi_dongle::link::CHOICE {
         return iface;
     }
-    livi_runtime::net::iface_facing(livi_dongle::link::LINK_NAME).unwrap_or(iface)
+    livi_dongle::link::host_iface().unwrap_or(iface)
 }
 
 /// The configured Bluetooth adapter. Choosing the dongle attaches its controller to this machine

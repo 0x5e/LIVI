@@ -38,7 +38,8 @@ async fn access_point(cfg: &AaConfig) -> (AaConfig, String) {
                 channel: ap::status_field("channel")
                     .and_then(|c| c.parse().ok())
                     .unwrap_or(base.channel),
-                ap_ip: net::addr_facing(link::LINK_NAME)
+                ap_ip: link::host_iface()
+                    .and_then(|iface| net::ipv4_of(&iface))
                     .map(|a| a.to_string())
                     .unwrap_or_else(|| base.ap_ip.clone()),
                 passphrase,

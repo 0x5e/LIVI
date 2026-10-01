@@ -100,9 +100,9 @@ pub fn iface_facing(peer: &str) -> Option<String> {
     facing(peer).map(|(name, _)| name)
 }
 
-/// This machine's own address in the /24 it shares with `peer`.
-pub fn addr_facing(peer: &str) -> Option<std::net::Ipv4Addr> {
-    facing(peer).map(|(_, addr)| addr)
+/// The IPv4 address of `iface`.
+pub fn ipv4_of(iface: &str) -> Option<std::net::Ipv4Addr> {
+    first_ipv4(|name, _| name == iface).map(|(_, addr)| addr)
 }
 
 fn facing(peer: &str) -> Option<(String, std::net::Ipv4Addr)> {
@@ -116,7 +116,13 @@ fn facing(peer: &str) -> Option<(String, std::net::Ipv4Addr)> {
         })?,
     };
     let subnet = u32::from(ip) & 0xffff_ff00;
+    first_ipv4(|_, own| u32::from(own) & 0xffff_ff00 == subnet)
+}
 
+/// The first interface IPv4 address `wanted` accepts.
+fn first_ipv4(
+    wanted: impl Fn(&str, std::net::Ipv4Addr) -> bool,
+) -> Option<(String, std::net::Ipv4Addr)> {
     let mut ifap: *mut libc::ifaddrs = std::ptr::null_mut();
     if unsafe { libc::getifaddrs(&mut ifap) } != 0 {
         return None;
@@ -134,11 +140,11 @@ fn facing(peer: &str) -> Option<(String, std::net::Ipv4Addr)> {
             continue;
         }
         let sin = unsafe { &*(ifa.ifa_addr as *const libc::sockaddr_in) };
-        let own = u32::from_be(sin.sin_addr.s_addr);
-        if own & 0xffff_ff00 == subnet
-            && let Ok(name) = unsafe { std::ffi::CStr::from_ptr(ifa.ifa_name) }.to_str()
+        let own = std::net::Ipv4Addr::from(u32::from_be(sin.sin_addr.s_addr));
+        if let Ok(name) = unsafe { std::ffi::CStr::from_ptr(ifa.ifa_name) }.to_str()
+            && wanted(name, own)
         {
-            out = Some((name.to_string(), std::net::Ipv4Addr::from(own)));
+            out = Some((name.to_string(), own));
             break;
         }
     }
@@ -151,5 +157,17 @@ pub fn ap_ssid_channel(iface: &str) -> (Option<String>, Option<u8>) {
     match livi_wifi::ap_state(iface) {
         Some(ap) => (Some(ap.ssid), u8::try_from(ap.channel).ok()),
         None => (None, None),
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn the_loopback_interface_has_its_address() {
+        let lo = if cfg!(target_os = "macos") { "lo0" } else { "lo" };
+        assert_eq!(ipv4_of(lo), Some(std::net::Ipv4Addr::LOCALHOST));
+        assert_eq!(ipv4_of("no-such-iface"), None);
     }
 }

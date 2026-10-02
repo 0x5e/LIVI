@@ -21,19 +21,35 @@ pub const READ_INFO: u16 = 0x0004;
 const READ_UNCONF_INDEX_LIST: u16 = 0x001d;
 const READ_CONFIG_INFO: u16 = 0x0031;
 
+pub const SET_POWERED: u16 = 0x0005;
+pub const SET_DISCOVERABLE: u16 = 0x0006;
+pub const SET_CONNECTABLE: u16 = 0x0007;
+pub const SET_BONDABLE: u16 = 0x0009;
+pub const SET_SSP: u16 = 0x000b;
+pub const SET_CLASS: u16 = 0x000e;
+pub const SET_NAME: u16 = 0x000f;
+pub const ADD_UUID: u16 = 0x0010;
+pub const LOAD_LINK_KEYS: u16 = 0x0012;
+pub const DISCONNECT: u16 = 0x0014;
+pub const PIN_CODE_NEG_REPLY: u16 = 0x0017;
+pub const SET_IO_CAPABILITY: u16 = 0x0018;
+pub const USER_CONFIRM_REPLY: u16 = 0x001c;
+
 /// What the accessory needs from the kernel, by management opcode.
-pub const NEEDED: [(u16, &str); 11] = [
-    (0x0005, "set-powered"),
-    (0x0006, "set-discoverable"),
-    (0x0007, "set-connectable"),
-    (0x0009, "set-bondable"),
-    (0x000b, "set-ssp"),
-    (0x000e, "set-class"),
-    (0x000f, "set-name"),
-    (0x0012, "load-link-keys"),
-    (0x0018, "set-io-capability"),
-    (0x0019, "pair-device"),
-    (0x001c, "user-confirm-reply"),
+pub const NEEDED: [(u16, &str); 13] = [
+    (SET_POWERED, "set-powered"),
+    (SET_DISCOVERABLE, "set-discoverable"),
+    (SET_CONNECTABLE, "set-connectable"),
+    (SET_BONDABLE, "set-bondable"),
+    (SET_SSP, "set-ssp"),
+    (SET_CLASS, "set-class"),
+    (SET_NAME, "set-name"),
+    (ADD_UUID, "add-uuid"),
+    (LOAD_LINK_KEYS, "load-link-keys"),
+    (DISCONNECT, "disconnect"),
+    (PIN_CODE_NEG_REPLY, "pin-code-neg-reply"),
+    (SET_IO_CAPABILITY, "set-io-capability"),
+    (USER_CONFIRM_REPLY, "user-confirm-reply"),
 ];
 
 const CMD_COMPLETE: u16 = 0x0001;

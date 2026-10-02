@@ -1,5 +1,5 @@
-pub fn run(_args: Vec<String>) -> i32 {
-    livid_main()
+pub fn run(args: Vec<String>) -> i32 {
+    livid_main(&args)
 }
 
 // livi-bt-up — ioctl(HCIDEVUP) then ioctl(HCIGETDEVINFO) so hci0 opens and we can
@@ -30,8 +30,8 @@ struct HciDevInfo {
     _rest: [u8; 128],
 }
 
-fn livid_main() -> i32 {
-    let dev: libc::c_int = std::env::args().nth(1).and_then(|s| s.parse().ok()).unwrap_or(0);
+fn livid_main(args: &[String]) -> i32 {
+    let dev: libc::c_int = args.first().and_then(|s| s.parse().ok()).unwrap_or(0);
     let sock = unsafe { libc::socket(AF_BLUETOOTH, libc::SOCK_RAW, BTPROTO_HCI) };
     if sock < 0 {
         eprintln!("livi-bt-up: socket(AF_BLUETOOTH): {}", std::io::Error::last_os_error());

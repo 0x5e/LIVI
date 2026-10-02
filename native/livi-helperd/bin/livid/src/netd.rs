@@ -1,8 +1,5 @@
-pub fn run(_args: Vec<String>) -> i32 {
-    // ExitCode is opaque; the module either loops forever (returning implicitly)
-    // or calls std::process::exit on setup failure. Treat any normal return as 0.
-    let _ = livid_main();
-    0
+pub fn run(args: Vec<String>) -> i32 {
+    crate::exit_rc(livid_main(&args))
 }
 
 // livi-netd — DHCPv4 server for the LIVI Link dongle.
@@ -12,7 +9,6 @@ pub fn run(_args: Vec<String>) -> i32 {
 //
 // Usage: livi-netd <iface> [server-ip] [pool-start] [pool-end] [hostname]
 
-use std::env;
 use std::io::{self, Result};
 use std::net::Ipv4Addr;
 use std::process::ExitCode;
@@ -32,14 +28,13 @@ const MSG_OFFER: u8 = 2;
 const MSG_REQUEST: u8 = 3;
 const MSG_ACK: u8 = 5;
 
-fn livid_main() -> ExitCode {
-    let args: Vec<String> = env::args().collect();
-    let iface = args.get(1).cloned().unwrap_or_else(|| "usb0".into());
+fn livid_main(args: &[String]) -> ExitCode {
+    let iface = args.first().cloned().unwrap_or_else(|| "usb0".into());
     let server_ip: Ipv4Addr =
-        args.get(2).and_then(|s| s.parse().ok()).unwrap_or(Ipv4Addr::new(10, 10, 10, 1));
-    let pool_start: u8 = args.get(3).and_then(|s| s.parse().ok()).unwrap_or(100);
-    let pool_end: u8 = args.get(4).and_then(|s| s.parse().ok()).unwrap_or(149);
-    let hostname: String = args.get(5).cloned().unwrap_or_else(|| "livi-link".into());
+        args.get(1).and_then(|s| s.parse().ok()).unwrap_or(Ipv4Addr::new(10, 10, 10, 1));
+    let pool_start: u8 = args.get(2).and_then(|s| s.parse().ok()).unwrap_or(100);
+    let pool_end: u8 = args.get(3).and_then(|s| s.parse().ok()).unwrap_or(149);
+    let hostname: String = args.get(4).cloned().unwrap_or_else(|| "livi-link".into());
 
     eprintln!(
         "[livi-netd] iface={iface} server={server_ip} pool=10.10.10.{pool_start}..{pool_end} host={hostname}.local"

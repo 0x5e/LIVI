@@ -12,7 +12,11 @@ use std::time::{Duration, Instant};
 
 use livi_net::port::{ACCESSORY, IAP};
 
-use crate::mgmt::{self, Mgmt};
+use crate::mgmt::{
+    self, ADD_UUID, DISCONNECT, LOAD_LINK_KEYS, Mgmt, PIN_CODE_NEG_REPLY, SET_BONDABLE, SET_CLASS,
+    SET_CONNECTABLE, SET_DISCOVERABLE, SET_IO_CAPABILITY, SET_NAME, SET_POWERED, SET_SSP,
+    USER_CONFIRM_REPLY,
+};
 use crate::sdp;
 
 use std::sync::OnceLock;
@@ -113,20 +117,6 @@ const CLASS_MINOR: u8 = 0x20;
 const SERVICE_AUDIO: u8 = 0x20;
 /// No display and no keypad.
 const IO_NO_INPUT_NO_OUTPUT: u8 = 0x03;
-
-const SET_POWERED: u16 = 0x0005;
-const SET_DISCOVERABLE: u16 = 0x0006;
-const SET_CONNECTABLE: u16 = 0x0007;
-const SET_BONDABLE: u16 = 0x0009;
-const SET_SSP: u16 = 0x000b;
-const SET_CLASS: u16 = 0x000e;
-const SET_NAME: u16 = 0x000f;
-const ADD_UUID: u16 = 0x0010;
-const SET_IO_CAPABILITY: u16 = 0x0018;
-const LOAD_LINK_KEYS: u16 = 0x0012;
-const DISCONNECT: u16 = 0x0014;
-const USER_CONFIRM_REPLY: u16 = 0x001c;
-const PIN_CODE_NEG_REPLY: u16 = 0x0017;
 
 const EV_NEW_SETTINGS: u16 = 0x0006;
 const EV_NEW_LINK_KEY: u16 = 0x0009;

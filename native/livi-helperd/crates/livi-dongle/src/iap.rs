@@ -21,6 +21,7 @@ const KEEPALIVE_EVERY: libc::c_int = 3;
 const KEEPALIVE_TRIES: libc::c_int = 3;
 /// One order to the dongle is a line out and a line back, nothing that should take long.
 const ORDER_TIMEOUT: Duration = Duration::from_secs(3);
+const CONNECT_TIMEOUT: Duration = Duration::from_secs(3);
 
 /// A phone that opened its channel on the dongle, and the stream that carries it.
 pub struct Session {
@@ -107,9 +108,14 @@ pub fn sessions(ready: impl Fn() -> bool + Send + 'static) -> mpsc::Receiver<Ses
 
 /// Holds a connection open until the dongle says a phone is on it.
 async fn waiting() -> Result<Session, String> {
-    let mut stream = TcpStream::connect(link::addr(livi_net::port::IAP))
-        .await
-        .map_err(|e| format!("dongle: {e}"))?;
+    let blocking = tokio::task::spawn_blocking(|| {
+        livi_net::connect((link::LINK_NAME, livi_net::port::IAP), CONNECT_TIMEOUT)
+    })
+    .await
+    .map_err(|e| format!("dongle: {e}"))?
+    .map_err(|e| format!("dongle: {e}"))?;
+    blocking.set_nonblocking(true).map_err(|e| format!("dongle: {e}"))?;
+    let mut stream = TcpStream::from_std(blocking).map_err(|e| format!("dongle: {e}"))?;
     stream.set_nodelay(true).map_err(|e| format!("nodelay: {e}"))?;
     // Waiting for a phone means a long silence, so the link itself has to say when the dongle is
     // gone. Without this a restarted dongle leaves us listening to nobody.

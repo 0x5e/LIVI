@@ -2,7 +2,6 @@ use std::fs;
 use std::io::{Read, Write};
 use std::path::Path;
 
-const MTD_DEV_FALLBACK: &str = "/dev/mtdblock4";
 const MAGIC: &[u8; 4] = b"LVCF";
 const VERSION_V1: u16 = 1;
 const VERSION_V2: u16 = 2;
@@ -26,11 +25,11 @@ const ENTRY_UPDATE: &str = "update.conf";
 const ENTRY_RADIO: &str = "radio.conf";
 
 /// The partition table differs per board, so the config lives on whichever MTD is named
-/// "customer". The old fixed device is only the fallback.
-fn mtd_dev() -> &'static str {
-    static DEV: std::sync::OnceLock<String> = std::sync::OnceLock::new();
+/// "customer".
+fn mtd_dev() -> std::io::Result<&'static str> {
+    static DEV: std::sync::OnceLock<Option<String>> = std::sync::OnceLock::new();
     DEV.get_or_init(|| {
-        let by_name = fs::read_dir("/sys/class/mtd").ok().and_then(|dir| {
+        fs::read_dir("/sys/class/mtd").ok().and_then(|dir| {
             dir.flatten().find_map(|e| {
                 let name = e.file_name().into_string().ok()?;
                 let n =
@@ -38,9 +37,10 @@ fn mtd_dev() -> &'static str {
                 let label = fs::read_to_string(e.path().join("name")).ok()?;
                 (label.trim() == "customer").then(|| format!("/dev/mtdblock{n}"))
             })
-        });
-        by_name.unwrap_or_else(|| MTD_DEV_FALLBACK.to_string())
+        })
     })
+    .as_deref()
+    .ok_or_else(|| io_err("no MTD partition named customer"))
 }
 
 pub fn run(args: Vec<String>) -> i32 {
@@ -80,10 +80,10 @@ fn cmd_load() -> i32 {
                     return 1;
                 }
             }
-            eprintln!("[livid config load] restored from {}", mtd_dev());
+            eprintln!("[livid config load] restored from {}", mtd_dev().unwrap_or_default());
         }
         Err(err) => {
-            eprintln!("[livid config load] {} not usable ({err}); seeding defaults", mtd_dev());
+            eprintln!("[livid config load] not usable ({err}), seeding defaults");
         }
     }
     seed_if_missing(TMPFS_LED, DEFAULT_LED);
@@ -149,7 +149,7 @@ fn cmd_save() -> i32 {
         }
     };
     if let Err(e) = write_blob(&blob) {
-        eprintln!("[livid config save] write {}: {e}", mtd_dev());
+        eprintln!("[livid config save] write: {e}");
         return 1;
     }
     match read_blob() {
@@ -160,7 +160,11 @@ fn cmd_save() -> i32 {
                 eprintln!("[livid config save] verify: read-back differs");
                 return 2;
             }
-            eprintln!("[livid config save] {} entries persisted to {}", entries.len(), mtd_dev());
+            eprintln!(
+                "[livid config save] {} entries persisted to {}",
+                entries.len(),
+                mtd_dev().unwrap_or_default()
+            );
             0
         }
         Err(e) => {
@@ -171,7 +175,7 @@ fn cmd_save() -> i32 {
 }
 
 fn read_blob() -> std::io::Result<Vec<Entry>> {
-    let mut f = fs::File::open(mtd_dev())?;
+    let mut f = fs::File::open(mtd_dev()?)?;
     let mut hdr = [0u8; HEADER_LEN];
     f.read_exact(&mut hdr)?;
     if &hdr[0..4] != MAGIC {
@@ -270,7 +274,7 @@ fn pack_v2(entries: &[Entry]) -> Result<Vec<u8>, String> {
 
 fn write_blob(blob: &[u8]) -> std::io::Result<()> {
     use std::os::unix::fs::OpenOptionsExt;
-    let mut f = fs::OpenOptions::new().write(true).custom_flags(libc::O_SYNC).open(mtd_dev())?;
+    let mut f = fs::OpenOptions::new().write(true).custom_flags(libc::O_SYNC).open(mtd_dev()?)?;
     f.write_all(blob)?;
     f.sync_all()?;
     unsafe {

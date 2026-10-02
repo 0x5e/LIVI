@@ -16,6 +16,6 @@ no rootfs taken over. Shell on the UART, 10.10.10.1 (telnet :23, :2323) over USB
   sfc-sr [qe]       flash status registers, qe sets the quad enable bit the bootloader needs
   nc -l -p 9000 > /tmp/f   receive a file over the network, or rx /tmp/f over the UART (xmodem)
   devmem ADDR       read a register, e.g. devmem 0x0b500000
-  diag              state overview; dmesg, /proc/uptime, /sys/kernel/debug (dynamic_debug)
+  diag              state overview; dmesg, /proc/uptime, /sys/kernel/debug
 EOT
 }

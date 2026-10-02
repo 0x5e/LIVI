@@ -191,18 +191,14 @@ log "layer LIVI AX520 config onto allnoconfig"
   --enable SQUASHFS_XZ \
   \
   --enable USB_SUPPORT \
-  --enable USB \
   --enable COMPILE_TEST \
   --enable USB_FOTG210 \
-  --enable USB_FOTG210_HCD \
   --enable USB_FOTG210_UDC \
   --enable USB_GADGET \
   --enable USB_LIBCOMPOSITE \
   --enable USB_CONFIGFS \
   --enable USB_CONFIGFS_NCM \
   --enable USB_CONFIGFS_ACM \
-  --enable USB_CONFIGFS_ECM \
-  --enable USB_CONFIGFS_RNDIS \
   \
   --enable NET \
   --enable INET \
@@ -214,17 +210,19 @@ log "layer LIVI AX520 config onto allnoconfig"
   \
   --enable DEBUG_KERNEL \
   --enable DEBUG_FS \
-  --enable DYNAMIC_DEBUG \
   --enable DEVMEM \
   --disable STRICT_DEVMEM \
   --enable MAGIC_SYSRQ \
-  --enable SOFTLOCKUP_DETECTOR \
-  --enable DETECT_HUNG_TASK \
-  --set-val DEFAULT_HUNG_TASK_TIMEOUT 30 \
-  --enable WQ_WATCHDOG \
   --set-val CONSOLE_LOGLEVEL_DEFAULT 8
 
 make ARCH=arm CROSS_COMPILE="$CROSS_COMPILE" olddefconfig
+
+# Everything the ways in hang on has to have survived olddefconfig, a dropped dependency is silent.
+for sym in ARCH_AXERA ARM_APPENDED_DTB SERIAL_8250_DW USB_FOTG210_UDC USB_CONFIGFS_NCM USB_CONFIGFS_ACM \
+           MMC_DW_PLTFM SPI_DW_MMIO MTD_SPI_NOR SPI_SPIDEV I2C_GPIO SQUASHFS SQUASHFS_XZ BLK_DEV_INITRD \
+           BRIDGE CFG80211 BT AIC_WLAN_SUPPORT; do
+  grep -q "^CONFIG_$sym=y" .config || { log "CONFIG_$sym did not make it into .config"; exit 4; }
+done
 
 # ---------------------------------------------------------------------------
 # 4) Build

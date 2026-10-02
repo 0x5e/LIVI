@@ -45,9 +45,7 @@ HOSTAPD_VER=2.10
 HOSTAPD_SHA=206e7c799b678572c2e3d12030238784bc4a9f82323b0156b4c9466f1498915d
 HOSTAPD_URL=https://w1.fi/releases/hostapd-${HOSTAPD_VER}.tar.gz
 
-TC_ROOT=${TC_ROOT:-$HOME/LocalDev/LIVI-Link/build/tmp/sysroots-components/x86_64/sunxi-nds32le-native}
-TC_BIN=${TC_BIN:-$(echo "$TC_ROOT"/usr/lib/sunxi-toolchains/nds32le-linux-glibc-v5d*/bin | awk '{print $1}')}
-[[ -x "$TC_BIN/riscv32-linux-gcc" ]] || { echo "no riscv32-linux-gcc under $TC_BIN"; exit 2; }
+[[ -x "$TC_BIN/riscv32-linux-gcc" ]] || { echo "no riscv32-linux-gcc under $TC_BIN (set TC_BIN)"; exit 2; }
 export PATH=$TC_BIN:$PATH
 CC=riscv32-linux-gcc
 CROSS=riscv32-linux-

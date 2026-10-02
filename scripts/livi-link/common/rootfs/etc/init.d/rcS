@@ -56,11 +56,5 @@ done
 # WiFi and Bluetooth, as far as they are switched on.
 /usr/bin/livi-radio boot
 
-(while :; do
-    echo "$(cut -d. -f1 /proc/uptime)s" > /tmp/livi/heartbeat
-    sleep 3
-done) &
-echo "[livi] heartbeat pid=$!"
-
 echo 4 > /proc/sys/kernel/printk
 echo '[livi] rcS done'

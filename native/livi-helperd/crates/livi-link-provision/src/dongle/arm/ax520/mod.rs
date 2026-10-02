@@ -4,8 +4,8 @@
 
 use std::path::Path;
 
-use crate::dongle::lfwb;
 use crate::dongle::shell::BindShell;
+use crate::dongle::{Remote, lfwb, mtd_is};
 
 pub const PROJECT: &str = "ly7129";
 
@@ -45,22 +45,7 @@ impl HardwareInfo {
     }
 }
 
-/// Whether `/proc/mtd` lists partition `index` under `name` with exactly `size` bytes:
-/// `mtd3: 00300000 00010000 "boot"`.
-fn mtd_is(proc_mtd: &str, index: u8, name: &str, size: u64) -> bool {
-    let prefix = format!("mtd{index}:");
-    proc_mtd.lines().any(|line| {
-        let Some(rest) = line.trim().strip_prefix(&prefix) else {
-            return false;
-        };
-        let mut fields = rest.split_whitespace();
-        let listed_size = fields.next().and_then(|s| u64::from_str_radix(s, 16).ok());
-        let listed_name = fields.nth(1).map(|s| s.trim_matches('"'));
-        listed_size == Some(size) && listed_name == Some(name)
-    })
-}
-
-pub fn verify_hardware(sh: &mut BindShell) -> Result<HardwareInfo, String> {
+pub fn verify_hardware<R: Remote>(sh: &mut R) -> Result<HardwareInfo, String> {
     let cpuinfo_head = sh.run("head -20 /proc/cpuinfo")?;
     let proc_mtd = sh.run("cat /proc/mtd")?;
     Ok(HardwareInfo { cpuinfo_head, proc_mtd })
@@ -116,6 +101,16 @@ pub fn flash_embedded(sh: &mut BindShell) -> Result<(), String> {
 }
 
 fn flash_lfwb_bytes(sh: &mut BindShell, bytes: &[u8]) -> Result<(), String> {
+    write_bundle(sh, bytes)?;
+    println!("sync + reboot");
+    sh.run("sync")?;
+    // fire-and-forget; the dongle drops the shell as it goes down
+    let _ = sh.run("reboot -f &");
+    Ok(())
+}
+
+/// Writes the bundle's images, each read back off the chip. Restarting is left to the caller.
+pub fn write_bundle<R: Remote>(sh: &mut R, bytes: &[u8]) -> Result<(), String> {
     let images = lfwb::unpack(bytes)?;
     let boot = lfwb::image(&images, BOOT_MTD).ok_or("no boot payload in bundle")?;
     let rootfs = lfwb::image(&images, ROOTFS_MTD).ok_or("no rootfs payload in bundle")?;
@@ -146,10 +141,6 @@ fn flash_lfwb_bytes(sh: &mut BindShell, bytes: &[u8]) -> Result<(), String> {
         println!("flashing customer ({} B) → /dev/mtdblock{CUSTOMER_MTD}…", data.len());
         lfwb::write_mtd_verified(sh, &format!("/dev/mtdblock{CUSTOMER_MTD}"), data)?;
     }
-    println!("sync + reboot");
-    sh.run("sync")?;
-    // fire-and-forget; the dongle drops the shell as it goes down
-    let _ = sh.run("reboot -f &");
     Ok(())
 }
 

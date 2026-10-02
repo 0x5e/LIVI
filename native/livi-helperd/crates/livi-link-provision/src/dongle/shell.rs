@@ -146,3 +146,13 @@ impl BindShell {
         }
     }
 }
+
+impl super::Remote for BindShell {
+    fn run(&mut self, cmd: &str) -> Result<String, String> {
+        BindShell::run(self, cmd)
+    }
+
+    fn write_mtd(&mut self, node: &str, data: &[u8]) -> Result<(), String> {
+        super::lfwb::write_mtd(self, node, data)
+    }
+}

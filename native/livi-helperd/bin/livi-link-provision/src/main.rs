@@ -16,6 +16,7 @@ use livi_link_provision::dongle::arm::imx6ul::{self, boot, mtd};
 use livi_link_provision::dongle::hook;
 use livi_link_provision::dongle::link;
 use livi_link_provision::dongle::probe::{Family, Probe};
+use livi_link_provision::dongle::rescue;
 use livi_link_provision::dongle::riscv::v821b;
 use livi_link_provision::dongle::web::HostInfo;
 
@@ -327,6 +328,7 @@ fn menu() -> std::process::ExitCode {
                 println!("  1  install LIVI Link (backup current firmware first)");
                 println!("  2  back to the vendor firmware (from backup)");
             }
+            Detected::Rescue { .. } => println!("  1  write LIVI Link again"),
             Detected::Nothing if stock_usb => {
                 println!("  1  bootstrap + install LIVI Link (over USB)");
             }
@@ -362,6 +364,10 @@ fn menu() -> std::process::ExitCode {
                 Err(e) => Err(e),
             },
             ("1", Detected::Nothing) if stock_usb || wifi_only => match imx6ul_provision(None) {
+                Ok(()) => return std::process::ExitCode::SUCCESS,
+                Err(e) => Err(e),
+            },
+            ("1", Detected::Rescue { family }) => match rescue_reflash(*family) {
                 Ok(()) => return std::process::ExitCode::SUCCESS,
                 Err(e) => Err(e),
             },
@@ -420,6 +426,19 @@ fn imx6ul_provision(lfwb: Option<&Path>) -> Result<(), String> {
     };
     imx6ul::install(&sh, &bundle, &backup_dir(), &report)?;
     let now = wait_for_livi_link(&host)?;
+    println!(
+        "\n== done, the dongle runs LIVI Link {} ({}) and is safe to unplug",
+        now.version, now.build
+    );
+    Ok(())
+}
+
+/// A V821B or AX520 that stayed in its rescue system gets LIVI Link written again, then the tool
+/// waits until it answers.
+fn rescue_reflash(family: Family) -> Result<(), String> {
+    let mut sh = Shell::new(DEFAULT_HOST);
+    rescue::reflash(&mut sh, family)?;
+    let now = wait_for_livi_link(DEFAULT_HOST)?;
     println!(
         "\n== done, the dongle runs LIVI Link {} ({}) and is safe to unplug",
         now.version, now.build

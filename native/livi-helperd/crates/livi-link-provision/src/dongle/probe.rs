@@ -19,6 +19,14 @@ impl Family {
             Family::Ax520 => "AX520 + AIC8800D80",
         }
     }
+
+    /// The firmware target LIVI Link reports for the board.
+    pub fn target(self) -> &'static str {
+        match self {
+            Family::V821b => "v821b_aic8800d80",
+            Family::Ax520 => "ax520_aic8800d80",
+        }
+    }
 }
 
 #[derive(Debug, Default)]

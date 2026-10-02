@@ -7,6 +7,10 @@ pub enum Detected {
     Imx6ul {
         host: String,
     },
+    /// A V821B or AX520 in the rescue system its kernel stays in without a LIVI Link rootfs.
+    Rescue {
+        family: dongle::probe::Family,
+    },
     LiviLink {
         model: String,
         target: String,
@@ -23,6 +27,9 @@ impl Detected {
     pub fn label(&self) -> String {
         match self {
             Detected::Imx6ul { host } => format!("i.MX6UL dongle with a shell at {host}"),
+            Detected::Rescue { family } => {
+                format!("{} in its rescue system, without a LIVI Link rootfs", family.name())
+            }
             Detected::LiviLink { model, .. } => format!("{model} already running LIVI Link"),
             Detected::DongleStock { info } => {
                 let project = dongle::hook::ly_project(&info.sys.appver)
@@ -44,7 +51,11 @@ pub fn detect() -> Detected {
     if let Ok(info) = dongle::web::host() {
         return Detected::DongleStock { info };
     }
-    if Shell::new(shell::DEFAULT_HOST).port_open(shell::TELNET_PORT) {
+    let sh = Shell::new(shell::DEFAULT_HOST);
+    if sh.port_open(shell::TELNET_PORT) {
+        if let Some(family) = dongle::rescue::of(&sh) {
+            return Detected::Rescue { family };
+        }
         return Detected::Imx6ul { host: shell::DEFAULT_HOST.to_string() };
     }
     Detected::Nothing

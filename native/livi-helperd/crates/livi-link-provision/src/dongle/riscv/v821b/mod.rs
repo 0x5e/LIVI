@@ -4,8 +4,8 @@
 
 use std::path::Path;
 
-use crate::dongle::lfwb;
 use crate::dongle::shell::BindShell;
+use crate::dongle::{Remote, lfwb};
 
 pub const PROJECT: &str = "ly6238";
 
@@ -75,17 +75,81 @@ pub fn flash_embedded(sh: &mut BindShell) -> Result<(), String> {
 }
 
 fn flash_lfwb_bytes(sh: &mut BindShell, bytes: &[u8]) -> Result<(), String> {
-    let images = lfwb::unpack(bytes)?;
-    let mtd1 = lfwb::image(&images, 1).ok_or("no mtd1 payload in bundle")?;
-    let mtd3 = lfwb::image(&images, 3).ok_or("no mtd3 payload in bundle")?;
-
-    println!("flashing mtd1 ({} B) → /dev/mtdblock1…", mtd1.len());
-    lfwb::write_mtd(sh, "/dev/mtdblock1", mtd1)?;
-    println!("flashing mtd3 ({} B) → /dev/mtdblock3…", mtd3.len());
-    lfwb::write_mtd(sh, "/dev/mtdblock3", mtd3)?;
+    write_bundle(sh, bytes)?;
     println!("sync + reboot");
     sh.run("sync")?;
     // fire-and-forget; the dongle drops the shell as it goes down
     let _ = sh.run("reboot -f &");
     Ok(())
+}
+
+/// Writes the bundle's kernel (mtd1), then its rootfs (mtd3), each read back off the chip.
+/// Restarting is left to the caller.
+pub fn write_bundle<R: Remote>(sh: &mut R, bytes: &[u8]) -> Result<(), String> {
+    let images = lfwb::unpack(bytes)?;
+    let mtd1 = lfwb::image(&images, 1).ok_or("no mtd1 payload in bundle")?;
+    let mtd3 = lfwb::image(&images, 3).ok_or("no mtd3 payload in bundle")?;
+    for (what, data, slot) in [("mtd1", mtd1, MTD1_SIZE), ("mtd3", mtd3, MTD3_SIZE)] {
+        if data.len() as u64 > slot {
+            return Err(format!("{what} image is {} B, its slot holds {slot} B", data.len()));
+        }
+    }
+
+    println!("flashing mtd1 ({} B) → /dev/mtdblock1…", mtd1.len());
+    lfwb::write_mtd_verified(sh, "/dev/mtdblock1", mtd1)?;
+    println!("flashing mtd3 ({} B) → /dev/mtdblock3…", mtd3.len());
+    lfwb::write_mtd_verified(sh, "/dev/mtdblock3", mtd3)?;
+    Ok(())
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::dongle::arm::imx6ul::shell::md5_hex;
+
+    /// Keeps what was written per node and reads it back, or reads back `lost` for a chip that
+    /// drops writes.
+    #[derive(Default)]
+    struct Fake {
+        written: Vec<(String, Vec<u8>)>,
+        lost: bool,
+    }
+
+    impl Remote for Fake {
+        fn run(&mut self, cmd: &str) -> Result<String, String> {
+            let (_, data) = self.written.last().ok_or("read before any write")?;
+            assert!(cmd.contains("md5sum"), "unexpected command {cmd}");
+            Ok(format!("{}  -", if self.lost { md5_hex(b"") } else { md5_hex(data) }))
+        }
+
+        fn write_mtd(&mut self, node: &str, data: &[u8]) -> Result<(), String> {
+            self.written.push((node.to_string(), data.to_vec()));
+            Ok(())
+        }
+    }
+
+    #[test]
+    fn the_kernel_goes_first_then_the_rootfs() {
+        let mut sh = Fake::default();
+        write_bundle(&mut sh, &lfwb::pack(&[(1, b"kernel"), (3, b"rootfs")])).unwrap();
+        let nodes: Vec<&str> = sh.written.iter().map(|(n, _)| n.as_str()).collect();
+        assert_eq!(nodes, ["/dev/mtdblock1", "/dev/mtdblock3"]);
+    }
+
+    #[test]
+    fn an_image_too_big_for_its_slot_writes_nothing() {
+        let mut sh = Fake::default();
+        let rootfs = vec![0u8; MTD3_SIZE as usize + 1];
+        let err = write_bundle(&mut sh, &lfwb::pack(&[(1, b"kernel"), (3, &rootfs)])).unwrap_err();
+        assert!(err.contains("mtd3"), "{err}");
+        assert!(sh.written.is_empty());
+    }
+
+    #[test]
+    fn a_write_the_chip_dropped_is_an_error() {
+        let mut sh = Fake { lost: true, ..Fake::default() };
+        let err =
+            write_bundle(&mut sh, &lfwb::pack(&[(1, b"kernel"), (3, b"rootfs")])).unwrap_err();
+        assert!(err.contains("did not take the write"), "{err}");
+    }
 }

@@ -284,12 +284,8 @@ make_uimage "$OUT/zImage_w_dtb.bin" "$OUT/livi-link-ax520-boot.uimg" "LIVI-Link 
 BOOT_PART_SIZE=$((3 * 1024 * 1024))  # 3 MiB — the "boot" mtd region's real size.
 UIMG_SIZE=$(wc -c < "$OUT/livi-link-ax520-boot.uimg")
 (( UIMG_SIZE <= BOOT_PART_SIZE )) || { log "uImage is $UIMG_SIZE B, the boot partition only $BOOT_PART_SIZE B"; exit 4; }
-{
-  cat "$OUT/livi-link-ax520-boot.uimg"
-  head -c $((BOOT_PART_SIZE - UIMG_SIZE)) /dev/zero | tr '\0' '\377'
-} > "$OUT/livi-link-ax520-boot-padded.uimg"
-log "boot uImage: $UIMG_SIZE B, padded to $BOOT_PART_SIZE B"
+log "boot uImage: $UIMG_SIZE B of $BOOT_PART_SIZE B"
 
-log "done — $OUT/livi-link-ax520-boot-padded.uimg"
+log "done — $OUT/livi-link-ax520-boot.uimg"
 
 build_livid

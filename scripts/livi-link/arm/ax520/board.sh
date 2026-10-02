@@ -20,7 +20,7 @@ rootfs_payload() {
   cp "$HERE/initramfs/flash-mtd" "$HERE/initramfs/sfc-sr" "$work/usr/sbin/"
   chmod 755 "$work/usr/sbin/flash-mtd" "$work/usr/sbin/sfc-sr"
 
-  log "device-tree overlays (rcS switches sdio0 on after the WiFi enable)"
+  log "device-tree overlays (board_wifi switches sdio0 on after the WiFi enable)"
   mkdir -p "$work/dtbo"
   for o in "$HERE"/overlays/*.dtso; do
     n=$(basename "$o" .dtso)

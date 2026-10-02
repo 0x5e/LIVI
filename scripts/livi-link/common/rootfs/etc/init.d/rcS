@@ -1,6 +1,6 @@
 #!/bin/sh
 # LIVI-Link boot, the same on every board: NCM+DHCP+mDNS, WiFi AP, HTTP, telnet, LEDs, MFi, BT.
-# What differs per board (early setup, WiFi power and driver, the MFi bus) is in /etc/livi/board.sh.
+# What differs per board (WiFi power and driver, the MFi bus) is in /etc/livi/board.sh.
 mkdir -p /tmp/livi /tmp/livi/led
 exec >/tmp/livi/rcS.log 2>&1
 echo '[livi] rcS'
@@ -8,8 +8,6 @@ echo '[livi] rcS'
 
 # Restore persistent config from the customer partition into tmpfs
 /usr/bin/livid config load 2>&1 | tail -3
-
-board_early
 
 hostname livi-link
 ifconfig lo up

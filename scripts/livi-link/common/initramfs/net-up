@@ -11,7 +11,7 @@ UDC=$(ls /sys/class/udc 2>/dev/null | head -n1)
 G=/sys/kernel/config/usb_gadget/livi
 [ -d $G ] && { echo "net-up: already up, net-down first"; exit 0; }
 case $MODE in
-ncm) F=ncm.usb0; PID=0xa4a1 ;;   # same USB identity as V821B: the host app finds the dongle by its product string
+ncm) F=ncm.usb0; PID=0xa4a1 ;;   # the host app finds the dongle by its product string
 acm) F=acm.GS0;  PID=0xa4a7 ;;
 *) echo "usage: net-up [ncm|acm]"; exit 1 ;;
 esac

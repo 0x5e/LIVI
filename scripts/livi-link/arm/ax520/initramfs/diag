@@ -1,5 +1,5 @@
 #!/bin/sh
-# diag: one screen of state for the UART log. Run at boot, and by hand from any shell.
+# diag: one screen of state for the UART log, run by hand from any shell.
 echo "=== diag: uptime $(cat /proc/uptime)"
 T0=$(cut -d. -f1 /proc/uptime); sleep 1; T1=$(cut -d. -f1 /proc/uptime)
 echo "--- sleep 1 took $((T1 - T0)) s of uptime (0 means sleep or the clock is broken)"

@@ -15,7 +15,7 @@ N=
 for n in /sys/class/mtd/mtd[0-9]*; do
     [ "$(cat $n/name 2>/dev/null)" = "$NAME" ] && N=${n##*mtd}
 done
-[ -n "$N" ] || { echo "flash-mtd: no MTD named $NAME (run: ovl sfc)"; exit 1; }
+[ -n "$N" ] || { echo "flash-mtd: no MTD named $NAME"; exit 1; }
 
 SIZE=$(wc -c < "$F")
 PART=$(cat /sys/class/mtd/mtd$N/size)

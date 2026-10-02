@@ -1,13 +1,8 @@
-# AX520 + AIC8800D80: what /init and /etc/init.d/rcS do on this board and not on the others.
+# AX520 + AIC8800D80: what rcS and livi-radio do on this board and not on the others.
 
 # The MFi chip sits on the i2c-gpio bus (stock softi2c2: SCL GPIO0_26, SDA GPIO0_27), the DT alias
 # makes that /dev/i2c-3.
 MFI_I2C=3
-
-# /dev arrives already populated (devtmpfs, moved over by the initramfs).
-board_init() { :; }
-
-board_early() { :; }
 
 # WiFi power: the module enable (GPIO0_24) goes high first.
 # "high" as the direction sets the level together with the output, so the pin never drives low: low on

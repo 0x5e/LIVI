@@ -1,12 +1,7 @@
-# i.MX6ULL: what /init and /etc/init.d/rcS do on this board and not on the others.
+# i.MX6ULL: what rcS and livi-radio do on this board and not on the others.
 
 # The MFi chip answers at 0x11 on the bus of the UART5 pads.
 MFI_I2C=1
-
-# /dev arrives already populated (devtmpfs, moved over by the initramfs).
-board_init() { :; }
-
-board_early() { :; }
 
 # The Wi-Fi driver is built into the kernel and powers the module itself. The shared scripts and
 # hostapd.conf take the access point interface as wlan0: rtw88 (RTL8822CS, RTL8822BS) names it

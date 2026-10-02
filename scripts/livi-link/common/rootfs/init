@@ -6,6 +6,4 @@ mount -t tmpfs tmpfs /tmp
 mkdir -p /dev/pts /sys/kernel/config
 mount -t devpts devpts /dev/pts 2>/dev/null
 mount -t configfs configfs /sys/kernel/config 2>/dev/null
-. /etc/livi/board.sh
-board_init
 exec /sbin/init

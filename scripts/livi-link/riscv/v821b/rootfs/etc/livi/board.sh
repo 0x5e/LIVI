@@ -1,12 +1,7 @@
-# V821B + AIC8800D80: what /init and /etc/init.d/rcS do on this board and not on the others.
+# V821B + AIC8800D80: what rcS and livi-radio do on this board and not on the others.
 
 # The MFi chip on twi1, the DT alias makes that /dev/i2c-1.
 MFI_I2C=1
-
-# /dev arrives already populated (devtmpfs, moved over by the initramfs).
-board_init() { :; }
-
-board_early() { :; }
 
 # The kernel powers the module (reg_wlan, wlan_pwrseq) and finds it on the SDIO slot while booting.
 board_wifi() {

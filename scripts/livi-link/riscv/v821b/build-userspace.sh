@@ -223,7 +223,7 @@ EOF
     cp -f "$HA_SRC/hostapd/hostapd" "$USERSPACE/usr/sbin/hostapd"
 fi
 
-# Strip everything (matches Stock: -Os + stripped). Big wins on hostapd.
+# Strip everything, the biggest win is hostapd.
 log "strip"
 "${CROSS}strip" \
     "$USERSPACE/bin/busybox" \

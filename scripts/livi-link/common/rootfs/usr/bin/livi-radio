@@ -22,7 +22,6 @@ driver() {
 bt() {
     for i in $(seq 1 20); do
         if /usr/bin/livi-bt-up 0 2>&1 && [ -e /sys/class/bluetooth/hci0 ]; then
-            touch /tmp/livi/led/bt-ready
             echo "[livi] bt-up ok on attempt $i"
             if ! pidof livi-btd >/dev/null; then
                 /usr/bin/livi-btd >/tmp/livi/btd.log 2>&1 &
@@ -50,7 +49,7 @@ bt_off() {
         pidof livi-btd >/dev/null || pidof livi-iapd >/dev/null || break
         sleep 0.1
     done
-    rm -f /tmp/livi/led/bt-ready /tmp/livi/led/bt-paging /tmp/livi/led/bt-connected
+    rm -f /tmp/livi/led/bt-paging /tmp/livi/led/bt-connected
     if pidof livi-btd >/dev/null || pidof livi-iapd >/dev/null; then
         echo '[livi] btd or iapd would not stop' >&2
         return 1
@@ -65,9 +64,6 @@ boot() {
         echo '[livi] wifi and bluetooth switched off, no driver'
     fi
 
-    # Seed the tmpfs hostapd base from the read-only default (livid config load will overwrite it if
-    # a persisted copy is on the customer partition).
-    [ -f /tmp/livi/hostapd.conf.saved ] || cp /etc/hostapd.conf /tmp/livi/hostapd.conf.saved
     # Runs either way, a host or the page switches the radios on through it.
     /usr/bin/livi-wifid >/tmp/livi/wifid.log 2>&1 &
     echo "[livi] wifid pid=$! :5001"
@@ -84,17 +80,6 @@ boot() {
             sleep 0.3
             (echo on; sleep 0.05; echo save) | nc 127.0.0.1 5001 >/dev/null 2>&1 ||
                 hostapd -B /tmp/livi/hostapd.conf.saved >/tmp/livi/hostapd.log 2>&1
-            (
-                for i in $(seq 1 30); do
-                    if [ "$(cat /sys/class/net/wlan0/operstate 2>/dev/null)" = "up" ] &&
-                        pidof hostapd >/dev/null; then
-                        touch /tmp/livi/led/ap-up
-                        echo '[livi] AP up (led signal set)'
-                        break
-                    fi
-                    sleep 0.5
-                done
-            ) &
         else
             echo '[livi] wlan0 did not appear within 10s'
         fi

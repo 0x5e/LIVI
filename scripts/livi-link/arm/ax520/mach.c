@@ -11,7 +11,7 @@
 //     DT (disabled otherwise) take over tick, clock, sched_clock and udelay.
 // Everything is printed, so the boot log says which case it was.
 //
-// The other thing done here is a way to switch peripherals on after boot. Kernel 6.18 has no
+// The other thing done here is a way to switch peripherals on after boot. Mainline has no
 // configfs interface for device-tree overlays any more, so `echo NAME > /sys/firmware/ax520/overlay`
 // applies /dtbo/ax520-NAME.dtbo (baked into the initramfs). A block that freezes the bus on its first
 // register access then costs a power cycle, not a flash.

@@ -8,7 +8,6 @@ case $RADIO in
   iw416 | rtl8822cs | rtl8822bs) ;;
   *) echo "RADIO=$RADIO: this board has builds for iw416, rtl8822cs and rtl8822bs" >&2; exit 2 ;;
 esac
-TARGET=imx6ul_$RADIO
 : "${TOP:=$HOME/LocalDev/imx6ul-$RADIO-kernel}"
 source "$HERE/../common.sh"
 

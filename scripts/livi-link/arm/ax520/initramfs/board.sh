@@ -8,7 +8,7 @@ board_help() {
     cat <<'EOT'
 
 no rootfs taken over. Shell on the UART, 10.10.10.1 (telnet :23, :2323) over USB-NCM after 15 s. Tools:
-  ovl [NAME]        peripheral overlays: sdio0 (after: wifi_en high, see rcS)
+  ovl [NAME]        peripheral overlays: sdio0 (only once wifi_en, GPIO0_24, is high)
   led-test RRGGBB   send a colour to the RGB LED
   net-up [ncm|acm]  USB gadget, one function at a time (four endpoints), started 15 s after boot, net-down first to switch
   nousb             skip that automatic net-up (within the 15 s)

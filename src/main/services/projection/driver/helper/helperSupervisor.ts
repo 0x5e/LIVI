@@ -81,7 +81,7 @@ function envFromConfig(cfg: Config, airplayPort: number | undefined): NodeJS.Pro
 
   return {
     ...process.env,
-    LIVI_AA_WIRELESS: wantAaWireless ? '1' : '',
+    LIVI_AA_WIRELESS: wantAaWireless ? '1' : '0',
     LIVI_CP_WIRELESS: wantCpWireless ? '1' : '',
     DEBUG: DEBUG ? '1' : '',
     LIVI_CP_PK: identity.pkHex,
@@ -173,7 +173,7 @@ export class HelperSupervisor extends EventEmitter {
 
     if (DEBUG) {
       console.log(
-        `[helper] spawning ${cmd} ${args.join(' ')} (aa=${env.LIVI_AA_WIRELESS || '0'}, cpWireless=${env.LIVI_CP_WIRELESS || '0'})`
+        `[helper] spawning ${cmd} ${args.join(' ')} (aa=${env.LIVI_AA_WIRELESS}, cpWireless=${env.LIVI_CP_WIRELESS || '0'})`
       )
     }
 

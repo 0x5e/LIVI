@@ -61,7 +61,7 @@ fn cp_config() -> (CpConfig, Identity) {
         passphrase: env_s("LIVI_PASSPHRASE", "12345678"),
         channel: env_s("LIVI_CHANNEL", "36").parse().unwrap_or(36),
         security_type: SecurityType::WpaWpa2,
-        airplay_port: env_s("LIVI_CP_AIRPLAY_PORT", "7000").parse().unwrap_or(7000),
+        airplay_port: env_s("LIVI_CP_AIRPLAY_PORT", "").parse().unwrap_or(0),
         source_version: env_s("LIVI_CP_SOURCE_VERSION", "950.7.1"),
         public_key: pi.clone(),
         transport: Transport::Wired,
@@ -255,6 +255,10 @@ fn start_carplay_seam(link: Arc<LinkPresence>) {
         println!("[helperd] wireless CarPlay over the dongle's bluetooth is on");
     }
 
+    if cp.airplay_port == 0 {
+        eprintln!("[helperd] LIVI opened no CarPlay port, CarPlay is not announced");
+        return;
+    }
     let pk = env_s("LIVI_CP_PK", "");
     let pi = env_s("LIVI_CP_PI", "");
     let device_id = env_s("LIVI_CP_NAME", "LIVI");

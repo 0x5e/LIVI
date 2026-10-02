@@ -235,7 +235,7 @@ async fn serve() -> Result<(), Box<dyn std::error::Error>> {
         passphrase: dc.string("wifiPassword", "LIVI_PASSPHRASE", "12345678"),
         channel: dc.int("wifiChannel", "LIVI_CHANNEL", 36u16) as u8,
         security_type: SecurityType::WpaWpa2,
-        airplay_port: env_or("LIVI_CP_AIRPLAY_PORT", 7000),
+        airplay_port: env_or("LIVI_CP_AIRPLAY_PORT", 0),
         source_version: dc.string("carPlaySourceVersion", "LIVI_CP_SOURCE_VERSION", "950.7.1"),
         public_key: std::env::var("LIVI_CP_PI").unwrap_or_default(),
         transport: Transport::Wireless,
@@ -442,18 +442,23 @@ async fn serve() -> Result<(), Box<dyn std::error::Error>> {
     }
 
     let wlan_mac = livi_runtime::net::wlan_mac(&wifi_iface).unwrap_or_else(|| format_mac(&bt_mac));
-    let _bonjour = match Bonjour::start(
-        wlan_mac,
-        cp.airplay_port as u16,
-        cp.source_version.clone(),
-        pk,
-        pi,
-        bcast.clone(),
-    ) {
-        Ok(b) => Some(b),
-        Err(e) => {
-            eprintln!("[helperd] bonjour start failed: {e}");
-            None
+    let _bonjour = if cp.airplay_port == 0 {
+        eprintln!("[helperd] LIVI opened no CarPlay port, CarPlay is not announced");
+        None
+    } else {
+        match Bonjour::start(
+            wlan_mac,
+            cp.airplay_port as u16,
+            cp.source_version.clone(),
+            pk,
+            pi,
+            bcast.clone(),
+        ) {
+            Ok(b) => Some(b),
+            Err(e) => {
+                eprintln!("[helperd] bonjour start failed: {e}");
+                None
+            }
         }
     };
 

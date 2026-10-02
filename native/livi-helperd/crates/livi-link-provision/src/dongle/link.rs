@@ -5,8 +5,6 @@ use std::time::Duration;
 
 use serde::Deserialize;
 
-pub const EARLIER_IMX6UL_TARGET: &str = "cpc200-ccpa";
-
 #[derive(Debug, Deserialize)]
 pub struct Status {
     pub model: String,

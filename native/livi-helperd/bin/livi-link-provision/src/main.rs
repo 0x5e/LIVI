@@ -317,11 +317,6 @@ fn menu() -> std::process::ExitCode {
                     "  1  open this dongle (patches the vendor's update for it, then looks at what it is)"
                 ),
             },
-            Detected::LiviLink { target, .. } if target == link::EARLIER_IMX6UL_TARGET => {
-                println!(
-                    "  1  move to the current LIVI Link firmware (backup current firmware first)"
-                );
-            }
             Detected::LiviLink { target, .. } => {
                 println!("  1  update LIVI Link");
                 if target.starts_with("imx6ul_") {
@@ -370,13 +365,6 @@ fn menu() -> std::process::ExitCode {
                 Ok(()) => return std::process::ExitCode::SUCCESS,
                 Err(e) => Err(e),
             },
-            // It runs on the vendor firmware and has its shell, the install takes it from there.
-            ("1", Detected::LiviLink { target, .. }) if target == link::EARLIER_IMX6UL_TARGET => {
-                match imx6ul_provision(None) {
-                    Ok(()) => return std::process::ExitCode::SUCCESS,
-                    Err(e) => Err(e),
-                }
-            }
             ("2", Detected::LiviLink { target, .. }) if target.starts_with("imx6ul_") => {
                 match imx6ul_back_to_stock(None) {
                     Ok(()) => return std::process::ExitCode::SUCCESS,

@@ -105,7 +105,6 @@ fn web_caps() -> livi_web::WebCaps {
         target: target.into(),
         port: 80,
         wifi_iface: "wlan0".into(),
-        bridge: "br0".into(),
         host_iface: "usb0".into(),
         mfi: mfid::STATE.into(),
         bt: "hci0".into(),

@@ -164,8 +164,6 @@ export class SessionManager {
       if (value === undefined || value === '') continue
       s.device[key] = key === 'btMac' || key === 'wifiMac' ? value.toLowerCase() : value
     }
-    // CarPlay wiredness follows the accumulated udid, not the caller-passed transport.
-    if (protocol === 'carplay') s.transport = s.device.usbUdid ? 'usb' : 'wifi'
     this.emitChange(
       `${created ? 'create' : 'upsert'} #${s.index} ${protocol} in=${JSON.stringify(device)}`
     )

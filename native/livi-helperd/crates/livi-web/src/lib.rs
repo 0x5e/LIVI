@@ -43,8 +43,6 @@ pub struct WebCaps {
     pub port: u16,
     /// The AP interface whose SSID/MAC/rates the WiFi card shows (e.g. "wlan0").
     pub wifi_iface: String,
-    /// The bridge whose forwarding table names the AP's clients.
-    pub bridge: String,
     /// The host-facing interface whose MAC stands in as the dongle's address.
     pub host_iface: String,
     /// Where mfid notes the MFi coprocessor it found.
@@ -679,7 +677,7 @@ fn wifi_json() -> String {
         }
     }
     let mac = read_trim(&format!("/sys/class/net/{iface}/address"));
-    let clients = livi_net::bridge::stations(&caps().bridge, iface);
+    let clients = livi_wifi::station_count(iface);
     let (downrate, uprate) = livi_wifi::station_rates(iface).unwrap_or((0, 0));
     let downbytes = read_trim(&format!("/sys/class/net/{iface}/statistics/rx_bytes"))
         .parse::<u64>()

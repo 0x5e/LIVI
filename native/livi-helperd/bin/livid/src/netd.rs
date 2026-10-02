@@ -19,7 +19,6 @@ use std::thread;
 const DHCP_MAGIC: [u8; 4] = [99, 130, 83, 99];
 const OPT_MSGTYPE: u8 = 53;
 const OPT_SUBNET: u8 = 1;
-const OPT_HOSTNAME: u8 = 12;
 const OPT_LEASE: u8 = 51;
 const OPT_SERVER: u8 = 54;
 const OPT_END: u8 = 255;
@@ -238,8 +237,7 @@ fn build_reply(
     b.extend_from_slice(&[OPT_SUBNET, 4, 255, 255, 255, 0]);
     // No OPT_ROUTER / OPT_DNS: the dongle is neither a gateway nor a
     // resolver. The host must never route internet traffic through us.
-    b.extend_from_slice(&[OPT_HOSTNAME, 9]);
-    b.extend_from_slice(b"livi-link");
+    // No host name either, it would name the client, and mDNS already names the dongle.
     b.push(OPT_END);
     while b.len() < 300 {
         b.push(0);

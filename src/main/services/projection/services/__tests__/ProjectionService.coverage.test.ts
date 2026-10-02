@@ -920,7 +920,44 @@ describe('ProjectionService presence handlers', () => {
       usbUdid: 'udid',
       name: 'iPhone'
     })
-    expect(svc.deviceRegistry.noteDevice).toHaveBeenCalled()
+    expect(svc.deviceRegistry.noteDevice).toHaveBeenCalledWith(
+      expect.objectContaining({ transport: 'usb' })
+    )
+  })
+
+  test('onCpHelperPresence labels a plugged-in phone by how its session runs', () => {
+    const svc = makeSvc()
+    svc.deviceRegistry.noteDevice = vi.fn()
+    svc.sessions.upsert(fakeDriver(), 'carplay', 'wifi', { btMac: 'aa:bb' })
+
+    svc.onCpHelperPresence({ kind: 'device', btMac: 'AA:BB', usbUdid: 'udid' })
+    expect(svc.deviceRegistry.noteDevice).toHaveBeenLastCalledWith(
+      expect.objectContaining({ transport: 'wifi' })
+    )
+
+    svc.sessions.upsert(fakeDriver(), 'carplay', 'usb', { btMac: 'ee:ff' })
+    svc.onCpHelperPresence({ kind: 'device', btMac: 'EE:FF' })
+    expect(svc.deviceRegistry.noteDevice).toHaveBeenLastCalledWith(
+      expect.objectContaining({ transport: 'usb' })
+    )
+
+    svc.onCpHelperPresence({ kind: 'device', btMac: 'CC:DD' })
+    expect(svc.deviceRegistry.noteDevice).toHaveBeenLastCalledWith(
+      expect.objectContaining({ transport: 'wifi' })
+    )
+  })
+
+  test('onCpPresence labels a session over the cable wired and keeps its wifi mac out', () => {
+    const svc = makeSvc()
+    svc.deviceRegistry.noteDevice = vi.fn()
+    const session = fakeDriver({ isWiredMode: () => true })
+
+    svc.onCpPresence(session, { kind: 'device', btMac: 'AA:BB', usbUdid: 'udid', wifiMac: 'CC:DD' })
+
+    expect(svc.deviceRegistry.noteDevice).toHaveBeenCalledWith(
+      expect.objectContaining({ transport: 'usb', wifiMac: undefined })
+    )
+    expect(svc.sessions.byDriver(session)?.transport).toBe('usb')
   })
 
   test('onCpHelperPresence device-gone closes a usb session', () => {

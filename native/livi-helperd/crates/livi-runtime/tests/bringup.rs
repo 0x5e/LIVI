@@ -1,15 +1,18 @@
-use tokio::sync::mpsc;
+use std::sync::Arc;
+
+use tokio::sync::{Notify, mpsc};
 
 use base64::Engine;
 use iap2_csm::CsmMessage;
 use iap2_csm::messages::authentication::*;
+use iap2_csm::messages::car_play::*;
 use iap2_csm::messages::identification::*;
 use iap2_csm::messages::location::*;
 use iap2_csm::messages::now_playing::*;
 use iap2_csm::messages::power::PowerSourceUpdate;
 use iap2_csm::messages::vehicle_status::*;
 use iap2_csm::messages::wifi::SecurityType;
-use livi_runtime::bringup::{BringupEvent, CpConfig, run_accessory};
+use livi_runtime::bringup::{BringupEvent, CpConfig, OnCable, run_accessory};
 use livi_runtime::framing::frame_msg_id;
 use livi_runtime::ident::{Identity, Transport};
 use livi_runtime::vehicle::{Vehicle, VehicleFeed};
@@ -81,7 +84,10 @@ fn cp_config() -> CpConfig {
         public_key: String::new(),
         transport: Transport::Wireless,
         av_iface: None,
+        av_iface_late: None,
         available_current_ma: 500,
+        on_cable: None,
+        start_again: None,
     }
 }
 
@@ -163,6 +169,43 @@ async fn full_bringup_sequence() {
 }
 
 #[tokio::test]
+async fn a_bluetooth_session_ends_without_a_start_once_the_cable_has_the_phone() {
+    let (accessory, mut phone) = pair();
+    let (tx, mut rx) = mpsc::channel(32);
+    let cabled = OnCable(Arc::new(|mac: &str| mac == "0c:6a:c4:4e:f3:2a"));
+    let cp = CpConfig { on_cable: Some(cabled), ..cp_config() };
+    tokio::spawn(run_accessory(
+        accessory,
+        MockAuth { cert: vec![0x01] },
+        identity(),
+        cp,
+        tx,
+        VehicleFeed::quiet(),
+    ));
+
+    phone.send(StartIdentification {}.encode()).await.unwrap();
+    phone.expect(0x1D01).await;
+    phone.send(IdentificationAccepted {}.encode()).await.unwrap();
+    let offer = CarPlayAvailability {
+        wired_attributes: None,
+        wireless_attributes: Some(CarPlayAvailabilityWirelessAttributes {
+            available: Some(true),
+            bluetooth_transport_identifier: Some("0c:6a:c4:4e:f3:2a".into()),
+        }),
+    };
+    phone.send(offer.encode()).await.unwrap();
+    loop {
+        match rx.recv().await {
+            Some(BringupEvent::Closed) | None => break,
+            Some(BringupEvent::CarPlayStartSent { .. }) => {
+                panic!("a start went out over Bluetooth")
+            }
+            Some(_) => {}
+        }
+    }
+}
+
+#[tokio::test]
 async fn wired_identifies_over_usb_and_offers_power() {
     let (accessory, mut phone) = pair();
     let (tx, mut rx) = mpsc::channel(32);
@@ -193,6 +236,51 @@ async fn wired_identifies_over_usb_and_offers_power() {
     let power = PowerSourceUpdate::decode(&phone.expect(0xAE03).await).unwrap();
     assert_eq!(power.available_current_for_device, Some(500));
     assert_eq!(power.device_battery_should_charge_if_power_is_present, Some(true));
+}
+
+#[tokio::test]
+async fn a_wired_phone_is_started_again_only_after_its_offer() {
+    let (accessory, mut phone) = pair();
+    let (tx, mut rx) = mpsc::channel(32);
+    let again = Arc::new(Notify::new());
+    let cp = CpConfig {
+        transport: Transport::Wired,
+        av_iface: Some("nonexistent0".into()),
+        start_again: Some(again.clone()),
+        ..cp_config()
+    };
+    tokio::spawn(run_accessory(
+        accessory,
+        MockAuth { cert: vec![0x01] },
+        identity(),
+        cp,
+        tx,
+        VehicleFeed::quiet(),
+    ));
+    phone.send(StartIdentification {}.encode()).await.unwrap();
+    phone.expect(0x1D01).await;
+    phone.send(IdentificationAccepted {}.encode()).await.unwrap();
+    phone.send(AuthenticationSucceeded {}.encode()).await.unwrap();
+    while rx.recv().await != Some(BringupEvent::Subscribed) {}
+
+    again.notify_one();
+    tokio::task::yield_now().await;
+    let offer = CarPlayAvailability {
+        wired_attributes: Some(CarPlayAvailabilityWiredAttributes {
+            available: Some(true),
+            usb_transport_identifier: None,
+        }),
+        wireless_attributes: None,
+    };
+    phone.send(offer.encode()).await.unwrap();
+    // Without a link-local on the interface every attempt reports why nothing went out.
+    assert!(matches!(rx.recv().await, Some(BringupEvent::Failed(_))));
+    assert!(matches!(rx.recv().await, Some(BringupEvent::Incoming { msg_id: 0x4300, .. })));
+
+    again.notify_one();
+    assert!(matches!(rx.recv().await, Some(BringupEvent::Failed(_))));
+    tokio::task::yield_now().await;
+    assert!(rx.try_recv().is_err(), "the start asked for before the offer went out late");
 }
 
 #[tokio::test]

@@ -26,6 +26,9 @@ export class CpHelperSockError extends Error {
 
 export class CpHelperSock implements MfiSigner {
   private _protocolMajor: number | null = null
+  /** Each paging list waits for the one before it. The helper takes every request on a
+   *  connection of its own, so two sent at once could land in either order. */
+  private _targetsSent: Promise<unknown> = Promise.resolve()
 
   constructor(private readonly path: string = CP_BT_SOCK_PATH) {}
 
@@ -114,6 +117,12 @@ export class CpHelperSock implements MfiSigner {
     if (!res.ok) throw new CpHelperSockError(res.error)
   }
 
+  /** Has the phone's wired iAP2 session offer CarPlay again, without ending it. */
+  async startWired(usbUdid: string): Promise<void> {
+    const res = await this.request(`start-wired ${usbUdid}`)
+    if (!res.ok) throw new CpHelperSockError(res.error)
+  }
+
   /** Hands NMEA sentences (base64) to the iAP2 stack for a LocationInformation update;
    *  dropped when no phone subscribed. */
   async sendLocation(nmea: string): Promise<void> {
@@ -145,7 +154,11 @@ export class CpHelperSock implements MfiSigner {
   }
 
   async sendReconnectTargets(targets: Array<[string, string | null]>): Promise<void> {
-    await this.request(`reconnect-targets ${JSON.stringify(targets)}`)
+    const sent = this._targetsSent.then(() =>
+      this.request(`reconnect-targets ${JSON.stringify(targets)}`)
+    )
+    this._targetsSent = sent.catch(() => {})
+    await sent
   }
 
   subscribeEvents(

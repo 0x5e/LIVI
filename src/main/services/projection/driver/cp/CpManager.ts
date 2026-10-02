@@ -13,7 +13,10 @@ import * as net from 'node:net'
 import { applyPhoneUtcOffset } from '@main/services/time/hostTimezone'
 import type { Config } from '@shared/types'
 import { CpHelperSock } from './CpHelperSock'
-import { CpSession, type CpSessionSeed } from './CpSession'
+import { CpSession, type CpSessionSeed, normHost } from './CpSession'
+
+/** How long a phone whose wireless session gave way gets to come over the cable by itself. */
+const CABLE_GRACE_MS = 3000
 
 /** A registry-level identity seen on a helper wifi/device event, awaiting its session. */
 interface PendingDevice {
@@ -49,6 +52,12 @@ export class CpManager {
   private readonly _wired = new Map<string, string>()
   /** Phones whose wireless session ended: their last events must not create a new one. */
   private readonly _gone = new Set<string>()
+  /** Wireless sessions whose phone was plugged in while they ran.*/
+  private readonly _cabled = new WeakSet<CpSession>()
+  /** usbUdid → the address of ours the phone was told to reach over its cable. */
+  private readonly _cableAddrs = new Map<string, string>()
+  /** usbUdid → the start once more, for a phone that has yet to come over the cable. */
+  private readonly _toCable = new Map<string, ReturnType<typeof setTimeout>>()
 
   private _hevcSupported = false
   private _vp9Supported = false
@@ -195,6 +204,9 @@ export class CpManager {
     this._liveSession = null
     this._pendingDevices.length = 0
     this._wired.clear()
+    for (const t of this._toCable.values()) clearTimeout(t)
+    this._toCable.clear()
+    this._cableAddrs.clear()
     await Promise.all(
       sessions.map((s) =>
         s
@@ -210,14 +222,43 @@ export class CpManager {
     const peer = `${sock.remoteAddress}:${sock.remotePort}`
     console.log(`[CpManager] control connection from ${peer}`)
     sock.setKeepAlive(true, 3000)
+    const udid = this._cableUdid(sock.localAddress ?? '')
+    if (udid) this._cameOver(udid)
     this._register(
       new CpSession({
         socket: sock,
         getConfig: this._getConfig,
         helper: this._helper,
-        seed: this._seed()
+        seed: this._seed(),
+        isCable: (ip) => this._cableUdid(ip) !== undefined
       })
     )
+  }
+
+  private _cableUdid(addr: string): string | undefined {
+    const ip = normHost(addr)
+    for (const [udid, a] of this._cableAddrs) if (a === ip) return udid
+    return undefined
+  }
+
+  /** The wireless session of a phone on the cable ended. The start it got there may still bring
+   *  it over, otherwise it hears the start once more. */
+  private _awaitCable(usbUdid: string | undefined): void {
+    if (!usbUdid) return
+    clearTimeout(this._toCable.get(usbUdid))
+    this._toCable.set(
+      usbUdid,
+      setTimeout(() => {
+        this._toCable.delete(usbUdid)
+        console.log(`[CpManager] ${usbUdid} is not on the cable yet, it hears the start again`)
+        this._helper.startWired(usbUdid).catch(() => {})
+      }, CABLE_GRACE_MS)
+    )
+  }
+
+  private _cameOver(usbUdid: string): void {
+    clearTimeout(this._toCable.get(usbUdid))
+    this._toCable.delete(usbUdid)
   }
 
   /** Wire a CpSession into the shared infra (identity adoption, supersede, teardown) and
@@ -237,6 +278,7 @@ export class CpManager {
     session.once('disconnected', () => {
       const mac = session.getBtMac().toLowerCase()
       if (mac && !this._wired.has(mac)) this._gone.add(mac)
+      else if (this._cabled.delete(session)) this._awaitCable(this._wired.get(mac))
       this._sessions.delete(session)
       if (this._liveSession === session) {
         this._liveSession = [...this._sessions].at(-1) ?? null
@@ -267,8 +309,20 @@ export class CpManager {
       if (other === keep) continue
       if (other.getControllerId() === id) {
         console.log('[CpManager] transport handover: dropping the superseded connection')
+        this._cabled.delete(other)
         void other.close()
       }
+    }
+  }
+
+  /** A phone that left the access point ended CarPlay over Wi-Fi itself, so its session ends now
+   *  rather than when the connection times out. One running over the cable stays. */
+  private _leftWifi(wifiMac: string): void {
+    for (const s of [...this._sessions]) {
+      if (!s.matchesIdentity({ wifiMac })) continue
+      if (this._wired.has(s.getBtMac().toLowerCase()) && !this._cabled.has(s)) continue
+      console.log(`[CpManager] ${wifiMac} left the access point, its session ends`)
+      void s.close()
     }
   }
 
@@ -287,12 +341,10 @@ export class CpManager {
 
   private _onHelperEvent(ev: Record<string, unknown>): void {
     if (ev.type === 'wifi') {
-      this._onHelperPresence({
-        kind: 'wifi',
-        wifiMac: str(ev.mac),
-        ip: str(ev.ip),
-        connected: ev.event === 'joined'
-      })
+      const wifiMac = str(ev.mac)
+      const joined = ev.event === 'joined'
+      if (!joined && wifiMac) this._leftWifi(wifiMac)
+      this._onHelperPresence({ kind: 'wifi', wifiMac, ip: str(ev.ip), connected: joined })
       return
     }
     if (ev.type === 'device') {
@@ -303,9 +355,14 @@ export class CpManager {
         name: str(ev.name) || undefined
       }
       if (ids.btMac) this._gone.delete(ids.btMac.toLowerCase())
-      if (ids.btMac && ids.usbUdid) this._wired.set(ids.btMac.toLowerCase(), ids.usbUdid)
-      this._onHelperPresence({ kind: 'device', ...ids })
       const match = this._matchSession(ids)
+      if (ids.btMac && ids.usbUdid) {
+        const mac = ids.btMac.toLowerCase()
+        // A session already running when the phone comes onto the bus is the wireless one.
+        if (!this._wired.has(mac) && match?.getControllerId()) this._cabled.add(match)
+        this._wired.set(mac, ids.usbUdid)
+      }
+      this._onHelperPresence({ kind: 'device', ...ids })
       if (match) match.adoptHelperDevice(ids)
       else this._bufferPending(ids)
       return
@@ -319,6 +376,21 @@ export class CpManager {
       }
       return
     }
+    if (ev.type === 'wired-start') {
+      const usbUdid = str(ev.usbUdid)
+      const ip = normHost(str(ev.ip))
+      if (!usbUdid || !ip) return
+      this._cableAddrs.set(usbUdid, ip)
+      // Plugging the phone in asks for CarPlay over the cable. The phone runs one session at a
+      // time, so the wireless one makes room.
+      const phoneId = str(ev.phoneId) || undefined
+      for (const s of [...this._sessions]) {
+        if (!this._cabled.has(s) || !s.matchesIdentity({ usbUdid, btMac: phoneId })) continue
+        console.log(`[CpManager] ${usbUdid} got the start over its cable, wireless makes room`)
+        void s.close()
+      }
+      return
+    }
     if (ev.type === 'deviceTime') {
       if (typeof ev.utcOffsetMinutes === 'number') applyPhoneUtcOffset(ev.utcOffsetMinutes)
       return
@@ -328,9 +400,14 @@ export class CpManager {
       if (!usbUdid) return
       // A wired phone physically left the bus (carkit): close its session, not the live one.
       for (const [mac, udid] of this._wired) if (udid === usbUdid) this._wired.delete(mac)
+      this._cameOver(usbUdid)
+      this._cableAddrs.delete(usbUdid)
       this._onHelperPresence({ kind: 'device-gone', usbUdid })
       for (const s of [...this._sessions]) {
-        if (s.matchesIdentity({ usbUdid })) void s.close()
+        if (!s.matchesIdentity({ usbUdid })) continue
+        // A session that ran before the cable came is the wireless one, and it carries on.
+        if (this._cabled.delete(s)) continue
+        void s.close()
       }
       for (let i = this._pendingDevices.length - 1; i >= 0; i--) {
         if (this._pendingDevices[i]!.usbUdid === usbUdid) this._pendingDevices.splice(i, 1)

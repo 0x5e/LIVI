@@ -240,6 +240,7 @@ async fn serve() -> Result<(), Box<dyn std::error::Error>> {
         public_key: std::env::var("LIVI_CP_PI").unwrap_or_default(),
         transport: Transport::Wireless,
         av_iface: None,
+        av_iface_late: None,
         available_current_ma: dc.int(
             "carPlayAvailableCurrentMa",
             "LIVI_CP_AVAILABLE_CURRENT_MA",
@@ -247,6 +248,8 @@ async fn serve() -> Result<(), Box<dyn std::error::Error>> {
         ),
         ap_mac: ap_mac.clone(),
         ap_on_air: dongle_ap.then_some(livi_dongle::ap::on_air as AskOnAir),
+        on_cable: None,
+        start_again: None,
     };
     let pk = std::env::var("LIVI_CP_PK").unwrap_or_default();
     let pi = std::env::var("LIVI_CP_PI").unwrap_or_default();
@@ -423,6 +426,7 @@ async fn serve() -> Result<(), Box<dyn std::error::Error>> {
                 };
                 tokio::spawn(async move { h.set_status(status).await });
             }),
+            deauth_dongle: dongle_ap.then_some(livi_dongle::ap::deauth as fn() -> Option<usize>),
         };
         tokio::spawn(async move {
             if let Err(e) = livi_runtime::aa_sock::serve(Some(bus), deps).await {
@@ -437,20 +441,28 @@ async fn serve() -> Result<(), Box<dyn std::error::Error>> {
             auth.clone(),
             identity.clone(),
             wired_cp,
+            // Bluetooth comes from the adapter BlueZ uses, the dongle's own when it is the chosen one.
+            crate::wired::Dongle {
+                ap_mac: dongle_ap.then_some(livi_dongle::ap::mac as fn() -> Option<String>),
+                bt_mac: None,
+            },
             bcast.clone(),
             state.clone(),
             mfi_link.clone(),
         ));
         println!("[helperd] wired CarPlay watcher started");
     }
+    if dongle_ap {
+        tokio::spawn(crate::link::relay_stations(bcast.clone()));
+    }
 
-    let wlan_mac = livi_runtime::net::wlan_mac(&wifi_iface).unwrap_or_else(|| format_mac(&bt_mac));
+    let device_id = livi_runtime::bringup::accessory_id(&cp).unwrap_or_else(|| format_mac(&bt_mac));
     let _bonjour = if cp.airplay_port == 0 {
         eprintln!("[helperd] LIVI opened no CarPlay port, CarPlay is not announced");
         None
     } else {
         match Bonjour::start(
-            wlan_mac,
+            device_id,
             cp.airplay_port as u16,
             cp.source_version.clone(),
             pk,
@@ -465,6 +477,7 @@ async fn serve() -> Result<(), Box<dyn std::error::Error>> {
         }
     };
 
+    let bus = conn.clone();
     loop {
         tokio::select! {
             _ = crate::shutdown_signal() => {
@@ -475,12 +488,18 @@ async fn serve() -> Result<(), Box<dyn std::error::Error>> {
             }
             session = async { dongle_iap.as_mut().unwrap().recv().await }, if dongle_iap.is_some() => {
                 let Some(session) = session else { return Ok(()) };
+                if state.carkit_claims(&session.peer) {
+                    println!("[helperd] {} is on the cable, its Bluetooth link goes", session.peer);
+                    crate::link::drop_dongle_link(session.peer.to_string());
+                    continue;
+                }
                 let auth = auth.clone();
                 println!("[helperd] phone connected mac={}", session.peer);
                 let cfg = LinkConfig { max_outgoing: 4, control_version: 2, ..LinkConfig::default() };
                 let (channel, art_rx) = spawn_link_stream(session.stream, cfg, false);
                 let (tx, rx) = tokio::sync::mpsc::channel(64);
-                let (accessory, mac) = (run_accessory(channel, auth, identity.clone(), session_cp(&cp, dongle_ap), tx, state.vehicle_feed()), session.peer.to_string());
+                let cp = CpConfig { on_cable: Some(crate::link::dongle_on_cable(state.clone())), ..session_cp(&cp, dongle_ap) };
+                let (accessory, mac) = (run_accessory(channel, auth, identity.clone(), cp, tx, state.vehicle_feed()), session.peer.to_string());
                 let links = state.clone();
                 tokio::spawn(async move {
                     links.link_up(&mac);
@@ -493,12 +512,18 @@ async fn serve() -> Result<(), Box<dyn std::error::Error>> {
             }
             conn = incoming.recv() => {
                 let Some(conn) = conn else { return Ok(()) };
+                if state.carkit_claims(&conn.peer_mac) {
+                    println!("[helperd] {} is on the cable, its Bluetooth link goes", conn.peer_mac);
+                    bt::drop_link(&bus, &adapter, conn.peer_mac.clone());
+                    continue;
+                }
                 let auth = auth.clone();
                 println!("[helperd] phone connected mac={}", conn.peer_mac);
                 let cfg = LinkConfig { max_outgoing: 4, control_version: 2, ..LinkConfig::default() };
                 let (channel, art_rx) = spawn_link(conn.fd, cfg, false);
                 let (tx, rx) = tokio::sync::mpsc::channel(64);
-                let (accessory, mac) = (run_accessory(channel, auth, identity.clone(), session_cp(&cp, dongle_ap), tx, state.vehicle_feed()), conn.peer_mac.clone());
+                let cp = CpConfig { on_cable: Some(bt::on_cable(state.clone(), &bus, &adapter)), ..session_cp(&cp, dongle_ap) };
+                let (accessory, mac) = (run_accessory(channel, auth, identity.clone(), cp, tx, state.vehicle_feed()), conn.peer_mac.clone());
                 let links = state.clone();
                 tokio::spawn(async move {
                     links.link_up(&mac);

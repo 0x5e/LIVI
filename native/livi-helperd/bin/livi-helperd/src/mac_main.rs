@@ -66,7 +66,10 @@ fn cp_config() -> (CpConfig, Identity) {
         public_key: pi.clone(),
         transport: Transport::Wired,
         av_iface: None, // resolved per session from the interface facing the dongle
+        av_iface_late: None,
         available_current_ma: 500,
+        on_cable: None,
+        start_again: None,
     };
     let identity = Identity { name: name.clone(), ssid: name, bt_mac: accessory_mac(&pi) };
     (cp, identity)
@@ -105,12 +108,20 @@ async fn wireless_sessions(
 ) {
     let mut sessions = livi_dongle::iap::sessions(move || link.is_present());
     while let Some(session) = sessions.recv().await {
+        if state.carkit_claims(&session.peer) {
+            println!("[helperd] {} is on the cable, its Bluetooth link goes", session.peer);
+            crate::link::drop_dongle_link(session.peer.to_string());
+            continue;
+        }
         // The phone is about to be told which network to join, so make sure it is on the air.
         if !tokio::task::spawn_blocking(|| livi_dongle::ap::ready(AP_WAIT)).await.unwrap_or(false) {
             eprintln!("[helperd] the dongle's access point is not up, not starting a session");
             continue;
         }
-        let cp = wireless_config(&cp);
+        let cp = CpConfig {
+            on_cable: Some(crate::link::dongle_on_cable(state.clone())),
+            ..wireless_config(&cp)
+        };
         // The phone is talking to the dongle's controller, so that is the address it must hear.
         let identity = Identity { bt_mac: session.local, ..identity.clone() };
         println!(
@@ -233,15 +244,23 @@ fn start_carplay_seam(link: Arc<LinkPresence>) {
     let (auth_wireless, identity_wireless, cp_wireless) =
         (auth.clone(), identity.clone(), cp.clone());
     tokio::spawn(identify_on_link(link.clone(), auth.clone()));
+    let dongle_ap = env_s("LIVI_WIFI_IFACE", "") == livi_dongle::link::CHOICE;
     tokio::spawn(crate::wired::watch_usbmuxd(
         auth,
         identity,
         cp.clone(),
+        crate::wired::Dongle {
+            ap_mac: dongle_ap.then_some(livi_dongle::ap::mac as fn() -> Option<String>),
+            bt_mac: over_dongle.then_some(livi_dongle::ap::bt_mac as fn() -> Option<[u8; 6]>),
+        },
         bcast.clone(),
         state.clone(),
         link.clone(),
     ));
     println!("[helperd] wired CarPlay watcher started (system usbmuxd), waiting for the LIVI Link");
+    if dongle_ap {
+        tokio::spawn(crate::link::relay_stations(bcast.clone()));
+    }
     // Wireless CarPlay comes over the dongle's own Bluetooth, and only when it is the chosen one.
     if env_s("LIVI_BT_ADAPTER", "") == livi_dongle::link::CHOICE {
         tokio::spawn(wireless_sessions(
@@ -261,7 +280,8 @@ fn start_carplay_seam(link: Arc<LinkPresence>) {
     }
     let pk = env_s("LIVI_CP_PK", "");
     let pi = env_s("LIVI_CP_PI", "");
-    let device_id = env_s("LIVI_CP_NAME", "LIVI");
+    let [a, b, c, d, e, f] = accessory_mac(&pi);
+    let device_id = format!("{a:02x}:{b:02x}:{c:02x}:{d:02x}:{e:02x}:{f:02x}");
     match Bonjour::start(
         device_id,
         cp.airplay_port as u16,
@@ -305,6 +325,8 @@ pub fn run() -> ExitCode {
             events: aa_events.clone(),
             set_playback_status: Box::new(|_| {}),
             set_sco_sink: Box::new(|_| {}),
+            deauth_dongle: (env_s("LIVI_WIFI_IFACE", "") == livi_dongle::link::CHOICE)
+                .then_some(livi_dongle::ap::deauth as fn() -> Option<usize>),
         };
         tokio::spawn(async move {
             if let Err(e) = livi_runtime::aa_sock::serve(None, deps).await {

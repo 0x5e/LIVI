@@ -15,6 +15,8 @@ const TMPFS_HOSTAPD: &str = "/tmp/livi/hostapd.conf.saved";
 const TMPFS_BT_KEYS: &str = "/tmp/livi/bt-keys";
 const TMPFS_UPDATE: &str = "/tmp/livi/update.conf";
 const TMPFS_RADIO: &str = livi_wifi::radio::PATH;
+/// The address wlan0 had on its first boot, which livi-radio sets again on every later one.
+const TMPFS_WLAN_MAC: &str = "/tmp/livi/wlan-mac";
 const DEFAULT_LED: &str = "/etc/livi/led.toml";
 const DEFAULT_HOSTAPD: &str = "/etc/hostapd.conf";
 
@@ -23,6 +25,7 @@ const ENTRY_HOSTAPD: &str = "hostapd.conf.saved";
 const ENTRY_BT_KEYS: &str = "bt-keys";
 const ENTRY_UPDATE: &str = "update.conf";
 const ENTRY_RADIO: &str = "radio.conf";
+const ENTRY_WLAN_MAC: &str = "wlan-mac";
 
 /// The partition table differs per board, so the config lives on whichever MTD is named
 /// "customer".
@@ -70,6 +73,7 @@ fn cmd_load() -> i32 {
                     ENTRY_BT_KEYS => TMPFS_BT_KEYS,
                     ENTRY_UPDATE => TMPFS_UPDATE,
                     ENTRY_RADIO => TMPFS_RADIO,
+                    ENTRY_WLAN_MAC => TMPFS_WLAN_MAC,
                     _ => {
                         eprintln!("[livid config load] skipping unknown entry {:?}", e.name);
                         continue;
@@ -128,6 +132,7 @@ fn cmd_save() -> i32 {
         (ENTRY_BT_KEYS, TMPFS_BT_KEYS),
         (ENTRY_UPDATE, TMPFS_UPDATE),
         (ENTRY_RADIO, TMPFS_RADIO),
+        (ENTRY_WLAN_MAC, TMPFS_WLAN_MAC),
     ] {
         match fs::read(path) {
             Ok(data) if !data.is_empty() && data.len() <= MAX_ENTRY => {

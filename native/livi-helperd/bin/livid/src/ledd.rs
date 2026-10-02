@@ -203,9 +203,9 @@ struct State {
 }
 
 impl State {
-    fn read() -> Self {
+    fn read(wifi_client: bool) -> Self {
         Self {
-            wifi: Wifi::of(radio::enabled(Radio::Wifi), wifi_client()),
+            wifi: Wifi::of(radio::enabled(Radio::Wifi), wifi_client),
             bt: Bt::of(radio::enabled(Radio::Bt), exists("bt-connected"), exists("bt-paging")),
             flash_mode: exists("flash-mode"),
             flash_done: exists("flash-done"),
@@ -221,7 +221,7 @@ fn exists(name: &str) -> bool {
 
 /// Counted like the web page counts its clients, so the LED and the page agree.
 fn wifi_client() -> bool {
-    livi_net::bridge::stations("br0", "wlan0") > 0
+    livi_wifi::station_count("wlan0") > 0
 }
 
 // ---------------------------------------------------------------------------
@@ -504,8 +504,12 @@ fn livid_main() -> std::io::Result<()> {
     let mut cfg = Config::load();
     let mut cfg_mtime = mtime(CONFIG_PATH);
     let mut tick: u64 = 0;
+    let mut client = false;
 
     loop {
+        if tick.is_multiple_of(TICK_HZ) {
+            client = wifi_client();
+        }
         if RELOAD.swap(false, Ordering::SeqCst) {
             cfg = Config::load();
         }
@@ -515,7 +519,7 @@ fn livid_main() -> std::io::Result<()> {
             cfg = Config::load();
         }
 
-        leds.show(&State::read(), &cfg, tick);
+        leds.show(&State::read(client), &cfg, tick);
 
         let start = Instant::now();
         thread::sleep(TICK.saturating_sub(start.elapsed()));

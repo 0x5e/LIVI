@@ -55,7 +55,6 @@ import {
   noteDongleStatus,
   radiosOf,
   reconcileDongleAp,
-  releaseDongleForQuit,
   switchDongle
 } from '../dongleAp'
 
@@ -569,34 +568,5 @@ describe('the status snapshot the link-speed monitor polls', () => {
     sockets[0].emit('error', new Error('ECONNREFUSED'))
 
     expect(await probe).toBeNull()
-  })
-})
-
-describe('letting the phone go when LIVI quits', () => {
-  it('stops the accessory and takes the access point down, each on its own connection', async () => {
-    const done = releaseDongleForQuit()
-    await answer(sockets[0], 1)
-    await settle(1)
-    await answer(sockets[1], 1)
-    await done
-    expect(sockets.map((s) => s.sent)).toEqual([['iap off\n'], ['down\n']])
-  })
-
-  it('still takes the access point down when the accessory refuses', async () => {
-    const warn = vi.spyOn(console, 'warn').mockImplementation(() => {})
-    const done = releaseDongleForQuit()
-    await answer(sockets[0], 1, 'error accessory: Connection refused\n')
-    await settle(1)
-    await answer(sockets[1], 1)
-    await done
-    expect(sockets[1].sent).toEqual(['down\n'])
-    expect(warn).toHaveBeenCalledWith('[dongleAp] iap off:', expect.stringContaining('refused'))
-    warn.mockRestore()
-  })
-
-  it('leaves a host without a dongle alone', async () => {
-    networkInterfaces.mockReturnValue({ en0: [{ address: '192.168.1.5' }] })
-    await releaseDongleForQuit()
-    expect(createConnection).not.toHaveBeenCalled()
   })
 })

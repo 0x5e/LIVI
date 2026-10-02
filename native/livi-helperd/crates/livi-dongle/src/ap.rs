@@ -8,14 +8,19 @@ use crate::link;
 
 const TIMEOUT: Duration = Duration::from_secs(3);
 const POLL: Duration = Duration::from_millis(500);
+const WATCH_SILENCE: Duration = Duration::from_secs(15);
 
-/// All of `status`, or None when the dongle does not answer.
-fn status() -> Option<HashMap<String, String>> {
+/// What the dongle answers to `command`, or None when it does not answer.
+fn ask(command: &str) -> Option<HashMap<String, String>> {
     let mut stream = livi_net::connect((link::LINK_NAME, livi_net::port::CONTROL), TIMEOUT).ok()?;
     stream.set_read_timeout(Some(TIMEOUT)).ok()?;
-    stream.write_all(b"status\n").ok()?;
+    stream.write_all(format!("{command}\n").as_bytes()).ok()?;
+    Some(fields(BufReader::new(stream)))
+}
+
+fn fields(answer: impl BufRead) -> HashMap<String, String> {
     let mut fields = HashMap::new();
-    for line in BufReader::new(stream).lines().map_while(Result::ok) {
+    for line in answer.lines().map_while(Result::ok) {
         if line == "ok" || line.starts_with("error") {
             break;
         }
@@ -23,7 +28,39 @@ fn status() -> Option<HashMap<String, String>> {
             fields.insert(key.to_string(), value.trim().to_string());
         }
     }
-    Some(fields)
+    fields
+}
+
+/// All of `status`, or None when the dongle does not answer.
+fn status() -> Option<HashMap<String, String>> {
+    ask("status")
+}
+
+/// Sends every phone off the access point and says how many.
+pub fn deauth() -> Option<usize> {
+    ask("deauth")?.get("deauth")?.parse().ok()
+}
+
+/// A phone joining (true) or leaving (false) the access point, by its Wi-Fi MAC.
+fn station(line: &str) -> Option<(bool, &str)> {
+    match line.trim().split_once(' ')? {
+        ("joined", mac) => Some((true, mac)),
+        ("left", mac) => Some((false, mac)),
+        _ => None,
+    }
+}
+
+/// Hands on every phone that joins or leaves the access point, until the dongle goes.
+pub fn watch_stations(mut on: impl FnMut(bool, &str)) -> std::io::Result<()> {
+    let mut stream = livi_net::connect((link::LINK_NAME, livi_net::port::CONTROL), TIMEOUT)?;
+    stream.set_read_timeout(Some(WATCH_SILENCE))?;
+    stream.write_all(b"watch\n")?;
+    for line in BufReader::new(stream).lines() {
+        if let Some((joined, mac)) = station(&line?) {
+            on(joined, mac);
+        }
+    }
+    Ok(())
 }
 
 /// One field of `status`, or None when the dongle does not answer.
@@ -73,4 +110,26 @@ pub fn bt_mac() -> Option<[u8; 6]> {
         *byte = u8::from_str_radix(parts.next()?, 16).ok()?;
     }
     parts.next().is_none().then_some(out)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn an_answer_reads_up_to_its_end() {
+        let answer = fields("deauth 2\nok\nstate on\n".as_bytes());
+        assert_eq!(answer.get("deauth").map(String::as_str), Some("2"));
+        assert!(!answer.contains_key("state"));
+        assert!(fields("error hostapd is gone\n".as_bytes()).is_empty());
+    }
+
+    #[test]
+    fn a_watch_line_names_the_phone_and_which_way_it_went() {
+        assert_eq!(station("joined 9a:c4:e2:44:5e:0f"), Some((true, "9a:c4:e2:44:5e:0f")));
+        assert_eq!(station("left 9a:c4:e2:44:5e:0f\n"), Some((false, "9a:c4:e2:44:5e:0f")));
+        assert_eq!(station(""), None);
+        assert_eq!(station("ok"), None);
+        assert_eq!(station("moved 9a:c4:e2:44:5e:0f"), None);
+    }
 }

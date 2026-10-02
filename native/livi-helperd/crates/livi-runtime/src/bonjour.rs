@@ -5,12 +5,13 @@
 use std::io::{Read, Write};
 use std::net::{Ipv4Addr, Ipv6Addr, SocketAddr, SocketAddrV4, SocketAddrV6};
 use std::process::Stdio;
-use std::sync::{Arc, Mutex};
+use std::sync::{Arc, LazyLock, Mutex};
 use std::time::Duration;
 
 use socket2::{Domain, Protocol, Socket, Type};
 use tokio::io::{AsyncBufReadExt, BufReader};
 use tokio::process::{Child, Command};
+use tokio::sync::watch;
 
 use crate::livi_sock::Broadcaster;
 
@@ -18,11 +19,42 @@ const AIRPLAY_SERVICE: &str = "_airplay._tcp";
 const CARPLAY_CTRL: &str = "_carplay-ctrl._tcp";
 
 pub struct Bonjour {
-    _publisher: Child,
-    device_id: String,
+    publisher: Arc<Mutex<Option<Child>>>,
+    device_id: Arc<Mutex<String>>,
     source_version: String,
     bcast: Broadcaster,
     seen: Arc<Mutex<std::collections::HashMap<String, (String, u16)>>>,
+}
+
+/// What the record carries besides the accessory id.
+#[derive(Clone)]
+struct Record {
+    airplay_port: u16,
+    source_version: String,
+    pk: String,
+    pi: String,
+}
+
+/// The accessory id the last session start handed the phone. The record follows it, because a
+/// phone that runs CarPlay over Wi-Fi moves to the cable only when it finds the same accessory
+/// there.
+static NAMED: LazyLock<watch::Sender<Option<String>>> = LazyLock::new(|| watch::Sender::new(None));
+
+/// Called with the id each session start hands the phone.
+pub fn named(device_id: &str) {
+    NAMED.send_if_modified(|named| {
+        let changed = named.as_deref() != Some(device_id);
+        if changed {
+            *named = Some(device_id.to_string());
+        }
+        changed
+    });
+}
+
+/// The accessory id as the number a CarPlay Control request carries.
+fn receiver_id(device_id: &str) -> Option<u64> {
+    let hex = device_id.replace(':', "");
+    (hex.len() == 12).then(|| u64::from_str_radix(&hex, 16).ok()).flatten()
 }
 
 fn txt_records(device_id: &str, source_version: &str, pk: &str, pi: &str) -> Vec<String> {
@@ -71,8 +103,51 @@ pub fn stop() {
 impl Drop for Bonjour {
     fn drop(&mut self) {
         // The child does not go when we do, so it is sent on its way.
-        let _ = self._publisher.start_kill();
+        if let Some(mut publisher) = self.publisher.lock().unwrap().take() {
+            let _ = publisher.start_kill();
+        }
     }
+}
+
+/// Announces the receiver under `device_id`.
+fn publish(record: &Record, device_id: &str) -> std::io::Result<Child> {
+    let txt = txt_records(device_id, &record.source_version, &record.pk, &record.pi);
+    let port = record.airplay_port.to_string();
+    // macOS advertises through mDNSResponder (dns-sd); Linux through avahi.
+    #[cfg(target_os = "macos")]
+    {
+        let mut args = vec!["-R", "LIVI", AIRPLAY_SERVICE, ".", port.as_str()];
+        args.extend(txt.iter().map(String::as_str));
+        // Started under the lock, so `stop` either ends it or it is never started.
+        let mut running = DNS_SD.lock().unwrap();
+        let pids = running.as_mut().ok_or_else(|| io_err("the helper is stopping"))?;
+        let publisher = Command::new(crate::sys::tool("dns-sd"))
+            .args(&args)
+            .stdout(Stdio::null())
+            .stderr(Stdio::null())
+            .spawn()?;
+        pids.extend(publisher.id());
+        Ok(publisher)
+    }
+    #[cfg(not(target_os = "macos"))]
+    {
+        let mut args = vec!["LIVI", AIRPLAY_SERVICE, port.as_str()];
+        args.extend(txt.iter().map(String::as_str));
+        Command::new(crate::sys::tool("avahi-publish-service"))
+            .args(&args)
+            .stdout(Stdio::null())
+            .stderr(Stdio::null())
+            .spawn()
+    }
+}
+
+/// Ends a publisher and waits for it, so the next one does not meet its name still taken.
+async fn retire(mut publisher: Child) {
+    #[cfg(target_os = "macos")]
+    if let (Some(pid), Some(pids)) = (publisher.id(), DNS_SD.lock().unwrap().as_mut()) {
+        pids.retain(|&p| p != pid);
+    }
+    let _ = publisher.kill().await;
 }
 
 impl Bonjour {
@@ -90,50 +165,48 @@ impl Bonjour {
         // Its browse too, which never ends on its own.
         #[cfg(target_os = "macos")]
         reap(&format!("dns-sd.*{CARPLAY_CTRL}"));
-        let txt = txt_records(&device_id, &source_version, &pk, &pi);
-        // macOS advertises through mDNSResponder (dns-sd); Linux through avahi.
-        #[cfg(target_os = "macos")]
-        let publisher = {
-            let mut args = vec![
-                "-R".to_string(),
-                "LIVI".to_string(),
-                AIRPLAY_SERVICE.to_string(),
-                ".".to_string(),
-                airplay_port.to_string(),
-            ];
-            args.extend(txt);
-            let publisher = Command::new(crate::sys::tool("dns-sd"))
-                .args(&args)
-                .stdout(Stdio::null())
-                .stderr(Stdio::null())
-                .spawn()?;
-            if let Some(pids) = DNS_SD.lock().unwrap().as_mut() {
-                pids.extend(publisher.id());
-            }
-            publisher
-        };
-        #[cfg(not(target_os = "macos"))]
-        let publisher = {
-            let mut args =
-                vec!["LIVI".to_string(), AIRPLAY_SERVICE.to_string(), airplay_port.to_string()];
-            args.extend(txt);
-            Command::new(crate::sys::tool("avahi-publish-service"))
-                .args(&args)
-                .stdout(Stdio::null())
-                .stderr(Stdio::null())
-                .spawn()?
-        };
-        println!("[cp] published {AIRPLAY_SERVICE} port={airplay_port}");
+        let record = Record { airplay_port, source_version: source_version.clone(), pk, pi };
+        let publisher = publish(&record, &device_id)?;
+        println!("[cp] published {AIRPLAY_SERVICE} port={airplay_port} deviceid={device_id}");
 
         let bonjour = Self {
-            _publisher: publisher,
-            device_id,
+            publisher: Arc::new(Mutex::new(Some(publisher))),
+            device_id: Arc::new(Mutex::new(device_id)),
             source_version,
             bcast,
             seen: Arc::new(Mutex::new(std::collections::HashMap::new())),
         };
+        bonjour.follow(record);
         bonjour.spawn_browser();
         Ok(bonjour)
+    }
+
+    /// Publishes again whenever a session start names the accessory differently.
+    fn follow(&self, record: Record) {
+        let (publisher, device_id) = (self.publisher.clone(), self.device_id.clone());
+        let mut named = NAMED.subscribe();
+        tokio::spawn(async move {
+            loop {
+                let wanted = named.borrow_and_update().clone();
+                if let Some(id) = wanted.filter(|id| *device_id.lock().unwrap() != *id) {
+                    let old = publisher.lock().unwrap().take();
+                    if let Some(old) = old {
+                        retire(old).await;
+                    }
+                    match publish(&record, &id) {
+                        Ok(new) => {
+                            *publisher.lock().unwrap() = Some(new);
+                            println!("[cp] published {AIRPLAY_SERVICE} again, deviceid={id}");
+                            *device_id.lock().unwrap() = id;
+                        }
+                        Err(e) => eprintln!("[cp] {AIRPLAY_SERVICE} not published again: {e}"),
+                    }
+                }
+                if named.changed().await.is_err() {
+                    return;
+                }
+            }
+        });
     }
 
     fn spawn_browser(&self) {
@@ -161,7 +234,7 @@ impl Bonjour {
 }
 
 async fn browse_once(
-    device_id: &str,
+    device_id: &Mutex<String>,
     source_version: &str,
     bcast: &Broadcaster,
     seen: &Arc<Mutex<std::collections::HashMap<String, (String, u16)>>>,
@@ -201,7 +274,7 @@ async fn browse_once(
                 "{{\"type\":\"device\",\"src\":\"bonjour\",\"btMac\":\"{mac}\",\"ip\":\"{ip}\"}}"
             ));
         }
-        let device_id = device_id.to_string();
+        let device_id = device_id.lock().unwrap().clone();
         let source_version = source_version.to_string();
         tokio::task::spawn_blocking(move || connect_probe(&ep, &device_id, &source_version));
     }
@@ -248,7 +321,10 @@ fn parse_resolved(line: &str) -> Option<Endpoint> {
 }
 
 fn connect_probe(ep: &Endpoint, device_id: &str, source_version: &str) {
-    let mac_int = device_id.replace(':', "");
+    let Some(mac_int) = receiver_id(device_id) else {
+        println!("[cp] /ctrl-int/1/connect skipped, {device_id:?} is no MAC");
+        return;
+    };
     let host = ep.address.split('%').next().unwrap_or(&ep.address);
     let is_v6 = ep.address.contains(':');
     let host_hdr =
@@ -318,7 +394,7 @@ fn io_err(msg: &str) -> std::io::Error {
 
 #[cfg(target_os = "macos")]
 fn macos_browse_once(
-    device_id: &str,
+    device_id: &Mutex<String>,
     source_version: &str,
     bcast: &Broadcaster,
     seen: &Arc<Mutex<std::collections::HashMap<String, (String, u16)>>>,
@@ -348,7 +424,8 @@ fn macos_browse_once(
                 "{{\"type\":\"device\",\"src\":\"bonjour\",\"btMac\":\"{mac}\",\"ip\":\"{ip}\"}}"
             ));
         }
-        connect_probe(&ep, device_id, source_version);
+        let device_id = device_id.lock().unwrap().clone();
+        connect_probe(&ep, &device_id, source_version);
     }
 }
 
@@ -458,4 +535,36 @@ fn ifname_from_index(idx: u32) -> Option<String> {
         return None;
     }
     unsafe { std::ffi::CStr::from_ptr(p) }.to_str().ok().map(|s| s.to_string())
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn the_receiver_id_is_the_mac_as_a_number() {
+        assert_eq!(receiver_id("11:22:33:44:55:66"), Some(18_838_586_676_582));
+        assert_eq!(receiver_id("00:50:43:02:fc:01"), Some(0x0050_4302_fc01));
+        assert_eq!(receiver_id("LIVI"), None);
+        assert_eq!(receiver_id("zz:22:33:44:55:66"), None);
+    }
+
+    #[test]
+    fn the_record_names_the_accessory() {
+        let txt = txt_records("00:50:43:02:fc:01", "950.7.1", "", "pairing");
+        assert_eq!(txt[0], "deviceid=00:50:43:02:fc:01");
+        assert!(txt.contains(&"pi=pairing".to_string()));
+        assert!(!txt.iter().any(|t| t.starts_with("pk=")));
+    }
+
+    #[test]
+    fn naming_the_same_accessory_again_is_no_change() {
+        let mut heard = NAMED.subscribe();
+        named("02:00:00:00:00:01");
+        assert!(heard.has_changed().unwrap());
+        let _ = heard.borrow_and_update();
+        named("02:00:00:00:00:01");
+        assert!(!heard.has_changed().unwrap());
+        assert_eq!(heard.borrow().as_deref(), Some("02:00:00:00:00:01"));
+    }
 }

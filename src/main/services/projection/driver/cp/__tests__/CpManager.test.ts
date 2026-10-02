@@ -43,7 +43,10 @@ type Priv = {
     sendVehicleStatus: (s: unknown) => Promise<void>
     setAaWireless: (b: boolean) => Promise<void>
     setCpWireless: (b: boolean) => Promise<void>
+    dropIap2: () => Promise<void>
+    startWired: (usbUdid: string) => Promise<void>
   }
+  _spawn: (sock: unknown) => void
   _liveSession: SessionLike | null
   start: () => void
   close: () => Promise<void>
@@ -466,6 +469,234 @@ describe('CpManager dropSessions', () => {
   })
 })
 
+describe('CpManager cable during a wireless session', () => {
+  const phoneId = '0c:6a:c4:4e:f3:2a'
+  const serial = '00008110-000A1B2C3D4E5F00'
+  const cableIp = 'fe80::80a:a1ca'
+
+  beforeEach(() => {
+    vi.useFakeTimers()
+  })
+  afterEach(() => {
+    vi.useRealTimers()
+  })
+
+  /** A wireless session that runs when the phone comes onto the bus, closing like the real one. */
+  function plugIntoWireless(mgr: Priv): {
+    wireless: SessionLike
+    close: ReturnType<typeof vi.fn>
+  } {
+    mgr._onHelperEvent({ type: 'nowplaying', phoneId, title: 'X' })
+    const [wireless] = sessionsFor(mgr, phoneId)
+    vi.spyOn(wireless as never, 'getControllerId').mockReturnValue('cid' as never)
+    const close = vi.spyOn(wireless as never, 'close').mockImplementation((async () => {
+      wireless?.emit('disconnected')
+    }) as never) as unknown as ReturnType<typeof vi.fn>
+    mgr._onHelperEvent({ type: 'device', src: 'carkit', btMac: phoneId, usbUdid: serial })
+    return { wireless: wireless!, close }
+  }
+
+  function cableSocket(): EventEmitter & Record<string, unknown> {
+    const sock = fakeControlSocket()
+    sock.localAddress = `${cableIp}%en7`
+    return sock
+  }
+
+  it('ends the wireless session once the phone got the start over its cable', () => {
+    const { mgr } = makeManager()
+    const { close } = plugIntoWireless(mgr)
+    expect(close).not.toHaveBeenCalled()
+
+    mgr._onHelperEvent({ type: 'wired-start', usbUdid: serial, ip: cableIp, phoneId })
+
+    expect(close).toHaveBeenCalledTimes(1)
+  })
+
+  it('has the phone hear the start again when it does not come over by itself', () => {
+    const { mgr } = makeManager()
+    plugIntoWireless(mgr)
+    const startWired = vi.spyOn(mgr._helper, 'startWired').mockRejectedValue(new Error('gone'))
+    const dropIap2 = vi.spyOn(mgr._helper, 'dropIap2').mockResolvedValue(undefined)
+
+    mgr._onHelperEvent({ type: 'wired-start', usbUdid: serial, ip: cableIp, phoneId })
+    vi.advanceTimersByTime(2999)
+    expect(startWired).not.toHaveBeenCalled()
+    vi.advanceTimersByTime(1)
+
+    expect(startWired).toHaveBeenCalledWith(serial)
+    expect(dropIap2).not.toHaveBeenCalled()
+  })
+
+  it('leaves the start alone when the phone connects over the cable in time', () => {
+    const { mgr } = makeManager()
+    plugIntoWireless(mgr)
+    const startWired = vi.spyOn(mgr._helper, 'startWired').mockResolvedValue(undefined)
+
+    mgr._onHelperEvent({ type: 'wired-start', usbUdid: serial, ip: cableIp, phoneId })
+    mgr._spawn(cableSocket())
+    vi.advanceTimersByTime(5000)
+
+    expect(startWired).not.toHaveBeenCalled()
+    const wired = [...mgr._sessions].at(-1) as unknown as { isWiredMode: () => boolean }
+    expect(wired.isWiredMode()).toBe(true)
+  })
+
+  it('finds the wireless session by the cable alone and tells the air from the cable', () => {
+    const { mgr } = makeManager()
+    const { close } = plugIntoWireless(mgr)
+
+    mgr._onHelperEvent({ type: 'wired-start', usbUdid: serial, ip: cableIp })
+    const air = fakeControlSocket()
+    air.localAddress = 'fe80::99'
+    mgr._spawn(air)
+
+    expect(close).toHaveBeenCalledTimes(1)
+    const over = [...mgr._sessions].at(-1) as unknown as { isWiredMode: () => boolean }
+    expect(over.isWiredMode()).toBe(false)
+  })
+
+  it('has a phone whose dongle went hear the start over its cable', () => {
+    const { mgr } = makeManager()
+    const { close } = plugIntoWireless(mgr)
+    const startWired = vi.spyOn(mgr._helper, 'startWired').mockResolvedValue(undefined)
+    const dropIap2 = vi.spyOn(mgr._helper, 'dropIap2').mockResolvedValue(undefined)
+
+    mgr._onHelperEvent({ type: 'link', up: false })
+    vi.advanceTimersByTime(3000)
+
+    expect(close).toHaveBeenCalled()
+    expect(startWired).toHaveBeenCalledWith(serial)
+    expect(dropIap2).not.toHaveBeenCalled()
+  })
+
+  it('touches no session for a start that was not over a cable or names no address', () => {
+    const { mgr } = makeManager()
+    const { close } = plugIntoWireless(mgr)
+
+    mgr._onHelperEvent({ type: 'wired-start', usbUdid: serial })
+    mgr._onHelperEvent({ type: 'wired-start', ip: cableIp })
+
+    expect(close).not.toHaveBeenCalled()
+  })
+
+  it('ends nothing when the cable start comes for a phone without a wireless session', () => {
+    const { mgr } = makeManager()
+    mgr._onHelperEvent({ type: 'device', src: 'carkit', btMac: phoneId, usbUdid: serial })
+    mgr._onHelperEvent({ type: 'nowplaying', phoneId, title: 'X' })
+    const [session] = sessionsFor(mgr, phoneId)
+    const close = vi.spyOn(session as never, 'close').mockResolvedValue(undefined as never)
+
+    mgr._onHelperEvent({ type: 'wired-start', usbUdid: serial, ip: cableIp, phoneId })
+
+    expect(close).not.toHaveBeenCalled()
+  })
+
+  it('leaves a session alone that had no connection when the phone came onto the bus', () => {
+    const { mgr } = makeManager()
+    mgr._onHelperEvent({ type: 'nowplaying', phoneId, title: 'X' })
+    const [session] = sessionsFor(mgr, phoneId)
+    const startWired = vi.spyOn(mgr._helper, 'startWired').mockResolvedValue(undefined)
+
+    mgr._onHelperEvent({ type: 'device', src: 'carkit', btMac: phoneId, usbUdid: serial })
+    session?.emit('disconnected')
+    vi.advanceTimersByTime(3000)
+
+    expect(startWired).not.toHaveBeenCalled()
+  })
+
+  it('sends no start when the phone moved to the cable itself', () => {
+    const { mgr } = makeManager()
+    mgr._onHelperEvent({ type: 'nowplaying', phoneId, title: 'X' })
+    mgr._onHelperEvent({ type: 'nowplaying', phoneId: 'aa:aa', title: 'Y' })
+    const [wireless] = sessionsFor(mgr, phoneId)
+    const [wired] = sessionsFor(mgr, 'aa:aa')
+    vi.spyOn(wireless as never, 'getControllerId').mockReturnValue('cid' as never)
+    vi.spyOn(wired as never, 'getControllerId').mockReturnValue('cid' as never)
+    vi.spyOn(wireless as never, 'close').mockResolvedValue(undefined as never)
+    const startWired = vi.spyOn(mgr._helper, 'startWired').mockResolvedValue(undefined)
+
+    mgr._onHelperEvent({ type: 'device', src: 'carkit', btMac: phoneId, usbUdid: serial })
+    wired?.emit('device-presence', { kind: 'active' })
+    wireless?.emit('disconnected')
+    vi.advanceTimersByTime(3000)
+
+    expect(startWired).not.toHaveBeenCalled()
+  })
+
+  it('keeps the wireless session when the cable comes out again, and forgets the cable', () => {
+    const { mgr } = makeManager()
+    const { wireless, close } = plugIntoWireless(mgr)
+    close.mockResolvedValue(undefined)
+    const startWired = vi.spyOn(mgr._helper, 'startWired').mockResolvedValue(undefined)
+
+    mgr._onHelperEvent({ type: 'device-gone', src: 'carkit', usbUdid: serial })
+    expect(close).not.toHaveBeenCalled()
+    wireless.emit('disconnected')
+    vi.advanceTimersByTime(3000)
+
+    expect(startWired).not.toHaveBeenCalled()
+  })
+
+  it('drops a pending start and the address when the phone leaves the bus', () => {
+    const { mgr } = makeManager()
+    plugIntoWireless(mgr)
+    const startWired = vi.spyOn(mgr._helper, 'startWired').mockResolvedValue(undefined)
+
+    mgr._onHelperEvent({ type: 'wired-start', usbUdid: serial, ip: cableIp, phoneId })
+    mgr._onHelperEvent({ type: 'device-gone', src: 'carkit', usbUdid: serial })
+    vi.advanceTimersByTime(3000)
+    mgr._spawn(cableSocket())
+
+    expect(startWired).not.toHaveBeenCalled()
+    const late = [...mgr._sessions].at(-1) as unknown as { isWiredMode: () => boolean }
+    expect(late.isWiredMode()).toBe(false)
+  })
+
+  it('a second wireless end restarts the wait instead of adding a start', () => {
+    const { mgr } = makeManager()
+    const { wireless } = plugIntoWireless(mgr)
+    const startWired = vi.spyOn(mgr._helper, 'startWired').mockResolvedValue(undefined)
+    const priv = mgr as unknown as { _awaitCable: (udid: string | undefined) => void }
+
+    wireless.emit('disconnected')
+    vi.advanceTimersByTime(2000)
+    priv._awaitCable(serial)
+    priv._awaitCable(undefined)
+    vi.advanceTimersByTime(2000)
+    expect(startWired).not.toHaveBeenCalled()
+    vi.advanceTimersByTime(1000)
+
+    expect(startWired).toHaveBeenCalledTimes(1)
+  })
+
+  it('forgets every pending start on close', async () => {
+    const { mgr } = makeManager()
+    plugIntoWireless(mgr)
+    const startWired = vi.spyOn(mgr._helper, 'startWired').mockResolvedValue(undefined)
+
+    mgr._onHelperEvent({ type: 'wired-start', usbUdid: serial, ip: cableIp, phoneId })
+    await mgr.close()
+    vi.advanceTimersByTime(3000)
+
+    expect(startWired).not.toHaveBeenCalled()
+  })
+
+  it('marks only the first sight of the phone on the bus', () => {
+    const { mgr } = makeManager()
+    mgr._onHelperEvent({ type: 'device', src: 'carkit', btMac: phoneId, usbUdid: serial })
+    mgr._onHelperEvent({ type: 'nowplaying', phoneId, title: 'X' })
+    const [session] = sessionsFor(mgr, phoneId)
+    vi.spyOn(session as never, 'getControllerId').mockReturnValue('cid' as never)
+    const startWired = vi.spyOn(mgr._helper, 'startWired').mockResolvedValue(undefined)
+
+    mgr._onHelperEvent({ type: 'device', src: 'carkit', btMac: phoneId, usbUdid: serial })
+    session?.emit('disconnected')
+    vi.advanceTimersByTime(3000)
+
+    expect(startWired).not.toHaveBeenCalled()
+  })
+})
+
 describe('CpManager registration lifecycle', () => {
   it('marks the connecting session live and supersedes an older connection of the same phone', () => {
     const { mgr } = makeManager()
@@ -675,5 +906,64 @@ describe('CpManager branch completion', () => {
     expect(pendingBefore.length).toBeGreaterThanOrEqual(0)
     s.emit('identity')
     expect((mgr as unknown as { _pendingDevices: unknown[] })._pendingDevices).toHaveLength(0)
+  })
+})
+
+describe('CpManager phone leaving the access point', () => {
+  const phoneId = '0c:6a:c4:4e:f3:2a'
+  const wifiMac = '9a:c4:e2:44:5e:0f'
+  const serial = '00008110-000A1B2C3D4E5F00'
+
+  function onWifi(mgr: Priv): { session: SessionLike; close: ReturnType<typeof vi.fn> } {
+    mgr._onHelperEvent({ type: 'nowplaying', phoneId, title: 'X' })
+    const [session] = sessionsFor(mgr, phoneId)
+    vi.spyOn(session as never, 'matchesIdentity').mockImplementation(
+      ((ids: { btMac?: string; wifiMac?: string }) =>
+        ids.wifiMac === wifiMac || ids.btMac?.toLowerCase() === phoneId) as never
+    )
+    const close = vi.fn(async () => {})
+    vi.spyOn(session as never, 'close').mockImplementation(close as never)
+    return { session: session!, close }
+  }
+
+  it('ends its session at once', () => {
+    const { mgr } = makeManager()
+    const { close } = onWifi(mgr)
+
+    mgr._onHelperEvent({ type: 'wifi', mac: wifiMac, event: 'left' })
+
+    expect(close).toHaveBeenCalled()
+  })
+
+  it('leaves the session alone when the phone joins or another one leaves', () => {
+    const { mgr } = makeManager()
+    const { close } = onWifi(mgr)
+
+    mgr._onHelperEvent({ type: 'wifi', mac: wifiMac, event: 'joined' })
+    mgr._onHelperEvent({ type: 'wifi', mac: 'aa:bb:cc:dd:ee:ff', event: 'left' })
+    mgr._onHelperEvent({ type: 'wifi', event: 'left' })
+
+    expect(close).not.toHaveBeenCalled()
+  })
+
+  it('keeps a session that runs over the cable', () => {
+    const { mgr } = makeManager()
+    mgr._onHelperEvent({ type: 'device', src: 'carkit', btMac: phoneId, usbUdid: serial })
+    const { close } = onWifi(mgr)
+
+    mgr._onHelperEvent({ type: 'wifi', mac: wifiMac, event: 'left' })
+
+    expect(close).not.toHaveBeenCalled()
+  })
+
+  it('ends a wireless session even with the cable in', () => {
+    const { mgr } = makeManager()
+    const { session, close } = onWifi(mgr)
+    vi.spyOn(session as never, 'getControllerId').mockReturnValue('cid' as never)
+    mgr._onHelperEvent({ type: 'device', src: 'carkit', btMac: phoneId, usbUdid: serial })
+
+    mgr._onHelperEvent({ type: 'wifi', mac: wifiMac, event: 'left' })
+
+    expect(close).toHaveBeenCalled()
   })
 })

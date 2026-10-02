@@ -22,8 +22,8 @@ describe('SessionManager', () => {
     expect(mgr.upsert(mkDriver(), 'carplay', 'wifi', { btMac: 'dd:dd' }).index).toBe(1)
   })
 
-  describe('carplay transport derivation', () => {
-    it('is wifi with no udid, becomes usb once a udid lands, then stays usb + keeps the udid on a later partial upsert', () => {
+  describe('carplay transport', () => {
+    it('stays wireless for a phone plugged in during it, keeping the udid on later partial upserts', () => {
       const mgr = mkManager()
       const driver = mkDriver()
 
@@ -33,7 +33,7 @@ describe('SessionManager', () => {
 
       const s1 = mgr.upsert(driver, 'carplay', 'wifi', { usbUdid: '00008120-DEADBEEF' })
       expect(s1).toBe(s0)
-      expect(s1.transport).toBe('usb')
+      expect(s1.transport).toBe('wifi')
       expect(s1.device.usbUdid).toBe('00008120-DEADBEEF')
 
       const s2 = mgr.upsert(driver, 'carplay', 'wifi', {
@@ -42,25 +42,35 @@ describe('SessionManager', () => {
         usbUdid: undefined
       })
       expect(s2).toBe(s0)
-      expect(s2.transport).toBe('usb')
       expect(s2.device.usbUdid).toBe('00008120-DEADBEEF')
       expect(s2.device.wifiMac).toBe('11:22:33:44:55:66')
 
-      const s3 = mgr.upsert(driver, 'carplay', 'wifi', { controllerId: 'ctrl-1' })
-      expect(s3).toBe(s0)
-      expect(s3.transport).toBe('usb')
-      expect(s3.device.usbUdid).toBe('00008120-DEADBEEF')
-      expect(s3.device.controllerId).toBe('ctrl-1')
-
-      const s4 = mgr.upsert(driver, 'carplay', 'wifi', {
+      const s3 = mgr.upsert(driver, 'carplay', 'wifi', {
         btMac: 'AA:BB:CC:DD:EE:FF',
         usbUdid: '',
         ip: '172.20.10.1'
       })
-      expect(s4).toBe(s0)
-      expect(s4.transport).toBe('usb')
-      expect(s4.device.usbUdid).toBe('00008120-DEADBEEF')
-      expect(s4.device.ip).toBe('172.20.10.1')
+      expect(s3).toBe(s0)
+      expect(s3.device.usbUdid).toBe('00008120-DEADBEEF')
+      expect(s3.device.ip).toBe('172.20.10.1')
+    })
+
+    it('hands the entry to the session that came over the cable', () => {
+      const mgr = mkManager()
+      const close = vi.fn(async () => {})
+      const air = { close } as unknown as IPhoneDriver
+      const cable = mkDriver()
+
+      const s0 = mgr.upsert(air, 'carplay', 'wifi', { btMac: 'AA:BB:CC:DD:EE:FF' })
+      const s1 = mgr.upsert(cable, 'carplay', 'usb', {
+        btMac: 'AA:BB:CC:DD:EE:FF',
+        usbUdid: '00008120-DEADBEEF'
+      })
+
+      expect(s1).toBe(s0)
+      expect(s1.transport).toBe('usb')
+      expect(s1.driver).toBe(cable)
+      expect(close).toHaveBeenCalled()
     })
   })
 

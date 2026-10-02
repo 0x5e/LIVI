@@ -5,11 +5,27 @@
 #   livi-radio driver  the driver, unless it is loaded already
 #   livi-radio bt      hci0 up, then btd and iapd
 #   livi-radio bt-off  btd and iapd gone, as after a boot with bluetooth switched off
+#   livi-radio mac     wlan0 on the address it had on its first boot, before it comes up
 . /etc/livi/board.sh
 CONF=/tmp/livi/radio.conf
+MAC=/tmp/livi/wlan-mac
 
 enabled() {
     ! grep -qx "$1=off" "$CONF" 2>/dev/null
+}
+
+# A driver may make up part of wlan0's address on every boot, and the phone knows the car by it.
+# So the first one is kept and set again, before wlan0 comes up so the radio takes it.
+keep_mac() {
+    [ -e /sys/class/net/wlan0 ] || return 0
+    now=$(cat /sys/class/net/wlan0/address)
+    if [ -s "$MAC" ]; then
+        want=$(cat "$MAC")
+        [ "$want" = "$now" ] || ifconfig wlan0 hw ether "$want"
+    else
+        echo "$now" > "$MAC" && /usr/bin/livid config save >/dev/null 2>&1
+        echo "[livi] wlan0 keeps $now"
+    fi
 }
 
 driver() {
@@ -75,6 +91,7 @@ boot() {
         done
         if [ -e /sys/class/net/wlan0 ]; then
             echo '[livi] wlan0 present'
+            keep_mac
             ifconfig wlan0 up
             # The AP comes up through wifid, the same path a host takes.
             sleep 0.3
@@ -99,8 +116,9 @@ case "$1" in
     driver) driver ;;
     bt) bt ;;
     bt-off) bt_off ;;
+    mac) keep_mac ;;
     *)
-        echo "usage: livi-radio boot|driver|bt|bt-off" >&2
+        echo "usage: livi-radio boot|driver|bt|bt-off|mac" >&2
         exit 2
         ;;
 esac

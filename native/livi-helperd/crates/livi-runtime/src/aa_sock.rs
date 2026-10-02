@@ -30,6 +30,8 @@ pub struct AaSockDeps {
     pub set_sco_sink: SetScoSink,
     /// Ends a phone's USB session.
     pub restart_usb: Box<dyn Fn(&str) -> usize + Send + Sync>,
+    /// Sends the phones off the dongle's access point, when that is the one in use.
+    pub deauth_dongle: Option<fn() -> Option<usize>>,
 }
 
 /// Without a D-Bus connection (macOS) the BlueZ verbs answer with an error, the rest works.
@@ -101,7 +103,12 @@ async fn handle(
             format!("{{\"ok\":true,\"count\":{n}}}")
         }
         "deauth-ap" => {
-            let count = deauth_ap(&deps.wifi_iface).await;
+            let count = match deps.deauth_dongle {
+                Some(deauth) => {
+                    tokio::task::spawn_blocking(deauth).await.ok().flatten().unwrap_or(0)
+                }
+                None => deauth_ap(&deps.wifi_iface).await,
+            };
             println!("[aa-sock] deauth-ap: kicked {count} client(s)");
             format!("{{\"ok\":true,\"count\":{count}}}")
         }

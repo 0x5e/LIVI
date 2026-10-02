@@ -75,6 +75,8 @@ export interface CpSessionOptions {
   /** Shared MFi coprocessor + BlueZ control socket, owned by CpManager. */
   helper: CpHelperSock
   seed: CpSessionSeed
+  /** Whether an address of ours is the one a phone was given to reach over its cable. */
+  isCable?: (ip: string) => boolean
 }
 
 export class CpSession extends EventEmitter implements IPhoneDriver {
@@ -90,12 +92,15 @@ export class CpSession extends EventEmitter implements IPhoneDriver {
   private _btMac = ''
   private _wifiMac = ''
   private _peerIp = ''
+  private _localIp = ''
   private _usbUdid = ''
+  private readonly _isCable: (ip: string) => boolean
 
   constructor(opts: CpSessionOptions) {
     super()
     this._getConfig = opts.getConfig
     this._helper = opts.helper
+    this._isCable = opts.isCable ?? (() => false)
     this._hevc = opts.seed.hevcSupported
     this._initialNightMode = opts.seed.initialNightMode
 
@@ -121,12 +126,14 @@ export class CpSession extends EventEmitter implements IPhoneDriver {
    *  born at iAP2 identification and gain its AirPlay transport when the phone connects. */
   attachSocket(socket: net.Socket): void {
     this._peerIp = normHost(socket.remoteAddress ?? '')
+    this._localIp = normHost(socket.localAddress ?? '')
     this._stack?.attachSocket(socket)
   }
 
-  /** CarPlay is wireless-only here; the wired-carkit label is tracked by ProjectionService. */
+  /** Over the cable when the phone connected to the address it was given there. Before it
+   *  connects, the session only has the iAP2 that brought it, the cable's once it is on the bus. */
   isWiredMode(): boolean {
-    return false
+    return this._localIp ? this._isCable(this._localIp) : Boolean(this._usbUdid)
   }
 
   setHevcSupported(supported: boolean): void {
@@ -626,7 +633,7 @@ export class CpSession extends EventEmitter implements IPhoneDriver {
 }
 
 /** Strip an IPv6 zone id and the ::ffff: v4-mapped prefix so peers compare equal. */
-function normHost(h: string): string {
+export function normHost(h: string): string {
   return h ? h.replace(/%.*$/, '').replace(/^::ffff:/i, '') : ''
 }
 

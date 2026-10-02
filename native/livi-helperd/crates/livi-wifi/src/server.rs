@@ -1,10 +1,12 @@
 //! LIVI-Link wifid wire: line-oriented TCP on the dongle's control port. Commands:
-//!   channels | status | on | off | apply | save | down
+//!   channels | status | on | off | apply | save | down | deauth | watch
 //!   set <ssid|country|channel|width|passphrase> <value>
 //!   bt on | bt off
 //!   iap <order>   for the Bluetooth accessory, answered the way iapd answers
 //! `on`, `off` and `bt` are kept on the dongle, a boot brings back what was switched last.
 //! `down` takes the access point off the air until the next apply or boot, nothing is kept.
+//! `deauth` sends every station off, `deauth <count>` says how many.
+//! `watch` never answers, it streams `joined <mac>` and `left <mac>` until the client goes.
 //! Responses end in `ok\n` or `error <reason>\n`.
 
 use std::io::{BufRead, BufReader, Write};
@@ -14,6 +16,7 @@ use std::process::{Child, Command, Stdio};
 use std::sync::{Mutex, MutexGuard, PoisonError};
 use std::time::Duration;
 
+use crate::hostapd::{self, Station};
 use crate::listing;
 use crate::radio::{self, Radio};
 
@@ -21,6 +24,7 @@ const RADIO_TRIES: u32 = 40;
 const RADIO_POLL: Duration = Duration::from_millis(500);
 const START_TIMEOUT: Duration = Duration::from_secs(20);
 const POLL: Duration = Duration::from_millis(250);
+const WATCH_RETRY: Duration = Duration::from_secs(1);
 
 const HOSTAPD: &str = "/usr/sbin/hostapd";
 const IFACE: &str = "wlan0";
@@ -103,6 +107,8 @@ enum Cmd<'a> {
     Apply,
     Save,
     Down,
+    Deauth,
+    Watch,
     On,
     Off,
     Bt(bool),
@@ -150,8 +156,14 @@ pub fn serve<S: std::io::Read + Write>(io: &mut S, ap: &Mutex<Ap>) {
             Cmd::Off => {
                 let mut ap = held(ap);
                 keep(&ap, Radio::Wifi, false);
+                deauth();
                 off(&mut ap);
                 "ok\n".into()
+            }
+            Cmd::Deauth => format!("deauth {}\nok\n", deauth()),
+            Cmd::Watch => {
+                watch(reader.get_mut());
+                return;
             }
             Cmd::Save => match save(&held(ap)) {
                 Ok(()) => "ok\n".into(),
@@ -191,6 +203,8 @@ fn command(line: &str) -> Cmd<'_> {
         "apply" => Cmd::Apply,
         "save" => Cmd::Save,
         "down" => Cmd::Down,
+        "deauth" => Cmd::Deauth,
+        "watch" => Cmd::Watch,
         "on" => Cmd::On,
         "off" => Cmd::Off,
         "bt" => match rest.trim() {
@@ -299,6 +313,7 @@ fn config(base: &str, wanted: &Wanted, standards: Standards) -> String {
                 | "he_oper_centr_freq_seg0_idx",
             ) => wanted.channel.is_some(),
             Some("wpa_passphrase") => wanted.passphrase.is_some(),
+            Some("ctrl_interface") => true,
             _ => false,
         };
         if !replaced {
@@ -348,7 +363,23 @@ fn config(base: &str, wanted: &Wanted, standards: Standards) -> String {
     if let Some(passphrase) = &wanted.passphrase {
         out.push_str(&format!("wpa_passphrase={passphrase}\n"));
     }
+    out.push_str(&ctrl_line());
     out
+}
+
+fn ctrl_line() -> String {
+    format!("ctrl_interface={}\n", hostapd::CTRL_DIR)
+}
+
+/// A config written before the control socket existed gets it, so a deauth always reaches hostapd.
+fn with_ctrl(path: &std::path::Path) -> Result<(), String> {
+    let text = std::fs::read_to_string(path).map_err(|e| format!("{}: {e}", path.display()))?;
+    if text.lines().any(|line| setting(line) == Some("ctrl_interface")) {
+        return Ok(());
+    }
+    let gap = if text.is_empty() || text.ends_with('\n') { "" } else { "\n" };
+    std::fs::write(path, format!("{text}{gap}{}", ctrl_line()))
+        .map_err(|e| format!("{}: {e}", path.display()))
 }
 
 fn setting(line: &str) -> Option<&str> {
@@ -479,6 +510,8 @@ fn on(ap: &mut Ap) -> Result<(), String> {
     }
     driver();
     await_radio()?;
+    // The address it kept from its first boot, set while the interface is still down.
+    let _ = Command::new(LIVI_RADIO).arg("mac").status();
     let _ = Command::new("ifconfig").args([IFACE, "up"]).status();
     let config = ap.config.clone();
     start_weakening(ap, &config)
@@ -559,6 +592,41 @@ fn weaker(config: &str) -> Option<(String, &'static str)> {
         return None;
     };
     Some((lines.join("\n") + "\n", step))
+}
+
+fn deauth() -> usize {
+    if !running() {
+        return 0;
+    }
+    match hostapd::deauth_all(&hostapd::ctrl(IFACE)) {
+        Ok(count) => {
+            println!("[wifid] deauthenticated {count} station(s)");
+            count
+        }
+        Err(e) => {
+            eprintln!("[wifid] deauth: {e}");
+            0
+        }
+    }
+}
+
+/// Streams the stations joining and leaving until the client goes.
+fn watch<W: Write>(out: &mut W) {
+    let ctrl = hostapd::ctrl(IFACE);
+    loop {
+        let attached = hostapd::watch(&ctrl, |station| {
+            let line = match station {
+                Some(Station::Joined(mac)) => format!("joined {mac}\n"),
+                Some(Station::Left(mac)) => format!("left {mac}\n"),
+                None => "\n".to_string(),
+            };
+            out.write_all(line.as_bytes()).is_ok()
+        });
+        if attached.is_ok() || out.write_all(b"\n").is_err() {
+            return;
+        }
+        std::thread::sleep(WATCH_RETRY);
+    }
 }
 
 fn off(ap: &mut Ap) {
@@ -685,6 +753,7 @@ fn status(ap: &Ap) -> String {
 }
 
 fn start(ap: &mut Ap, config: &std::path::Path) -> Result<(), String> {
+    with_ctrl(config)?;
     let _ = std::fs::remove_file(&ap.log);
     let log = std::fs::File::create(&ap.log).map_err(|e| format!("{}: {e}", ap.log.display()))?;
     let errors = log.try_clone().map_err(|e| e.to_string())?;
@@ -962,6 +1031,34 @@ mod tests {
     #[test]
     fn down_is_a_command_of_its_own() {
         assert!(matches!(command("down"), Cmd::Down));
+    }
+
+    #[test]
+    fn deauth_and_watch_are_commands() {
+        assert!(matches!(command("deauth"), Cmd::Deauth));
+        assert!(matches!(command("watch"), Cmd::Watch));
+    }
+
+    #[test]
+    fn every_config_opens_the_control_socket_once() {
+        let worn = format!("{BASE}ctrl_interface=/var/run/hostapd\n");
+        let out = config(&worn, &wanted(36, Some(80)), AC_AX);
+        assert_eq!(out.matches("ctrl_interface=").count(), 1);
+        assert!(out.contains("ctrl_interface=/tmp/livi/hostapd\n"));
+    }
+
+    #[test]
+    fn an_old_config_gets_the_control_socket_before_hostapd_starts() {
+        let path = std::env::temp_dir().join(format!("hostapd-ctrl-{}.conf", std::process::id()));
+        std::fs::write(&path, "interface=wlan0\nssid=LIVI").unwrap();
+        with_ctrl(&path).unwrap();
+        with_ctrl(&path).unwrap();
+        assert_eq!(
+            std::fs::read_to_string(&path).unwrap(),
+            "interface=wlan0\nssid=LIVI\nctrl_interface=/tmp/livi/hostapd\n"
+        );
+        let _ = std::fs::remove_file(&path);
+        assert!(with_ctrl(&path).is_err());
     }
 
     #[test]

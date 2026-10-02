@@ -227,7 +227,8 @@ where
                     if before != after
                         && let Some(push) = cfg.targets.clone()
                     {
-                        let macs = after.into_iter().map(|(mac, _)| mac).collect();
+                        let macs: Vec<String> = after.into_iter().map(|(mac, _)| mac).collect();
+                        println!("[helperd] the dongle pages {macs:?}");
                         if let Ok(Err(e)) = tokio::task::spawn_blocking(move || push(macs)).await {
                             eprintln!("[helperd] the dongle refused the paging list: {e}");
                         }
@@ -258,6 +259,15 @@ where
             let n = state.restart_wired();
             println!("[cp-sock] drop-iap2: {n} wired session(s) end for a fresh start");
             reply(&mut stream, "{\"ok\":true}").await
+        }
+        "start-wired" => {
+            let json = if state.start_wired_again(arg) {
+                println!("[cp-sock] start-wired: {arg} offers CarPlay again");
+                "{\"ok\":true}".to_string()
+            } else {
+                err_json(&format!("no wired session for {arg:?}"))
+            };
+            reply(&mut stream, &json).await
         }
         other => reply(&mut stream, &err_json(&format!("unknown command: {other}"))).await,
     }
@@ -392,13 +402,23 @@ pub async fn pump_events_for(
             BringupEvent::Failed(e) => eprintln!("[cp-sock] {tag} bring-up failed: {e}"),
             BringupEvent::Identified => println!("[cp] {tag}: identification accepted"),
             BringupEvent::Authenticated => println!("[cp] {tag}: MFi auth succeeded"),
-            BringupEvent::CarPlayStartSent => println!("[cp] {tag}: CarPlayStartSession sent"),
+            BringupEvent::CarPlayStartSent { ip } => {
+                println!("[cp] {tag}: CarPlayStartSession sent");
+                if let Some(udid) = usb_udid.as_deref() {
+                    let json = events::wired_start_json(udid, &ip);
+                    bcast.push_json(ident.lock().unwrap().apply(json));
+                }
+            }
             _ => {}
         }
     }
 }
 
-async fn device_disconnect(bus: &zbus::Connection, adapter: &str, mac: &str) -> Result<(), String> {
+pub async fn device_disconnect(
+    bus: &zbus::Connection,
+    adapter: &str,
+    mac: &str,
+) -> Result<(), String> {
     let path = format!("/org/bluez/{}/dev_{}", adapter, mac.replace(':', "_").to_uppercase());
     bus.call_method(Some("org.bluez"), path.as_str(), Some("org.bluez.Device1"), "Disconnect", &())
         .await

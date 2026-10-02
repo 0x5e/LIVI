@@ -234,6 +234,9 @@ export class ProjectionService {
   private aaTransport(session: AaSession): SessionTransport {
     return session.isWiredMode() ? 'usb' : 'wifi'
   }
+  private cpTransport(session: CpSession): SessionTransport {
+    return session.isWiredMode() ? 'usb' : 'wifi'
+  }
   private maybeAutoActivate(s: ProjectionSession): void {
     if (!this.sessions.active()) this.sessions.activate(s.index)
   }
@@ -302,7 +305,7 @@ export class ProjectionService {
 
   private readonly onCpConnected = (session: CpSession): void => {
     this.maybeAutoActivate(
-      this.sessions.upsert(session, 'carplay', 'wifi', {
+      this.sessions.upsert(session, 'carplay', this.cpTransport(session), {
         controllerId: session.getControllerId() ?? undefined
       })
     )
@@ -333,10 +336,9 @@ export class ProjectionService {
     if (p.kind === 'device') {
       const btMac = typeof p.btMac === 'string' ? p.btMac : undefined
       const usbUdid = typeof p.usbUdid === 'string' ? p.usbUdid : undefined
-      const wired =
-        !!usbUdid ||
-        this.sessions.byIdentity('carplay', { btMac, usbUdid, ip: ip || undefined })?.transport ===
-          'usb'
+      // A phone plugged in during a wireless session still runs CarPlay over the air.
+      const live = this.sessions.byIdentity('carplay', { btMac, usbUdid, ip: ip || undefined })
+      const wired = live ? live.transport === 'usb' : !!usbUdid
       this.deviceRegistry.noteDevice({
         btMac,
         ip: ip || undefined,
@@ -360,15 +362,7 @@ export class ProjectionService {
         const btMac = typeof p.btMac === 'string' ? p.btMac : undefined
         const usbUdid = typeof p.usbUdid === 'string' ? p.usbUdid : undefined
         const wifiMacRaw = typeof p.wifiMac === 'string' ? p.wifiMac : undefined
-        // Wiredness follows the phone's udid, sticky across a later wifi-only device-info presence.
-        const wired =
-          !!usbUdid ||
-          this.sessions.byIdentity('carplay', {
-            btMac,
-            wifiMac: wifiMacRaw,
-            usbUdid,
-            ip: ip || undefined
-          })?.transport === 'usb'
+        const wired = session.isWiredMode()
         const wifiMac = wired ? undefined : wifiMacRaw
         this.deviceRegistry.noteDevice({
           btMac,
@@ -394,7 +388,7 @@ export class ProjectionService {
           void placeholder.close()
         }
         this.maybeAutoActivate(
-          this.sessions.upsert(session, 'carplay', 'wifi', {
+          this.sessions.upsert(session, 'carplay', this.cpTransport(session), {
             btMac,
             wifiMac,
             usbUdid,

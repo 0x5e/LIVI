@@ -31,7 +31,17 @@ impl NcmCoprocessor {
         Ok(self.stream.as_mut().expect("just connected"))
     }
 
+    /// A failed exchange can leave the rest of a late answer in the socket, which the next request
+    /// would read as its own. So a socket that failed is never used again.
     fn try_request(&mut self, req: &[u8]) -> Result<Vec<u8>, MfiError> {
+        let result = self.exchange(req);
+        if matches!(result, Err(MfiError::Io(_))) {
+            self.stream = None;
+        }
+        result
+    }
+
+    fn exchange(&mut self, req: &[u8]) -> Result<Vec<u8>, MfiError> {
         let stream = self.ensure()?;
         stream.write_all(req).map_err(|e| MfiError::Io(format!("mfid write: {e}")))?;
         let mut hdr = [0u8; 3];
@@ -51,7 +61,6 @@ impl NcmCoprocessor {
         match self.try_request(req) {
             Err(MfiError::Io(first)) => {
                 // Dead socket: waits briefly, reconnects once.
-                self.stream = None;
                 std::thread::sleep(std::time::Duration::from_millis(500));
                 self.try_request(req).map_err(|e| match e {
                     MfiError::Io(second) => MfiError::Io(format!("{first}; retry: {second}")),
@@ -89,5 +98,28 @@ impl AuthCoprocessor for NcmCoprocessor {
         req.push((n & 0xff) as u8);
         req.extend_from_slice(challenge);
         self.request(&req)
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use std::net::TcpListener;
+
+    #[test]
+    fn a_socket_that_failed_is_not_used_again() {
+        let listener = TcpListener::bind("127.0.0.1:0").unwrap();
+        let addr = listener.local_addr().unwrap().to_string();
+        let mfid = std::thread::spawn(move || {
+            let (mut s, _) = listener.accept().unwrap();
+            let mut req = [0u8; 1];
+            s.read_exact(&mut req).unwrap();
+            // The header cut short, as a connection that breaks off mid-answer leaves it.
+            s.write_all(&[STATUS_OK]).unwrap();
+        });
+        let mut chip = NcmCoprocessor::new(&addr);
+        assert!(matches!(chip.try_request(&[OP_GET_CERT]), Err(MfiError::Io(_))));
+        assert!(chip.stream.is_none());
+        mfid.join().unwrap();
     }
 }

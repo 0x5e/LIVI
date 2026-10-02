@@ -28,6 +28,7 @@ fn announce_gone(bcast: &Broadcaster, serial: &str) {
 }
 
 const SCAN_INTERVAL: Duration = Duration::from_secs(2);
+const MFI_RETRY: Duration = Duration::from_secs(1);
 // A device that keeps failing the config probe is no iPhone (e.g. a dongle emulating one).
 #[cfg(target_os = "linux")]
 const GIVE_UP_ATTEMPTS: u32 = 3;
@@ -37,6 +38,7 @@ pub async fn watch(
     auth: SharedCoprocessor,
     identity: Identity,
     cp: CpConfig,
+    dongle: Dongle,
     bcast: Broadcaster,
     state: Arc<HelperState>,
     link: Arc<LinkPresence>,
@@ -48,25 +50,9 @@ pub async fn watch(
     let mut cancels: HashMap<String, Arc<Notify>> = HashMap::new();
 
     loop {
-        if !link.is_present() {
-            // No MFi without the link: every phone is retired until it is back.
-            for serial in registry.serials() {
-                println!("[wired] {} gone with the link", short(&serial));
-                if let Some(c) = cancels.remove(&serial) {
-                    c.notify_one();
-                }
-                announce_gone(&bcast, &serial);
-                registry.remove(&serial);
-            }
-            link.wait_until(true).await;
-            continue;
-        }
         tokio::select! {
             _ = tokio::time::sleep(SCAN_INTERVAL) => {}
             _ = link.changed().notified() => {}
-        }
-        if !link.is_present() {
-            continue;
         }
 
         let present: Vec<String> = find_iphones().into_iter().map(|d| d.serial).collect();
@@ -80,6 +66,10 @@ pub async fn watch(
                 announce_gone(&bcast, &serial);
                 registry.remove(&serial);
             }
+        }
+        // A new session needs MFi, which may sit on the dongle. One that runs does not.
+        if !link.is_present() {
+            continue;
         }
 
         let active = registry.serials();
@@ -115,8 +105,10 @@ pub async fn watch(
                 auth: auth.clone(),
                 identity: identity.clone(),
                 cp: cp.clone(),
+                dongle,
                 bcast: bcast.clone(),
                 state: state.clone(),
+                link: link.clone(),
             };
             let cancel = Arc::new(Notify::new());
             cancels.insert(serial.clone(), cancel.clone());
@@ -151,13 +143,14 @@ pub async fn watch(
     }
 }
 
-/// The phone on a Mac port, reached through the system usbmuxd. MFi comes from the dongle, so it
-/// waits for the link.
+/// The phone on a Mac port, reached through the system usbmuxd. MFi comes from the dongle, so a
+/// new session waits for the link.
 #[cfg(target_os = "macos")]
 pub async fn watch_usbmuxd(
     auth: SharedCoprocessor,
     identity: Identity,
     cp: CpConfig,
+    dongle: Dongle,
     bcast: Broadcaster,
     state: Arc<HelperState>,
     link: Arc<LinkPresence>,
@@ -169,20 +162,9 @@ pub async fn watch_usbmuxd(
     let mut active: HashMap<String, Arc<Notify>> = HashMap::new();
 
     loop {
-        if !link.is_present() {
-            for (udid, cancel) in active.drain() {
-                cancel.notify_one();
-                announce_gone(&bcast, &udid);
-            }
-            link.wait_until(true).await;
-            continue;
-        }
         tokio::select! {
             _ = tokio::time::sleep(SCAN_INTERVAL) => {}
             _ = link.changed().notified() => {}
-        }
-        if !link.is_present() {
-            continue;
         }
 
         let devices = match iap2_wired::usbmuxd::devices().await {
@@ -202,6 +184,10 @@ pub async fn watch_usbmuxd(
             }
             keep
         });
+        // A new session needs the dongle's MFi chip, one that runs does not.
+        if !link.is_present() {
+            continue;
+        }
 
         for device in devices {
             if active.contains_key(&device.udid) {
@@ -209,30 +195,30 @@ pub async fn watch_usbmuxd(
             }
             let cancel = Arc::new(Notify::new());
             active.insert(device.udid.clone(), cancel.clone());
-            let ctx = WiredCtx {
+            // The phone's own USB network interface (enX) only comes up once iAP2 runs over the
+            // cable, so it is looked for alongside the session, which waits for it at the start.
+            let (found, late) = tokio::sync::watch::channel(None);
+            let mut ctx = WiredCtx {
                 auth: auth.clone(),
                 identity: identity.clone(),
                 cp: cp.clone(),
+                dongle,
                 bcast: bcast.clone(),
                 state: state.clone(),
+                link: link.clone(),
             };
+            ctx.cp.av_iface_late = Some(late);
             tokio::spawn(async move {
-                // The phone's own USB network interface (enX), resolved from the UDID.
-                let iface = match iap2_wired::mac_network::discover(&device.udid).await {
-                    Ok(iface) => Some(iface),
-                    Err(e) => {
-                        eprintln!("[wired] {}: no USB network interface: {e}", short(&device.udid));
-                        None
-                    }
-                };
-                let ncm = LocalNcm::System(iface);
                 match iap2_wired::usbmuxd::open(&device).await {
                     Ok(stream) => {
                         println!(
                             "[wired] {}: usbmuxd carkit up, starting iAP2",
                             short(&device.udid)
                         );
+                        let finder = tokio::spawn(find_usb_iface(device.udid.clone(), found));
+                        let ncm = LocalNcm::System(None);
                         run_wired_session(device.udid.clone(), stream, ncm, ctx, cancel).await;
+                        finder.abort();
                     }
                     Err(e) => {
                         eprintln!("[wired] {}: usbmuxd carkit failed: {e}", short(&device.udid))
@@ -243,14 +229,46 @@ pub async fn watch_usbmuxd(
     }
 }
 
+#[cfg(target_os = "macos")]
+const USB_IFACE_TRIES: u32 = 20;
+#[cfg(target_os = "macos")]
+const USB_IFACE_POLL: Duration = Duration::from_millis(500);
+
+/// Looks for the phone's USB network interface until it is there.
+#[cfg(target_os = "macos")]
+async fn find_usb_iface(udid: String, found: tokio::sync::watch::Sender<Option<String>>) {
+    let mut last = String::new();
+    for _ in 0..USB_IFACE_TRIES {
+        match iap2_wired::mac_network::discover(&udid).await {
+            Ok(iface) => {
+                println!("[wired] {}: USB network interface {iface}", short(&udid));
+                let _ = found.send(Some(iface));
+                return;
+            }
+            Err(e) => last = e,
+        }
+        tokio::time::sleep(USB_IFACE_POLL).await;
+    }
+    eprintln!("[wired] {}: no USB network interface: {last}", short(&udid));
+}
+
+/// What the dongle answers to on its access point and on Bluetooth, read for every session.
+#[derive(Clone, Copy, Default)]
+pub struct Dongle {
+    pub ap_mac: Option<fn() -> Option<String>>,
+    pub bt_mac: Option<fn() -> Option<[u8; 6]>>,
+}
+
 /// What a session needs beyond the phone itself, cloned per phone.
 #[derive(Clone)]
 struct WiredCtx {
     auth: SharedCoprocessor,
     identity: Identity,
     cp: CpConfig,
+    dongle: Dongle,
     bcast: Broadcaster,
     state: Arc<HelperState>,
+    link: Arc<LinkPresence>,
 }
 
 /// The transport-agnostic half: from an open iAP2 stream through identification, MFi auth and the
@@ -264,10 +282,21 @@ async fn run_wired_session<S>(
 ) where
     S: tokio::io::AsyncRead + tokio::io::AsyncWrite + Unpin + Send + 'static,
 {
-    let cp = match ncm.ifname() {
-        Some(name) => CpConfig { av_iface: Some(name.to_string()), ..ctx.cp },
-        None => ctx.cp,
-    };
+    let mut cp = ctx.cp;
+    if let Some(name) = ncm.ifname() {
+        cp.av_iface = Some(name.to_string());
+    }
+    if let Some(read) = ctx.dongle.ap_mac
+        && let Ok(Some(mac)) = tokio::task::spawn_blocking(read).await
+    {
+        cp.ap_mac = Some(mac);
+    }
+    let mut identity = ctx.identity;
+    if let Some(read) = ctx.dongle.bt_mac
+        && let Ok(Some(mac)) = tokio::task::spawn_blocking(read).await
+    {
+        identity.bt_mac = mac;
+    }
     let link =
         LinkConfig { max_outgoing: 4, control_version: 2, zero_ack: true, ..LinkConfig::default() };
     let (ch, art_rx) = spawn_link_stream(stream, link, true);
@@ -275,7 +304,16 @@ async fn run_wired_session<S>(
     let ident: SharedTag = Default::default();
     ctx.state.carkit_started(ident.clone());
     let restart = Arc::new(Notify::new());
-    ctx.state.wired_started(&serial, restart.clone());
+    let (asked, again) = (Arc::new(Notify::new()), Arc::new(Notify::new()));
+    ctx.state.wired_started(&serial, restart.clone(), asked.clone());
+    cp.start_again = Some(again.clone());
+    let forward = tokio::spawn(forward_starts(
+        short(&serial).to_string(),
+        asked,
+        again,
+        ctx.link.clone(),
+        ctx.auth.clone(),
+    ));
     tokio::spawn(pump_events_for(
         rx,
         ctx.bcast.clone(),
@@ -287,13 +325,40 @@ async fn run_wired_session<S>(
     // End on either the phone closing iAP2 or the watcher cancelling on unplug, so the session
     // and its state never outlive the physical connection.
     tokio::select! {
-        _ = run_accessory(ch, ctx.auth, ctx.identity, cp, tx, ctx.state.vehicle_feed()) => {}
+        _ = run_accessory(ch, ctx.auth, identity, cp, tx, ctx.state.vehicle_feed()) => {}
         _ = cancel.notified() => println!("[wired] {}: session cancelled on unplug", short(&serial)),
         _ = restart.notified() => println!("[wired] {}: session ended for a fresh start", short(&serial)),
     }
+    forward.abort();
     ctx.state.wired_ended(&serial);
     ctx.state.carkit_ended(&ident);
     drop(ncm);
+}
+
+/// Hands each request for another start on once the MFi chip answers. The connection the phone
+/// opens next has to be signed, and on a Mac the chip sits on the dongle.
+async fn forward_starts(
+    serial: String,
+    asked: Arc<Notify>,
+    again: Arc<Notify>,
+    link: Arc<LinkPresence>,
+    mut auth: SharedCoprocessor,
+) {
+    use livi_runtime::AsyncAuth;
+    loop {
+        asked.notified().await;
+        if !link.is_present() {
+            println!("[wired] {serial}: another start waits for the MFi chip");
+        }
+        loop {
+            link.wait_until(true).await;
+            if auth.protocol_major().await.is_ok() {
+                break;
+            }
+            tokio::time::sleep(MFI_RETRY).await;
+        }
+        again.notify_one();
+    }
 }
 
 fn short(serial: &str) -> &str {

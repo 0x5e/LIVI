@@ -39,19 +39,19 @@ shopt -s nullglob
 log "apply kernel patches (fotg210 udc: second interrupt line, pullup, polarity, IRQs before bind, status bits that clear; dw spi: wait for the last frame; spidev for the LED)"
 apply_patches "$HERE/kernel-patches" "$KDIR"
 
-log "install LIVI-Link AX520 DTS (VehiConn-D5A8 CarPlay dongle)"
+log "install LIVI-Link AX520 DTS"
 mkdir -p "$KDIR/arch/arm/boot/dts/axera"
-cp -f "$HERE/ax520.dts" "$KDIR/arch/arm/boot/dts/axera/ax520-vehiconn.dts"
+cp -f "$HERE/ax520.dts" "$KDIR/arch/arm/boot/dts/axera/ax520-livi-link.dts"
 OVERLAYS=$(cd "$HERE/overlays" && ls *.dtso | sed 's/\.dtso$//')
 rm -f "$KDIR"/arch/arm/boot/dts/axera/ax520-*.dtbo
 {
   echo '# SPDX-License-Identifier: GPL-2.0'
-  echo 'dtb-$(CONFIG_ARCH_AXERA) += ax520-vehiconn.dtb'
+  echo 'dtb-$(CONFIG_ARCH_AXERA) += ax520-livi-link.dtb'
   for o in $OVERLAYS; do
     cp -f "$HERE/overlays/$o.dtso" "$KDIR/arch/arm/boot/dts/axera/ax520-$o.dtso"
     echo "dtb-\$(CONFIG_ARCH_AXERA) += ax520-$o.dtbo"
   done
-  echo 'DTC_FLAGS_ax520-vehiconn := -@'
+  echo 'DTC_FLAGS_ax520-livi-link := -@'
 } > "$KDIR/arch/arm/boot/dts/axera/Makefile"
 grep -q 'subdir-y += axera' "$KDIR/arch/arm/boot/dts/Makefile" \
   || echo 'subdir-y += axera' >> "$KDIR/arch/arm/boot/dts/Makefile"
@@ -237,7 +237,7 @@ make ARCH=arm CROSS_COMPILE="$CROSS_COMPILE" -j"$JOBS" dtbs
 make ARCH=arm CROSS_COMPILE="$CROSS_COMPILE" -j"$JOBS" zImage modules
 
 ZIMAGE=$KDIR/arch/arm/boot/zImage
-DTB=$KDIR/arch/arm/boot/dts/axera/ax520-vehiconn.dtb
+DTB=$KDIR/arch/arm/boot/dts/axera/ax520-livi-link.dtb
 [[ -f $ZIMAGE && -f $DTB ]] || { log "build did not produce zImage + DTB"; exit 4; }
 log "zImage: $(stat -c%s "$ZIMAGE") B   DTB: $(stat -c%s "$DTB") B"
 

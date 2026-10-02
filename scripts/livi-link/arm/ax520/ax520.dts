@@ -13,7 +13,7 @@
 
 / {
 	compatible = "axera,ax520";
-	model = "AXERA AX520 VehiConn";
+	model = "LIVI Link AX520";
 	#address-cells = <1>;
 	#size-cells = <1>;
 

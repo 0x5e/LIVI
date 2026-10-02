@@ -4,6 +4,7 @@
 //   gst-video-addon   -> native/livi-gst-video/build/Release/gst_video.node
 //   gst-video-host    -> native/livi-gst-video/build/Release/livi-gst-host (linux)
 //   livi-compositor   -> out/compositor/livi-compositor (linux)
+//   livi-helperd      -> native/livi-helperd/build/Release/livi-helperd
 //
 // Usage: node scripts/build-native.mjs [--arch=x64|arm64] [--only=crypto]
 // Linux runners are arch-native; only macOS cross-compiles (arm64 host -> x64 app).
@@ -71,4 +72,12 @@ if (only !== 'crypto') {
     const compOut = cargoBuild(compManifest, 'livi-compositor')
     place(join(compOut, 'livi-compositor'), join(root, 'out', 'compositor'), 'livi-compositor')
   }
+
+  const helperManifest = join(root, 'native', 'livi-helperd', 'Cargo.toml')
+  const helperOut = cargoBuild(helperManifest, 'livi-helperd')
+  place(
+    join(helperOut, 'livi-helperd'),
+    join(root, 'native', 'livi-helperd', 'build', 'Release'),
+    'livi-helperd'
+  )
 }

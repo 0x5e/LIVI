@@ -10,6 +10,7 @@ REPO="$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)"
 PATCHES="$REPO/scripts/gstreamer/patches/gst-plugins-bad"
 GST_ROOT="${GST_ROOT:-/Library/Frameworks/GStreamer.framework/Versions/1.0}"
 OUT="${1:-$(mktemp -d)}"
+ARCHS=(arm64 x86_64)
 
 export PKG_CONFIG_PATH="$GST_ROOT/lib/pkgconfig${PKG_CONFIG_PATH:+:$PKG_CONFIG_PATH}"
 GST_VERSION="${GST_VERSION:-$(pkg-config --modversion gstreamer-1.0)}"
@@ -55,26 +56,65 @@ work="$(mktemp -d)"
     echo "0008 did not apply: full-range output absent in vtdec.c" >&2
     exit 1
   }
-  # gl on: applemedia includes gst/gl unconditionally and vtdec outputs GL textures, and the
-  # generated gstglconfig.h only comes via the gstreamer-gl-1.0 include path.
-  meson setup _build \
-    -Dauto_features=disabled \
-    -Dapplemedia=enabled \
-    -Dgl=enabled \
-    -Dtests=disabled \
-    -Dexamples=disabled \
-    -Ddoc=disabled
-  meson compile -C _build
+  # The bundle is universal
+  for arch in "${ARCHS[@]}"; do
+    cross=()
+    if [ "$arch" != "$(uname -m)" ]; then
+      cpu_family=$([ "$arch" = arm64 ] && echo aarch64 || echo "$arch")
+      cat > "cross-$arch.ini" <<EOF
+[binaries]
+c = ['clang', '-arch', '$arch']
+cpp = ['clang++', '-arch', '$arch']
+objc = ['clang', '-arch', '$arch']
+objcpp = ['clang++', '-arch', '$arch']
+ar = 'ar'
+strip = 'strip'
+pkg-config = 'pkg-config'
+
+[properties]
+needs_exe_wrapper = true
+
+[host_machine]
+system = 'darwin'
+subsystem = 'macos'
+kernel = 'xnu'
+cpu_family = '$cpu_family'
+cpu = '$arch'
+endian = 'little'
+EOF
+      cross=(--cross-file "$PWD/cross-$arch.ini")
+    fi
+    # gl on: applemedia includes gst/gl unconditionally and vtdec outputs GL textures, and the
+    # generated gstglconfig.h only comes via the gstreamer-gl-1.0 include path.
+    meson setup "_build-$arch" ${cross[@]+"${cross[@]}"} \
+      -Dpkg_config_path="$PKG_CONFIG_PATH" \
+      -Dauto_features=disabled \
+      -Dapplemedia=enabled \
+      -Dgl=enabled \
+      -Dtests=disabled \
+      -Dexamples=disabled \
+      -Ddoc=disabled
+    meson compile -C "_build-$arch"
+  done
+  slices=()
+  for arch in "${ARCHS[@]}"; do
+    slice="$PWD/libgstapplemedia-$arch.dylib"
+    cp "$(find "_build-$arch" -name libgstapplemedia.dylib | head -1)" "$slice"
+    while read -r rp; do
+      case "$rp" in /*|*gst-libs*) install_name_tool -delete_rpath "$rp" "$slice" ;; esac
+    done < <(otool -l "$slice" | awk '/LC_RPATH/{getline;getline;print $2}')
+    slices+=("$slice")
+  done
   mkdir -p "$OUT"
-  cp "$(find _build -name libgstapplemedia.dylib | head -1)" "$OUT/libgstapplemedia.dylib"
+  lipo -create -output "$OUT/libgstapplemedia.dylib" "${slices[@]}"
 )
 PLUGIN="$OUT/libgstapplemedia.dylib"
-
-# Drop the build-tree and absolute framework rpaths: the shipped plugin must resolve inside
-# the bundle only, like the prebuilt ones. package-macos.sh adds the bundle rpath.
-while read -r rp; do
-  case "$rp" in /*|*gst-libs*) install_name_tool -delete_rpath "$rp" "$PLUGIN" ;; esac
-done < <(otool -l "$PLUGIN" | awk '/LC_RPATH/{getline;getline;print $2}')
+for arch in "${ARCHS[@]}"; do
+  lipo "$PLUGIN" -verify_arch "$arch" || {
+    echo "built plugin lacks $arch" >&2
+    exit 1
+  }
+done
 codesign --force --sign - "$PLUGIN" >/dev/null 2>&1 || true
 
 # The patch is compiled in and the plugin loads and registers vtdec_hw. Read the whole

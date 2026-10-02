@@ -4,7 +4,8 @@ pub fn run(args: Vec<String>) -> i32 {
 
 // livi-netd — DHCPv4 server for the LIVI Link dongle.
 //
-// - Serves DHCPv4 on the given interface: pool 10.10.10.100..149, gw/DNS = 10.10.10.1.
+// - Serves DHCPv4 on the given interface from the pool it is given, with no router and no DNS:
+//   the dongle is neither.
 // - Delegates mDNS announce/response to the shared livi-mdns daemon.
 //
 // Usage: livi-netd <iface> [server-ip] [pool-start] [pool-end] [hostname]
@@ -33,7 +34,7 @@ fn livid_main(args: &[String]) -> ExitCode {
     let server_ip: Ipv4Addr =
         args.get(1).and_then(|s| s.parse().ok()).unwrap_or(Ipv4Addr::new(10, 10, 10, 1));
     let pool_start: u8 = args.get(2).and_then(|s| s.parse().ok()).unwrap_or(100);
-    let pool_end: u8 = args.get(3).and_then(|s| s.parse().ok()).unwrap_or(149);
+    let pool_end: u8 = args.get(3).and_then(|s| s.parse().ok()).unwrap_or(199);
     let hostname: String = args.get(4).cloned().unwrap_or_else(|| "livi-link".into());
 
     eprintln!(
@@ -54,9 +55,9 @@ fn livid_main(args: &[String]) -> ExitCode {
 }
 
 // ============================================================================
-// DHCPv4 server (unchanged from bespoke impl — busybox-udhcpd hits ENOPROTOOPT
-// on this kernel/socket combo; UDP-only with SO_BINDTODEVICE + subnet-broadcast
-// reply works for every common client (systemd-networkd, dhclient, udhcpc).
+// DHCPv4 server. busybox udhcpd hits ENOPROTOOPT on this kernel and socket combination,
+// UDP with SO_BINDTODEVICE and a subnet-broadcast reply works for every common client
+// (systemd-networkd, dhclient, udhcpc).
 // ============================================================================
 
 struct Leases {

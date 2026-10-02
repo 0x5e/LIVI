@@ -1,4 +1,7 @@
-//! Connecting to a host by name. A name like livi-link.local resolves to IPv4 and IPv6 addresses,
+//! Networking the dongle daemons and the host share: the dongle's ports (`port`), which peer sits on
+//! the USB side of the bridge (`bridge`), and connecting to a host by name.
+//!
+//! A name like livi-link.local resolves to IPv4 and IPv6 addresses,
 //! and the resolver may put an IPv6 address first that has no route on this computer, so every
 //! address is tried, IPv4 first, each with its own timeout.
 

@@ -1,6 +1,6 @@
 //! LIVI-Link wifid wire: line-oriented TCP on the dongle's control port. Commands:
 //!   channels | status | on | off | apply | save | down
-//!   set <ssid|country|channel|passphrase> <value>
+//!   set <ssid|country|channel|width|passphrase> <value>
 //!   bt on | bt off
 //!   iap <order>   for the Bluetooth accessory, answered the way iapd answers
 //! `on`, `off` and `bt` are kept on the dongle, a boot brings back what was switched last.
@@ -32,7 +32,7 @@ const ACCESSORY: SocketAddr =
     SocketAddr::V4(SocketAddrV4::new(Ipv4Addr::LOCALHOST, livi_net::port::ACCESSORY));
 const ACCESSORY_WAIT: Duration = Duration::from_secs(3);
 
-/// The hostapd instance the daemon manages, with the paths it works on.
+/// Runs once a `save` has written the configuration.
 pub type OnSave = Box<dyn Fn() + Send + Sync>;
 
 /// What the radio speaks beyond 802.11n.
@@ -44,6 +44,7 @@ pub struct Standards {
     pub he: bool,
 }
 
+/// The hostapd instance the daemon manages, with the paths it works on.
 pub struct Ap {
     base: PathBuf,
     live: [PathBuf; 2],
@@ -78,10 +79,6 @@ impl Ap {
     pub fn with_on_save(mut self, on_save: OnSave) -> Self {
         self.on_save = Some(on_save);
         self
-    }
-
-    pub fn config_path(&self) -> &PathBuf {
-        &self.config
     }
 }
 

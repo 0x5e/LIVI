@@ -1,6 +1,6 @@
 // livid — multi-call binary for the LIVI Link dongles.
 //
-// Symlinks (livi-netd, livi-httpd, livi-bt-up, livi-ledd)
+// Symlinks named after the modules (common/build-rootfs.sh makes them)
 // point at this binary; argv[0]'s basename selects the module. Every module
 // exposes `pub fn run(args: Vec<String>) -> i32`. Sharing the Rust runtime
 // across all tools cuts >3 MiB of duplicated allocator/panic/std code.
@@ -43,7 +43,7 @@ fn wifi_standards(target: &str) -> livi_wifi::server::Standards {
     }
 }
 
-/// Flashing stays off where the partition layout is not wired up.
+/// What the web page offers on this board: its LED and the partitions a bundle may write.
 fn web_caps() -> livi_web::WebCaps {
     let (model, target) = board();
     let slot = |typ, node: &str, magic: &[u8], size| livi_web::MtdSlot {
@@ -105,7 +105,7 @@ fn web_caps() -> livi_web::WebCaps {
         target: target.into(),
         port: 80,
         wifi_iface: "wlan0".into(),
-        bridge: Some("br0".into()),
+        bridge: "br0".into(),
         host_iface: "usb0".into(),
         mfi: mfid::STATE.into(),
         bt: "hci0".into(),
@@ -138,8 +138,8 @@ fn main() -> ExitCode {
 
     let rc = match cmd {
         "livi-bt-up" | "bt-up" => bt_up::run(rest),
-        // The same diagnostics livi-link carries: what the management socket says about
-        // the controller, and whether the tunnel could claim it.
+        // Diagnostics: what the management socket says about the controller, and whether the
+        // tunnel could claim it.
         "bt-mgmt" => exit_rc(livi_iapd::mgmt::probe()),
         "bt-probe" => exit_rc(livi_btd::probe()),
         "livi-btd" | "btd" => btd::run(rest),
@@ -148,7 +148,7 @@ fn main() -> ExitCode {
         "livi-httpd" | "httpd" => livi_web::run(web_caps()),
         "livi-ledd" | "ledd" => ledd::run(rest),
         "livi-netd" | "netd" => netd::run(rest),
-        "livi-config" | "config" => config::run(rest),
+        "config" => config::run(rest),
         "livi-mfid" | "mfid" => mfid::run(rest),
         "livi-wifid" | "wifid" => wifid::run(rest),
         _ => {

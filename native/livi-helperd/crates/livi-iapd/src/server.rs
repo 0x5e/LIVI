@@ -27,7 +27,7 @@ static KEYS_PATH: OnceLock<String> = OnceLock::new();
 static NAME_SOURCE: OnceLock<NameSource> = OnceLock::new();
 
 fn keys_path() -> String {
-    KEYS_PATH.get().cloned().unwrap_or_else(|| "/etc/livi-bt-keys".to_string())
+    KEYS_PATH.get().cloned().unwrap_or_default()
 }
 
 fn wifid_ap_name() -> Option<String> {
@@ -38,7 +38,6 @@ const AF_BLUETOOTH: libc::c_int = 31;
 const BTPROTO_L2CAP: libc::c_int = 0;
 const BTPROTO_RFCOMM: libc::c_int = 3;
 const SOCK_SEQPACKET: libc::c_int = 5;
-/// Where the bonds are kept, on the flash.
 /// One stored bond: the address, its kind, the key and its length.
 const KEY_LEN: usize = 25;
 /// A bond may carry one more byte: the channel that phone answers iAP on.
@@ -129,15 +128,13 @@ const EV_AUTH_FAILED: u16 = 0x0011;
 
 pub struct Config {
     pub keys_path: String,
-    pub name_override: Option<String>,
     pub ap_name: NameSource,
 }
 
 pub fn run(config: Config) -> ExitCode {
     let _ = KEYS_PATH.set(config.keys_path.clone());
     let _ = NAME_SOURCE.set(config.ap_name.clone());
-    let fixed = config.name_override;
-    let name = fixed.clone().or_else(wifid_ap_name).unwrap_or_else(|| NAME.into());
+    let name = wifid_ap_name().unwrap_or_else(|| NAME.into());
     let name = name.as_str();
     let Some((mgmt, local)) = ready() else {
         eprintln!("[iapd] the controller never answered");
@@ -154,29 +151,27 @@ pub fn run(config: Config) -> ExitCode {
     std::thread::spawn(move || ring(&known, &want, &called, &calling_to));
     let (want, known) = (offered.clone(), phones.clone());
     std::thread::spawn(move || control(&want, &known));
-    if fixed.is_none() {
-        let mut shown = name.to_string();
-        std::thread::spawn(move || {
-            loop {
-                std::thread::sleep(NAME_POLL);
-                let Some(current) = wifid_ap_name() else {
-                    continue;
-                };
-                if current == shown {
-                    continue;
-                }
-                match Mgmt::open()
-                    .and_then(|m| m.call(SET_NAME, mgmt::INDEX, &local_name(&current)).map(|_| ()))
-                {
-                    Ok(()) => {
-                        println!("[iapd] the car is now called {current}");
-                        shown = current;
-                    }
-                    Err(e) => eprintln!("[iapd] renaming to {current}: {e}"),
-                }
+    let mut shown = name.to_string();
+    std::thread::spawn(move || {
+        loop {
+            std::thread::sleep(NAME_POLL);
+            let Some(current) = wifid_ap_name() else {
+                continue;
+            };
+            if current == shown {
+                continue;
             }
-        });
-    }
+            match Mgmt::open()
+                .and_then(|m| m.call(SET_NAME, mgmt::INDEX, &local_name(&current)).map(|_| ()))
+            {
+                Ok(()) => {
+                    println!("[iapd] the car is now called {current}");
+                    shown = current;
+                }
+                Err(e) => eprintln!("[iapd] renaming to {current}: {e}"),
+            }
+        }
+    });
     std::thread::spawn(|| {
         if let Err(e) = sdp::serve() {
             eprintln!("[sdp] {e}");

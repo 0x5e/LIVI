@@ -1,13 +1,10 @@
 //! Remote MFi coprocessor: the chip in the LIVI Link dongle, reached over TCP via its `mfid`.
-//!
-//! Wire protocol (matches mfid), big-endian lengths, multiple requests per socket:
-//!   GET_CERT   : [0x01]                              -> [status][len:2][cert]
-//!   SIGN       : [0x02][len:2][challenge]            -> [status][len:2][signature]
-//!   PROTO_MAJOR: [0x03]                              -> [status][len:2][major:1]
+//! The wire is the one in [`crate::server`], several requests per socket.
 
 use std::io::{Read, Write};
 use std::net::TcpStream;
 
+use crate::server::{OP_GET_CERT, OP_PROTOCOL_MAJOR, OP_SIGN, STATUS_OK};
 use crate::*;
 
 pub struct NcmCoprocessor {
@@ -20,13 +17,6 @@ impl NcmCoprocessor {
     /// Names the dongle's `mfid` ("host:port"); connects on first use.
     pub fn new(addr: &str) -> Self {
         Self { addr: addr.to_string(), stream: None, protocol_major: None }
-    }
-
-    /// As `new`, but connects immediately.
-    pub fn connect(addr: &str) -> Result<Self, MfiError> {
-        let mut chip = Self::new(addr);
-        chip.ensure()?;
-        Ok(chip)
     }
 
     fn ensure(&mut self) -> Result<&mut TcpStream, MfiError> {
@@ -51,7 +41,7 @@ impl NcmCoprocessor {
         if len > 0 {
             stream.read_exact(&mut data).map_err(|e| MfiError::Io(format!("mfid body: {e}")))?;
         }
-        if hdr[0] != 0 {
+        if hdr[0] != STATUS_OK {
             return Err(MfiError::AuthFailed { error_code: None });
         }
         Ok(data)
@@ -78,14 +68,14 @@ impl AuthCoprocessor for NcmCoprocessor {
         if let Some(v) = self.protocol_major {
             return Ok(v);
         }
-        let d = self.request(&[0x03])?;
+        let d = self.request(&[OP_PROTOCOL_MAJOR])?;
         let v = *d.first().ok_or_else(|| MfiError::Io("mfid: empty proto".into()))?;
         self.protocol_major = Some(v);
         Ok(v)
     }
 
     fn read_certificate(&mut self) -> Result<Vec<u8>, MfiError> {
-        self.request(&[0x01])
+        self.request(&[OP_GET_CERT])
     }
 
     fn generate_challenge_response(&mut self, challenge: &[u8]) -> Result<Vec<u8>, MfiError> {
@@ -94,7 +84,7 @@ impl AuthCoprocessor for NcmCoprocessor {
             return Err(MfiError::ChallengeSize(n));
         }
         let mut req = Vec::with_capacity(3 + n);
-        req.push(0x02);
+        req.push(OP_SIGN);
         req.push(((n >> 8) & 0xff) as u8);
         req.push((n & 0xff) as u8);
         req.extend_from_slice(challenge);

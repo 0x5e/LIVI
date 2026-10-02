@@ -306,7 +306,10 @@ async fn serve() -> Result<(), Box<dyn std::error::Error>> {
         cp: cp.clone(),
         disconnect: None,
         targets: None,
-        cp_live: None,
+        cp_live: dongle_ap.then(|| {
+            let base = cp.clone();
+            Arc::new(move || session_cp(&base, true)) as _
+        }),
     };
     {
         let bus = conn.clone();
@@ -477,7 +480,7 @@ async fn serve() -> Result<(), Box<dyn std::error::Error>> {
                 let cfg = LinkConfig { max_outgoing: 4, control_version: 2, ..LinkConfig::default() };
                 let (channel, art_rx) = spawn_link_stream(session.stream, cfg, false);
                 let (tx, rx) = tokio::sync::mpsc::channel(64);
-                let (accessory, mac) = (run_accessory(channel, auth, identity.clone(), cp.clone(), tx, state.vehicle_feed()), session.peer.to_string());
+                let (accessory, mac) = (run_accessory(channel, auth, identity.clone(), session_cp(&cp, dongle_ap), tx, state.vehicle_feed()), session.peer.to_string());
                 let links = state.clone();
                 tokio::spawn(async move {
                     links.link_up(&mac);
@@ -495,7 +498,7 @@ async fn serve() -> Result<(), Box<dyn std::error::Error>> {
                 let cfg = LinkConfig { max_outgoing: 4, control_version: 2, ..LinkConfig::default() };
                 let (channel, art_rx) = spawn_link(conn.fd, cfg, false);
                 let (tx, rx) = tokio::sync::mpsc::channel(64);
-                let (accessory, mac) = (run_accessory(channel, auth, identity.clone(), cp.clone(), tx, state.vehicle_feed()), conn.peer_mac.clone());
+                let (accessory, mac) = (run_accessory(channel, auth, identity.clone(), session_cp(&cp, dongle_ap), tx, state.vehicle_feed()), conn.peer_mac.clone());
                 let links = state.clone();
                 tokio::spawn(async move {
                     links.link_up(&mac);
@@ -508,6 +511,14 @@ async fn serve() -> Result<(), Box<dyn std::error::Error>> {
             }
         }
     }
+}
+
+/// The configuration for one session, and read on every session start.
+fn session_cp(cp: &CpConfig, dongle_ap: bool) -> CpConfig {
+    if !dongle_ap {
+        return cp.clone();
+    }
+    CpConfig { ap_mac: livi_dongle::ap::mac().or_else(|| cp.ap_mac.clone()), ..cp.clone() }
 }
 
 fn format_mac(mac: &[u8; 6]) -> String {

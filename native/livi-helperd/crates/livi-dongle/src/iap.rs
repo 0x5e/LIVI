@@ -162,7 +162,7 @@ fn watch_liveness(stream: &TcpStream) {
 fn address(text: &str) -> Option<[u8; 6]> {
     let mut out = [0u8; 6];
     let mut parts = text.trim().split(':');
-    for byte in out.iter_mut().rev() {
+    for byte in &mut out {
         *byte = u8::from_str_radix(parts.next()?, 16).ok()?;
     }
     parts.next().is_none().then_some(out)
@@ -227,8 +227,8 @@ mod tests {
     use super::address;
 
     #[test]
-    fn an_address_reads_back_the_way_the_wire_carries_it() {
-        assert_eq!(address("38:BA:B0:A0:E6:6F"), Some([0x6f, 0xe6, 0xa0, 0xb0, 0xba, 0x38]));
+    fn an_address_reads_in_the_order_it_is_written() {
+        assert_eq!(address("38:BA:B0:A0:E6:6F"), Some([0x38, 0xba, 0xb0, 0xa0, 0xe6, 0x6f]));
         assert_eq!(address("38:BA:B0:A0:E6"), None);
         assert_eq!(address("38:BA:B0:A0:E6:6F:11"), None);
         assert_eq!(address("not an address"), None);

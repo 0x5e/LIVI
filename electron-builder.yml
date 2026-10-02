@@ -62,6 +62,8 @@ linux:
         - '!share/**'
     - from: native/livi-helperd/target/release/livi-helperd
       to: driver/livi-helperd
+    - from: assets/authentication
+      to: authentication
 
 mac:
   identity: '-'
@@ -86,6 +88,8 @@ mac:
         - '!share/**'
     - from: native/livi-helperd/target/release/livi-helperd
       to: driver/livi-helperd
+    - from: assets/authentication
+      to: authentication
 
 dmg:
   artifactName: ${name}-${version}-macos-${arch}.${ext}

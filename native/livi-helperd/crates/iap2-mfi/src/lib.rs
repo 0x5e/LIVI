@@ -92,3 +92,6 @@ pub use ncm::NcmCoprocessor;
 // Dongle-side TCP server for MFi authentication.
 pub mod server;
 pub use server::serve;
+
+// Software coprocessor from local credential files (identity.pk8 + certificate.p7b).
+pub mod local;

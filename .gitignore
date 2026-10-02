@@ -75,3 +75,8 @@ Thumbs.db
 assets/livi-link/*/*.gz
 assets/livi-link/*/*.lfwb
 assets/livi-link/*/MANIFEST.md5
+
+# Local MFi credentials
+**/authentication/
+**/identity.pk8
+**/certificate.p7b

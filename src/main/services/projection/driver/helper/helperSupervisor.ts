@@ -74,6 +74,28 @@ export function resolveHelperBin(): string {
 
   return join(__dirname, 'driver', HELPER_BIN)
 }
+
+// Local MFi credentials (identity.pk8 + certificate.p7b), loaded by the helper's software
+// coprocessor when no dongle chip is around — same scheme as MacPlay. Resolution order:
+// explicit LIVI_AUTH_DIR, the app's userData folder, then the bundled assets/authentication
+// (dev: repo copy, packaged: extraResources) the way MacPlay seeds from its app bundle.
+function resolveAuthDir(): string {
+  const hasCredentials = (dir: string): boolean =>
+    existsSync(join(dir, 'identity.pk8')) && existsSync(join(dir, 'certificate.p7b'))
+  const userDir = join(app.getPath('userData'), 'authentication')
+  const envDir = process.env.LIVI_AUTH_DIR
+  if (envDir && hasCredentials(envDir)) return envDir
+  if (hasCredentials(userDir)) return userDir
+  if (!app.isPackaged) {
+    const devDir = join(app.getAppPath(), 'assets', 'authentication')
+    if (hasCredentials(devDir)) return devDir
+  } else if (typeof process.resourcesPath === 'string') {
+    const resDir = join(process.resourcesPath, 'authentication')
+    if (hasCredentials(resDir)) return resDir
+  }
+  return userDir
+}
+
 function envFromConfig(cfg: Config, airplayPort: number | undefined): NodeJS.ProcessEnv {
   const wantAaWireless = cfg.wirelessAaEnabled === true
   const wantCpWireless = cfg.wirelessCpEnabled === true
@@ -83,6 +105,7 @@ function envFromConfig(cfg: Config, airplayPort: number | undefined): NodeJS.Pro
     ...process.env,
     LIVI_AA_WIRELESS: wantAaWireless ? '1' : '',
     LIVI_CP_WIRELESS: wantCpWireless ? '1' : '',
+    LIVI_AUTH_DIR: resolveAuthDir(),
     DEBUG: DEBUG ? '1' : '',
     LIVI_CP_PK: identity.pkHex,
     LIVI_CP_PI: identity.pairingId,

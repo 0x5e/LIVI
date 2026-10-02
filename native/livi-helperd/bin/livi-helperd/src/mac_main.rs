@@ -9,7 +9,7 @@ use std::time::Duration;
 
 use iap2_csm::messages::wifi::SecurityType;
 use iap2_link::LinkConfig;
-use iap2_mfi::{NcmCoprocessor, NoCoprocessor};
+use iap2_mfi::{AuthCoprocessor, NcmCoprocessor, NoCoprocessor, local::LocalCoprocessor};
 use livi_runtime::bonjour::Bonjour;
 use livi_runtime::bringup::{CpConfig, run_accessory};
 use livi_runtime::driver::spawn_link_stream;
@@ -33,6 +33,26 @@ static BONJOUR: std::sync::OnceLock<Bonjour> = std::sync::OnceLock::new();
 
 fn env_s(key: &str, default: &str) -> String {
     std::env::var(key).unwrap_or_else(|_| default.to_string())
+}
+
+/// Software MFi identity from `LIVI_AUTH_DIR` (identity.pk8 + certificate.p7b), loaded the
+/// same way MacPlay does. Serves every session while the dongle is absent; the dongle's
+/// own chip takes over (and gives this back) as it comes and goes.
+fn local_auth() -> Box<dyn AuthCoprocessor + Send> {
+    let dir = env_s("LIVI_AUTH_DIR", "");
+    if dir.is_empty() {
+        return Box::new(NoCoprocessor);
+    }
+    match LocalCoprocessor::load(std::path::Path::new(&dir)) {
+        Ok(chip) => {
+            println!("[helperd] local MFi credentials loaded from {dir}");
+            Box::new(chip)
+        }
+        Err(e) => {
+            eprintln!("[helperd] local authentication: {e}");
+            Box::new(NoCoprocessor)
+        }
+    }
 }
 
 /// 6-byte accessory id: LIVI_CP_BT_MAC if set, else derived from the host pairing id.
@@ -174,7 +194,7 @@ async fn identify_on_link(link: Arc<LinkPresence>, mut auth: SharedCoprocessor) 
 
 fn start_carplay_seam(link: Arc<LinkPresence>) {
     let (cp, identity) = cp_config();
-    let auth = SharedCoprocessor::new(Box::new(NoCoprocessor));
+    let auth = SharedCoprocessor::new(local_auth());
     let bcast = Broadcaster::default();
     let state = Arc::new(HelperState::default());
 
@@ -198,7 +218,7 @@ fn start_carplay_seam(link: Arc<LinkPresence>) {
             arrived.push_json("{\"type\":\"link\",\"up\":true}".into());
         },
         move || {
-            down_auth.replace(Box::new(NoCoprocessor));
+            down_auth.replace(local_auth());
             // Everything it carried is gone with it, and a blocking read would not notice for
             // another ten seconds.
             let closed = livi_dongle::iap::drop_sessions();
@@ -239,9 +259,12 @@ fn start_carplay_seam(link: Arc<LinkPresence>) {
         cp.clone(),
         bcast.clone(),
         state.clone(),
-        link.clone(),
+        // System usbmuxd phones need no dongle; local MFi credentials answer for the chip.
+        LinkPresence::always(),
     ));
-    println!("[helperd] wired CarPlay watcher started (system usbmuxd), waiting for the LIVI Link");
+    println!(
+        "[helperd] wired CarPlay watcher started (system usbmuxd), live without the LIVI Link"
+    );
     // Wireless CarPlay comes over the dongle's own Bluetooth, and only when it is the chosen one.
     if env_s("LIVI_BT_ADAPTER", "") == livi_dongle::link::CHOICE {
         tokio::spawn(wireless_sessions(

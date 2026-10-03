@@ -52,8 +52,8 @@ const RING_SLOW: Duration = Duration::from_secs(30);
 /// How long a phone the host still wants may hold the link before it is disconnected.
 const STALE: Duration = Duration::from_secs(10);
 
-/// Which phones the host wants paged, and what is known about them. No list at all means the
-/// stored bonds are used, an empty list means nobody is paged.
+/// Which phones the host wants paged, and what is known about them. Until the host has said,
+/// nobody is paged: without it nothing would take what a phone says.
 #[derive(Default)]
 struct Phones {
     wanted: Option<Vec<[u8; 6]>>,
@@ -65,12 +65,8 @@ struct Phones {
 }
 
 impl Phones {
-    /// Who to page, from the host if it has said, else every bond.
     fn targets(&self) -> Vec<[u8; 6]> {
-        if let Some(list) = &self.wanted {
-            return list.clone();
-        }
-        stored_keys().iter().filter_map(|key| key.get(..6)?.try_into().ok()).collect()
+        self.wanted.clone().unwrap_or_default()
     }
 
     /// The next phone in the rotation, and whether it is on the air.
@@ -827,6 +823,11 @@ mod tests {
         assert_eq!(phones.turn(), Some((a, false)));
         assert_eq!(phones.turn(), Some((b, false)));
         assert_eq!(phones.turn(), Some((a, false)));
+    }
+
+    #[test]
+    fn nobody_is_paged_before_the_host_has_said() {
+        assert_eq!(Phones::default().turn(), None);
     }
 
     #[test]

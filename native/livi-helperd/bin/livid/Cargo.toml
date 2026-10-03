@@ -15,5 +15,6 @@ livi-btd  = { path = "../../crates/livi-btd" }
 livi-iapd = { path = "../../crates/livi-iapd" }
 livi-net  = { path = "../../crates/livi-net" }
 iap2-mfi  = { path = "../../crates/iap2-mfi" }
-imx6ul-uboot = { path = "../../crates/imx6ul-uboot" }
 libc = "0.2"
+[target.'cfg(not(target_arch = "riscv32"))'.dependencies]
+imx6ul-uboot = { path = "../../crates/imx6ul-uboot" }

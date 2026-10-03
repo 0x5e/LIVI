@@ -31,6 +31,24 @@ fn fields(answer: impl BufRead) -> HashMap<String, String> {
     fields
 }
 
+/// One command that the dongle answers with `ok` or an error.
+pub(crate) fn order(command: &str) -> Result<(), String> {
+    let mut stream = livi_net::connect((link::LINK_NAME, livi_net::port::CONTROL), TIMEOUT)
+        .map_err(|e| format!("dongle: {e}"))?;
+    stream.set_read_timeout(Some(TIMEOUT)).map_err(|e| format!("dongle: {e}"))?;
+    writeln!(stream, "{command}").map_err(|e| format!("dongle: {e}"))?;
+    let mut answer = String::new();
+    BufReader::new(&stream).read_line(&mut answer).map_err(|e| format!("dongle: {e}"))?;
+    answered(&answer)
+}
+
+fn answered(answer: &str) -> Result<(), String> {
+    match answer.trim() {
+        "ok" => Ok(()),
+        other => Err(other.trim_start_matches("error ").to_string()),
+    }
+}
+
 /// All of `status`, or None when the dongle does not answer.
 fn status() -> Option<HashMap<String, String>> {
     ask("status")
@@ -122,6 +140,13 @@ mod tests {
         assert_eq!(answer.get("deauth").map(String::as_str), Some("2"));
         assert!(!answer.contains_key("state"));
         assert!(fields("error hostapd is gone\n".as_bytes()).is_empty());
+    }
+
+    #[test]
+    fn an_order_is_done_on_ok_and_names_what_went_wrong_otherwise() {
+        assert_eq!(answered("ok\n"), Ok(()));
+        assert_eq!(answered("error not an address\n").unwrap_err(), "not an address");
+        assert!(answered("").is_err());
     }
 
     #[test]

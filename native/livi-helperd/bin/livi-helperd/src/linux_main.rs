@@ -393,30 +393,21 @@ async fn serve() -> Result<(), Box<dyn std::error::Error>> {
         tokio::spawn(livi_dongle::run(move |on, _serial| mfi_link_state.set_on_bus(on)));
         println!("[helperd] dongle watcher started");
     }
-    let mpris = match bt::start_media_player(&conn, &adapter, aa_events.clone()).await {
+    let shared_events = Broadcaster::default();
+    let mpris = match bt::start_media_player(&conn, &adapter, shared_events.clone()).await {
         Ok(handle) => Some(handle),
         Err(e) => {
-            eprintln!("[aa] media player failed: {e}");
+            eprintln!("[bt] media player failed: {e}");
             None
         }
     };
 
     {
         let bus = conn.clone();
-        let wired = wired_phones.clone();
-        let deps = livi_runtime::aa_sock::AaSockDeps {
+        let deps = livi_runtime::shared_sock::SharedSockDeps {
             adapter: adapter.clone(),
             wifi_iface: wifi_iface.clone(),
-            set_wired_phones: Box::new(move |ids| wired.set(ids)),
-            restart_usb: Box::new({
-                let usb = usb_control.clone();
-                move |serial| usb.restart(serial)
-            }),
-            events: aa_events.clone(),
-            set_sco_sink: Box::new({
-                let sink = sco_sink.clone();
-                move |target| sink.set(target)
-            }),
+            events: shared_events,
             set_playback_status: Box::new(move |state| {
                 let Some(h) = mpris.clone() else { return };
                 let status = match state {
@@ -429,7 +420,29 @@ async fn serve() -> Result<(), Box<dyn std::error::Error>> {
             deauth_dongle: dongle_ap.then_some(livi_dongle::ap::deauth as fn() -> Option<usize>),
         };
         tokio::spawn(async move {
-            if let Err(e) = livi_runtime::aa_sock::serve(Some(bus), deps).await {
+            let path = livi_runtime::shared_sock::SOCK_PATH;
+            if let Err(e) = livi_runtime::shared_sock::serve(path, Some(bus), deps).await {
+                eprintln!("[shared-sock] ended: {e}");
+            }
+        });
+    }
+
+    {
+        let wired = wired_phones.clone();
+        let deps = livi_runtime::aa_sock::AaSockDeps {
+            set_wired_phones: Box::new(move |ids| wired.set(ids)),
+            restart_usb: Box::new({
+                let usb = usb_control.clone();
+                move |serial| usb.restart(serial)
+            }),
+            events: aa_events.clone(),
+            set_sco_sink: Box::new({
+                let sink = sco_sink.clone();
+                move |target| sink.set(target)
+            }),
+        };
+        tokio::spawn(async move {
+            if let Err(e) = livi_runtime::aa_sock::serve(deps).await {
                 eprintln!("[aa-sock] ended: {e}");
             }
         });

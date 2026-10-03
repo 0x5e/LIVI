@@ -19,8 +19,6 @@ const LINES_MAX: usize = 8;
 const KEEPALIVE_IDLE: libc::c_int = 5;
 const KEEPALIVE_EVERY: libc::c_int = 3;
 const KEEPALIVE_TRIES: libc::c_int = 3;
-/// One order to the dongle is a line out and a line back, nothing that should take long.
-const ORDER_TIMEOUT: Duration = Duration::from_secs(3);
 const CONNECT_TIMEOUT: Duration = Duration::from_secs(3);
 
 /// A phone that opened its channel on the dongle, and the stream that carries it.
@@ -198,17 +196,7 @@ async fn read_line(stream: &mut TcpStream) -> Result<String, String> {
 
 /// One order to the dongle's accessory, and the line it answers with.
 fn order(line: &str) -> Result<(), String> {
-    use std::io::{BufRead, BufReader, Write as _};
-    let mut stream = livi_net::connect((link::LINK_NAME, livi_net::port::CONTROL), ORDER_TIMEOUT)
-        .map_err(|e| format!("dongle: {e}"))?;
-    stream.set_read_timeout(Some(ORDER_TIMEOUT)).map_err(|e| format!("dongle: {e}"))?;
-    writeln!(stream, "iap {line}").map_err(|e| format!("dongle: {e}"))?;
-    let mut answer = String::new();
-    BufReader::new(&stream).read_line(&mut answer).map_err(|e| format!("dongle: {e}"))?;
-    match answer.trim() {
-        "ok" => Ok(()),
-        other => Err(other.trim_start_matches("error ").to_string()),
-    }
+    crate::ap::order(&format!("iap {line}"))
 }
 
 /// Drops the dongle's link to one phone, which is what BlueZ does on a host that has it.

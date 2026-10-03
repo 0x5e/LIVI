@@ -47,6 +47,7 @@ function mkCtl(over: Partial<Record<keyof DeviceControllerDeps, unknown>> = {}):
     autoConnect: ReturnType<typeof vi.fn>
     pushReconnectTargets: ReturnType<typeof vi.fn>
     pushWiredPhones: ReturnType<typeof vi.fn>
+    isOnCable: ReturnType<typeof vi.fn>
   }
   sessionsApi: SessionsApi
 } {
@@ -75,6 +76,7 @@ function mkCtl(over: Partial<Record<keyof DeviceControllerDeps, unknown>> = {}):
     autoConnect: vi.fn(() => true),
     pushReconnectTargets: vi.fn(),
     pushWiredPhones: vi.fn(),
+    isOnCable: vi.fn(() => false),
     ...over
   }
   const ctl = new DeviceController(deps as unknown as DeviceControllerDeps)
@@ -313,6 +315,37 @@ describe('DeviceController', () => {
         ['AA:BB:CC:DD:EE:01', AAP],
         ['AA:BB:CC:DD:EE:03', IAP]
       ])
+    })
+
+    test('pages no phone on the cable, even while it has no session', () => {
+      const { ctl, deps } = mkCtl({
+        isOnCable: vi.fn((mac: string) => mac === 'aa:bb:cc:dd:ee:01')
+      })
+      deps.deviceRegistry.list.mockReturnValue([
+        mkEntry({ btMac: 'aa:bb:cc:dd:ee:01', protocol: 'carplay', name: 'Cable' }),
+        mkEntry({ btMac: 'aa:bb:cc:dd:ee:02', protocol: 'carplay', name: 'Air' })
+      ])
+
+      ctl.resendReconnectTargets()
+
+      expect(deps.pushReconnectTargets).toHaveBeenCalledWith([['AA:BB:CC:DD:EE:02', IAP]])
+    })
+
+    test('says which sessions it knew when it pages a phone', () => {
+      const { ctl, deps, sessionsApi } = mkCtl()
+      const log = vi.spyOn(console, 'log').mockImplementation(() => {})
+      deps.deviceRegistry.list.mockReturnValue([
+        mkEntry({ btMac: 'aa:bb:cc:dd:ee:02', protocol: 'carplay', name: 'Air' })
+      ])
+      sessionsApi.all.mockReturnValue([
+        { index: 1, protocol: 'androidauto', device: { instanceId: 'inst' } }
+      ] as never)
+
+      ctl.resendReconnectTargets()
+
+      expect(log).toHaveBeenCalledWith(
+        '[DeviceController] pages AA:BB:CC:DD:EE:02, sessions: #1 androidauto {"instanceId":"inst"}'
+      )
     })
 
     test('pushes no reconnect targets with autoconnect off', () => {

@@ -224,7 +224,6 @@ fn start_carplay_seam(link: Arc<LinkPresence>) {
     ));
     let sock_cfg = LiviSockConfig {
         path: livi_sock::SOCK_PATH.into(),
-        adapter: String::new(),
         identity: if over_dongle { wireless_identity(&identity) } else { identity.clone() },
         cp: if over_dongle { wireless_config(&cp) } else { cp.clone() },
         // No BlueZ here, so the dongle drops the link after the handover and pages for us.
@@ -241,7 +240,8 @@ fn start_carplay_seam(link: Arc<LinkPresence>) {
     };
     let (bc, st, a) = (bcast.clone(), state.clone(), auth.clone());
     tokio::spawn(async move {
-        if let Err(e) = livi_sock::serve(sock_cfg, a, None, bc, st).await {
+        let no_bluez = tokio::sync::watch::channel(None).1;
+        if let Err(e) = livi_sock::serve(sock_cfg, a, no_bluez, bc, st).await {
             eprintln!("[helperd] livi_sock ended: {e}");
         }
     });

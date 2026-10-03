@@ -10,7 +10,7 @@ use base64::Engine;
 use base64::engine::general_purpose::STANDARD;
 use tokio::io::{AsyncReadExt, AsyncWriteExt};
 use tokio::net::{UnixListener, UnixStream};
-use tokio::sync::{Notify, mpsc};
+use tokio::sync::{Notify, mpsc, watch};
 
 use iap2_link::LinkConfig;
 
@@ -54,10 +54,18 @@ impl Broadcaster {
     }
 }
 
+/// BlueZ, once the adapter is up: where a phone's link is dropped, and the address a tunnelled
+/// session names. Wired CarPlay needs none of it, so the socket serves before it is there.
+#[derive(Clone)]
+pub struct Bluez {
+    pub bus: zbus::Connection,
+    pub adapter: String,
+    pub bt_mac: [u8; 6],
+}
+
 #[derive(Clone)]
 pub struct LiviSockConfig {
     pub path: String,
-    pub adapter: String,
     pub identity: Identity,
     pub cp: CpConfig,
     /// Who drops a phone's link where there is no BlueZ to ask.
@@ -84,7 +92,7 @@ pub type PushTargets = Arc<dyn Fn(Vec<String>) -> Result<(), String> + Send + Sy
 pub async fn serve<A>(
     cfg: LiviSockConfig,
     auth: A,
-    bus: Option<zbus::Connection>,
+    bluez: watch::Receiver<Option<Bluez>>,
     bcast: Broadcaster,
     state: Arc<HelperState>,
 ) -> io::Result<()>
@@ -100,11 +108,11 @@ where
         let (stream, _) = listener.accept().await?;
         let auth = auth.clone();
         let cfg = cfg.clone();
-        let bus = bus.clone();
+        let bluez = bluez.borrow().clone();
         let bcast = bcast.clone();
         let state = state.clone();
         tokio::spawn(async move {
-            if let Err(e) = handle(stream, auth, cfg, bus, bcast, state).await {
+            if let Err(e) = handle(stream, auth, cfg, bluez, bcast, state).await {
                 eprintln!("[cp-sock] connection error: {e}");
             }
         });
@@ -136,7 +144,7 @@ async fn handle<A>(
     mut stream: UnixStream,
     mut auth: A,
     cfg: LiviSockConfig,
-    bus: Option<zbus::Connection>,
+    bluez: Option<Bluez>,
     bcast: Broadcaster,
     state: Arc<HelperState>,
 ) -> io::Result<()>
@@ -168,6 +176,13 @@ where
                 "[cp-sock] tunnel up (cid={cid}, btMac={})",
                 if bt_mac.is_empty() { "unknown" } else { bt_mac }
             );
+            let cfg = match &bluez {
+                Some(bluez) => LiviSockConfig {
+                    identity: Identity { bt_mac: bluez.bt_mac, ..cfg.identity },
+                    ..cfg
+                },
+                None => cfg,
+            };
             run_tunnel(stream, auth, cfg, bcast, cid.to_string(), state.vehicle_feed());
             Ok(())
         }
@@ -197,8 +212,8 @@ where
             let json = if arg.is_empty() {
                 err_json("disconnect requires a MAC")
             } else {
-                match bus.as_ref() {
-                    Some(bus) => match device_disconnect(bus, &cfg.adapter, arg).await {
+                match bluez.as_ref() {
+                    Some(bluez) => match device_disconnect(&bluez.bus, &bluez.adapter, arg).await {
                         Ok(()) => "{\"ok\":true}".to_string(),
                         Err(e) => err_json(&e),
                     },

@@ -197,6 +197,13 @@ pub fn status(iface: &str) -> String {
     }
 }
 
+/// Sends one phone off the access point, by its Wi-Fi MAC.
+#[cfg(target_os = "linux")]
+pub fn deauthenticate(iface: &str, mac: &str) -> Result<(), String> {
+    let ctrl = std::path::Path::new("/var/run/hostapd").join(iface);
+    livi_wifi::hostapd::deauth(&ctrl, mac).map_err(|e| e.to_string())
+}
+
 /// Return the interface to NetworkManager and stop the AP.
 pub fn unmanaged_iface() -> Option<String> {
     let text = std::fs::read_to_string(NM_UNMANAGED_CONF).ok()?;

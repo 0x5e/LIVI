@@ -174,6 +174,10 @@ export class CpSession extends EventEmitter implements IPhoneDriver {
     return this._btMac
   }
 
+  getWifiMac(): string {
+    return this._wifiMac
+  }
+
   get peerIp(): string {
     return this._peerIp
   }

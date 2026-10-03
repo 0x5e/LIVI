@@ -4,8 +4,8 @@ import type { MfiSigner } from './stack/mfiSigner'
 /**
  * Client for the livi-bt helper's CarPlay control socket (/tmp/cp-bt.sock).
  *
- * One Unix-domain socket carries every LIVI <-> helper exchange, mirroring AA's
- * aa-bt.sock: line-JSON RPC for MFi (certificate/sign) and BlueZ device control
+ * One Unix-domain socket carries the CarPlay exchanges between LIVI and the helper:
+ * line-JSON RPC for MFi (certificate/sign) and BlueZ device control
  * (disconnect), plus a raw-byte "tunnel" connection for iAP2-over-CarPlay. Binary
  * payloads travel base64-encoded inside the JSON. Implements MfiSigner so CpStack
  * reaches the coprocessor through the same channel as everything else.

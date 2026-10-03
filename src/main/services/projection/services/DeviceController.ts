@@ -16,6 +16,7 @@ export type DeviceControllerDeps = {
   autoConnect: () => boolean
   pushReconnectTargets: (targets: Array<[string, string | null]>) => void
   pushWiredPhones: (ids: string[]) => void
+  isOnCable: (btMac: string) => boolean
 }
 
 // The phone's iAP service UUID, used as the CarPlay reconnect ConnectProfile target.
@@ -156,12 +157,22 @@ export class DeviceController {
         instanceId: e.instanceId,
         ip: e.currentIp
       })
-      if (sess) continue
+      // A phone on the cable is not paged, also not between its wireless and its wired session.
+      if (sess || this.deps.isOnCable(e.btMac)) continue
       targets.push([e.btMac.toUpperCase(), wakeUuid(e.protocol)])
     }
     const sig = targets.map(([m, u]) => `${m}=${u ?? ''}`).join(',')
     if (!force && sig === this.lastReconnectSig) return
     this.lastReconnectSig = sig
+    if (targets.length) {
+      const held = this.deps
+        .sessions()
+        .all()
+        .map((s) => `#${s.index} ${s.protocol} ${JSON.stringify(s.device)}`)
+      console.log(
+        `[DeviceController] pages ${targets.map(([m]) => m).join(' ')}, sessions: ${held.join('; ') || 'none'}`
+      )
+    }
     this.deps.pushReconnectTargets(targets)
   }
 

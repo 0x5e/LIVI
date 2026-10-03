@@ -1,12 +1,13 @@
-import { type ActionResponse, HelperSockClient, HelperSockError } from './HelperSockClient'
+import * as net from 'net'
 
 /**
- * Client for livi-helperd's shared socket: what every projection path uses alike, Android Auto
- * and CarPlay. BlueZ device management (list_paired / connect / disconnect / remove), the
- * access point and the AVRCP player, plus their events.
+ * Client for the livi-helperd IPC socket.
+ *
+ * Protocol-agnostic BlueZ device management (list_paired / connect / disconnect /
+ * remove), shared by every projection path (Android Auto and CarPlay alike).
  */
 
-export const SHARED_SOCK_PATH = '/tmp/livi-shared.sock'
+export const BT_SOCK_PATH = '/tmp/aa-bt.sock'
 
 export type PairedDevice = {
   mac: string
@@ -18,17 +19,70 @@ export type PairedDevice = {
 }
 
 type ListPairedResponse = { ok: true; devices: PairedDevice[] } | { ok: false; error: string }
+type ActionResponse = { ok: boolean; error?: string }
 
-export class BluezDeviceClient extends HelperSockClient {
-  constructor(path: string = SHARED_SOCK_PATH) {
-    super(path, 'shared sock')
+export class BluezDeviceError extends Error {
+  constructor(message: string) {
+    super(message)
+    this.name = 'BluezDeviceError'
+  }
+}
+
+export class BluezDeviceClient {
+  constructor(private readonly path: string = BT_SOCK_PATH) {}
+
+  private request(line: string, timeoutMs = 5000): Promise<unknown> {
+    return new Promise((resolve, reject) => {
+      const sock = net.createConnection(this.path)
+      let buf = ''
+      let settled = false
+      const settle = (fn: () => void): void => {
+        if (settled) return
+        settled = true
+        clearTimeout(timer)
+        try {
+          sock.destroy()
+        } catch {
+          /* already torn down */
+        }
+        fn()
+      }
+      const timer = setTimeout(() => {
+        settle(() => reject(new BluezDeviceError(`aa-bt sock timeout after ${timeoutMs}ms`)))
+      }, timeoutMs)
+
+      sock.on('connect', () => {
+        sock.write(line + '\n')
+      })
+      sock.on('data', (data: Buffer) => {
+        buf += data.toString('utf8')
+        const nl = buf.indexOf('\n')
+        if (nl < 0) return
+        const json = buf.slice(0, nl)
+        settle(() => {
+          try {
+            resolve(JSON.parse(json))
+          } catch (e) {
+            reject(new BluezDeviceError(`aa-bt sock bad json: ${json} (${(e as Error).message})`))
+          }
+        })
+      })
+      sock.on('error', (err: Error) => {
+        settle(() => reject(new BluezDeviceError(`aa-bt sock error: ${err.message}`)))
+      })
+      sock.on('end', () => {
+        if (!settled && !buf.includes('\n')) {
+          settle(() => reject(new BluezDeviceError('aa-bt sock closed without response')))
+        }
+      })
+    })
   }
 
   // Enumerate all paired BT devices known to BlueZ
   async listPaired(timeoutMs = 5000): Promise<PairedDevice[]> {
     const resp = (await this.request('list_paired', timeoutMs)) as ListPairedResponse
     if (!resp.ok) {
-      throw new HelperSockError(resp.error || 'list_paired failed')
+      throw new BluezDeviceError(resp.error || 'list_paired failed')
     }
     return resp.devices
   }
@@ -59,19 +113,88 @@ export class BluezDeviceClient extends HelperSockClient {
     return (await this.request(`remove ${mac}`, timeoutMs)) as ActionResponse
   }
 
+  // Phones that already project over USB. The helper refuses to hand them the AP credentials
+  async setWiredPhones(ids: string[], timeoutMs = 5000): Promise<ActionResponse> {
+    return (await this.request(`wired-phones ${JSON.stringify(ids)}`, timeoutMs)) as ActionResponse
+  }
+
+  // Where the call audio goes: the pipeline's feed and stream id, nothing to stop
+  async setScoSink(feed?: string, streamId?: number, timeoutMs = 5000): Promise<ActionResponse> {
+    const arg = feed && streamId != null ? ` ${feed} ${streamId}` : ''
+    return (await this.request(`sco-sink${arg}`, timeoutMs)) as ActionResponse
+  }
+
   // Kick every associated Wi-Fi station off the AP
   async deauthApClients(timeoutMs = 5000): Promise<ActionResponse> {
     return (await this.request('deauth-ap', timeoutMs)) as ActionResponse
   }
 
-  /** Sends one phone off the access point, by its Wi-Fi MAC. */
-  async deauth(wifiMac: string): Promise<void> {
-    const res = (await this.request(`deauth ${wifiMac}`)) as ActionResponse
-    if (!res.ok) throw new HelperSockError(res.error ?? 'deauth failed')
+  // Ends the wired Android Auto sessions
+  async restartUsb(timeoutMs = 5000): Promise<ActionResponse> {
+    return (await this.request('restart-usb', timeoutMs)) as ActionResponse
   }
 
   /** Mirrors the active session's play state into the helper's AVRCP player. */
   async setPlaybackStatus(state: 'playing' | 'paused' | 'stopped'): Promise<ActionResponse> {
     return (await this.request(`playback-status ${state}`)) as ActionResponse
+  }
+
+  // Open a event subscription
+  subscribe(
+    onEvent: (ev: {
+      event: string
+      mac?: string
+      path?: string
+      command?: string
+      btMac?: string
+      instanceId?: string
+      usbSerial?: string
+      up?: boolean
+      pct?: number
+      mtu?: number
+      socket?: string
+      peer?: string
+    }) => void,
+    onClose?: () => void,
+    onOpen?: () => void
+  ): { close: () => void } {
+    const sock = net.createConnection(this.path)
+    let buf = ''
+    let closed = false
+
+    sock.on('connect', () => {
+      sock.write('subscribe\n')
+      onOpen?.()
+    })
+    sock.on('data', (data: Buffer) => {
+      buf += data.toString('utf8')
+      let nl: number
+      while ((nl = buf.indexOf('\n')) >= 0) {
+        const line = buf.slice(0, nl)
+        buf = buf.slice(nl + 1)
+        if (!line) continue
+        try {
+          const obj = JSON.parse(line)
+          if (typeof obj === 'object' && obj && 'event' in obj) {
+            onEvent(obj as { event: string; mac?: string; path?: string })
+          }
+        } catch {}
+      }
+    })
+    const fireClose = (): void => {
+      if (closed) return
+      closed = true
+      if (onClose) onClose()
+    }
+    sock.on('error', fireClose)
+    sock.on('close', fireClose)
+
+    return {
+      close: () => {
+        try {
+          sock.destroy()
+        } catch {}
+      }
+    }
   }
 }

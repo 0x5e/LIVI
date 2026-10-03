@@ -3,10 +3,9 @@
 //!   set <ssid|country|channel|width|passphrase> <value>
 //!   bt on | bt off
 //!   iap <order>   for the Bluetooth accessory, answered the way iapd answers
-//!   deauthenticate <mac>
 //! `on`, `off` and `bt` are kept on the dongle, a boot brings back what was switched last.
 //! `down` takes the access point off the air until the next apply or boot, nothing is kept.
-//! `deauth` sends every station off, `deauth <count>` says how many. `deauthenticate` sends one.
+//! `deauth` sends every station off, `deauth <count>` says how many.
 //! `watch` never answers, it streams `joined <mac>` and `left <mac>` until the client goes.
 //! Responses end in `ok\n` or `error <reason>\n`.
 
@@ -109,7 +108,6 @@ enum Cmd<'a> {
     Save,
     Down,
     Deauth,
-    Deauthenticate(&'a str),
     Watch,
     On,
     Off,
@@ -163,10 +161,6 @@ pub fn serve<S: std::io::Read + Write>(io: &mut S, ap: &Mutex<Ap>) {
                 "ok\n".into()
             }
             Cmd::Deauth => format!("deauth {}\nok\n", deauth()),
-            Cmd::Deauthenticate(mac) => match deauthenticate(mac) {
-                Ok(()) => "ok\n".into(),
-                Err(e) => format!("error {e}\n"),
-            },
             Cmd::Watch => {
                 watch(reader.get_mut());
                 return;
@@ -210,7 +204,6 @@ fn command(line: &str) -> Cmd<'_> {
         "save" => Cmd::Save,
         "down" => Cmd::Down,
         "deauth" => Cmd::Deauth,
-        "deauthenticate" if !rest.trim().is_empty() => Cmd::Deauthenticate(rest.trim()),
         "watch" => Cmd::Watch,
         "on" => Cmd::On,
         "off" => Cmd::Off,
@@ -599,15 +592,6 @@ fn weaker(config: &str) -> Option<(String, &'static str)> {
         return None;
     };
     Some((lines.join("\n") + "\n", step))
-}
-
-fn deauthenticate(mac: &str) -> std::io::Result<()> {
-    if !running() {
-        return Ok(());
-    }
-    hostapd::deauth(&hostapd::ctrl(IFACE), mac)?;
-    println!("[wifid] sent {mac} off the access point");
-    Ok(())
 }
 
 fn deauth() -> usize {
@@ -1053,15 +1037,6 @@ mod tests {
     fn deauth_and_watch_are_commands() {
         assert!(matches!(command("deauth"), Cmd::Deauth));
         assert!(matches!(command("watch"), Cmd::Watch));
-    }
-
-    #[test]
-    fn deauthenticate_names_the_one_station() {
-        assert!(matches!(
-            command("deauthenticate 9a:c4:e2:44:5e:0f\n"),
-            Cmd::Deauthenticate("9a:c4:e2:44:5e:0f")
-        ));
-        assert!(matches!(command("deauthenticate"), Cmd::Unknown("deauthenticate")));
     }
 
     #[test]

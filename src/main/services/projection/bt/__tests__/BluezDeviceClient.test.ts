@@ -12,8 +12,7 @@ vi.mock('net', () => ({
   createConnection: (...args: unknown[]) => createConnection(...args)
 }))
 
-import { BluezDeviceClient, SHARED_SOCK_PATH } from '../BluezDeviceClient'
-import { HelperSockError } from '../HelperSockClient'
+import { BluezDeviceClient, BluezDeviceError } from '../BluezDeviceClient'
 
 function makeClient(): { client: BluezDeviceClient; nextSocket: () => MockSocket } {
   const sockets: MockSocket[] = []
@@ -50,7 +49,7 @@ describe('BluezDeviceClient.listPaired', () => {
     const sock = nextSocket()
     sock.emit('connect')
     sock.emit('data', Buffer.from(JSON.stringify({ ok: false, error: 'no bt' }) + '\n'))
-    await expect(p).rejects.toThrow(HelperSockError)
+    await expect(p).rejects.toThrow(BluezDeviceError)
   })
 })
 
@@ -296,6 +295,33 @@ describe('BluezDeviceClient — request internals', () => {
     await expect(p).resolves.toEqual({ ok: true })
   })
 
+  test('setWiredPhones serializes the id list', async () => {
+    const { client, nextSocket } = makeClient()
+    const p = client.setWiredPhones(['id1', 'id2'], 500)
+    const sock = nextSocket()
+    sock.emit('connect')
+    expect(sock.write).toHaveBeenCalledWith('wired-phones ["id1","id2"]\n')
+    sock.emit('data', Buffer.from(JSON.stringify({ ok: true }) + '\n'))
+    await expect(p).resolves.toEqual({ ok: true })
+  })
+
+  test('setScoSink names the feed and stream, or clears it', async () => {
+    const { client, nextSocket } = makeClient()
+    const p = client.setScoSink('/tmp/feed.sock', 5, 500)
+    const sock = nextSocket()
+    sock.emit('connect')
+    expect(sock.write).toHaveBeenCalledWith('sco-sink /tmp/feed.sock 5\n')
+    sock.emit('data', Buffer.from(JSON.stringify({ ok: true }) + '\n'))
+    await expect(p).resolves.toEqual({ ok: true })
+
+    const p2 = client.setScoSink(undefined, undefined, 500)
+    const sock2 = nextSocket()
+    sock2.emit('connect')
+    expect(sock2.write).toHaveBeenCalledWith('sco-sink\n')
+    sock2.emit('data', Buffer.from(JSON.stringify({ ok: true }) + '\n'))
+    await expect(p2).resolves.toEqual({ ok: true })
+  })
+
   test('deauthApClients with the default timeout writes deauth-ap', async () => {
     const { client, nextSocket } = makeClient()
     const p = client.deauthApClients()
@@ -306,36 +332,14 @@ describe('BluezDeviceClient — request internals', () => {
     await expect(p).resolves.toEqual({ ok: true })
   })
 
-  test('deauth names one phone by its Wi-Fi MAC and throws when the access point refuses', async () => {
+  test('restartUsb writes restart-usb and answers with the count', async () => {
     const { client, nextSocket } = makeClient()
-    const ok = client.deauth('9a:c4:e2:44:5e:0f')
+    const p = client.restartUsb()
     const sock = nextSocket()
     sock.emit('connect')
-    expect(sock.write).toHaveBeenCalledWith('deauth 9a:c4:e2:44:5e:0f\n')
-    sock.emit('data', Buffer.from(JSON.stringify({ ok: true }) + '\n'))
-    await expect(ok).resolves.toBeUndefined()
-
-    const bad = client.deauth('9a:c4:e2:44:5e:0f')
-    const sock2 = nextSocket()
-    sock2.emit('connect')
-    sock2.emit(
-      'data',
-      Buffer.from(JSON.stringify({ ok: false, error: 'unknown command deauthenticate' }) + '\n')
-    )
-    await expect(bad).rejects.toThrow('unknown command deauthenticate')
-
-    const bare = client.deauth('9a:c4:e2:44:5e:0f')
-    const sock3 = nextSocket()
-    sock3.emit('connect')
-    sock3.emit('data', Buffer.from(JSON.stringify({ ok: false }) + '\n'))
-    await expect(bare).rejects.toThrow(HelperSockError)
-  })
-
-  test('talks to the shared socket unless told otherwise', () => {
-    createConnection.mockReset()
-    createConnection.mockImplementation(() => new MockSocket())
-    new BluezDeviceClient().subscribe(() => {})
-    expect(createConnection).toHaveBeenCalledWith(SHARED_SOCK_PATH)
+    expect(sock.write).toHaveBeenCalledWith('restart-usb\n')
+    sock.emit('data', Buffer.from(JSON.stringify({ ok: true, count: 1 }) + '\n'))
+    await expect(p).resolves.toEqual({ ok: true, count: 1 })
   })
 
   test('a late socket error after settling is ignored', async () => {

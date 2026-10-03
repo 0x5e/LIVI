@@ -88,18 +88,6 @@ pub fn ctrl(iface: &str) -> PathBuf {
     Path::new(CTRL_DIR).join(iface)
 }
 
-/// Sends one station off the access point.
-pub fn deauth(ctrl: &Path, mac: &str) -> io::Result<()> {
-    if !is_mac(mac) {
-        return Err(io::Error::new(io::ErrorKind::InvalidInput, format!("not a MAC: {mac:?}")));
-    }
-    let reply = Client::open(ctrl)?.request(&format!("DEAUTHENTICATE {mac} reason={LEAVING}"))?;
-    match reply.trim() {
-        "OK" => Ok(()),
-        other => Err(io::Error::other(format!("hostapd would not: {other}"))),
-    }
-}
-
 /// Sends every station on the access point a deauthentication of its own, and says how many.
 pub fn deauth_all(ctrl: &Path) -> io::Result<usize> {
     let client = Client::open(ctrl)?;
@@ -208,17 +196,6 @@ mod tests {
         let heard = hostapd.join().unwrap();
         assert!(heard.contains(&"DEAUTHENTICATE 9a:c4:e2:44:5e:0f reason=3".to_string()));
         assert!(heard.contains(&"DEAUTHENTICATE aa:bb:cc:dd:ee:ff reason=3".to_string()));
-    }
-
-    #[test]
-    fn one_station_is_sent_off_alone() {
-        let (path, hostapd) = hostapd(&["9a:c4:e2:44:5e:0f", "aa:bb:cc:dd:ee:ff"]);
-        deauth(&path, "9a:c4:e2:44:5e:0f").unwrap();
-        assert!(deauth(&path, "9a:c4:e2:44:5e").is_err());
-        assert_eq!(
-            hostapd.join().unwrap(),
-            vec!["DEAUTHENTICATE 9a:c4:e2:44:5e:0f reason=3".to_string()]
-        );
     }
 
     #[test]

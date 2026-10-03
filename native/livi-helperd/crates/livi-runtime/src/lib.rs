@@ -15,7 +15,6 @@ pub mod privileged;
 pub mod reconnect;
 #[cfg(target_os = "linux")]
 pub mod sco;
-pub mod shared_sock;
 pub mod state;
 pub mod sys;
 pub mod vehicle;

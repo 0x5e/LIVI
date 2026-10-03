@@ -24,8 +24,9 @@ use crate::link::LinkPresence;
 
 /// How long the access point is waited for before a phone is turned away.
 const AP_WAIT: Duration = Duration::from_secs(15);
-/// How soon the arriving dongle is offered the paging list again. It pages nobody without it.
-const TARGET_RETRY: Duration = Duration::from_millis(500);
+/// How often the arriving dongle is offered the paging list, and how far apart.
+const TARGET_TRIES: u32 = 10;
+const TARGET_RETRY: Duration = Duration::from_secs(2);
 
 /// The published service, kept so nothing drops it while the helper runs.
 static BONJOUR: std::sync::OnceLock<Bonjour> = std::sync::OnceLock::new();
@@ -140,21 +141,15 @@ async fn wireless_sessions(
 }
 
 /// Each time the link is up: reads the coprocessor generation.
-/// Gives the dongle the phones it may page, for as long as the link lasts. It answers only once
-/// its accessory is listening, which is a moment after the name resolves.
-async fn hand_targets(state: Arc<HelperState>, link: Arc<LinkPresence>) {
-    link.wait_until(true).await;
-    let mut refused = false;
-    while link.is_present() {
+/// Gives the dongle the phones it may page. It answers only once its accessory is listening,
+/// which is a moment after the name resolves.
+async fn hand_targets(state: Arc<HelperState>) {
+    for _ in 0..TARGET_TRIES {
         let macs: Vec<String> = state.reconnect_targets().into_iter().map(|(mac, _)| mac).collect();
         let sent = tokio::task::spawn_blocking(move || livi_dongle::iap::set_targets(&macs)).await;
         match sent {
             Ok(Ok(())) => return,
-            Ok(Err(e)) if !refused => {
-                eprintln!("[helperd] the dongle has no paging list yet: {e}");
-                refused = true;
-            }
-            Ok(Err(_)) => {}
+            Ok(Err(e)) => eprintln!("[helperd] the dongle has no paging list yet: {e}"),
             Err(e) => eprintln!("[helperd] {e}"),
         }
         tokio::time::sleep(TARGET_RETRY).await;
@@ -200,7 +195,7 @@ fn start_carplay_seam(link: Arc<LinkPresence>) {
 
     // The dongle's mfid, once its address is known.
     let (up_auth, down_auth) = (auth.clone(), auth.clone());
-    let (arriving, handing) = (state.clone(), link.clone());
+    let arriving = state.clone();
     let (arrived, left) = (bcast.clone(), bcast.clone());
     tokio::spawn(link.clone().resolve(
         move || {
@@ -209,7 +204,7 @@ fn start_carplay_seam(link: Arc<LinkPresence>) {
             ))));
             // A dongle that arrives while LIVI runs has heard nothing yet.
             if over_dongle {
-                tokio::spawn(hand_targets(arriving.clone(), handing.clone()));
+                tokio::spawn(hand_targets(arriving.clone()));
             }
             arrived.push_json("{\"type\":\"link\",\"up\":true}".into());
         },
@@ -317,35 +312,24 @@ pub fn run() -> ExitCode {
         }
     };
     rt.block_on(async {
-        let dongle_ap = env_s("LIVI_WIFI_IFACE", "") == livi_dongle::link::CHOICE;
-        let shared = livi_runtime::shared_sock::SharedSockDeps {
-            adapter: String::new(),
-            wifi_iface: String::new(),
-            events: Broadcaster::default(),
-            set_playback_status: Box::new(|_| {}),
-            deauth_dongle: dongle_ap.then_some(livi_dongle::ap::deauth as fn() -> Option<usize>),
-            deauth: dongle_ap
-                .then(|| Arc::new(|mac: String| livi_dongle::ap::deauthenticate(&mac)) as _),
-        };
-        tokio::spawn(async move {
-            let path = livi_runtime::shared_sock::SOCK_PATH;
-            if let Err(e) = livi_runtime::shared_sock::serve(path, None, shared).await {
-                eprintln!("[shared-sock] ended: {e}");
-            }
-        });
         let aa_events = Broadcaster::default();
         let usb_control = livi_aa::usb::Control::default();
         let deps = livi_runtime::aa_sock::AaSockDeps {
+            adapter: String::new(),
+            wifi_iface: String::new(),
             set_wired_phones: Box::new(|_| {}),
             restart_usb: Box::new({
                 let usb = usb_control.clone();
                 move |serial| usb.restart(serial)
             }),
             events: aa_events.clone(),
+            set_playback_status: Box::new(|_| {}),
             set_sco_sink: Box::new(|_| {}),
+            deauth_dongle: (env_s("LIVI_WIFI_IFACE", "") == livi_dongle::link::CHOICE)
+                .then_some(livi_dongle::ap::deauth as fn() -> Option<usize>),
         };
         tokio::spawn(async move {
-            if let Err(e) = livi_runtime::aa_sock::serve(deps).await {
+            if let Err(e) = livi_runtime::aa_sock::serve(None, deps).await {
                 eprintln!("[aa-sock] ended: {e}");
             }
         });

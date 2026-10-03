@@ -25,7 +25,6 @@ import {
 import { gstHost, VIDEO_PLANE_CLUSTER_RECV, VIDEO_PLANE_MAIN } from '../../video/gstHost'
 import { BluezDeviceClient } from '../bt/BluezDeviceClient'
 import { BtPairedRegistry } from '../bt/BtPairedRegistry'
-import { AaHelperSock } from '../driver/aa/AaHelperSock'
 import type { AaManager, HelperSessionSource } from '../driver/aa/AaManager'
 import type { AaSession } from '../driver/aa/AaSession'
 import type { CpManager } from '../driver/cp/CpManager'
@@ -178,9 +177,7 @@ export class ProjectionService {
   private hostDevList: DevListEntry[] = []
   private lastAudioMetaEmitKey = ''
   private readonly bluez = new BluezDeviceClient()
-  private readonly aaHelper = new AaHelperSock()
   private readonly btPaired = new BtPairedRegistry()
-  private sharedSubscription: { close: () => void } | null = null
   private aaBtSubscription: { close: () => void } | null = null
   private readonly aaBtMacByInstance = new Map<string, string>()
   private readonly hfpKeepers = new Map<string, NodeJS.Timeout>()
@@ -198,7 +195,7 @@ export class ProjectionService {
         if (tag === 'call') cb(streamId)
       }),
     feedPath: () => openMediaFeed(),
-    setScoSink: (feed, streamId) => this.aaHelper.setScoSink(feed, streamId)
+    setScoSink: (feed, streamId) => this.bluez.setScoSink(feed, streamId)
   })
   private readonly hfpNudgedAt = new Map<string, number>()
   private readonly aaSerialByInstance = new Map<string, string>()
@@ -225,9 +222,8 @@ export class ProjectionService {
         .catch(() => {})
     },
     pushWiredPhones: (ids) => {
-      this.aaHelper.setWiredPhones(ids).catch(() => {})
-    },
-    isOnCable: (btMac) => this.drivers.getCpManager()?.isOnCable(btMac) ?? false
+      this.bluez.setWiredPhones(ids).catch(() => {})
+    }
   })
   private aaBtActive = false
   private cpActive = false
@@ -566,7 +562,6 @@ export class ProjectionService {
       void Promise.resolve(this.cpActive ? this.drivers.startCp() : undefined).then((port) => {
         if (this.helperSupervisor === sup) sup.start(this.config, port)
       })
-      this.openSharedSubscription()
       this.drivers.attachHelper(this.aaHelperSource())
       // The helper is wanted on every platform (USB AA), so it is never stopped here.
     } else if (this.btAaWireless !== wantAaWireless) {
@@ -1242,7 +1237,7 @@ export class ProjectionService {
 
     // A wired phone is reset the way an unplug would, so it comes back as it does on a plug-in.
     if (wasWired) {
-      const res = await this.aaHelper.restartUsb().catch((e) => ({ ok: false, error: String(e) }))
+      const res = await this.bluez.restartUsb().catch((e) => ({ ok: false, error: String(e) }))
       if (!res.ok) console.warn(`[ProjectionService] restartSession: restart-usb: ${res.error}`)
       return
     }
@@ -1427,7 +1422,7 @@ export class ProjectionService {
       return
     }
     console.warn(
-      '[ProjectionService] initial paired-list populate gave up after 30s. Paired-device list may be empty until the next user action triggers a refresh'
+      '[ProjectionService] aa-bt initial populate gave up after 30s. Paired-device list may be empty until the next user action triggers a refresh'
     )
   }
 
@@ -1630,36 +1625,20 @@ export class ProjectionService {
   }
 
   private aaHelperSource(): HelperSessionSource | undefined {
-    return this.helperSupervisor ? this.aaHelper : undefined
+    return this.helperSupervisor ? this.bluez : undefined
   }
 
-  /** The events every projection shares, for as long as the helper runs. Each new connection
-   *  can be a helper that started anew, so it hears the lists again. */
-  private openSharedSubscription(): void {
-    if (this.sharedSubscription) return
-    const open = (): void => {
-      if (this.shuttingDown) return
-      this.sharedSubscription = this.bluez.subscribe(
-        (ev) => {
-          if (ev.event === 'input' && ev.command) this.dispatchRemoteInput(ev.command)
-        },
-        () => {
-          this.sharedSubscription = null
-          setTimeout(open, 1000)
-        },
-        () => this.deviceController.resendReconnectTargets()
-      )
-    }
-    open()
-  }
-
-  // Open the long-lived Android Auto event subscription
+  // Open the long-lived aa-bt event subscription
   private openAaBtSubscription(): void {
     if (this.aaBtSubscription) return
     const open = (): void => {
       if (!this.aaBtActive) return
-      this.aaBtSubscription = this.aaHelper.subscribe(
+      this.aaBtSubscription = this.bluez.subscribe(
         (ev) => {
+          if (ev.event === 'input' && ev.command) {
+            this.dispatchRemoteInput(ev.command)
+            return
+          }
           if (ev.event === 'sco') {
             if (ev.up === true) this.scoAudio.start()
             else this.scoAudio.stop()
@@ -1706,7 +1685,8 @@ export class ProjectionService {
         () => {
           this.aaBtSubscription = null
           if (this.aaBtActive) setTimeout(open, 1000)
-        }
+        },
+        () => this.deviceController.resendReconnectTargets()
       )
     }
     open()

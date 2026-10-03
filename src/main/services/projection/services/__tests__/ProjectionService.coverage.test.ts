@@ -21,13 +21,9 @@ const bluezMock = {
   disconnect: vi.fn(async (_mac: string) => ({ ok: true })),
   disconnectProfile: vi.fn(async (_mac: string, _uuid: string) => ({ ok: true })),
   setPlaybackStatus: vi.fn(async () => ({ ok: true })),
-  deauthApClients: vi.fn(async () => undefined),
-  subscribe: vi.fn(() => ({ close: vi.fn() }))
-}
-
-const aaHelperMock = {
   restartUsb: vi.fn(async () => ({ ok: true, count: 1 })),
   setScoSink: vi.fn(async () => ({ ok: true })),
+  deauthApClients: vi.fn(async () => undefined),
   setWiredPhones: vi.fn(async () => undefined),
   subscribe: vi.fn(() => ({ close: vi.fn() }))
 }
@@ -42,12 +38,6 @@ vi.mock('node:child_process', () => ({ execFile: execFileMock }))
 vi.mock('../../bt/BluezDeviceClient', () => ({
   BluezDeviceClient: vi.fn().mockImplementation(function () {
     return bluezMock
-  })
-}))
-
-vi.mock('../../driver/aa/AaHelperSock', () => ({
-  AaHelperSock: vi.fn().mockImplementation(function () {
-    return aaHelperMock
   })
 }))
 
@@ -1379,11 +1369,7 @@ describe('ProjectionService syncHelperSupervisor (linux)', () => {
     svc.drivers.attachHelper = vi.fn()
     svc.drivers.detachHelper = vi.fn()
     svc.drivers.stopAaWireless = vi.fn()
-    svc.drivers.getCpManager = vi.fn(() => ({
-      setAaWireless: vi.fn(),
-      setCpWireless: vi.fn(),
-      isOnCable: () => false
-    }))
+    svc.drivers.getCpManager = vi.fn(() => ({ setAaWireless: vi.fn(), setCpWireless: vi.fn() }))
     svc.openAaBtSubscription = vi.fn()
     svc.closeAaBtSubscription = vi.fn()
     svc.populateAaBtPairedListInitial = vi.fn(async () => undefined)
@@ -1400,8 +1386,7 @@ describe('ProjectionService syncHelperSupervisor (linux)', () => {
     svc.syncHelperSupervisor()
 
     expect(svc.helperSupervisor).not.toBeNull()
-    expect(svc.drivers.attachHelper).toHaveBeenCalledWith(aaHelperMock)
-    expect(bluezMock.subscribe).toHaveBeenCalledTimes(1)
+    expect(svc.drivers.attachHelper).toHaveBeenCalledWith(bluezMock)
     expect(svc.drivers.startCp).toHaveBeenCalled()
     expect(svc.cpActive).toBe(true)
     await Promise.resolve()
@@ -1437,7 +1422,7 @@ describe('ProjectionService syncHelperSupervisor (linux)', () => {
   test('toggles wireless CP live when only the CP flag changes', () => {
     const svc = makeSvc()
     primeDrivers(svc)
-    const cpm = { setAaWireless: vi.fn(), setCpWireless: vi.fn(), isOnCable: () => false }
+    const cpm = { setAaWireless: vi.fn(), setCpWireless: vi.fn() }
     svc.drivers.getCpManager = vi.fn(() => cpm)
     svc.config = { wirelessAaEnabled: true, wirelessCpEnabled: false }
     svc.syncHelperSupervisor()
@@ -1566,21 +1551,25 @@ describe('ProjectionService BT helpers', () => {
     expect(bluezMock.listPaired).not.toHaveBeenCalled()
   })
 
-  test('openAaBtSubscription handles aa-device and refresh events', () => {
+  test('openAaBtSubscription handles input, aa-device and refresh events', () => {
     const svc = makeSvc()
     svc.aaBtActive = true
+    svc.dispatchRemoteInput = vi.fn()
     svc.refreshBtPairedList = vi.fn(async () => 0)
+    svc.deviceController.resendReconnectTargets = vi.fn()
     let onEvent: any
-    aaHelperMock.subscribe.mockImplementationOnce((cb: any) => {
+    bluezMock.subscribe.mockImplementationOnce((cb: any) => {
       onEvent = cb
       return { close: vi.fn() }
     })
 
     svc.openAaBtSubscription()
 
+    onEvent({ event: 'input', command: 'play' })
     onEvent({ event: 'aa-device', btMac: 'AA:BB', instanceId: 'inst', usbSerial: 'ser' })
     onEvent({ event: 'other', mac: 'CC:DD' })
 
+    expect(svc.dispatchRemoteInput).toHaveBeenCalledWith('play')
     expect(svc.aaBtMacByInstance.get('inst')).toBe('AA:BB')
     expect(svc.aaSerialByInstance.get('inst')).toBe('ser')
     expect(svc.refreshBtPairedList).toHaveBeenCalled()
@@ -1591,7 +1580,7 @@ describe('ProjectionService BT helpers', () => {
     svc.aaBtActive = true
     vi.useFakeTimers()
     let onClose: any
-    aaHelperMock.subscribe.mockImplementation((_cb: any, closeCb: any) => {
+    bluezMock.subscribe.mockImplementation((_cb: any, closeCb: any) => {
       onClose = closeCb
       return { close: vi.fn() }
     })
@@ -1599,53 +1588,6 @@ describe('ProjectionService BT helpers', () => {
     onClose()
     expect(svc.aaBtSubscription).toBeNull()
     vi.advanceTimersByTime(1100)
-    vi.useRealTimers()
-    expect(aaHelperMock.subscribe).toHaveBeenCalledTimes(2)
-  })
-
-  test('the shared subscription hands on the remote keys and nothing else', () => {
-    const svc = makeSvc()
-    svc.dispatchRemoteInput = vi.fn()
-    let onEvent: any
-    bluezMock.subscribe.mockImplementationOnce((cb: any) => {
-      onEvent = cb
-      return { close: vi.fn() }
-    })
-
-    svc.openSharedSubscription()
-    svc.openSharedSubscription()
-    onEvent({ event: 'input', command: 'play' })
-    onEvent({ event: 'input' })
-    onEvent({ event: 'aa-device', btMac: 'AA:BB' })
-
-    expect(bluezMock.subscribe).toHaveBeenCalledTimes(1)
-    expect(svc.dispatchRemoteInput).toHaveBeenCalledTimes(1)
-    expect(svc.dispatchRemoteInput).toHaveBeenCalledWith('play')
-  })
-
-  test('the shared subscription resends the lists on connect and comes back after a close', () => {
-    const svc = makeSvc()
-    svc.deviceController.resendReconnectTargets = vi.fn()
-    vi.useFakeTimers()
-    let onClose: any
-    let onOpen: any
-    bluezMock.subscribe.mockImplementation((_cb: any, closeCb: any, openCb: any) => {
-      onClose = closeCb
-      onOpen = openCb
-      return { close: vi.fn() }
-    })
-
-    svc.openSharedSubscription()
-    onOpen()
-    expect(svc.deviceController.resendReconnectTargets).toHaveBeenCalledTimes(1)
-    onClose()
-    expect(svc.sharedSubscription).toBeNull()
-    vi.advanceTimersByTime(1000)
-    expect(bluezMock.subscribe).toHaveBeenCalledTimes(2)
-
-    svc.shuttingDown = true
-    onClose()
-    vi.advanceTimersByTime(1000)
     vi.useRealTimers()
     expect(bluezMock.subscribe).toHaveBeenCalledTimes(2)
   })
@@ -1763,10 +1705,6 @@ describe('ProjectionService constructor wiring closures', () => {
     expect(svc.deviceController.deps.autoConnect()).toBe(true)
     svc.deviceController.deps.pushReconnectTargets([['AA:BB', null]])
     svc.deviceController.deps.pushWiredPhones(['id1'])
-    svc.drivers.getCpManager = vi.fn(() => null)
-    expect(svc.deviceController.deps.isOnCable('AA:BB')).toBe(false)
-    svc.drivers.getCpManager = vi.fn(() => ({ isOnCable: (mac: string) => mac === 'AA:BB' }))
-    expect(svc.deviceController.deps.isOnCable('AA:BB')).toBe(true)
 
     expect(svc.emitProjectionEvent).toHaveBeenCalled()
   })
@@ -1925,7 +1863,7 @@ describe('ProjectionService start / autoStart', () => {
     svc.arbiter.pickPreferred = vi.fn(() => ({ transport: 'aa', mode: 'wireless' }))
     svc.drivers.attachHelper = vi.fn()
     await svc.start()
-    expect(svc.drivers.attachHelper).toHaveBeenCalledWith(aaHelperMock)
+    expect(svc.drivers.attachHelper).toHaveBeenCalledWith(bluezMock)
     expect(svc.started).toBe(true)
   })
 
@@ -2045,11 +1983,7 @@ describe('ProjectionService transport switch / restart / connect', () => {
     const svc = makeSvc()
     svc.cpActive = true
     const dropSessions = vi.fn()
-    svc.drivers.getCpManager = vi.fn(() => ({
-      dropSessions,
-      helper: { sendReconnectTargets: vi.fn(async () => undefined) },
-      isOnCable: () => false
-    }))
+    svc.drivers.getCpManager = vi.fn(() => ({ dropSessions }))
     svc.getActiveTransport = vi.fn(() => null)
     await svc.restartSession()
     expect(dropSessions).toHaveBeenCalled()
@@ -2080,8 +2014,7 @@ describe('ProjectionService transport switch / restart / connect', () => {
     const dropSessions = vi.fn()
     svc.drivers.getCpManager = vi.fn(() => ({
       dropSessions,
-      helper: { sendReconnectTargets: vi.fn(async () => undefined) },
-      isOnCable: () => false
+      helper: { sendReconnectTargets: vi.fn(async () => undefined) }
     }))
     svc.getActiveTransport = vi.fn(() => null)
     svc.stop = vi.fn(async () => undefined)
@@ -2112,7 +2045,7 @@ describe('ProjectionService transport switch / restart / connect', () => {
     svc.stop = vi.fn(async () => undefined)
     svc.autoStartIfNeeded = vi.fn(async () => undefined)
     await svc.restartSession()
-    expect(aaHelperMock.restartUsb).toHaveBeenCalled()
+    expect(bluezMock.restartUsb).toHaveBeenCalled()
     expect(svc.stop).not.toHaveBeenCalled()
     expect(svc.autoStartIfNeeded).not.toHaveBeenCalled()
   })
@@ -2124,11 +2057,11 @@ describe('ProjectionService transport switch / restart / connect', () => {
     svc.isActiveAaWired = vi.fn(() => true)
     svc.stop = vi.fn(async () => undefined)
 
-    aaHelperMock.restartUsb.mockResolvedValueOnce({ ok: false, error: 'no helper' })
+    bluezMock.restartUsb.mockResolvedValueOnce({ ok: false, error: 'no helper' })
     await svc.restartSession()
     expect(warn).toHaveBeenCalledWith('[ProjectionService] restartSession: restart-usb: no helper')
 
-    aaHelperMock.restartUsb.mockRejectedValueOnce(new Error('socket gone'))
+    bluezMock.restartUsb.mockRejectedValueOnce(new Error('socket gone'))
     await svc.restartSession()
     expect(warn).toHaveBeenCalledWith(expect.stringContaining('restart-usb: Error: socket gone'))
     expect(svc.stop).not.toHaveBeenCalled()
@@ -2561,6 +2494,20 @@ describe('ProjectionService remaining edges', () => {
     vi.useRealTimers()
   })
 
+  test('openAaBtSubscription resend-connect callback resends reconnect targets', () => {
+    const svc = makeSvc()
+    svc.aaBtActive = true
+    svc.deviceController.resendReconnectTargets = vi.fn()
+    let resendCb: any
+    bluezMock.subscribe.mockImplementationOnce((_cb: any, _close: any, resend: any) => {
+      resendCb = resend
+      return { close: vi.fn() }
+    })
+    svc.openAaBtSubscription()
+    resendCb()
+    expect(svc.deviceController.resendReconnectTargets).toHaveBeenCalled()
+  })
+
   test('getClusterTargetWebContents falls back when secondary windows are absent', () => {
     const svc = makeSvc()
     svc.webContents = { isDestroyed: () => false, send: vi.fn() }
@@ -2656,8 +2603,7 @@ describe('ProjectionService error-lambda and small-branch coverage', () => {
   test('pushReconnectTargets closure swallows a rejected helper send', () => {
     const svc = makeSvc()
     svc.drivers.getCpManager = vi.fn(() => ({
-      helper: { sendReconnectTargets: vi.fn(() => Promise.reject(new Error('send boom'))) },
-      isOnCable: () => false
+      helper: { sendReconnectTargets: vi.fn(() => Promise.reject(new Error('send boom'))) }
     }))
     expect(() => svc.deviceController.deps.pushReconnectTargets([['AA:BB', null]])).not.toThrow()
   })
@@ -3030,7 +2976,7 @@ describe('ProjectionService final branch fill', () => {
     svc.aaBtActive = true
     svc.refreshBtPairedList = vi.fn(async () => 0)
     let onEvent: any
-    aaHelperMock.subscribe.mockImplementationOnce((cb: any) => {
+    bluezMock.subscribe.mockImplementationOnce((cb: any) => {
       onEvent = cb
       return { close: vi.fn() }
     })
@@ -3047,7 +2993,7 @@ describe('ProjectionService final branch fill', () => {
     svc.refreshBtPairedList = vi.fn(() => Promise.reject(new Error('refresh boom')))
     let onEvent: any
     let onClose: any
-    aaHelperMock.subscribe.mockImplementationOnce((cb: any, close: any) => {
+    bluezMock.subscribe.mockImplementationOnce((cb: any, close: any) => {
       onEvent = cb
       onClose = close
       return { close: vi.fn() }
@@ -3057,7 +3003,7 @@ describe('ProjectionService final branch fill', () => {
     svc.aaBtActive = false
     onClose()
     vi.advanceTimersByTime(1100)
-    expect(aaHelperMock.subscribe).toHaveBeenCalledTimes(1)
+    expect(bluezMock.subscribe).toHaveBeenCalledTimes(1)
     vi.useRealTimers()
   })
 
@@ -3277,7 +3223,7 @@ describe('HFP keeper, SCO and battery wiring', () => {
     svc.deviceController.emitDevices = vi.fn()
     svc.refreshBtPairedList = vi.fn(async () => 0)
     let onEvent: any
-    aaHelperMock.subscribe.mockImplementationOnce((cb: any) => {
+    bluezMock.subscribe.mockImplementationOnce((cb: any) => {
       onEvent = cb
       return { close: vi.fn() }
     })
@@ -3626,7 +3572,7 @@ describe('HFP keeper, SCO and battery wiring', () => {
     svc.webContents = { send: vi.fn() }
     svc.deviceController.emitDevices = vi.fn()
     let onEvent: any
-    aaHelperMock.subscribe.mockImplementationOnce((cb: any) => {
+    bluezMock.subscribe.mockImplementationOnce((cb: any) => {
       onEvent = cb
       return { close: vi.fn() }
     })
@@ -3673,7 +3619,7 @@ describe('HFP keeper, SCO and battery wiring', () => {
 
     await expect(deps.feedPath()).resolves.toBe('/tmp/media.feed')
     await deps.setScoSink('/tmp/feed.sock', 42)
-    expect(aaHelperMock.setScoSink).toHaveBeenCalledWith('/tmp/feed.sock', 42)
+    expect(bluezMock.setScoSink).toHaveBeenCalledWith('/tmp/feed.sock', 42)
     expect(deps.feedPath).toBeTypeOf('function')
   })
 })

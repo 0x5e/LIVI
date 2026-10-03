@@ -10,7 +10,6 @@ use livi_runtime::ident::{Identity, Transport};
 use livi_runtime::livi_sock::{Broadcaster, LiviSockConfig, serve};
 use livi_runtime::state::HelperState;
 use std::sync::Arc;
-use tokio::sync::Notify;
 
 #[derive(Clone)]
 struct MockAuth;
@@ -54,35 +53,6 @@ fn config(path: &str) -> LiviSockConfig {
         targets: None,
         cp_live: None,
     }
-}
-
-async fn listening(path: &str) {
-    for _ in 0..50 {
-        if UnixStream::connect(path).await.is_ok() {
-            return;
-        }
-        tokio::time::sleep(std::time::Duration::from_millis(10)).await;
-    }
-}
-
-#[tokio::test]
-async fn a_wired_phone_hears_the_start_again_without_its_session_ending() {
-    let path = std::env::temp_dir()
-        .join(format!("livi-sock-cable-{}", std::process::id()))
-        .to_string_lossy()
-        .to_string();
-    let state = Arc::new(HelperState::default());
-    let again = Arc::new(Notify::new());
-    state.wired_started("00008120", Arc::new(Notify::new()), again.clone());
-    let server = tokio::spawn(serve(config(&path), MockAuth, None, Broadcaster::default(), state));
-    listening(&path).await;
-
-    assert!(request(&path, "start-wired 00008120").await.contains("\"ok\":true"));
-    again.notified().await;
-    assert!(request(&path, "start-wired 00008030").await.contains("\"ok\":false"));
-
-    server.abort();
-    let _ = std::fs::remove_file(&path);
 }
 
 async fn request(path: &str, line: &str) -> String {

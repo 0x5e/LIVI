@@ -1705,6 +1705,27 @@ describe('CpStack teardown', () => {
     expect(reg.gst.closeVideoReceiver).not.toHaveBeenCalled()
   })
 
+  it('a TEARDOWN of the screens closes their receivers and leaves the audio running', async () => {
+    const { stack, session } = await fresh()
+    session.screenNativeId = 11
+    session.clusterScreenNativeId = 22
+    session.clusterScreenInProcess = true
+    session.audioMeta = [meta(100)]
+
+    const res = internals(stack)._handleTeardown(
+      req('TEARDOWN', 'rtsp://x', encodeBplist({ streams: [{ type: 110 }, { type: 111 }] })),
+      session
+    )
+
+    expect(res).toMatchObject({ status: 200 })
+    expect(reg.gst.closeVideoReceiver).toHaveBeenCalledWith(11)
+    expect(closeScreenReceiver).toHaveBeenCalledWith(22)
+    expect(session.screenNativeId).toBeNull()
+    expect(session.clusterScreenNativeId).toBeNull()
+    expect(session.audioMeta).toHaveLength(1)
+    expect(reg.gst.closeAudio).not.toHaveBeenCalled()
+  })
+
   it('a stream without a microphone reports nothing about it', async () => {
     const { stack, session } = await fresh()
     const micOff = vi.fn()

@@ -505,9 +505,11 @@ export class ProjectionService {
     this.planes.retainScreens()
     this.syncClusterStreamFocus()
 
-    // Seed AA's initial NIGHT_MODE
+    // The night mode a new session starts with
     if (next.appearanceMode !== prev.appearanceMode) {
-      this.drivers.setAaInitialNightMode(deriveInitialNightMode(next.appearanceMode))
+      const night = deriveInitialNightMode(next.appearanceMode)
+      this.drivers.setAaInitialNightMode(night)
+      this.drivers.setCpInitialNightMode(night)
     }
 
     if (

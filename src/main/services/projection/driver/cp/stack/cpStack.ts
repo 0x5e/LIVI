@@ -339,17 +339,8 @@ export class CpStack extends EventEmitter {
     }
     session.timing?.stop()
     session.keepAlive?.stop()
-    // The id is the host's receiver handle, or the plane id where the addon received.
-    if (session.screenNativeId != null) {
-      if (session.screenInProcess) closeScreenReceiver(session.screenNativeId)
-      else gstHost.closeVideoReceiver(session.screenNativeId)
-      session.screenNativeId = null
-    }
-    if (session.clusterScreenNativeId != null) {
-      if (session.clusterScreenInProcess) closeScreenReceiver(session.clusterScreenNativeId)
-      else gstHost.closeVideoReceiver(session.clusterScreenNativeId)
-      session.clusterScreenNativeId = null
-    }
+    this._closeScreen(session, false)
+    this._closeScreen(session, true)
     for (const m of session.audioMeta) {
       this._closeAudio(m)
     }
@@ -377,6 +368,17 @@ export class CpStack extends EventEmitter {
         else gstHost.setAudioVolume(id, level, rampMs)
       }
     }
+  }
+
+  /** The id is the host's receiver handle, or the plane id where the addon received. */
+  private _closeScreen(session: CpSession, cluster: boolean): void {
+    const id = cluster ? session.clusterScreenNativeId : session.screenNativeId
+    if (id == null) return
+    const inProcess = cluster ? session.clusterScreenInProcess : session.screenInProcess
+    if (inProcess) closeScreenReceiver(id)
+    else gstHost.closeVideoReceiver(id)
+    if (cluster) session.clusterScreenNativeId = null
+    else session.screenNativeId = null
   }
 
   /** Closes one stream's ports, pipeline and microphone in the host. */
@@ -423,6 +425,10 @@ export class CpStack extends EventEmitter {
     }
     console.log(`[cpStack] TEARDOWN streams ${types.join(',')}`)
     for (const type of types) {
+      if (type === STREAM_TYPE_MAIN_SCREEN || type === STREAM_TYPE_ALT_SCREEN) {
+        this._closeScreen(session, type === STREAM_TYPE_ALT_SCREEN)
+        continue
+      }
       const idx = session.audioMeta.findIndex((m) => m.type === type)
       if (idx < 0) continue
       const [m] = session.audioMeta.splice(idx, 1)

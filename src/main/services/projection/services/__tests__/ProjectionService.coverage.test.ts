@@ -1278,23 +1278,27 @@ describe('ProjectionService onConfigChanged', () => {
     expect(svc.planes.retainScreens).toHaveBeenCalled()
   })
 
-  test('seeds AA night mode for night, day and auto appearance modes', () => {
+  test('seeds AA and CP night mode for night, day and auto appearance modes', () => {
     const svc = makeSvc()
     svc.planes.retainScreens = vi.fn()
     svc.syncClusterStreamFocus = vi.fn()
     svc.drivers.setAaInitialNightMode = vi.fn()
+    svc.drivers.setCpInitialNightMode = vi.fn()
 
     svc.config = { appearanceMode: 'auto' }
     svc.onConfigChanged({ appearanceMode: 'night' })
     expect(svc.drivers.setAaInitialNightMode).toHaveBeenLastCalledWith(true)
+    expect(svc.drivers.setCpInitialNightMode).toHaveBeenLastCalledWith(true)
 
     svc.config = { appearanceMode: 'night' }
     svc.onConfigChanged({ appearanceMode: 'day' })
     expect(svc.drivers.setAaInitialNightMode).toHaveBeenLastCalledWith(false)
+    expect(svc.drivers.setCpInitialNightMode).toHaveBeenLastCalledWith(false)
 
     svc.config = { appearanceMode: 'day' }
     svc.onConfigChanged({ appearanceMode: 'auto' })
     expect(svc.drivers.setAaInitialNightMode).toHaveBeenLastCalledWith(undefined)
+    expect(svc.drivers.setCpInitialNightMode).toHaveBeenLastCalledWith(undefined)
   })
 
   test('resyncs the helper supervisor on a wireless toggle', () => {

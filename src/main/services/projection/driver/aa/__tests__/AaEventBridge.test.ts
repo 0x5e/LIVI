@@ -180,8 +180,21 @@ describe('AaEventBridge', () => {
       aa.emit('cluster-video-started')
       expect(noteVideoStarted.mock.calls).toEqual([
         [false, 1280, 720],
-        [true, 1280, 720]
+        [true, 0, 0]
       ])
+    })
+
+    test('cluster-video-started reports the cluster tier, not the main one', () => {
+      const noteVideoStarted = vi.fn()
+      const cfg = baseCfg({
+        videoWidth: 1920,
+        videoHeight: 1080,
+        clusterTierWidth: 800,
+        clusterTierHeight: 480
+      })
+      const { aa } = makeBridge({ mediaSink: makeSink({ noteVideoStarted }) }, cfg)
+      aa.emit('cluster-video-started')
+      expect(noteVideoStarted).toHaveBeenCalledWith(true, 800, 480)
     })
 
     test('cluster-video-started does not re-request focus once already projected', () => {

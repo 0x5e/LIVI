@@ -177,7 +177,8 @@ export class AaEventBridge {
         this.clusterFocusEmitted = true
         this.emitCommand(CommandMapping.requestClusterFocus)
       }
-      deps.mediaSink?.noteVideoStarted(true, cfg.videoWidth ?? 1280, cfg.videoHeight ?? 720)
+      // Without a cluster tier the size is unknown, and 0 leaves the cluster crop alone.
+      deps.mediaSink?.noteVideoStarted(true, cfg.clusterTierWidth ?? 0, cfg.clusterTierHeight ?? 0)
     })
 
     if (deps.mediaSink) {

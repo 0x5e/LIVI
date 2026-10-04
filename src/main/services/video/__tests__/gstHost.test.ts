@@ -172,22 +172,6 @@ describe('gstHost framing + transport', () => {
     expect(second.readUInt32LE(0)).toBe(5 + 1 + 'h264'.length)
   })
 
-  test('writes directly once the socket is live', async () => {
-    const gstHost = await freshHost()
-    gstHost.createPlayer(1, 'h264')
-    const sock = makeSocket()
-    connectionHandlers[0](sock)
-    sock.write.mockClear()
-
-    gstHost.pushBuffer(1, Buffer.from([0xaa, 0xbb]))
-
-    expect(sock.write).toHaveBeenCalledTimes(1)
-    const f = sock.write.mock.calls[0][0] as Buffer
-    expect(f.readUInt8(4)).toBe(2)
-    expect(f.readUInt32LE(5)).toBe(1)
-    expect(f.subarray(9)).toEqual(Buffer.from([0xaa, 0xbb]))
-  })
-
   test('stop sends an empty-payload frame', async () => {
     const gstHost = await freshHost()
     gstHost.createPlayer(1, 'h264')
@@ -202,22 +186,6 @@ describe('gstHost framing + transport', () => {
     expect(f.readUInt8(4)).toBe(3)
     expect(f.readUInt32LE(5)).toBe(3)
     expect(f).toHaveLength(9)
-  })
-
-  test('setGamma sends five little-endian doubles', async () => {
-    const gstHost = await freshHost()
-    gstHost.setGamma(4, 1.1, 0.9, 1, 2, 3)
-    const sock = makeSocket()
-    connectionHandlers[0](sock)
-
-    const f = sock.write.mock.calls[0][0] as Buffer
-    expect(f.readUInt8(4)).toBe(4)
-    expect(f.readUInt32LE(5)).toBe(4)
-    expect(f.readDoubleLE(9)).toBeCloseTo(1.1)
-    expect(f.readDoubleLE(17)).toBeCloseTo(0.9)
-    expect(f.readDoubleLE(25)).toBe(1)
-    expect(f.readDoubleLE(33)).toBe(2)
-    expect(f.readDoubleLE(41)).toBe(3)
   })
 
   test('setActiveFeeder and closeVideoReceiver send their control frames', async () => {
@@ -239,7 +207,7 @@ describe('gstHost framing + transport', () => {
   test('flushes all queued frames in order on connect', async () => {
     const gstHost = await freshHost()
     gstHost.createPlayer(1, 'h264')
-    gstHost.pushBuffer(1, Buffer.from([0x01]))
+    gstHost.setActiveFeeder(1, true)
     gstHost.stop(1)
 
     const sock = makeSocket()
@@ -247,7 +215,7 @@ describe('gstHost framing + transport', () => {
 
     expect(sock.write).toHaveBeenCalledTimes(3)
     const ops = sock.write.mock.calls.map((c) => (c[0] as Buffer).readUInt8(4))
-    expect(ops).toEqual([1, 2, 3])
+    expect(ops).toEqual([1, 7, 3])
   })
 
   test('start is idempotent — the host is spawned once', async () => {
@@ -385,7 +353,7 @@ describe('gstHost framing + transport', () => {
     sock.write.mockClear()
 
     sock.emit('close')
-    gstHost.pushBuffer(1, Buffer.from([0x01]))
+    gstHost.stop(1)
 
     expect(sock.write).not.toHaveBeenCalled()
   })

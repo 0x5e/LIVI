@@ -19,5 +19,4 @@ export type ArbiterDeps = {
   isWiredCpSessionActive: () => boolean
   hasWiredAaSession: () => boolean
   hasWiredCpSession: () => boolean
-  onChange: () => void
 }

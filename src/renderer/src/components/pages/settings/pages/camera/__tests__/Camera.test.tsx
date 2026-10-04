@@ -4,8 +4,6 @@ import { Camera } from '../Camera'
 
 const renderCamera = (ui: React.ReactElement) => render(<MemoryRouter>{ui}</MemoryRouter>)
 
-const unsubscribeUsb = vi.fn()
-const listenForEvents = vi.fn(() => unsubscribeUsb)
 const setCameraFound = vi.fn()
 
 const detectCameras = vi.fn().mockResolvedValue([
@@ -26,17 +24,9 @@ describe('Settings Camera page', () => {
   beforeEach(async () => {
     detectCameras.mockClear()
     setCameraFound.mockClear()
-    ;(window as any).projection = {
-      usb: {
-        listenForEvents
-      }
-    }
-    listenForEvents.mockClear()
-    listenForEvents.mockImplementation(() => unsubscribeUsb)
-    unsubscribeUsb.mockClear()
   })
 
-  test('loads camera options and subscribes to usb events', async () => {
+  test('loads camera options', async () => {
     const onChange = vi.fn()
     const { unmount } = renderCamera(<Camera state={{ cameraId: '' } as any} onChange={onChange} />)
 
@@ -48,9 +38,7 @@ describe('Settings Camera page', () => {
       expect(screen.getByText('Front cam')).toBeInTheDocument()
       expect(screen.getByText('Rear cam')).toBeInTheDocument()
     })
-    expect(listenForEvents).toHaveBeenCalled()
     unmount()
-    expect(unsubscribeUsb).toHaveBeenCalled()
   })
 
   test('safeCameraPersist skips onChange when camera is already configured', async () => {
@@ -90,32 +78,6 @@ describe('Settings Camera page', () => {
     expect(onChange).toHaveBeenCalledWith('cam-1')
   })
 
-  test('USB attach event triggers camera re-detection', async () => {
-    // lines 38-40: usbHandler fires detectCameras again on attach
-    renderCamera(<Camera state={{ cameraId: '' } as any} onChange={vi.fn()} />)
-
-    await waitFor(() => expect(listenForEvents).toHaveBeenCalled())
-
-    const usbHandler = listenForEvents.mock.calls[0][0]
-    detectCameras.mockClear()
-    usbHandler({}, { type: 'attach' })
-
-    await waitFor(() => expect(detectCameras).toHaveBeenCalledTimes(1))
-  })
-
-  test('USB event with irrelevant type does not re-detect cameras', async () => {
-    // line 39: type not in list → no detectCameras call
-    renderCamera(<Camera state={{ cameraId: '' } as any} onChange={vi.fn()} />)
-
-    await waitFor(() => expect(listenForEvents).toHaveBeenCalled())
-
-    const usbHandler = listenForEvents.mock.calls[0][0]
-    detectCameras.mockClear()
-    usbHandler({}, { type: 'data' })
-
-    expect(detectCameras).not.toHaveBeenCalled()
-  })
-
   test('camera label falls back to "Camera" when label is empty', async () => {
     // line 50: c.label || 'Camera'
     detectCameras.mockResolvedValueOnce([{ deviceId: 'cam-x', label: '' }])
@@ -148,18 +110,6 @@ describe('Settings Camera page', () => {
     fireEvent.click(screen.getByRole('button', { name: 'Rear cam' }))
 
     expect(onChange).toHaveBeenCalledWith('cam-2')
-  })
-
-  test('USB event with a missing payload falls back to an empty object', async () => {
-    renderCamera(<Camera state={{ cameraId: '' } as any} onChange={vi.fn()} />)
-
-    await waitFor(() => expect(listenForEvents).toHaveBeenCalled())
-
-    const usbHandler = listenForEvents.mock.calls[0][0]
-    detectCameras.mockClear()
-    usbHandler({})
-
-    expect(detectCameras).not.toHaveBeenCalled()
   })
 
   test('camera without a deviceId falls back to an empty option id', async () => {

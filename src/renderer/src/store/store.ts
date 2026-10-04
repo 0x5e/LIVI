@@ -40,17 +40,6 @@ const sendCarplayVolume = (stream: VolumeStreamKey, volume: number) => {
   }
 }
 
-const sendCarplayNightMode = (nightMode: boolean) => {
-  const api = getProjectionApi()
-  if (!api?.ipc?.sendCommand) return
-
-  try {
-    api.ipc.sendCommand(nightMode ? 'enableNightMode' : 'disableNightMode')
-  } catch (err) {
-    console.warn('projection-set-night-mode IPC failed', err)
-  }
-}
-
 const saveSettingsIpc = async (patch: Partial<Config>) => {
   const api = getProjectionApi()
   if (!api?.settings?.save) return
@@ -86,10 +75,6 @@ const applyTelemetryControls = (payload: unknown) => {
   if (!payload || typeof payload !== 'object') return
 
   const msg = payload as Record<string, unknown>
-
-  if (typeof msg.nightMode === 'boolean') {
-    void useLiviStore.getState().saveSettings({ nightMode: msg.nightMode })
-  }
 
   const explicitReverse =
     typeof msg.reverse === 'boolean'
@@ -261,9 +246,6 @@ export const useLiviStore = create<CarplayStore>((set, get) => {
         }
         if (derived.callVolume !== prevDerived.callVolume) {
           sendCarplayVolume('call', derived.callVolume)
-        }
-        if (patch.nightMode !== undefined && Boolean(patch.nightMode) !== Boolean(prev.nightMode)) {
-          sendCarplayNightMode(Boolean(patch.nightMode))
         }
       }
 

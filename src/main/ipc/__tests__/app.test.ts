@@ -1,21 +1,11 @@
 import { registerAppIpc } from '@main/ipc/app'
 import { registerIpcHandle, registerIpcOn } from '@main/ipc/register'
 import { hostPowerAvailable, requestPowerAction } from '@main/services/power/hostPower'
-import { isMacPlatform } from '@main/utils'
 import { broadcastToRenderers } from '@main/window/broadcast'
-import { getMainWindow } from '@main/window/createWindow'
 import { restoreKioskAfterWmExit } from '@main/window/utils'
 import { spawn } from 'child_process'
-import { app, shell } from 'electron'
+import { app } from 'electron'
 import type { Mock } from 'vitest'
-
-vi.mock('@main/window/createWindow', () => ({
-  getMainWindow: vi.fn(() => null)
-}))
-
-vi.mock('@main/utils', () => ({
-  isMacPlatform: vi.fn(() => false)
-}))
 
 vi.mock('@main/window/utils', () => ({
   restoreKioskAfterWmExit: vi.fn()
@@ -54,8 +44,6 @@ vi.mock('@main/services/power/hostPower', () => ({
   requestPowerAction: vi.fn()
 }))
 
-const mockedGetMainWindow = getMainWindow as Mock
-const mockedIsMacPlatform = isMacPlatform as Mock
 const mockedRegisterIpcHandle = registerIpcHandle as Mock
 const mockedRegisterIpcOn = registerIpcOn as Mock
 const mockedSpawn = spawn as Mock
@@ -74,8 +62,6 @@ describe('registerAppIpc', () => {
     vi.clearAllMocks()
     vi.restoreAllMocks()
     Object.defineProperty(process, 'platform', { value: originalPlatform })
-    mockedGetMainWindow.mockReturnValue(null)
-    mockedIsMacPlatform.mockReturnValue(false)
     mockedHostPowerAvailable.mockReturnValue(false)
 
     process.env.APPIMAGE = originalAppImage
@@ -117,73 +103,8 @@ describe('registerAppIpc', () => {
     const registeredHandles = mockedRegisterIpcHandle.mock.calls.map((c) => c[0])
     const registeredOn = mockedRegisterIpcOn.mock.calls.map((c) => c[0])
 
-    expect(registeredHandles).toEqual(
-      expect.arrayContaining(['quit', 'app:quitApp', 'app:restartApp', 'app:openExternal'])
-    )
+    expect(registeredHandles).toEqual(expect.arrayContaining(['app:quitApp', 'app:restartApp']))
     expect(registeredOn).toEqual(expect.arrayContaining(['app:user-activity', 'app:media-key']))
-  })
-
-  test('quit handler calls app.quit on non-mac platforms', async () => {
-    const runtimeState = { isQuitting: false, suppressNextFsSync: false } as never
-    const services = {} as never
-
-    registerAppIpc(runtimeState, services)
-
-    const quitHandler = getHandle('quit') as (() => void) | undefined
-    expect(quitHandler).toBeDefined()
-
-    quitHandler?.()
-
-    expect(app.quit).toHaveBeenCalledTimes(1)
-  })
-
-  test('quit handler hides window on mac when not fullscreen', async () => {
-    const hide = vi.fn()
-    mockedIsMacPlatform.mockReturnValue(true)
-    mockedGetMainWindow.mockReturnValue({
-      isFullScreen: vi.fn(() => false),
-      hide
-    })
-
-    const runtimeState = { isQuitting: false, suppressNextFsSync: false } as never
-    const services = {} as never
-
-    registerAppIpc(runtimeState, services)
-
-    const quitHandler = getHandle('quit') as (() => void) | undefined
-    quitHandler?.()
-
-    expect(hide).toHaveBeenCalledTimes(1)
-    expect(app.quit).not.toHaveBeenCalled()
-  })
-
-  test('quit handler exits fullscreen first on mac and suppresses next fs sync', async () => {
-    const once = vi.fn()
-    const setFullScreen = vi.fn()
-    mockedIsMacPlatform.mockReturnValue(true)
-    mockedGetMainWindow.mockReturnValue({
-      isFullScreen: vi.fn(() => true),
-      once,
-      setFullScreen,
-      hide: vi.fn()
-    })
-
-    const runtimeState = { isQuitting: false, suppressNextFsSync: false } as any
-    const services = {} as never
-
-    registerAppIpc(runtimeState, services)
-
-    const quitHandler = getHandle('quit') as (() => void) | undefined
-    quitHandler?.()
-
-    expect(runtimeState.suppressNextFsSync).toBe(true)
-    expect(once).toHaveBeenCalledWith('leave-full-screen', expect.any(Function))
-    expect(setFullScreen).toHaveBeenCalledWith(false)
-
-    const hide = (mockedGetMainWindow.mock.results[0].value as { hide: Mock }).hide
-    const leaveHandler = once.mock.calls[0][1] as () => void
-    leaveHandler()
-    expect(hide).toHaveBeenCalledTimes(1)
   })
 
   test('app:customPageUrl names the proxy when one runs', async () => {
@@ -524,56 +445,6 @@ describe('registerAppIpc', () => {
     expect(app.quit).toHaveBeenCalledTimes(1)
   })
 
-  test('app:openExternal rejects empty urls', async () => {
-    const runtimeState = { isQuitting: false, suppressNextFsSync: false } as never
-    const services = {} as never
-
-    registerAppIpc(runtimeState, services)
-
-    const openExternalHandler = getHandle('app:openExternal') as
-      | ((evt: unknown, url: string) => Promise<unknown>)
-      | undefined
-
-    await expect(openExternalHandler?.(undefined, '')).resolves.toEqual({
-      ok: false,
-      error: 'Empty URL'
-    })
-  })
-
-  test('app:openExternal rejects non-http urls', async () => {
-    const runtimeState = { isQuitting: false, suppressNextFsSync: false } as never
-    const services = {} as never
-
-    registerAppIpc(runtimeState, services)
-
-    const openExternalHandler = getHandle('app:openExternal') as
-      | ((evt: unknown, url: string) => Promise<unknown>)
-      | undefined
-
-    await expect(openExternalHandler?.(undefined, 'file:///tmp/test')).resolves.toEqual({
-      ok: false,
-      error: 'Only http/https URLs are allowed'
-    })
-  })
-
-  test('app:openExternal opens valid http urls', async () => {
-    ;(shell.openExternal as Mock).mockResolvedValue(undefined)
-
-    const runtimeState = { isQuitting: false, suppressNextFsSync: false } as never
-    const services = {} as never
-
-    registerAppIpc(runtimeState, services)
-
-    const openExternalHandler = getHandle('app:openExternal') as
-      | ((evt: unknown, url: string) => Promise<unknown>)
-      | undefined
-
-    await expect(openExternalHandler?.(undefined, ' https://example.com ')).resolves.toEqual({
-      ok: true
-    })
-    expect(shell.openExternal).toHaveBeenCalledWith('https://example.com')
-  })
-
   test('app:restartApp relaunches and quits on non-APPIMAGE path', async () => {
     vi.spyOn(global, 'setTimeout').mockImplementation(function (fn: TimerHandler) {
       if (typeof fn === 'function') fn()
@@ -664,21 +535,5 @@ describe('registerAppIpc', () => {
     await restartHandler?.()
 
     expect(app.quit).toHaveBeenCalledTimes(1)
-  })
-
-  test('app:openExternal rejects undefined urls via nullish fallback', async () => {
-    const runtimeState = { isQuitting: false, suppressNextFsSync: false } as never
-    const services = {} as never
-
-    registerAppIpc(runtimeState, services)
-
-    const openExternalHandler = getHandle('app:openExternal') as
-      | ((evt: unknown, url?: string) => Promise<unknown>)
-      | undefined
-
-    await expect(openExternalHandler?.(undefined, undefined)).resolves.toEqual({
-      ok: false,
-      error: 'Empty URL'
-    })
   })
 })

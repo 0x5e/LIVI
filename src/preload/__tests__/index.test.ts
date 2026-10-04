@@ -64,15 +64,6 @@ describe('preload api bridge', () => {
     expect(app).toBeDefined()
   })
 
-  test('projection quit forwards to ipcRenderer.invoke', async () => {
-    const { projection } = await loadPreload()
-    ipcRendererMock.invoke.mockResolvedValue(undefined)
-
-    await projection.quit()
-
-    expect(ipcRendererMock.invoke).toHaveBeenCalledWith('quit')
-  })
-
   test('projection ipc sendTouch forwards payload', async () => {
     const { projection } = await loadPreload()
 
@@ -83,31 +74,6 @@ describe('preload api bridge', () => {
       y: 0.2,
       action: 3
     })
-  })
-
-  test('usb listenForEvents flushes queued usb events', async () => {
-    const { projection } = await loadPreload()
-    const cb = vi.fn()
-
-    emit('usb-event', 'plugged', { vendorId: 1 })
-
-    projection.usb.listenForEvents(cb)
-
-    expect(cb).toHaveBeenCalledTimes(1)
-    expect(cb).toHaveBeenCalledWith(expect.anything(), 'plugged', { vendorId: 1 })
-  })
-
-  test('usb listenForEvents returns an unsubscribe closure that removes the handler', async () => {
-    const { projection } = await loadPreload()
-    const cb = vi.fn()
-
-    const unsubscribe = projection.usb.listenForEvents(cb)
-    expect(typeof unsubscribe).toBe('function')
-
-    unsubscribe()
-    emit('usb-event', 'plugged')
-
-    expect(cb).not.toHaveBeenCalled()
   })
 
   test('settings onUpdate subscribes and cleanup removes listener', async () => {
@@ -243,7 +209,6 @@ describe('preload api bridge', () => {
     await app.customIconUrl()
     await app.quitApp()
     await app.restartApp()
-    await app.openExternal('https://example.com')
     app.notifyUserActivity()
 
     expect(ipcRendererMock.invoke).toHaveBeenCalledWith('app:getVersion')
@@ -258,7 +223,6 @@ describe('preload api bridge', () => {
     expect(ipcRendererMock.invoke).toHaveBeenCalledWith('app:customIconUrl')
     expect(ipcRendererMock.invoke).toHaveBeenCalledWith('app:quitApp')
     expect(ipcRendererMock.invoke).toHaveBeenCalledWith('app:restartApp')
-    expect(ipcRendererMock.invoke).toHaveBeenCalledWith('app:openExternal', 'https://example.com')
     expect(ipcRendererMock.send).toHaveBeenCalledWith('app:user-activity')
   })
 
@@ -307,17 +271,6 @@ describe('preload api bridge', () => {
     expect(ipcRendererMock.send).toHaveBeenCalledWith('projection-multi-touch', [
       { id: 1, x: 0.1, y: 0.2, action: 2 }
     ])
-  })
-
-  test('usb listenForEvents forwards usb events directly when handler is already registered', async () => {
-    const { projection } = await loadPreload()
-    const cb = vi.fn()
-
-    projection.usb.listenForEvents(cb)
-    emit('usb-event', 'plugged', { vendorId: 1 })
-
-    expect(cb).toHaveBeenCalledTimes(1)
-    expect(cb).toHaveBeenCalledWith(expect.anything(), 'plugged', { vendorId: 1 })
   })
 
   test('ipc onTelemetry forwards telemetry updates directly when handler is already registered', async () => {
@@ -431,18 +384,14 @@ describe('preload api bridge', () => {
   })
 
   describe('projection ipc wrappers — additional', () => {
-    test('restart, switchTransport, getTransportState, getTelemetrySnapshot forward to invoke', async () => {
+    test('restart and getTelemetrySnapshot forward to invoke', async () => {
       const { projection } = await loadPreload()
       ipcRendererMock.invoke.mockResolvedValue(undefined)
 
       await projection.ipc.restart()
-      await projection.ipc.switchTransport()
-      await projection.ipc.getTransportState()
       await projection.ipc.getTelemetrySnapshot()
 
       expect(ipcRendererMock.invoke).toHaveBeenCalledWith('projection-restart')
-      expect(ipcRendererMock.invoke).toHaveBeenCalledWith('transport:switch')
-      expect(ipcRendererMock.invoke).toHaveBeenCalledWith('transport:state')
       expect(ipcRendererMock.invoke).toHaveBeenCalledWith('telemetry:snapshot')
     })
 

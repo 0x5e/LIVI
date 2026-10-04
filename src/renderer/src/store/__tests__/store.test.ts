@@ -167,8 +167,7 @@ describe('store', () => {
           .mockResolvedValueOnce(baseSettings)
           .mockResolvedValueOnce({
             ...baseSettings,
-            audioVolume: 0.1,
-            nightMode: true
+            audioVolume: 0.1
           }),
         save: vi.fn().mockResolvedValue(undefined)
       }
@@ -179,23 +178,19 @@ describe('store', () => {
     await waitForStoreSettings(useLiviStore)
 
     await useLiviStore.getState().saveSettings({
-      audioVolume: 0.1,
-      nightMode: true
+      audioVolume: 0.1
     })
 
     const state = useLiviStore.getState()
 
     expect(projection.settings.save).toHaveBeenCalledWith({
-      audioVolume: 0.1,
-      nightMode: true
+      audioVolume: 0.1
     })
 
-    expect(projection.ipc.sendCommand).toHaveBeenCalledWith('enableNightMode')
     expect(state.audioVolume).toBe(0.1)
     expect(state.settings).toEqual({
       ...baseSettings,
-      audioVolume: 0.1,
-      nightMode: true
+      audioVolume: 0.1
     })
   })
 
@@ -248,33 +243,6 @@ describe('store', () => {
     const state = useLiviStore.getState()
     expect(state.audioSampleRate).toBe(48000)
     expect(state.audioPcmData).toBe(pcm)
-  })
-
-  test('telemetry onTelemetry handler persists incoming nightMode and bridges to wire', async () => {
-    let telemetryHandler: ((payload: unknown) => void) | undefined
-
-    const projection = makeProjectionApi({
-      settings: {
-        get: vi.fn().mockResolvedValue(baseSettings),
-        save: vi.fn().mockResolvedValue(undefined)
-      },
-      ipc: {
-        onTelemetry: vi.fn((handler) => {
-          telemetryHandler = handler
-        })
-      }
-    })
-
-    const { useLiviStore } = await loadFreshStore(projection)
-
-    await waitForStoreSettings(useLiviStore)
-
-    telemetryHandler?.({ nightMode: true })
-    await Promise.resolve()
-    await Promise.resolve()
-
-    expect(projection.settings.save).toHaveBeenCalledWith({ nightMode: true })
-    expect(projection.ipc.sendCommand).toHaveBeenCalledWith('enableNightMode')
   })
 
   test('status store setters update status flags', async () => {
@@ -390,25 +358,6 @@ describe('store', () => {
     expect(projection.ipc.setVolume).toHaveBeenCalledWith('call', 0.44)
   })
 
-  test('saveSettings sends disableNightMode for false', async () => {
-    const projection = makeProjectionApi({
-      settings: {
-        get: vi
-          .fn()
-          .mockResolvedValueOnce({ ...baseSettings, nightMode: true })
-          .mockResolvedValueOnce({ ...baseSettings, nightMode: false }),
-        save: vi.fn().mockResolvedValue(undefined)
-      }
-    })
-
-    const { useLiviStore } = await loadFreshStore(projection)
-
-    await waitForStoreSettings(useLiviStore)
-    await useLiviStore.getState().saveSettings({ nightMode: false })
-
-    expect(projection.ipc.sendCommand).toHaveBeenCalledWith('disableNightMode')
-  })
-
   test('telemetry handler ignores non-object payloads', async () => {
     let telemetryHandler: ((payload: unknown) => void) | undefined
 
@@ -460,31 +409,6 @@ describe('store', () => {
     expect(warnSpy).toHaveBeenCalledWith('projection-set-volume IPC failed', expect.any(Error))
   })
 
-  test('saveSettings swallows projection night mode ipc errors', async () => {
-    const warnSpy = vi.spyOn(console, 'warn').mockImplementation(() => {})
-    const projection = makeProjectionApi({
-      settings: {
-        get: vi
-          .fn()
-          .mockResolvedValueOnce(baseSettings)
-          .mockResolvedValueOnce({ ...baseSettings, nightMode: true }),
-        save: vi.fn().mockResolvedValue(undefined)
-      },
-      ipc: {
-        sendCommand: vi.fn(() => {
-          throw new Error('night failed')
-        })
-      }
-    })
-
-    const { useLiviStore } = await loadFreshStore(projection)
-
-    await waitForStoreSettings(useLiviStore)
-    await useLiviStore.getState().saveSettings({ nightMode: true })
-
-    expect(warnSpy).toHaveBeenCalledWith('projection-set-night-mode IPC failed', expect.any(Error))
-  })
-
   test('init applies live settings updates from settings.onUpdate', async () => {
     let onUpdateHandler: ((event: unknown, settings: Config) => void) | undefined
 
@@ -520,31 +444,6 @@ describe('store', () => {
     expect(projection.ipc.setVolume).toHaveBeenCalledWith('nav', 0.35)
     expect(projection.ipc.setVolume).toHaveBeenCalledWith('voiceAssistant', 0.45)
     expect(projection.ipc.setVolume).toHaveBeenCalledWith('call', 0.55)
-  })
-
-  test('saveSettings does not send night mode command when ipc.sendCommand is missing', async () => {
-    const projection = makeProjectionApi({
-      settings: {
-        get: vi
-          .fn()
-          .mockResolvedValueOnce(baseSettings)
-          .mockResolvedValueOnce({
-            ...baseSettings,
-            nightMode: true
-          }),
-        save: vi.fn().mockResolvedValue(undefined)
-      },
-      ipc: {
-        sendCommand: undefined
-      }
-    })
-
-    const { useLiviStore } = await loadFreshStore(projection)
-
-    await waitForStoreSettings(useLiviStore)
-    await useLiviStore.getState().saveSettings({ nightMode: true })
-
-    expect(projection.settings.save).toHaveBeenCalledWith({ nightMode: true })
   })
 
   test('saveSettings does not send volume when ipc.setVolume is missing', async () => {
@@ -753,7 +652,7 @@ describe('store', () => {
     expect(useLiviStore.getState().restartBaseline).toBeNull()
   })
 
-  test('telemetry handler ignores object payloads with non-boolean nightMode', async () => {
+  test('telemetry handler does not persist night mode', async () => {
     let telemetryHandler: ((payload: unknown) => void) | undefined
 
     const projection = makeProjectionApi({
@@ -772,8 +671,7 @@ describe('store', () => {
 
     await waitForStoreSettings(useLiviStore)
 
-    telemetryHandler?.({ nightMode: 'yes' })
-    telemetryHandler?.({ nightMode: 1 })
+    telemetryHandler?.({ nightMode: true })
     telemetryHandler?.({ other: true })
 
     expect(projection.settings.save).not.toHaveBeenCalled()

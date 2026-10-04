@@ -2,19 +2,15 @@ import { DEBUG } from '@main/constants'
 import { HostAudioOutput } from '@main/services/audio'
 import { gstHost } from '@main/services/video/gstHost'
 import type { Config } from '@shared/types'
-import { AudioCommand } from '@shared/types/ProjectionEnums'
 import {
   onAudioReceiverVisualizer,
   setAudioReceiverVisualizerTap,
   useHostProcess
 } from '../../video/GstVideo'
-import type { AudioData } from '../messages'
-import type { ProjectionEvent } from './types'
 
 export type PlayerKey = string
 export type LogicalStreamKey = 'music' | 'nav' | 'voiceAssistant' | 'call'
 type VolumeState = Record<LogicalStreamKey, number>
-type SendProjectionEvent = (payload: ProjectionEvent) => void
 type SendChunked = (
   channel: string,
   data: ArrayBuffer,
@@ -26,8 +22,7 @@ type PrimedOutput = { audioType: number; sampleRate: number; channels: number; t
 type HostOutput = { audioType: number; streamId: number; tag?: string }
 
 /**
- * The host streams the drivers feed, their levels, and the attention hints the
- * renderer shows. No samples pass through here.
+ * The host streams the drivers feed and their levels. No samples pass through here.
  */
 export class ProjectionAudio {
   private readonly players = new Map<PlayerKey, HostAudioOutput>()
@@ -50,16 +45,10 @@ export class ProjectionAudio {
   private duckLevel = 1
   private duckRampMs = this.rampUpMs
 
-  // UI hint state
-  private uiCallIncoming = false
-  private uiVoiceAssistantHintActive = false
-  private uiNavHintActive = false
-
   private visualizerWindows = new Set<number>()
 
   constructor(
     private readonly getConfig: () => Config,
-    private readonly sendProjectionEvent: SendProjectionEvent,
     private readonly sendChunked: SendChunked,
     private readonly applyStreamVolume: (
       audioType: number,
@@ -112,26 +101,6 @@ export class ProjectionAudio {
     }
   }
 
-  // True while any window wants the FFT chunks
-  public get visualizerEnabled(): boolean {
-    return this.visualizerWindows.size > 0
-  }
-
-  private emitAttention(
-    kind: 'call' | 'voiceAssistant' | 'nav',
-    active: boolean,
-    extra?: { phase?: 'incoming' | 'ended' }
-  ) {
-    this.sendProjectionEvent({
-      type: 'attention',
-      payload: {
-        kind,
-        active,
-        ...(extra ?? {})
-      }
-    })
-  }
-
   // Called from ProjectionService when a new projection session starts
   public resetForSessionStart() {
     this.resetAudioState()
@@ -146,9 +115,6 @@ export class ProjectionAudio {
     this.stopAllPlayers()
     this.duckLevel = 1
     this.duckRampMs = this.rampUpMs
-    this.uiCallIncoming = false
-    this.uiVoiceAssistantHintActive = false
-    this.uiNavHintActive = false
   }
 
   public setInitialVolumes(volumes: Partial<VolumeState>) {
@@ -197,51 +163,6 @@ export class ProjectionAudio {
     this.duckLevel = Math.max(0, Math.min(1, level))
     this.duckRampMs = Math.max(0, durationMs)
     this.pushStreamVolume('music', this.duckRampMs)
-  }
-
-  /** Audio commands drive the attention hints, each driver keeps its own stream state. */
-  public handleAudioData(msg: AudioData) {
-    const cmd = msg.command
-    if (cmd == null) return
-    if (DEBUG) {
-      console.debug('[ProjectionAudio] audio command', {
-        ts: Date.now(),
-        cmd,
-        decodeType: msg.decodeType,
-        audioType: msg.audioType
-      })
-    }
-    // Incoming call: pre-accept / ringing
-    if (cmd === AudioCommand.AudioAttentionStart || cmd === AudioCommand.AudioAttentionRinging) {
-      if (!this.uiCallIncoming) {
-        this.uiCallIncoming = true
-        this.emitAttention('call', true, { phase: 'incoming' })
-      }
-    }
-    if (cmd === AudioCommand.AudioPhonecallStop) {
-      if (this.uiCallIncoming) {
-        this.uiCallIncoming = false
-        this.emitAttention('call', false, { phase: 'ended' })
-      }
-    }
-    if (cmd === AudioCommand.AudioVoiceAssistantStart) {
-      if (!this.uiVoiceAssistantHintActive) {
-        this.uiVoiceAssistantHintActive = true
-        this.emitAttention('voiceAssistant', true)
-      }
-    }
-    if (cmd === AudioCommand.AudioNaviStop || cmd === AudioCommand.AudioTurnByTurnStop) {
-      if (this.uiNavHintActive) {
-        this.uiNavHintActive = false
-        this.emitAttention('nav', false)
-      }
-    }
-    if (cmd === AudioCommand.AudioNaviStart || cmd === AudioCommand.AudioTurnByTurnStart) {
-      if (!this.uiNavHintActive) {
-        this.uiNavHintActive = true
-        this.emitAttention('nav', true)
-      }
-    }
   }
 
   private stopAllPlayers() {

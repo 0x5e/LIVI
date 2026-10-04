@@ -52,8 +52,6 @@ type Priv = {
   close: () => Promise<void>
   dropSessions: () => void
   setHevcSupported: (b: boolean) => void
-  setVp9Supported: (b: boolean) => void
-  setAv1Supported: (b: boolean) => void
   setInitialNightMode: (b: boolean | undefined) => void
   setClusterStreamActive: (b: boolean) => void
   sendNightMode: (b: boolean) => void
@@ -290,22 +288,16 @@ describe('CpManager helper getter and seed fan-out', () => {
     mgr._onHelperEvent({ type: 'nowplaying', phoneId: 'aa:aa', title: 'A' })
     const [s] = sessionsFor(mgr, 'aa:aa')
     const hevc = vi.spyOn(s as never, 'setHevcSupported')
-    const vp9 = vi.spyOn(s as never, 'setVp9Supported')
-    const av1 = vi.spyOn(s as never, 'setAv1Supported')
     const night = vi.spyOn(s as never, 'setInitialNightMode')
     const cluster = vi.spyOn(s as never, 'setClusterStreamActive')
     const pushNight = vi.spyOn(s as never, 'sendNightMode')
 
     mgr.setHevcSupported(true)
-    mgr.setVp9Supported(true)
-    mgr.setAv1Supported(true)
     mgr.setInitialNightMode(true)
     mgr.setClusterStreamActive(false)
     mgr.sendNightMode(true)
 
     expect(hevc).toHaveBeenCalledWith(true)
-    expect(vp9).toHaveBeenCalledWith(true)
-    expect(av1).toHaveBeenCalledWith(true)
     expect(night).toHaveBeenCalledWith(true)
     expect(cluster).toHaveBeenCalledWith(false)
     expect(pushNight).toHaveBeenCalledWith(true)

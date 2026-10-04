@@ -1,19 +1,8 @@
 import { AV_MSG, CH } from '../../constants'
-import type { RawFrame } from '../../frame/types'
 import { MicChannel } from '../MicChannel'
 import { decodeFields, decodeVarintValue, fieldVarint } from '../protoEnc'
 
 const MIC = CH.MIC_INPUT
-
-function dummyFrame(): RawFrame {
-  return {
-    channelId: MIC,
-    flags: 0,
-    msgId: 0,
-    payload: Buffer.alloc(0),
-    rawPayload: Buffer.alloc(0)
-  }
-}
 
 function freshSend() {
   const calls: { channelId: number; flags: number; msgId: number; data: Buffer }[] = []
@@ -26,7 +15,7 @@ function freshSend() {
 // MicrophoneRequest with open=true and a max_unacked the channel no longer reads
 function openMic(channel: MicChannel): void {
   const openReq = Buffer.concat([fieldVarint(1, 1), fieldVarint(4, 2)])
-  channel.handleMessage(AV_MSG.AV_INPUT_OPEN_REQUEST, openReq, dummyFrame())
+  channel.handleMessage(AV_MSG.AV_INPUT_OPEN_REQUEST, openReq)
 }
 
 describe('MicChannel — open/close', () => {
@@ -51,7 +40,7 @@ describe('MicChannel — open/close', () => {
     ch.on('mic-stop', stop)
 
     const closeReq = fieldVarint(1, 0)
-    ch.handleMessage(AV_MSG.AV_INPUT_OPEN_REQUEST, closeReq, dummyFrame())
+    ch.handleMessage(AV_MSG.AV_INPUT_OPEN_REQUEST, closeReq)
 
     expect(stop).not.toHaveBeenCalled()
     expect(calls.some((c) => c.msgId === AV_MSG.AV_INPUT_OPEN_RESPONSE)).toBe(true)
@@ -64,7 +53,7 @@ describe('MicChannel — open/close', () => {
 
     const stop = vi.fn()
     ch.on('mic-stop', stop)
-    ch.handleMessage(AV_MSG.AV_INPUT_OPEN_REQUEST, fieldVarint(1, 0), dummyFrame())
+    ch.handleMessage(AV_MSG.AV_INPUT_OPEN_REQUEST, fieldVarint(1, 0))
     expect(stop).toHaveBeenCalledWith(MIC)
   })
 
@@ -75,7 +64,7 @@ describe('MicChannel — open/close', () => {
 
     const stop = vi.fn()
     ch.on('mic-stop', stop)
-    ch.handleMessage(AV_MSG.STOP_INDICATION, Buffer.alloc(0), dummyFrame())
+    ch.handleMessage(AV_MSG.STOP_INDICATION, Buffer.alloc(0))
     expect(stop).toHaveBeenCalledWith(MIC)
   })
 
@@ -84,7 +73,7 @@ describe('MicChannel — open/close', () => {
     const ch = new MicChannel(MIC, send)
     const stop = vi.fn()
     ch.on('mic-stop', stop)
-    ch.handleMessage(AV_MSG.STOP_INDICATION, Buffer.alloc(0), dummyFrame())
+    ch.handleMessage(AV_MSG.STOP_INDICATION, Buffer.alloc(0))
     expect(stop).not.toHaveBeenCalled()
   })
 })
@@ -95,12 +84,12 @@ describe('MicChannel: control side only', () => {
     const ch = new MicChannel(MIC, send)
     const stop = vi.fn()
     ch.on('mic-stop', stop)
-    ch.handleMessage(AV_MSG.AV_MEDIA_ACK, Buffer.alloc(0), dummyFrame())
+    ch.handleMessage(AV_MSG.AV_MEDIA_ACK, Buffer.alloc(0))
     expect(calls).toHaveLength(0)
 
     openMic(ch)
     calls.length = 0
-    ch.handleMessage(AV_MSG.AV_MEDIA_ACK, Buffer.alloc(0), dummyFrame())
+    ch.handleMessage(AV_MSG.AV_MEDIA_ACK, Buffer.alloc(0))
     expect(calls).toHaveLength(0)
     expect(stop).not.toHaveBeenCalled()
   })
@@ -111,7 +100,7 @@ describe('MicChannel: control side only', () => {
     const start = vi.fn()
     ch.on('mic-start', start)
     const req = Buffer.concat([fieldVarint(1, 1), fieldVarint(2, 9), fieldVarint(4, 3)])
-    ch.handleMessage(AV_MSG.AV_INPUT_OPEN_REQUEST, req, dummyFrame())
+    ch.handleMessage(AV_MSG.AV_INPUT_OPEN_REQUEST, req)
     expect(start).toHaveBeenCalledWith(MIC)
     expect(calls.some((c) => c.msgId === AV_MSG.AV_INPUT_OPEN_RESPONSE)).toBe(true)
   })
@@ -135,7 +124,7 @@ describe('MicChannel — setup request message', () => {
   test('SETUP_REQUEST is accepted without side effects', () => {
     const { send, calls } = freshSend()
     const ch = new MicChannel(MIC, send)
-    ch.handleMessage(AV_MSG.SETUP_REQUEST, Buffer.alloc(0), dummyFrame())
+    ch.handleMessage(AV_MSG.SETUP_REQUEST, Buffer.alloc(0))
     expect(calls).toHaveLength(0)
   })
 })
@@ -155,7 +144,7 @@ describe('MicChannel response payloads', () => {
     const debug = vi.spyOn(console, 'debug').mockImplementation(function () {})
     const { send } = freshSend()
     const ch = new MicChannel(MIC, send)
-    ch.handleMessage(0xbeef, Buffer.alloc(0), dummyFrame())
+    ch.handleMessage(0xbeef, Buffer.alloc(0))
     expect(debug).toHaveBeenCalled()
     debug.mockRestore()
   })

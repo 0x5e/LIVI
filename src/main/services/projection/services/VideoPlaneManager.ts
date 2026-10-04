@@ -32,7 +32,6 @@ export type VideoPlaneManagerDeps = {
 export class VideoPlaneManager {
   private gstVideo: GstVideo | null = null
   private gstVideoCodec: GstVideoCodec = 'h264'
-  private gstVideoCodecData: Buffer | null = null
   private gstVideoClusterCodecData: Buffer | null = null
   private gstVideoVisible = true
   private videoCrop: Region | null = null
@@ -48,7 +47,6 @@ export class VideoPlaneManager {
     this.gstVideo?.dispose()
     this.gstVideo = null
     this.gstVideoCodec = 'h264'
-    this.gstVideoCodecData = null
     for (const plane of this.gstVideoClusters.values()) plane.dispose()
     this.gstVideoClusters.clear()
     this.gstVideoClusterCodec = 'h264'
@@ -65,17 +63,6 @@ export class VideoPlaneManager {
     this.clusterCodecKnown = true
   }
 
-  // CarPlay's codec_data record, in before the first frame. Applied live if the plane exists.
-  setMainCodecData(codecData: Buffer): void {
-    this.gstVideoCodecData = codecData
-    this.gstVideo?.setCodecData(codecData)
-  }
-
-  setClusterCodecData(codecData: Buffer): void {
-    this.gstVideoClusterCodecData = codecData
-    for (const plane of this.gstVideoClusters.values()) plane.setCodecData(codecData)
-  }
-
   getMainCodec(): GstVideoCodec {
     return this.gstVideoCodec
   }
@@ -83,17 +70,14 @@ export class VideoPlaneManager {
   // Seed codec state from a restored session (raw, no keyframe reset / no live apply).
   restoreCodecs(
     mainCodec: GstVideoCodec | undefined,
-    clusterCodec: GstVideoCodec | undefined,
-    mainCodecData: Buffer | null,
-    clusterCodecData: Buffer | null
+    clusterCodec: GstVideoCodec | undefined
   ): void {
     if (mainCodec) this.gstVideoCodec = mainCodec
     if (clusterCodec) {
       this.gstVideoClusterCodec = clusterCodec
       this.clusterCodecKnown = true
     }
-    this.gstVideoCodecData = mainCodecData
-    this.gstVideoClusterCodecData = clusterCodecData
+    this.gstVideoClusterCodecData = null
   }
 
   // native-config path: create/prepare the main plane. Returns whether it was newly created.
@@ -101,7 +85,6 @@ export class VideoPlaneManager {
     const wc = this.deps.getWebContents()
     if (!wc || wc.isDestroyed?.()) return false
     this.gstVideoCodec = codec
-    this.gstVideoCodecData = atom
     const created = !this.gstVideo
     if (!this.gstVideo) {
       this.gstVideo = new GstVideo(wc, 'main', 'main', VIDEO_PLANE_MAIN)
@@ -147,7 +130,6 @@ export class VideoPlaneManager {
     if (!this.gstVideo) {
       this.gstVideo = new GstVideo(wc, 'main', 'main', VIDEO_PLANE_MAIN)
       this.gstVideo.setVisible(this.gstVideoVisible)
-      if (this.gstVideoCodecData) this.gstVideo.setCodecData(this.gstVideoCodecData)
       this.applyVideoCrop()
       this.deps.emit({ type: 'projection', shown: true })
     }

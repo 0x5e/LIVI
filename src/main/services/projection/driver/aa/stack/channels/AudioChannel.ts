@@ -4,8 +4,7 @@
  */
 
 import { EventEmitter } from 'node:events'
-import { AV_MSG, CH } from '../constants.js'
-import type { RawFrame } from '../frame/types.js'
+import { AV_MSG } from '../constants.js'
 import { decodeStart } from './protoEnc.js'
 
 type SendFn = (channelId: number, flags: number, msgId: number, data: Buffer) => void
@@ -39,7 +38,7 @@ export class AudioChannel extends EventEmitter {
     return CHANNEL_NAMES[this._channelId] ?? 'media'
   }
 
-  handleMessage(msgId: number, payload: Buffer, _frame: RawFrame): void {
+  handleMessage(msgId: number, payload: Buffer): void {
     switch (msgId) {
       case AV_MSG.START_INDICATION: {
         const start = decodeStart(payload)

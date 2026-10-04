@@ -37,7 +37,6 @@ export const DEFAULT_CONFIG: Config = {
   darkMode: true,
   displayBrightness: 1.0,
   displayBrightnessAuto: true,
-  nightMode: true,
   hand: HandDriveType.LHD,
   samplingFrequency: 1,
   autoConn: true,

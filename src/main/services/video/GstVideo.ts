@@ -262,12 +262,12 @@ export function setMacBackdrop(win: BrowserWindow, hex: string): void {
   if (process.platform !== 'darwin') return
   if (!win || win.isDestroyed()) return
   const a = load()
-  if (!a || typeof a.setBackdrop !== 'function') return
+  if (!a) return
   const [r, g, b] = hexToRgb255(hex)
   try {
     a.setBackdrop(win.getNativeWindowHandle(), r / 255, g / 255, b / 255)
   } catch {
-    // older addon build without setBackdrop, or no handle yet
+    // no native handle yet
   }
 }
 
@@ -291,7 +291,6 @@ export interface GstAddon {
   probeCodecs(): GstCodecProbe
   createPlayer(codec: string, windowHandle: Buffer, codecData?: Buffer, planeId?: number): unknown
   start(player: unknown): void
-  pushBuffer(player: unknown, buffer: Buffer): boolean
   setVisible(player: unknown, visible: boolean): void
   setContentRegion(
     player: unknown,
@@ -460,7 +459,7 @@ export function probeGstCodecs(): GstCodecProbe {
         av1: { hw: !!p.av1.hw, sw: !!p.av1.sw }
       }
     }
-    // host probe unavailable: fall through to the in-process addon
+    // host probe unavailable: the addon never loads on Linux, so nothing is offered
   }
   if (!a) return { h264: none, h265: none, vp9: none, av1: none }
   try {
@@ -482,7 +481,6 @@ export class GstVideo {
   private readonly id: number
   private started = false
   private claiming = false
-  private pendingBuffers: Buffer[] = []
   private player: unknown = null
   private codec: GstVideoCodec | null = null
   // hvcC/avcC record for a length-prefixed source (CarPlay). When set, the pipeline reads
@@ -543,8 +541,6 @@ export class GstVideo {
         this.codec = codec
         this.started = true
         this.applyGamma()
-        for (const b of this.pendingBuffers) gstHost.pushBuffer(this.id, b)
-        this.pendingBuffers = []
         onPlayerCreated?.()
       })
       return
@@ -565,23 +561,6 @@ export class GstVideo {
       this.applyGamma()
       onPlayerCreated?.()
     }
-  }
-
-  push(codec: GstVideoCodec, nal: Buffer): void {
-    if (useHostProcess) {
-      this.ensure(codec)
-      if (this.started) {
-        gstHost.pushBuffer(this.id, nal)
-      } else {
-        if (this.pendingBuffers.length >= 240) this.pendingBuffers.shift()
-        this.pendingBuffers.push(nal)
-      }
-      return
-    }
-    const a = load()
-    if (!a) return
-    this.ensure(codec)
-    if (this.player) a.pushBuffer(this.player, nal)
   }
 
   // Sets the length-prefixed codec_data (CarPlay hvcC/avcC); a later change recreates the
@@ -631,7 +610,6 @@ export class GstVideo {
   dispose(): void {
     if (useHostProcess) {
       this.claiming = false
-      this.pendingBuffers = []
       compositorControl.releaseClaim(this.role)
       if (this.started) gstHost.stop(this.id)
       this.started = false
@@ -660,10 +638,10 @@ export function onScreenReceiverConfig(
   screenConfigCb = cb
 }
 
-/** The port the phone streams to, or 0 when this build has no in-process receiver. */
+/** The port the phone streams to, or 0 when the addon did not load or could not bind. */
 export function openScreenReceiver(planeId: number, key: Buffer): number {
   const a = load()
-  if (!a?.openVideoReceiver) return 0
+  if (!a) return 0
   try {
     return a.openVideoReceiver(planeId, key, (codec: number, atom: Buffer) => {
       screenConfigCb?.(planeId, codec === 1 ? 'h265' : 'h264', atom)
@@ -675,7 +653,7 @@ export function openScreenReceiver(planeId: number, key: Buffer): number {
 }
 
 export function closeScreenReceiver(planeId: number): void {
-  load()?.closeVideoReceiver?.(planeId)
+  load()?.closeVideoReceiver(planeId)
 }
 
 // One CarPlay audio stream without a host process: the addon binds the RTP ports, decodes and
@@ -701,7 +679,7 @@ export function openAudioReceiver(
   o: CpAudioReceiverOpts
 ): { streamId: number; dataPort: number; controlPort: number } | null {
   const a = load()
-  if (!a?.openAudioReceiver) return null
+  if (!a) return null
   try {
     return (
       a.openAudioReceiver(
@@ -723,22 +701,22 @@ export function openAudioReceiver(
 }
 
 export function setAudioReceiverActive(streamId: number, active: boolean): void {
-  load()?.setAudioReceiverActive?.(streamId, active)
+  load()?.setAudioReceiverActive(streamId, active)
 }
 
 export function setAudioReceiverVolume(streamId: number, level: number, rampMs: number): void {
-  load()?.setAudioReceiverVolume?.(streamId, level, rampMs)
+  load()?.setAudioReceiverVolume(streamId, level, rampMs)
 }
 
 export function closeAudioReceiver(streamId: number): void {
-  load()?.closeAudioReceiver?.(streamId)
+  load()?.closeAudioReceiver(streamId)
 }
 
 // The CarPlay microphone stream without a host process: the addon captures, encodes as the
 // phone asked (opus or pcm) and sends the sealed RTP.
 export function openMicUplink(key: Buffer, o: MicStreamOpts): number | null {
   const a = load()
-  if (!a?.openMicUplink) return null
+  if (!a) return null
   try {
     return (
       a.openMicUplink(
@@ -761,7 +739,7 @@ export function openMicUplink(key: Buffer, o: MicStreamOpts): number | null {
 }
 
 export function closeMicUplink(id: number): void {
-  load()?.closeMicUplink?.(id)
+  load()?.closeMicUplink(id)
 }
 
 // The visualizer tap for in-process audio.
@@ -774,7 +752,7 @@ export function onAudioReceiverVisualizer(
 }
 
 export function setAudioReceiverVisualizerTap(on: boolean): void {
-  load()?.setAudioVisualizerTap?.(on, (samples: Buffer, sampleRate: number) =>
+  load()?.setAudioVisualizerTap(on, (samples: Buffer, sampleRate: number) =>
     visualizerCb?.(new Uint8Array(samples), sampleRate)
   )
 }

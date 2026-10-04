@@ -20,10 +20,6 @@ export class TransportArbiter {
 
   // Queries -----------------------------------------------------------------
 
-  getOverride(): Candidate | null {
-    return this.override
-  }
-
   detectedCandidates(): Candidate[] {
     const list: Candidate[] = []
     // A wired session the helper announced is a candidate, active or beside.
@@ -96,20 +92,6 @@ export class TransportArbiter {
   // Force the override to a specific candidate (used by device-list connect)
   setOverride(candidate: Candidate): void {
     this.override = candidate
-    this.deps.onChange()
-  }
-
-  prepareSwitch(): { ok: boolean; target: Candidate | null } {
-    const detected = this.detectedCandidates()
-    if (detected.length < 2) return { ok: false, target: this.currentCandidate() }
-
-    // If no session is running, anchor on the preferred candidate
-    const anchor = this.currentCandidate() ?? (this.pickPreferred() as Candidate)
-    const idx = detected.findIndex((c) => candidateEquals(c, anchor))
-    const next = detected[(idx + 1) % detected.length]
-    this.override = next
-    this.deps.onChange()
-    return { ok: true, target: next }
   }
 }
 

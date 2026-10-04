@@ -15,7 +15,7 @@ function crashLogPath(): string {
 }
 
 // Frame: [uint32 LE len][uint8 op][uint32 LE id][rest]. op 1 create([1B codecLen][codec]
-// [codec_data]), 2 data, 3 stop, 4 setGamma (5 float64).
+// [codec_data]), 3 stop.
 function frame(op: number, id: number, rest: Buffer): Buffer {
   const head = Buffer.allocUnsafe(9)
   head.writeUInt32LE(5 + rest.length, 0)
@@ -426,23 +426,8 @@ class GstHost {
     this.send(frame(1, id, rest))
   }
 
-  pushBuffer(id: number, nal: Buffer): void {
-    this.send(frame(2, id, nal))
-  }
-
   stop(id: number): void {
     this.send(frame(3, id, Buffer.alloc(0)))
-  }
-
-  // op 4: calibration LUT as 5 little-endian float64 (gamma, contrast, gain R/G/B).
-  setGamma(id: number, gamma: number, contrast: number, r: number, g: number, b: number): void {
-    const rest = Buffer.allocUnsafe(40)
-    rest.writeDoubleLE(gamma, 0)
-    rest.writeDoubleLE(contrast, 8)
-    rest.writeDoubleLE(r, 16)
-    rest.writeDoubleLE(g, 24)
-    rest.writeDoubleLE(b, 32)
-    this.send(frame(4, id, rest))
   }
 }
 

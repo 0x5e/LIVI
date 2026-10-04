@@ -156,10 +156,6 @@ export class AaSession extends EventEmitter implements IPhoneDriver {
     if (this._aaCfg) this._aaCfg.av1Supported = supported
   }
 
-  applyNightMode(night: boolean | undefined): void {
-    this.setInitialNightMode(night)
-  }
-
   setInitialNightMode(value: boolean | undefined): void {
     this._initialNightMode = value
     if (this._aaCfg) this._aaCfg.initialNightMode = value

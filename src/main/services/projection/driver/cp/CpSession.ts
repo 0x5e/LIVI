@@ -45,7 +45,7 @@ import type { IPhoneDriver } from '../IPhoneDriver'
 import type { CpHelperSock } from './CpHelperSock'
 import { CpStack } from './stack/cpStack'
 import { MediaButton, TelephonyButton } from './stack/hid'
-import type { CpAudioProfile, CpIcon, CpStackConfig, CpStreamProfile } from './stack/types'
+import type { CpAudioProfile, CpIcon, CpStackConfig } from './stack/types'
 
 /** Full knob-axis deflection: a d-pad direction maps to X/Y at the extreme (±127). */
 const KNOB_DEFLECT = 127
@@ -139,8 +139,6 @@ export class CpSession extends EventEmitter implements IPhoneDriver {
   setHevcSupported(supported: boolean): void {
     this._hevc = supported
   }
-  setVp9Supported(_supported: boolean): void {}
-  setAv1Supported(_supported: boolean): void {}
 
   setInitialNightMode(value: boolean | undefined): void {
     this._initialNightMode = value
@@ -246,10 +244,6 @@ export class CpSession extends EventEmitter implements IPhoneDriver {
       this._emitDisconnected()
     })
     stack.on('video-codec', (codec: string) => this.emit('video-codec', codec))
-    stack.on('video-config', (codecData: Buffer) => this.emit('video-config', codecData))
-    stack.on('cluster-video-config', (codecData: Buffer) =>
-      this.emit('cluster-video-config', codecData)
-    )
     stack.on('audio-active', (prof: CpAudioProfile, active: boolean) => {
       this.emit('message', buildCpAudioCommand(prof, active))
     })
@@ -578,7 +572,6 @@ export class CpSession extends EventEmitter implements IPhoneDriver {
       // AirPlay protocol version we announce.
       sourceVersion: cfg.carPlaySourceVersion?.trim() || DEFAULT_CONFIG.carPlaySourceVersion,
       hevc: this._hevc,
-      h264: !this._hevc,
       main: {
         widthPixels: mainW,
         heightPixels: mainH,

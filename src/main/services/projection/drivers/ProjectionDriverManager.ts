@@ -12,14 +12,17 @@ export type DriverEventHandlers = {
   onMetaMessage: (driver: IPhoneDriver, msg: Message) => void
   onVideoCodec: (codec: 'h264' | 'h265' | 'vp9' | 'av1') => void
   onClusterVideoCodec: (codec: 'h264' | 'h265' | 'vp9' | 'av1') => void
-  onVideoConfig: (codecData: Buffer) => void
-  onClusterVideoConfig: (codecData: Buffer) => void
 }
 
 export type AaConfigSeed = {
   hevcSupported: boolean
   vp9Supported: boolean
   av1Supported: boolean
+  initialNightMode: boolean | undefined
+}
+
+export type CpConfigSeed = {
+  hevcSupported: boolean
   initialNightMode: boolean | undefined
 }
 
@@ -36,7 +39,7 @@ export type DriverManagerDeps = {
   onCpHelperPresence?: (presence: Record<string, unknown>) => void
   onCpHelperConnect?: () => void
   onCpCreated?: (session: IPhoneDriver) => void
-  getCpConfigSeed: () => AaConfigSeed
+  getCpConfigSeed: () => CpConfigSeed
   getConfig: () => Config
   mediaSink?: AaMediaSinkDeps
 }
@@ -150,8 +153,6 @@ export class ProjectionDriverManager {
 
     const seed = this.deps.getCpConfigSeed()
     mgr.setHevcSupported(seed.hevcSupported)
-    mgr.setVp9Supported(seed.vp9Supported)
-    mgr.setAv1Supported(seed.av1Supported)
     mgr.setInitialNightMode(seed.initialNightMode)
     return mgr
   }
@@ -162,14 +163,6 @@ export class ProjectionDriverManager {
 
   setCpHevcSupported(supported: boolean): void {
     this.cpManager?.setHevcSupported(supported)
-  }
-
-  setCpVp9Supported(supported: boolean): void {
-    this.cpManager?.setVp9Supported(supported)
-  }
-
-  setCpAv1Supported(supported: boolean): void {
-    this.cpManager?.setAv1Supported(supported)
   }
 
   setCpInitialNightMode(value: boolean | undefined): void {
@@ -221,8 +214,6 @@ export class ProjectionDriverManager {
     d.on('message', handlers.onMessage)
     d.on('video-codec', handlers.onVideoCodec)
     d.on('cluster-video-codec', handlers.onClusterVideoCodec)
-    d.on('video-config', handlers.onVideoConfig)
-    d.on('cluster-video-config', handlers.onClusterVideoConfig)
   }
 
   private detachListeners(d: IPhoneDriver): void {
@@ -230,8 +221,6 @@ export class ProjectionDriverManager {
     d.off('message', handlers.onMessage)
     d.off('video-codec', handlers.onVideoCodec)
     d.off('cluster-video-codec', handlers.onClusterVideoCodec)
-    d.off('video-config', handlers.onVideoConfig)
-    d.off('cluster-video-config', handlers.onClusterVideoConfig)
   }
 
   private attachMetaListener(d: IPhoneDriver): void {

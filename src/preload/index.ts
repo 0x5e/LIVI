@@ -1,4 +1,4 @@
-import type { Config, TransportSnapshot } from '@shared/types'
+import type { Config } from '@shared/types'
 import type { MultiTouchPoint } from '@shared/types/TouchTypes'
 import { contextBridge, IpcRendererEvent, ipcRenderer } from 'electron'
 
@@ -6,17 +6,6 @@ type ApiCallback<TArgs extends unknown[] = unknown[]> = (
   event: IpcRendererEvent,
   ...args: TArgs
 ) => void
-
-let usbEventQueue: Array<[IpcRendererEvent, ...unknown[]]> = []
-let usbEventHandlers: Array<ApiCallback> = []
-
-ipcRenderer.on('usb-event', (event, ...args: unknown[]) => {
-  if (usbEventHandlers.length) {
-    usbEventHandlers.forEach((h) => h(event, ...args))
-  } else {
-    usbEventQueue.push([event, ...args])
-  }
-})
 
 type ChunkHandler = (payload: unknown) => void
 let audioChunkQueue: unknown[] = []
@@ -72,19 +61,6 @@ ipcRenderer.on('app:media-key', (_event, command: unknown) => {
 })
 
 const api = {
-  quit: (): Promise<void> => ipcRenderer.invoke('quit'),
-
-  usb: {
-    listenForEvents: (callback: ApiCallback): (() => void) => {
-      usbEventHandlers.push(callback)
-      usbEventQueue.forEach(([evt, ...args]) => callback(evt, ...args))
-      usbEventQueue = []
-      return () => {
-        usbEventHandlers = usbEventHandlers.filter((cb) => cb !== callback)
-      }
-    }
-  },
-
   settings: {
     get: (): Promise<Config> => ipcRenderer.invoke('getSettings'),
     save: (settings: Partial<Config>): Promise<void> =>
@@ -120,9 +96,6 @@ const api = {
     sendFrame: (): Promise<void> => ipcRenderer.invoke('projection-sendframe'),
     connectBluetoothPairedDevice: (mac: string): Promise<{ ok: boolean }> =>
       ipcRenderer.invoke('projection-bt-connect-device', mac),
-    switchTransport: (): Promise<{ ok: boolean; active: 'aa' | 'cp' | null }> =>
-      ipcRenderer.invoke('transport:switch'),
-    getTransportState: (): Promise<TransportSnapshot> => ipcRenderer.invoke('transport:state'),
     getDevices: (): Promise<
       Array<{
         id: string
@@ -239,8 +212,6 @@ const appApi = {
   customIconUrl: (): Promise<string | null> => ipcRenderer.invoke('app:customIconUrl'),
   quitApp: (): Promise<void> => ipcRenderer.invoke('app:quitApp'),
   restartApp: (): Promise<void> => ipcRenderer.invoke('app:restartApp'),
-  openExternal: (url: string): Promise<{ ok: boolean; error?: string }> =>
-    ipcRenderer.invoke('app:openExternal', url),
 
   notifyUserActivity: (): void => {
     ipcRenderer.send('app:user-activity')

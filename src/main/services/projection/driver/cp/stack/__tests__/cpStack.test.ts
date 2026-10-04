@@ -21,20 +21,12 @@ import { buildResponse, parseMessages, type RtspRequest } from '../rtspMessage'
 import type { CpStackConfig } from '../types'
 
 const reg = vi.hoisted(() => {
-  const audioStreams: Record<string, unknown>[] = []
-  const screens: Record<string, unknown>[] = []
-  const decoders: Record<string, unknown>[] = []
-  const uplinks: Record<string, unknown>[] = []
   const tunnels: Record<string, unknown>[] = []
   const timings: Record<string, unknown>[] = []
   const keepAlives: Record<string, unknown>[] = []
   const eventServers: Record<string, unknown>[] = []
   const relays: Record<string, unknown>[] = []
   return {
-    audioStreams,
-    screens,
-    decoders,
-    uplinks,
     tunnels,
     timings,
     keepAlives,
@@ -73,8 +65,7 @@ vi.mock('@main/services/video/gstHost', () => ({
   VIDEO_PLANE_CLUSTER_RECV: 0x7a000010
 }))
 
-// In-process receiver mock: 0 = not available (the ScreenStream fallback); a test sets a port
-// to enable it.
+// In-process receiver mock: 0 = the addon opened none; a test sets a port to enable it.
 const inProcPort = { value: 0 }
 vi.mock('@main/services/video/GstVideo', () => ({
   openScreenReceiver: vi.fn(() => inProcPort.value),
@@ -88,51 +79,6 @@ vi.mock('@main/services/video/GstVideo', () => ({
   openMicUplink: vi.fn(() => null),
   closeMicUplink: vi.fn()
 }))
-
-vi.mock('../screenStream', async () => {
-  const { EventEmitter } = await import('node:events')
-  class ScreenStream extends EventEmitter {
-    key: Buffer
-    stop = vi.fn()
-    listen = vi.fn(async () => 42000)
-    constructor(key: Buffer) {
-      super()
-      this.key = key
-      reg.screens.push(this as unknown as Record<string, unknown>)
-    }
-  }
-  return { ScreenStream }
-})
-
-vi.mock('../rtpAudioDecoder', async () => {
-  const { EventEmitter } = await import('node:events')
-  class CpRtpAudioDecoder extends EventEmitter {
-    opts: Record<string, unknown>
-    start = vi.fn(async () => true)
-    write = vi.fn()
-    stop = vi.fn()
-    constructor(opts: Record<string, unknown>) {
-      super()
-      this.opts = opts
-      reg.decoders.push(this as unknown as Record<string, unknown>)
-    }
-  }
-  return { CpRtpAudioDecoder }
-})
-
-vi.mock('../micUplink', () => {
-  class CpMicUplink {
-    opts: Record<string, unknown>
-    start = vi.fn()
-    stop = vi.fn()
-    write = vi.fn()
-    constructor(opts: Record<string, unknown>) {
-      this.opts = opts
-      reg.uplinks.push(this as unknown as Record<string, unknown>)
-    }
-  }
-  return { CpMicUplink }
-})
 
 vi.mock('../iapTunnel', async () => {
   const { EventEmitter } = await import('node:events')
@@ -212,7 +158,6 @@ function baseCfg(over: Partial<CpStackConfig> = {}): CpStackConfig {
     btMac: 'AA:BB:CC:DD:EE:FF',
     sourceVersion: '1.0',
     hevc: true,
-    h264: false,
     main: { widthPixels: 1920, heightPixels: 1080, fps: 60 },
     cluster: { widthPixels: 1280, heightPixels: 720, fps: 60 },
     entertainmentSampleRate: 48000,
@@ -296,10 +241,6 @@ let warnSpy: ReturnType<typeof vi.spyOn>
 const originalPlatform = process.platform
 
 beforeEach(() => {
-  reg.audioStreams.length = 0
-  reg.screens.length = 0
-  reg.decoders.length = 0
-  reg.uplinks.length = 0
   reg.tunnels.length = 0
   reg.timings.length = 0
   reg.keepAlives.length = 0
@@ -620,7 +561,6 @@ describe('CpStack SETUP', () => {
     )) as Record<string, unknown>
     const streams = res.body && Buffer.isBuffer(res.body) ? res.body : Buffer.alloc(0)
     expect(streams.length).toBeGreaterThan(0)
-    expect(reg.screens.length).toBeGreaterThan(0)
     expect(reg.gst.openAudio).toHaveBeenCalledTimes(1)
     expect(reg.tunnels.length).toBe(1)
   })
@@ -836,8 +776,7 @@ describe('CpStack screen setup', () => {
       expect(port).toBe(40500)
       expect(codec).toHaveBeenCalledWith('h264')
       expect(ready).toHaveBeenCalled()
-      // the frames reach the plane inside the addon, so no ScreenStream is built here
-      expect(session.screen).toBeFalsy()
+      expect(session.screenInProcess).toBe(true)
     } finally {
       inProcPort.value = 0
     }
@@ -857,7 +796,6 @@ describe('CpStack screen setup', () => {
       expect(session.clusterScreenNativeId).toBeTruthy()
       expect(session.clusterScreenInProcess).toBe(true)
       expect(clusterCodec).toHaveBeenCalledWith('h264')
-      expect(session.clusterScreen).toBeFalsy()
     } finally {
       inProcPort.value = 0
     }
@@ -913,42 +851,22 @@ describe('CpStack screen setup', () => {
     expect(clusterCodec).toHaveBeenCalledWith('h264')
   })
 
-  it('builds a ScreenStream off linux and emits codec, config and frames', async () => {
+  it('answers port 0 off linux when the addon opens no receiver', async () => {
     Object.defineProperty(process, 'platform', { value: 'darwin', configurable: true })
     const { stack, session } = await stackWith()
-    internals(stack)._clusterWantActive = true
     const codec = vi.fn()
-    const config = vi.fn()
-    const frame = vi.fn()
+    const ready = vi.fn()
     stack.on('video-codec', codec)
-    stack.on('video-config', config)
-    stack.on('video-frame', frame)
-    await internals(stack)._setupScreen({ streamConnectionID: 1 }, session)
-    const screen = reg.screens[0]
-    screen?.emit?.('codec', 'h264')
-    screen?.emit?.('codec', 'h264')
-    screen?.emit?.('config', Buffer.from('cfg'))
-    screen?.emit?.('frame', Buffer.from('nal'))
-    screen?.emit?.('frame', Buffer.from('nal2'))
-    expect(codec).toHaveBeenCalledTimes(1)
-    expect(config).toHaveBeenCalled()
-    expect(frame).toHaveBeenCalledTimes(2)
-  })
+    stack.on('main-screen-ready', ready)
 
-  it('emits cluster codec only once for the alt screen off linux', async () => {
-    Object.defineProperty(process, 'platform', { value: 'darwin', configurable: true })
-    const { stack, session } = await stackWith({ hevc: false })
-    const codec = vi.fn()
-    const frame = vi.fn()
-    stack.on('cluster-video-codec', codec)
-    stack.on('cluster-video-frame', frame)
-    await internals(stack)._setupScreen({ streamConnectionID: 2 }, session, true)
-    const screen = reg.screens[0]
-    screen?.emit?.('codec', 'h264')
-    screen?.emit?.('codec', 'h264')
-    screen?.emit?.('frame', Buffer.from('nal'))
-    expect(codec).toHaveBeenCalledTimes(1)
-    expect(frame).toHaveBeenCalledTimes(1)
+    await expect(internals(stack)._setupScreen({ streamConnectionID: 1 }, session)).resolves.toBe(0)
+    await expect(
+      internals(stack)._setupScreen({ streamConnectionID: 2 }, session, true)
+    ).resolves.toBe(0)
+    expect(session.screenNativeId).toBeNull()
+    expect(session.clusterScreenNativeId).toBeNull()
+    expect(codec).not.toHaveBeenCalled()
+    expect(ready).not.toHaveBeenCalled()
   })
 })
 
@@ -1704,8 +1622,6 @@ describe('CpStack teardown', () => {
     session.heartbeat = setInterval(() => {}, 1000)
     session.timing = { stop: vi.fn() }
     session.keepAlive = { stop: vi.fn() }
-    session.screen = { stop: vi.fn() }
-    session.clusterScreen = { stop: vi.fn() }
     session.screenNativeId = 11
     session.clusterScreenNativeId = 22
     session.audioMeta = [meta(100, 9)]
@@ -1726,7 +1642,6 @@ describe('CpStack teardown', () => {
 
   it('tears down a session-level TEARDOWN and a per-stream TEARDOWN', async () => {
     const { stack, session } = await fresh()
-    session.screen = { stop: vi.fn() }
     session.audioMeta = [meta(100)]
 
     const perStream = internals(stack)._handleTeardown(
@@ -2041,19 +1956,5 @@ describe('CpStack data stream and screen branches', () => {
     await internals(stack)._setupScreen({ streamConnectionID: 1 }, session)
     await internals(stack)._setupScreen({ streamConnectionID: 2 }, session, true)
     expect(reg.gst.setActiveFeeder).not.toHaveBeenCalled()
-  })
-
-  it('emits main frames off linux without activating an inactive cluster', async () => {
-    Object.defineProperty(process, 'platform', { value: 'darwin', configurable: true })
-    const CpStack = await loadStack()
-    const stack = new CpStack(baseCfg())
-    const { session } = attach(stack)
-    stubVerify(session)
-    const frame = vi.fn()
-    stack.on('video-frame', frame)
-    await internals(stack)._setupScreen({ streamConnectionID: 1 }, session)
-    reg.screens[0]?.emit?.('frame', Buffer.from('nal'))
-    expect(frame).toHaveBeenCalled()
-    expect(session.mainStreamReady).toBe(true)
   })
 })

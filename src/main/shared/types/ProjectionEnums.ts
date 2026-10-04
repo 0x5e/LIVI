@@ -1,11 +1,8 @@
 export enum CommandMapping {
   requestHostUI = 3, // 'Projection interface My Car button clicked'
-  disableBluetooth = 4,
   voiceAssistant = 5, // PTT press (VOICE_ASSIST keycode)
   voiceAssistantRelease = 6, // PTT release
   frame = 12,
-  enableNightMode = 16,
-  disableNightMode = 17,
 
   // D-PAD
   left = 100, // 'Button Left'

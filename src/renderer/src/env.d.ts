@@ -1,4 +1,4 @@
-import type { Config, DeviceView, TransportSnapshot } from '@shared/types'
+import type { Config, DeviceView } from '@shared/types'
 import type { MultiTouchPoint } from '@shared/types/TouchTypes'
 
 declare global {
@@ -48,12 +48,6 @@ type MediaPayload = {
 declare global {
   interface Window {
     projection: {
-      quit(): Promise<void>
-
-      usb: {
-        listenForEvents(callback: (event: unknown, ...args: unknown[]) => void): () => void
-      }
-
       settings: {
         get(): Promise<Config>
         save(settings: Partial<Config>): Promise<void>
@@ -105,9 +99,7 @@ declare global {
 
         connectBluetoothPairedDevice(mac: string): Promise<{ ok: boolean }>
 
-        switchTransport(): Promise<{ ok: boolean; active: 'aa' | 'cp' | null }>
         cycleSession(): Promise<void>
-        getTransportState(): Promise<TransportSnapshot>
         getDevices(): Promise<DeviceView[]>
       }
     }
@@ -140,7 +132,6 @@ declare global {
       onUpdateProgress(cb: (payload: UpdateProgress) => void): () => void
       beginInstall(): Promise<void>
       abortUpdate(): Promise<void>
-      openExternal(url: string): Promise<{ ok: boolean; error?: string }>
       broadcastMediaKey(command: string): void
       onMediaKey(handler: (command: string) => void): () => void
     }

@@ -16,7 +16,6 @@ files:
   - '!**/*.map'
   - '!{.env,.env.*,.npmrc,pnpm-lock.yaml,CHANGELOG.md,README.md}'
   - '!src/**'
-  - '!out/main/driver/**'
   - '!out/compositor/**'
   - '!**/node_modules/livi-gst-video/{rust,src}/**'
   - '!**/node_modules/livi-crypto/{rust,src}/**'

@@ -140,7 +140,6 @@ vi.mock('../ProjectionAudio', () => ({
       resetForSessionStop: vi.fn(),
       setStreamVolume: vi.fn(),
       setVisualizerEnabled: vi.fn(),
-      handleAudioData: vi.fn(),
       duck: vi.fn(),
       unduck: vi.fn(),
       restoreDuck: vi.fn(),
@@ -283,29 +282,21 @@ describe('ProjectionService driver getters and codec caps', () => {
     expect(svc.getAaDriver()).toBeNull()
   })
 
-  test('codec capability changes are pushed to both driver stacks', () => {
+  test('codec capability changes are pushed to the driver stacks', () => {
     const svc = makeSvc()
     svc.drivers.setAaHevcSupported = vi.fn()
     svc.drivers.setCpHevcSupported = vi.fn()
     svc.drivers.setAaVp9Supported = vi.fn()
-    svc.drivers.setCpVp9Supported = vi.fn()
     svc.drivers.setAaAv1Supported = vi.fn()
-    svc.drivers.setCpAv1Supported = vi.fn()
 
-    svc.codecCaps.applyCodecCapabilities({})
-    svc.codecCaps.applyCodecCapabilities({
-      h265: { hw: true },
-      vp9: { hw: true },
-      av1: { hw: true }
-    })
+    svc.codecCaps.onSupportChange('hevc', true)
+    svc.codecCaps.onSupportChange('vp9', true)
+    svc.codecCaps.onSupportChange('av1', true)
 
     expect(svc.drivers.setAaHevcSupported).toHaveBeenCalledWith(true)
     expect(svc.drivers.setCpHevcSupported).toHaveBeenCalledWith(true)
     expect(svc.drivers.setAaVp9Supported).toHaveBeenCalledWith(true)
-    expect(svc.drivers.setCpVp9Supported).toHaveBeenCalledWith(true)
     expect(svc.drivers.setAaAv1Supported).toHaveBeenCalledWith(true)
-    expect(svc.drivers.setCpAv1Supported).toHaveBeenCalledWith(true)
-    expect(svc.getHevcSupported()).toBe(true)
   })
 })
 
@@ -621,7 +612,7 @@ describe('ProjectionService video handling', () => {
     svc.syncVideoActiveFeeder()
   })
 
-  test('attachCodecCapture wires codec + config events onto a driver', () => {
+  test('attachCodecCapture wires codec events onto a driver', () => {
     const svc = makeSvc()
     const d = fakeDriver()
     const s = svc.sessions.upsert(d, 'androidauto', 'wifi', {})
@@ -629,13 +620,11 @@ describe('ProjectionService video handling', () => {
 
     d.emit('video-codec', 'h264')
     d.emit('cluster-video-codec', 'h265')
-    d.emit('video-config', Buffer.from([1]))
-    d.emit('cluster-video-config', Buffer.from([2]))
 
     expect(svc.lastMainCodecByDriver.get(d)).toBe('h264')
     expect(svc.lastClusterCodecByDriver.get(d)).toBe('h265')
     expect(s.video.main.codec).toBe('h264')
-    expect(s.video.cluster.codecData).toEqual(Buffer.from([2]))
+    expect(s.video.cluster.codec).toBe('h265')
   })
 
   test('attachCodecCapture tolerates codec events with no matching session', () => {
@@ -645,26 +634,18 @@ describe('ProjectionService video handling', () => {
     expect(() => {
       d.emit('video-codec', 'h264')
       d.emit('cluster-video-codec', 'h265')
-      d.emit('video-config', Buffer.from([1]))
-      d.emit('cluster-video-config', Buffer.from([2]))
     }).not.toThrow()
   })
 
   test('driver event forwarders delegate to the plane manager', () => {
     const svc = makeSvc()
     svc.planes.setMainCodec = vi.fn()
-    svc.planes.setMainCodecData = vi.fn()
-    svc.planes.setClusterCodecData = vi.fn()
     svc.planes.setClusterCodec = vi.fn()
 
     svc.onDriverVideoCodec('h264')
-    svc.onDriverVideoConfig(Buffer.from([1]))
-    svc.onDriverClusterVideoConfig(Buffer.from([2]))
     svc.onDriverClusterVideoCodec('vp9')
 
     expect(svc.planes.setMainCodec).toHaveBeenCalledWith('h264')
-    expect(svc.planes.setMainCodecData).toHaveBeenCalled()
-    expect(svc.planes.setClusterCodecData).toHaveBeenCalled()
     expect(svc.planes.setClusterCodec).toHaveBeenCalledWith('vp9')
   })
 
@@ -1083,12 +1064,10 @@ describe('ProjectionService presence handlers', () => {
 describe('ProjectionService delegations and ipc host', () => {
   test('simple arbiter/controller delegations', () => {
     const svc = makeSvc()
-    svc.arbiter.getSnapshot = vi.fn(() => ({ snap: 1 }))
     svc.deviceController.getDevices = vi.fn(() => [])
     svc.deviceController.forgetDevice = vi.fn(() => ({ ok: true }))
     svc.deviceController.selectDevice = vi.fn(() => ({ ok: true }))
 
-    expect(svc.getTransportState()).toEqual({ snap: 1 })
     expect(svc.getDevices()).toEqual([])
     expect(svc.forgetDevice('id')).toEqual({ ok: true })
     expect(svc.selectDevice('id')).toEqual({ ok: true })
@@ -1109,8 +1088,6 @@ describe('ProjectionService delegations and ipc host', () => {
     const svc = makeSvc()
     svc.restartSession = vi.fn(async () => undefined)
     svc.setVideoVisible = vi.fn()
-    svc.switchTransport = vi.fn(async () => ({ ok: true, active: null }))
-    svc.getTransportState = vi.fn(() => ({}))
     svc.getDevices = vi.fn(() => [])
     svc.selectDevice = vi.fn(() => ({ ok: true }))
     svc.forgetDevice = vi.fn(() => ({ ok: true }))
@@ -1118,19 +1095,15 @@ describe('ProjectionService delegations and ipc host', () => {
     svc.refreshBtPairedList = vi.fn(async () => 0)
     svc.setClusterVisible = vi.fn()
     svc.getClusterTargetWebContents = vi.fn(() => [])
-    svc.codecCaps.applyCodecCapabilities = vi.fn()
     svc.sessions.activateNext = vi.fn()
 
     const host = svc.buildIpcHost()
     await host.restartSession()
     host.setVideoVisible(true)
-    await host.switchTransport()
-    host.getTransportState()
     host.getDevices()
     host.selectDevice('x')
     host.cycleSession()
     host.forgetDevice('x')
-    host.applyCodecCapabilities({})
     expect(host.isUsingAa()).toBe(false)
     await host.connectBt('AA:BB')
     host.refreshBtPaired()
@@ -1139,7 +1112,6 @@ describe('ProjectionService delegations and ipc host', () => {
     host.getClusterTargetWebContents()
 
     expect(svc.restartSession).toHaveBeenCalled()
-    expect(svc.switchTransport).toHaveBeenCalled()
     expect(svc.sessions.activateNext).toHaveBeenCalled()
     expect(svc.connectPairedDevice).toHaveBeenCalledWith('AA:BB')
   })
@@ -1325,18 +1297,16 @@ describe('ProjectionService onConfigChanged', () => {
     expect(svc.drivers.setAaInitialNightMode).toHaveBeenLastCalledWith(undefined)
   })
 
-  test('resyncs helper supervisor and transport on a wireless toggle', () => {
+  test('resyncs the helper supervisor on a wireless toggle', () => {
     const svc = makeSvc()
     svc.planes.retainScreens = vi.fn()
     svc.syncClusterStreamFocus = vi.fn()
     svc.syncHelperSupervisor = vi.fn()
-    svc.emitTransportState = vi.fn()
     svc.config = { wirelessAaEnabled: false }
 
     svc.onConfigChanged({ wirelessAaEnabled: true })
 
     expect(svc.syncHelperSupervisor).toHaveBeenCalled()
-    expect(svc.emitTransportState).toHaveBeenCalled()
   })
 
   test('reacts to audio device changes', () => {
@@ -1387,7 +1357,6 @@ describe('ProjectionService syncHelperSupervisor (linux)', () => {
     svc.openAaBtSubscription = vi.fn()
     svc.closeAaBtSubscription = vi.fn()
     svc.populateAaBtPairedListInitial = vi.fn(async () => undefined)
-    svc.emitTransportState = vi.fn()
     svc.connectConfiguredAudioDevices = vi.fn(async () => undefined)
     svc.setWirelessPhoneInRange = vi.fn()
   }
@@ -1737,7 +1706,6 @@ describe('ProjectionService constructor wiring closures', () => {
     svc.lastPluggedProtocol = 'androidauto'
     svc.config = { language: 'de' }
     svc.webContents = { id: 1, send: vi.fn() }
-    svc.hostDevList = [{ id: 'x' }]
     svc.lastVideoWidth = 10
     svc.lastVideoHeight = 20
     svc.lastClusterVideoWidth = 30
@@ -1795,8 +1763,6 @@ describe('ProjectionService constructor wiring closures', () => {
     deps.handlers.onMetaMessage(d, new MediaData())
     deps.handlers.onVideoCodec('h264')
     deps.handlers.onClusterVideoCodec('h264')
-    deps.handlers.onVideoConfig(Buffer.from([1]))
-    deps.handlers.onClusterVideoConfig(Buffer.from([1]))
     deps.onAaConnected(d)
     deps.onAaDisconnected(d)
     deps.onAaPresence(d, {})
@@ -1808,7 +1774,7 @@ describe('ProjectionService constructor wiring closures', () => {
     deps.onCpHelperPresence({})
     deps.onCpHelperConnect()
     deps.onCpCreated(d)
-    expect(deps.getCpConfigSeed()).toMatchObject({ vp9Supported: expect.any(Boolean) })
+    expect(deps.getCpConfigSeed()).toMatchObject({ hevcSupported: expect.any(Boolean) })
     expect(deps.getConfig()).toBe(svc.config)
 
     expect(svc.onMetaMessage).toHaveBeenCalled()
@@ -1818,7 +1784,6 @@ describe('ProjectionService constructor wiring closures', () => {
 
   test('arbiter dependency closures reflect service state and drive callbacks', () => {
     const svc = makeSvc()
-    svc.emitTransportState = vi.fn()
     svc.getActiveTransport = vi.fn(() => 'aa')
     svc.started = true
 
@@ -1833,29 +1798,23 @@ describe('ProjectionService constructor wiring closures', () => {
     expect(typeof deps.isWiredCpSessionActive()).toBe('boolean')
     expect(deps.hasWiredAaSession()).toBe(false)
     expect(deps.hasWiredCpSession()).toBe(false)
-    deps.onChange()
-
-    expect(svc.emitTransportState).toHaveBeenCalled()
   })
 
-  test('audio closures wire projection events, chunking and stream levels back to the service', () => {
+  test('audio closures wire chunking and stream levels back to the service', () => {
     const svc = makeSvc()
-    svc.emitProjectionEvent = vi.fn()
     svc.sendChunked = vi.fn()
     svc.getAllUiWebContents = vi.fn(() => [])
     const withVolume = { setStreamVolume: vi.fn() }
     svc.drivers.getActive = vi.fn(() => withVolume)
 
     const args = (ProjectionAudio as unknown as Mock).mock.calls.at(-1)!
-    // Control only: config, events, chunks and the level hook, no microphone
-    expect(args).toHaveLength(4)
-    const [getConfig, sendProjectionEvent, sendChunked, applyStreamVolume] = args
+    // Control only: config, chunks and the level hook, no microphone
+    expect(args).toHaveLength(3)
+    const [getConfig, sendChunked, applyStreamVolume] = args
     expect(getConfig()).toBe(svc.config)
-    sendProjectionEvent({ type: 'audio' })
     sendChunked('projection-audio-chunk', new ArrayBuffer(2), 64, { a: 1 })
     applyStreamVolume(3, 0.5, 250)
 
-    expect(svc.emitProjectionEvent).toHaveBeenCalledWith({ type: 'audio' })
     expect(svc.sendChunked).toHaveBeenCalled()
     expect(withVolume.setStreamVolume).toHaveBeenCalledWith(3, 0.5, 250)
   })
@@ -1880,7 +1839,6 @@ describe('ProjectionService start / autoStart', () => {
     svc.syncClusterStreamFocus = vi.fn()
     svc.clearStartRetry = vi.fn()
     svc.scheduleStartRetry = vi.fn()
-    svc.emitTransportState = vi.fn()
   }
 
   test('start brings up CarPlay', async () => {
@@ -1978,69 +1936,6 @@ describe('ProjectionService start / autoStart', () => {
 })
 
 describe('ProjectionService transport switch / restart / connect', () => {
-  test('switchTransport returns not-ok when the arbiter refuses', async () => {
-    const svc = makeSvc()
-    svc.arbiter.prepareSwitch = vi.fn(() => ({ ok: false, target: { transport: 'aa' } }))
-    const res = await svc.switchTransport()
-    expect(res).toEqual({ ok: false, active: 'aa' })
-  })
-
-  test('switchTransport is a no-op while another switch is running', async () => {
-    const svc = makeSvc()
-    svc.arbiter.prepareSwitch = vi.fn(() => ({ ok: true, target: { transport: 'aa' } }))
-    svc.isSwitching = true
-    const res = await svc.switchTransport()
-    expect(res).toEqual({ ok: true, active: 'aa' })
-  })
-
-  test('switchTransport stops and restarts on the desired transport', async () => {
-    const svc = makeSvc()
-    svc.arbiter.prepareSwitch = vi.fn(() => ({ ok: true, target: { transport: 'cp' } }))
-    svc.arbiter.getOverride = vi
-      .fn()
-      .mockReturnValueOnce({ transport: 'cp', mode: 'wired' })
-      .mockReturnValue(null)
-    svc.getActiveTransport = vi.fn(() => 'cp')
-    svc.isActiveAaWired = vi.fn(() => false)
-    svc.started = true
-    svc.stop = vi.fn(async () => {
-      svc.started = false
-    })
-    svc.autoStartIfNeeded = vi.fn(async () => undefined)
-
-    const res = await svc.switchTransport()
-    expect(svc.stop).toHaveBeenCalled()
-    expect(svc.autoStartIfNeeded).toHaveBeenCalled()
-    expect(res.ok).toBe(true)
-  })
-
-  test('switchTransport leaving wireless AA bounces BT and reconnects', async () => {
-    vi.useFakeTimers()
-    const svc = makeSvc()
-    svc.arbiter.prepareSwitch = vi.fn(() => ({ ok: true, target: { transport: 'aa' } }))
-    svc.arbiter.getOverride = vi
-      .fn()
-      .mockReturnValueOnce({ transport: 'aa', mode: 'wireless' })
-      .mockReturnValue(null)
-    svc.getActiveTransport = vi.fn(() => 'aa')
-    svc.isActiveAaWired = vi.fn(() => false)
-    svc.started = true
-    svc.stop = vi.fn(async () => {
-      svc.started = false
-    })
-    svc.bounceAaBtConnections = vi.fn(async () => undefined)
-    svc.tryAutoConnect = vi.fn(async () => undefined)
-    svc.autoStartIfNeeded = vi.fn(async () => undefined)
-
-    const p = svc.switchTransport()
-    await vi.advanceTimersByTimeAsync(600)
-    await p
-    expect(bluezMock.deauthApClients).toHaveBeenCalled()
-    expect(svc.bounceAaBtConnections).toHaveBeenCalled()
-    expect(svc.tryAutoConnect).toHaveBeenCalledWith({ force: true })
-    vi.useRealTimers()
-  })
-
   test('restartSession drops CarPlay sessions when native CarPlay is active', async () => {
     const svc = makeSvc()
     svc.cpActive = true
@@ -2358,17 +2253,6 @@ describe('ProjectionService tryAutoConnect guards', () => {
 })
 
 describe('ProjectionService refresh + populate edge cases', () => {
-  test('refreshBtPairedList keeps last host entries on a transient empty list', async () => {
-    const svc = makeSvc()
-    svc.hostDevList = [
-      { id: 'AA:BB', name: 'x', type: '', source: 'host', class: 0, connected: false }
-    ]
-    svc.deviceController.emitDevices = vi.fn()
-    bluezMock.listPaired.mockResolvedValueOnce([])
-    await svc.refreshBtPairedList()
-    expect(svc.hostDevList).toHaveLength(1)
-  })
-
   test('populateAaBtPairedListInitial retries on empty and gives up at the deadline', async () => {
     vi.useFakeTimers()
     const svc = makeSvc()
@@ -2470,7 +2354,6 @@ describe('ProjectionService branch coverage fill', () => {
     svc.planes.resetClusterStreamActive = vi.fn()
     svc.syncClusterStreamFocus = vi.fn()
     svc.clearStartRetry = vi.fn()
-    svc.emitTransportState = vi.fn()
     svc.config = { audioVolume: 0.5, navVolume: 0.4, voiceAssistantVolume: 0.3, callVolume: 0.2 }
     svc.arbiter.pickPreferred = vi.fn(() => ({ transport: 'aa', mode: 'wireless' }))
     svc.drivers.attachHelper = vi.fn()
@@ -2584,7 +2467,6 @@ describe('ProjectionService remaining edges', () => {
     svc.planes.retainScreens = vi.fn()
     svc.syncClusterStreamFocus = vi.fn()
     svc.syncHelperSupervisor = vi.fn()
-    svc.emitTransportState = vi.fn()
     svc.connectConfiguredAudioDevices = vi.fn(async () => undefined)
     svc.systemSound.onDeviceChanged = vi.fn()
     svc.config = { wirelessCpEnabled: false, audioInputDevice: 'a' }
@@ -2714,14 +2596,13 @@ describe('ProjectionService error-lambda and small-branch coverage', () => {
       svc.drivers.startCp = vi.fn()
       svc.drivers.attachHelper = vi.fn()
       svc.openAaBtSubscription = vi.fn()
-      svc.emitTransportState = vi.fn()
       svc.connectConfiguredAudioDevices = vi.fn(async () => undefined)
       svc.populateAaBtPairedListInitial = vi.fn(async () => undefined)
       svc.config = { wirelessAaEnabled: true }
       svc.syncHelperSupervisor()
       await Promise.resolve()
       await Promise.resolve()
-      expect(svc.emitTransportState).toHaveBeenCalled()
+      expect(svc.connectConfiguredAudioDevices).toHaveBeenCalled()
     } finally {
       Object.defineProperty(process, 'platform', { value: 'darwin', configurable: true })
     }
@@ -2874,68 +2755,6 @@ describe('ProjectionService final branch fill', () => {
     expect(svc.planes.deps.getClusterVideoSize()).toEqual({ width: 0, height: 0 })
   })
 
-  test('switchTransport breaks immediately when the override is already gone', async () => {
-    const svc = makeSvc()
-    svc.arbiter.prepareSwitch = vi.fn(() => ({ ok: true, target: { transport: 'aa' } }))
-    svc.arbiter.getOverride = vi.fn(() => null)
-    svc.stop = vi.fn(async () => undefined)
-    svc.autoStartIfNeeded = vi.fn(async () => undefined)
-    const res = await svc.switchTransport()
-    expect(svc.stop).not.toHaveBeenCalled()
-    expect(res.ok).toBe(true)
-  })
-
-  test('switchTransport skips the stop when nothing is started and loops on override changes', async () => {
-    const svc = makeSvc()
-    svc.arbiter.prepareSwitch = vi.fn(() => ({ ok: false, target: null }))
-    const res1 = await svc.switchTransport()
-    expect(res1).toEqual({ ok: false, active: null })
-
-    const svc2 = makeSvc()
-    svc2.arbiter.prepareSwitch = vi.fn(() => ({ ok: true, target: { transport: 'cp' } }))
-    svc2.arbiter.getOverride = vi
-      .fn()
-      .mockReturnValueOnce({ transport: 'cp', mode: 'wired' })
-      .mockReturnValueOnce({ transport: 'aa', mode: 'wireless' })
-      .mockReturnValue(null)
-    svc2.getActiveTransport = vi.fn(() => 'cp')
-    svc2.isActiveAaWired = vi.fn(() => false)
-    svc2.started = false
-    svc2.stop = vi.fn(async () => undefined)
-    svc2.bounceAaBtConnections = vi.fn(async () => undefined)
-    svc2.tryAutoConnect = vi.fn(async () => undefined)
-    svc2.autoStartIfNeeded = vi.fn(async () => undefined)
-    vi.useFakeTimers()
-    const p = svc2.switchTransport()
-    await vi.advanceTimersByTimeAsync(1200)
-    await p
-    expect(svc2.stop).not.toHaveBeenCalled()
-    vi.useRealTimers()
-  })
-
-  test('switchTransport swallows a rejected deauth while leaving wireless', async () => {
-    vi.useFakeTimers()
-    const svc = makeSvc()
-    svc.arbiter.prepareSwitch = vi.fn(() => ({ ok: true, target: { transport: 'aa' } }))
-    svc.arbiter.getOverride = vi
-      .fn()
-      .mockReturnValueOnce({ transport: 'aa', mode: 'wireless' })
-      .mockReturnValue(null)
-    svc.getActiveTransport = vi.fn(() => 'aa')
-    svc.isActiveAaWired = vi.fn(() => false)
-    svc.started = true
-    svc.stop = vi.fn(async () => undefined)
-    bluezMock.deauthApClients.mockRejectedValueOnce(new Error('deauth boom'))
-    svc.bounceAaBtConnections = vi.fn(async () => undefined)
-    svc.tryAutoConnect = vi.fn(async () => undefined)
-    svc.autoStartIfNeeded = vi.fn(async () => undefined)
-    const p = svc.switchTransport()
-    await vi.advanceTimersByTimeAsync(600)
-    await p
-    expect(svc.bounceAaBtConnections).toHaveBeenCalled()
-    vi.useRealTimers()
-  })
-
   test('restartSession restarts a non-AA session without wired/wireless handling', async () => {
     const svc = makeSvc()
     svc.getActiveTransport = vi.fn(() => 'cp')
@@ -2981,7 +2800,7 @@ describe('ProjectionService final branch fill', () => {
     }
   })
 
-  test('refreshBtPairedList marks wired-AA phones in range and tags host device types', async () => {
+  test('refreshBtPairedList marks wired-AA phones in range', async () => {
     const svc = makeSvc()
     svc.started = true
     svc.isActiveAaWired = vi.fn(() => true)
@@ -2993,10 +2812,6 @@ describe('ProjectionService final branch fill', () => {
     ])
     await svc.refreshBtPairedList()
     expect(svc.setWirelessPhoneInRange).toHaveBeenCalledWith(true)
-    const phoneEntry = svc.hostDevList.find((e: any) => e.id === 'AA:BB')
-    const speakerEntry = svc.hostDevList.find((e: any) => e.id === 'CC:DD')
-    expect(phoneEntry.type).toBe('AndroidAuto')
-    expect(speakerEntry.type).toBe('')
   })
 
   test('connectConfiguredAudioDevices exhausts all retries without a delay after the last', async () => {
@@ -3069,7 +2884,6 @@ describe('ProjectionService final branch fill', () => {
     svc.planes.resetClusterStreamActive = vi.fn()
     svc.syncClusterStreamFocus = vi.fn()
     svc.clearStartRetry = vi.fn()
-    svc.emitTransportState = vi.fn()
     svc.arbiter.pickPreferred = vi.fn(() => ({ transport: 'cp', mode: 'wireless' }))
     svc.drivers.startCp = vi.fn()
     await svc.start()
@@ -3100,31 +2914,6 @@ describe('ProjectionService final branch fill', () => {
 })
 
 describe('ProjectionService last-mile coverage', () => {
-  test('switchTransport swallows a stop failure inside the loop', async () => {
-    const svc = makeSvc()
-    svc.arbiter.prepareSwitch = vi.fn(() => ({ ok: true, target: { transport: 'cp' } }))
-    svc.arbiter.getOverride = vi
-      .fn()
-      .mockReturnValueOnce({ transport: 'cp', mode: 'wired' })
-      .mockReturnValue(null)
-    svc.getActiveTransport = vi.fn(() => 'cp')
-    svc.isActiveAaWired = vi.fn(() => false)
-    svc.started = true
-    svc.stop = vi.fn(async () => {
-      throw new Error('stop boom')
-    })
-    svc.autoStartIfNeeded = vi.fn(async () => undefined)
-    await expect(svc.switchTransport()).resolves.toMatchObject({ ok: true })
-  })
-
-  test('switchTransport returns null active when isSwitching and target lacks a transport', async () => {
-    const svc = makeSvc()
-    svc.arbiter.prepareSwitch = vi.fn(() => ({ ok: true, target: {} }))
-    svc.isSwitching = true
-    const res = await svc.switchTransport()
-    expect(res).toEqual({ ok: true, active: null })
-  })
-
   test('connectPairedDevice swallows a stop failure and a rejected deauth for a wireless phone', async () => {
     vi.useFakeTimers()
     const svc = makeSvc()
@@ -3168,7 +2957,6 @@ describe('ProjectionService last-mile coverage', () => {
       svc.drivers.startCp = vi.fn()
       svc.drivers.attachHelper = vi.fn()
       svc.openAaBtSubscription = vi.fn()
-      svc.emitTransportState = vi.fn()
       svc.connectConfiguredAudioDevices = vi.fn(() => Promise.reject(new Error('cfg boom')))
       svc.populateAaBtPairedListInitial = vi.fn(async () => undefined)
       svc.config = { wirelessAaEnabled: true }
@@ -3188,10 +2976,9 @@ describe('ProjectionService last-mile coverage', () => {
       svc.drivers.startCp = vi.fn()
       svc.drivers.attachHelper = vi.fn()
       svc.openAaBtSubscription = vi.fn()
-      svc.emitTransportState = vi.fn(() => {
-        throw new Error('emit boom')
+      svc.connectConfiguredAudioDevices = vi.fn(() => {
+        throw new Error('connect boom')
       })
-      svc.connectConfiguredAudioDevices = vi.fn(async () => undefined)
       svc.populateAaBtPairedListInitial = vi.fn(async () => undefined)
       svc.config = { wirelessAaEnabled: true }
       svc.syncHelperSupervisor()
@@ -3712,44 +3499,17 @@ describe('ProjectionService 100%-coverage fill', () => {
     svc.drivers.getActive = vi.fn(() => driver)
     await expect(host.send({ any: 'msg' })).resolves.toBe(true)
     expect(driver.send).toHaveBeenCalledWith({ any: 'msg' })
-
-    svc.reloadConfigFromDisk = vi.fn(async () => undefined)
-    await host.reloadConfigFromDisk()
-    expect(svc.reloadConfigFromDisk).toHaveBeenCalled()
-
-    svc.emitProjectionEvent = vi.fn()
-    host.emitProjectionEvent({ type: 'unplugged' })
-    expect(svc.emitProjectionEvent).toHaveBeenCalledWith({ type: 'unplugged' })
-  })
-
-  test('switchTransport breaks once the override settles on the same transport/mode it started with', async () => {
-    const svc = makeSvc()
-    svc.arbiter.prepareSwitch = vi.fn(() => ({ ok: true, target: { transport: 'cp' } }))
-    // Every call returns an equal (but distinct) object, so the loop's second
-    // getOverride() read matches `desired` by value and breaks on the first pass.
-    svc.arbiter.getOverride = vi.fn(() => ({ transport: 'cp', mode: 'wired' }))
-    svc.getActiveTransport = vi.fn(() => null)
-    svc.isActiveAaWired = vi.fn(() => false)
-    svc.started = false
-    svc.autoStartIfNeeded = vi.fn(async () => undefined)
-
-    const res = await svc.switchTransport()
-
-    expect(svc.autoStartIfNeeded).toHaveBeenCalledTimes(1)
-    expect(res.ok).toBe(true)
   })
 
   test('start returns early without starting when the arbiter has no candidate', async () => {
     const svc = makeSvc()
     svc.arbiter.pickPreferred = vi.fn(() => undefined)
     svc.drivers.startCp = vi.fn()
-    svc.emitTransportState = vi.fn()
 
     await svc.start()
 
     expect(svc.started).toBe(false)
     expect(svc.drivers.startCp).not.toHaveBeenCalled()
-    expect(svc.emitTransportState).toHaveBeenCalled()
   })
 
   test('onActiveSessionChanged disposes the planes on a real codec change', () => {

@@ -62,8 +62,6 @@ export class CpManager {
   private readonly _toCable = new Map<string, ReturnType<typeof setTimeout>>()
 
   private _hevcSupported = false
-  private _vp9Supported = false
-  private _av1Supported = false
   private _initialNightMode: boolean | undefined = undefined
   private _clusterStreamActive = true
 
@@ -89,16 +87,6 @@ export class CpManager {
   setHevcSupported(supported: boolean): void {
     this._hevcSupported = supported
     for (const s of this._sessions) s.setHevcSupported(supported)
-  }
-
-  setVp9Supported(supported: boolean): void {
-    this._vp9Supported = supported
-    for (const s of this._sessions) s.setVp9Supported(supported)
-  }
-
-  setAv1Supported(supported: boolean): void {
-    this._av1Supported = supported
-    for (const s of this._sessions) s.setAv1Supported(supported)
   }
 
   setInitialNightMode(value: boolean | undefined): void {

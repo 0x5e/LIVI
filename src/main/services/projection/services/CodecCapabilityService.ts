@@ -34,12 +34,6 @@ export class CodecCapabilityService {
     return this.av1Supported
   }
 
-  applyCodecCapabilities(payload: unknown): void {
-    if (!payload || typeof payload !== 'object') return
-    this.lastCodecCaps = payload as Caps
-    this.recompute()
-  }
-
   // Advertise the codecs the bundled GStreamer can decode. Optional codecs are
   // offered only when a HW decoder exists, h264 is the always-on AA baseline
   applyGstCodecCaps(): void {

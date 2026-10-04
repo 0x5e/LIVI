@@ -145,7 +145,6 @@ export type Config = {
   darkMode: boolean
   displayBrightness: number
   displayBrightnessAuto: boolean
-  nightMode: boolean
   carName: string
   oemName: string
   hand: HandDriveType

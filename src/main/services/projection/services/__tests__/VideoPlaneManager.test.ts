@@ -165,21 +165,6 @@ describe('VideoPlaneManager', () => {
       expect(planes()[0].prepare).toHaveBeenCalledTimes(2)
     })
 
-    test('setMainCodecData stores the atom and pushes it to a live plane', () => {
-      const { mgr } = mkMgr()
-      const atom = Buffer.from('atom')
-
-      // No plane yet: only the stored codec data is updated, nothing to push to.
-      mgr.setMainCodecData(atom)
-
-      mgr.primeMain()
-      expect(planes()[0].setCodecData).toHaveBeenCalledWith(atom)
-
-      const atom2 = Buffer.from('atom2')
-      mgr.setMainCodecData(atom2)
-      expect(planes()[0].setCodecData).toHaveBeenCalledWith(atom2)
-    })
-
     test('a stored crop is applied when the plane spawns', () => {
       const { mgr } = mkMgr({
         getMainVideoSize: vi.fn(() => ({ width: 1920, height: 1080 })),
@@ -226,12 +211,24 @@ describe('VideoPlaneManager', () => {
       const { mgr } = mkMgr({ getConfig: vi.fn(() => CLUSTER_CFG) })
       secondaryMock.mockReturnValue(mkSecondary() as never)
       mgr.setClusterCodec('h265')
-      mgr.setClusterCodecData(Buffer.from([1, 2]))
       mgr.setClusterCodec('h264')
       mgr.primeClusters()
       expect(gstMock).toHaveBeenCalledTimes(2)
       expect(planes()[0].setVisible).toHaveBeenCalled()
-      expect(planes()[0].setCodecData).toHaveBeenCalledWith(Buffer.from([1, 2]))
+      expect(planes()[0].prepare).toHaveBeenCalledWith('h264')
+    })
+
+    test('primeClusters hands a plane that comes later the stored config record', () => {
+      const { mgr } = mkMgr({ getConfig: vi.fn(() => CLUSTER_CFG) })
+      secondaryMock.mockReturnValue(null as never)
+      const atom = Buffer.from([1, 2])
+      mgr.prepareClusters('h265', atom)
+      expect(gstMock).toHaveBeenCalledTimes(1)
+
+      secondaryMock.mockReturnValue(mkSecondary() as never)
+      mgr.primeClusters()
+      expect(gstMock).toHaveBeenCalledTimes(2)
+      expect(planes()[1].setCodecData).toHaveBeenCalledWith(atom)
     })
 
     test('primeClusters only prepares a plane that already exists', () => {
@@ -290,22 +287,6 @@ describe('VideoPlaneManager', () => {
 
       expect(mgr.prepareClusters('h264', Buffer.alloc(0))).toBe(false)
       expect(gstMock).not.toHaveBeenCalled()
-    })
-
-    test('setClusterCodecData pushes the atom to every live cluster plane', () => {
-      const { mgr } = mkMgr({ getConfig: vi.fn(() => CLUSTER_CFG) })
-      secondaryMock.mockReturnValue(mkSecondary() as never)
-
-      // No planes yet: the loop body has nothing to iterate over.
-      mgr.setClusterCodecData(Buffer.from('none'))
-
-      mgr.setClusterCodec('h264')
-      mgr.primeClusters()
-      const atom = Buffer.from('atom')
-      mgr.setClusterCodecData(atom)
-
-      expect(planes()[0].setCodecData).toHaveBeenCalledWith(atom)
-      expect(planes()[1].setCodecData).toHaveBeenCalledWith(atom)
     })
 
     test('setClusterVisible drives only the main-screen plane', () => {
@@ -400,23 +381,23 @@ describe('VideoPlaneManager', () => {
       expect(mgr.getMainCodec()).toBe('h264')
     })
 
-    test('restoreCodecs seeds only the provided codecs and keeps the raw codec data', () => {
+    test('restoreCodecs seeds only the provided codecs and drops the stored config record', () => {
       const { mgr } = mkMgr({ getConfig: vi.fn(() => CLUSTER_CFG) })
-      secondaryMock.mockReturnValue(mkSecondary() as never)
-      const mainAtom = Buffer.from('m')
+      secondaryMock.mockReturnValue(null as never)
+      mgr.prepareClusters('h264', Buffer.from('c'))
 
-      mgr.restoreCodecs('h265', 'vp9', mainAtom, null)
+      mgr.restoreCodecs('h265', 'vp9')
       expect(mgr.getMainCodec()).toBe('h265')
 
-      mgr.primeMain()
-      expect(planes()[0].setCodecData).toHaveBeenCalledWith(mainAtom)
-      expect(planes()[0].prepare).toHaveBeenCalledWith('h265')
-
+      secondaryMock.mockReturnValue(mkSecondary() as never)
       mgr.primeClusters()
       expect(planes()[1].setCodecData).not.toHaveBeenCalled()
       expect(planes()[1].prepare).toHaveBeenCalledWith('vp9')
 
-      mgr.restoreCodecs(undefined, undefined, null, null)
+      mgr.primeMain()
+      expect(planes()[2].prepare).toHaveBeenCalledWith('h265')
+
+      mgr.restoreCodecs(undefined, undefined)
       expect(mgr.getMainCodec()).toBe('h265')
     })
   })

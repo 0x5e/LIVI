@@ -39,14 +39,6 @@ export interface CpAudioProfile {
   label: string
 }
 
-/** A profile bound to one SETUP stream, carrying its negotiated playback format. */
-export interface CpStreamProfile extends CpAudioProfile {
-  /** Playback sample rate the decoded stream delivers. */
-  sampleRate: number
-  /** Playback channel count (1 = mono, 2 = stereo). */
-  channels: number
-}
-
 export interface CpStackConfig {
   /** Name shown as the car on the phone. */
   deviceName: string
@@ -63,7 +55,6 @@ export interface CpStackConfig {
   audioDevice?: () => string
   /** The source the microphone stream captures from. */
   audioInputDevice?: () => string
-  h264: boolean
   /** Main (centre) screen. */
   main: CpDisplayConfig
   /** Instrument-cluster screen (classic CarPlay second stream), if enabled. */

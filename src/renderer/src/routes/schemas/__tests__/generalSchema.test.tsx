@@ -2,10 +2,6 @@ import type { SettingsNode } from '../../types'
 import { generalSchema } from '../generalSchema'
 
 vi.mock('../../../components/pages/settings/pages/camera', () => ({ Camera: () => null }))
-vi.mock('../../../components/pages/settings/pages/system/usbDongle/USBDongle', () => ({
-  USBDongle: () => null
-}))
-
 type LoadFn = () => Promise<Array<{ value: unknown; label: string }>>
 
 function collectLoaders(node: SettingsNode<unknown>): LoadFn[] {

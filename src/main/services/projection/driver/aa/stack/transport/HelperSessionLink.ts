@@ -42,10 +42,6 @@ export class HelperSessionLink extends EventEmitter {
     })
   }
 
-  get closed(): boolean {
-    return this._closed
-  }
-
   send(ch: number, flags: number, msgId: number, payload: Buffer): void {
     if (this._closed || !this._sock.writable) return
     const head = Buffer.allocUnsafe(9)

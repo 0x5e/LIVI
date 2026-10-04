@@ -5,8 +5,7 @@
 
 import { EventEmitter } from 'node:events'
 import { AV_MSG, CH, FRAME_FLAGS } from '../constants.js'
-import type { RawFrame } from '../frame/types.js'
-import { decodeStart, fieldVarint, readVarint } from './protoEnc.js'
+import { decodeStart, readVarint } from './protoEnc.js'
 
 type SendFn = (channelId: number, flags: number, msgId: number, data: Buffer) => void
 
@@ -26,7 +25,7 @@ export class VideoChannel extends EventEmitter {
     this._label = channelId === CH.CLUSTER_VIDEO ? 'ClusterVideoChannel' : 'VideoChannel'
   }
 
-  handleMessage(msgId: number, payload: Buffer, frame: RawFrame): void {
+  handleMessage(msgId: number, payload: Buffer): void {
     switch (msgId) {
       case AV_MSG.START_INDICATION: {
         // aap_protobuf.service.media.shared.message.Start { session_id=1, configuration_index=2 }.

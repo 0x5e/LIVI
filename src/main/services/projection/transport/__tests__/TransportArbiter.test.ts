@@ -1,4 +1,3 @@
-import type { Mock } from 'vitest'
 import { TransportArbiter } from '../TransportArbiter'
 import type { ArbiterDeps, Candidate, Transport } from '../types'
 
@@ -10,7 +9,6 @@ type DepStubs = {
   wiredCpSessionActive: boolean
   wiredAaSession: boolean
   wiredCpSession: boolean
-  onChange: Mock
 }
 
 // Wired phones are helper sessions, the two wired stubs stand in for the session manager
@@ -23,7 +21,6 @@ function makeArbiter(overrides: Partial<DepStubs> = {}) {
     wiredCpSessionActive: false,
     wiredAaSession: false,
     wiredCpSession: false,
-    onChange: vi.fn(),
     ...overrides
   }
   const deps: ArbiterDeps = {
@@ -33,8 +30,7 @@ function makeArbiter(overrides: Partial<DepStubs> = {}) {
     isWiredAaSessionActive: () => stubs.wiredAaSessionActive,
     isWiredCpSessionActive: () => stubs.wiredCpSessionActive,
     hasWiredAaSession: () => stubs.wiredAaSession,
-    hasWiredCpSession: () => stubs.wiredCpSession,
-    onChange: stubs.onChange
+    hasWiredCpSession: () => stubs.wiredCpSession
   }
   return { arbiter: new TransportArbiter(deps), stubs }
 }
@@ -107,22 +103,20 @@ describe('TransportArbiter', () => {
       expect(arbiter.pickPreferred()).toEqual(CP_WIRED)
     })
 
-    test('setOverride forces the candidate and fires onChange', () => {
-      const { arbiter, stubs } = makeArbiter({ wiredAaSession: true })
-      stubs.onChange.mockClear()
+    test('setOverride forces the candidate', () => {
+      const { arbiter } = makeArbiter({ wiredAaSession: true })
 
       arbiter.setOverride(AA_WIRED)
-      expect(arbiter.getOverride()).toEqual(AA_WIRED)
-      expect(stubs.onChange).toHaveBeenCalledTimes(1)
       expect(arbiter.pickPreferred()).toEqual(AA_WIRED)
     })
 
     test('pickPreferred drops an override that is no longer detected', () => {
-      const { arbiter } = makeArbiter({ wiredAaSession: true })
+      const { arbiter, stubs } = makeArbiter({ wiredAaSession: true })
       arbiter.setOverride(CP_WIRED) // no wired CP session → not detected
 
       expect(arbiter.pickPreferred()).toEqual(AA_WIRED)
-      expect(arbiter.getOverride()).toBeNull()
+      stubs.wiredCpSession = true
+      expect(arbiter.pickPreferred()).toEqual(AA_WIRED)
     })
   })
 
@@ -155,17 +149,18 @@ describe('TransportArbiter', () => {
 
     test('override beats preference', () => {
       const { arbiter } = makeArbiter({ wiredAaSession: true, wirelessAaEnabled: true })
-      arbiter.prepareSwitch() // anchor AA_WIRED (pref), cycle to AA_WIRELESS
+      arbiter.setOverride(AA_WIRELESS)
       expect(arbiter.pickPreferred()).toEqual(AA_WIRELESS)
     })
 
     test('override is dropped when the chosen candidate disappears', () => {
       const { arbiter, stubs } = makeArbiter({ wiredAaSession: true, wirelessAaEnabled: true })
-      arbiter.prepareSwitch() // override → AA_WIRELESS
+      arbiter.setOverride(AA_WIRELESS)
 
       stubs.wirelessAaEnabled = false // wireless no longer offered
       expect(arbiter.pickPreferred()).toEqual(AA_WIRED) // drops the stale override
-      expect(arbiter.getOverride()).toBeNull()
+      stubs.wirelessAaEnabled = true
+      expect(arbiter.pickPreferred()).toEqual(AA_WIRED)
     })
   })
 
@@ -178,35 +173,6 @@ describe('TransportArbiter', () => {
     test('start with the preferred candidate', () => {
       const { arbiter } = makeArbiter({ wiredAaSession: true })
       expect(arbiter.decideNextStart()).toEqual({ kind: 'start', candidate: AA_WIRED })
-    })
-  })
-
-  describe('prepareSwitch', () => {
-    test('refuses to switch when only one candidate is present', () => {
-      const { arbiter } = makeArbiter({ wiredAaSession: true })
-      expect(arbiter.prepareSwitch().ok).toBe(false)
-    })
-
-    test('cycles wired aa → wireless aa when both are eligible', () => {
-      const { arbiter } = makeArbiter({
-        active: 'aa',
-        wiredAaSessionActive: true,
-        wiredAaSession: true,
-        wirelessAaEnabled: true
-      })
-      const r = arbiter.prepareSwitch()
-      expect(r).toEqual({ ok: true, target: AA_WIRELESS })
-    })
-
-    test('cycles wireless aa → wired aa while the wired session is still there', () => {
-      const { arbiter } = makeArbiter({
-        active: 'aa',
-        wiredAaSessionActive: false,
-        wiredAaSession: true,
-        wirelessAaEnabled: true
-      })
-      const r = arbiter.prepareSwitch()
-      expect(r).toEqual({ ok: true, target: AA_WIRED })
     })
   })
 

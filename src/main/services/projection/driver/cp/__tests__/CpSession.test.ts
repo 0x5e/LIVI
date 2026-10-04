@@ -178,7 +178,7 @@ describe('CpSession construction and stack config', () => {
     expect(built.oemLabel).toBe('LIVI')
     expect(built.deviceId).toBe('AA:BB:CC:DD:EE:FF')
     expect(built.btMac).toBe('AA:BB:CC:DD:EE:FF')
-    expect(built.h264).toBe(true)
+    expect(built.hevc).toBe(false)
     expect(built.cluster).toBeUndefined()
     expect(built.entertainmentSampleRate).toBe(44100)
   })
@@ -248,12 +248,10 @@ describe('CpSession driver surface', () => {
     expect(session.isWiredMode()).toBe(true)
   })
 
-  it('codec toggles and no-op vp9/av1 setters', () => {
+  it('codec toggle', () => {
     const { session } = makeSession()
     expect(() => {
       session.setHevcSupported(false)
-      session.setVp9Supported(true)
-      session.setAv1Supported(true)
     }).not.toThrow()
   })
 
@@ -365,24 +363,16 @@ describe('CpSession stack event bridge', () => {
     expect(presence.at(-1)).toMatchObject({ name: '', model: '', wifiMac: '' })
   })
 
-  it('re-emits codec and config events', () => {
+  it('re-emits codec events', () => {
     const { session, stack } = makeSession()
     const vcodec = vi.fn()
-    const vconfig = vi.fn()
     const ccodec = vi.fn()
-    const cconfig = vi.fn()
     session.on('video-codec', vcodec)
-    session.on('video-config', vconfig)
     session.on('cluster-video-codec', ccodec)
-    session.on('cluster-video-config', cconfig)
     stack.fire('video-codec', 'h265')
-    stack.fire('video-config', Buffer.from('cfg'))
     stack.fire('cluster-video-codec', 'h264')
-    stack.fire('cluster-video-config', Buffer.from('ccfg'))
     expect(vcodec).toHaveBeenCalledWith('h265')
-    expect(vconfig).toHaveBeenCalledWith(Buffer.from('cfg'))
     expect(ccodec).toHaveBeenCalledWith('h264')
-    expect(cconfig).toHaveBeenCalledWith(Buffer.from('ccfg'))
   })
 
   it('wraps audio commands and duck into messages', () => {

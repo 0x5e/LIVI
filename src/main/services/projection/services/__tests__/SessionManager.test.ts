@@ -440,17 +440,6 @@ describe('SessionManager', () => {
       logSpy.mockRestore()
     })
 
-    it('closeByDevice removes the matching session and ignores unknown ids', () => {
-      const mgr = mkManager()
-      mgr.upsert(mkDriver(), 'androidauto', 'wifi', { instanceId: 'a' })
-
-      mgr.closeByDevice({ instanceId: 'zzz' })
-      expect(mgr.all()).toHaveLength(1)
-
-      mgr.closeByDevice({ instanceId: 'a' })
-      expect(mgr.all()).toHaveLength(0)
-    })
-
     it('closeByDeviceOnTransport closes the driver only on a transport match', () => {
       const mgr = mkManager()
       const close = vi.fn()

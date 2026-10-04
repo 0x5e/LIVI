@@ -1,5 +1,4 @@
 import { SendDisconnectPhone } from '@projection/messages/sendable'
-import type { DevListEntry } from '@shared/types'
 import type { BluezDeviceClient } from '../bt/BluezDeviceClient'
 import type { DeviceRegistry, DeviceView } from './DeviceRegistry'
 import type { ProjectionSession, SessionManager } from './SessionManager'

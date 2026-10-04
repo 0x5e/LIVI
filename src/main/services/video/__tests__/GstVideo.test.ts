@@ -24,9 +24,7 @@ vi.mock('node:net', () => ({ default: { connect: netConnect }, connect: netConne
 const { gstHost, probeViaHostMock } = vi.hoisted(() => ({
   gstHost: {
     createPlayer: vi.fn(),
-    pushBuffer: vi.fn(),
     stop: vi.fn(),
-    setGamma: vi.fn(),
     openFeed: vi.fn(() => Promise.resolve('/host/feed'))
   },
   probeViaHostMock: vi.fn((): Record<string, { hw: boolean; sw: boolean }> | null => null)
@@ -67,7 +65,6 @@ const { addon, loadState } = vi.hoisted(() => ({
     })),
     createPlayer: vi.fn((): unknown => ({ handle: 1 })),
     start: vi.fn(),
-    pushBuffer: vi.fn(() => true),
     setVisible: vi.fn(),
     setContentRegion: vi.fn(),
     setBackdrop: vi.fn() as unknown,
@@ -370,14 +367,13 @@ describe('compositor control disabled', () => {
 })
 
 describe('GstVideo — linux host-process path', () => {
-  test('creates a host player, claims a plane and forwards buffers', async () => {
+  test('creates a host player and claims a plane', async () => {
     const m = await loadModule('linux', '/sock')
     const v = new m.GstVideo({} as never, 'main', 'main')
 
-    v.push('h264', Buffer.from([1, 2, 3]))
+    v.prepare('h264')
 
     expect(gstHost.createPlayer).toHaveBeenCalledWith(expect.any(Number), 'h264', undefined)
-    expect(gstHost.pushBuffer).toHaveBeenCalledTimes(1)
     sockets[0].emit('connect')
     expect(sockets[0].write).toHaveBeenCalledWith('claim main\n')
   })
@@ -387,7 +383,7 @@ describe('GstVideo — linux host-process path', () => {
     const created = vi.fn()
     m.setOnPlayerCreated(created)
     const v = new m.GstVideo({} as never, 'main', 'main')
-    v.push('h264', Buffer.from([1]))
+    v.prepare('h264')
     expect(created).toHaveBeenCalledTimes(1)
     m.setOnPlayerCreated(null)
   })
@@ -395,24 +391,23 @@ describe('GstVideo — linux host-process path', () => {
   test('an explicit player id is forwarded to the host', async () => {
     const m = await loadModule('linux', undefined)
     const v = new m.GstVideo({} as never, 'main', 'main', 42)
-    v.push('h264', Buffer.from([1]))
+    v.prepare('h264')
     expect(gstHost.createPlayer).toHaveBeenCalledWith(42, 'h264', undefined)
   })
 
   test('ensure is idempotent for an unchanged codec', async () => {
     const m = await loadModule('linux', '/sock')
     const v = new m.GstVideo({} as never)
-    v.push('h264', Buffer.from([1]))
-    v.push('h264', Buffer.from([2]))
+    v.prepare('h264')
+    v.prepare('h264')
     expect(gstHost.createPlayer).toHaveBeenCalledTimes(1)
-    expect(gstHost.pushBuffer).toHaveBeenCalledTimes(2)
   })
 
   test('switching the codec disposes and recreates the player', async () => {
     const m = await loadModule('linux', '/sock')
     const v = new m.GstVideo({} as never)
-    v.push('h264', Buffer.from([1]))
-    v.push('h265', Buffer.from([2]))
+    v.prepare('h264')
+    v.prepare('h265')
     expect(gstHost.stop).toHaveBeenCalledTimes(1)
     expect(gstHost.createPlayer).toHaveBeenCalledTimes(2)
   })
@@ -420,7 +415,7 @@ describe('GstVideo — linux host-process path', () => {
   test('claims immediately without a compositor control path', async () => {
     const m = await loadModule('linux', undefined)
     const v = new m.GstVideo({} as never)
-    v.push('h264', Buffer.from([1]))
+    v.prepare('h264')
     expect(gstHost.createPlayer).toHaveBeenCalledTimes(1)
     v.setVisible(true)
     v.dispose()
@@ -442,42 +437,28 @@ describe('GstVideo — linux host-process path', () => {
     expect(gstHost.createPlayer).toHaveBeenCalledWith(expect.any(Number), 'h264', undefined)
   })
 
-  test('buffers pushed while a claim is queued are flushed once it is bound', async () => {
+  test('a player queued behind a claim is created once that claim is bound', async () => {
     const m = await loadModule('linux', '/sock')
     const v1 = new m.GstVideo({} as never, 'main')
     const v2 = new m.GstVideo({} as never, 'dash')
 
-    v1.push('h264', Buffer.from([1]))
-    v2.push('h264', Buffer.from([2]))
-    v2.push('h264', Buffer.from([3]))
+    v1.prepare('h264')
+    v2.prepare('h264')
+    v2.prepare('h264')
     expect(gstHost.createPlayer).toHaveBeenCalledTimes(1)
-    expect(gstHost.pushBuffer).toHaveBeenCalledTimes(1)
 
     sockets[0].emit('connect')
     sockets[0].emit('data', Buffer.from('bound main\n'))
     expect(gstHost.createPlayer).toHaveBeenCalledTimes(2)
-    expect(gstHost.pushBuffer).toHaveBeenCalledTimes(3)
     expect(sockets[0].write).toHaveBeenCalledWith('claim dash\n')
-  })
-
-  test('the pending buffer queue is capped at 240 frames', async () => {
-    const m = await loadModule('linux', '/sock')
-    const v1 = new m.GstVideo({} as never, 'main')
-    const v2 = new m.GstVideo({} as never, 'dash')
-    v1.push('h264', Buffer.from([1]))
-    for (let i = 0; i < 241; i++) v2.push('h264', Buffer.from([i]))
-
-    sockets[0].emit('connect')
-    sockets[0].emit('data', Buffer.from('bound main\n'))
-    expect(gstHost.pushBuffer).toHaveBeenCalledTimes(1 + 240)
   })
 
   test('a queued claim is dropped when the player is disposed', async () => {
     const m = await loadModule('linux', '/sock')
     const v1 = new m.GstVideo({} as never, 'main')
     const v2 = new m.GstVideo({} as never, 'dash')
-    v1.push('h264', Buffer.from([1]))
-    v2.push('h264', Buffer.from([2]))
+    v1.prepare('h264')
+    v2.prepare('h264')
 
     v2.dispose()
     sockets[0].emit('connect')
@@ -488,7 +469,7 @@ describe('GstVideo — linux host-process path', () => {
   test('disposing the active claim unclaims the plane', async () => {
     const m = await loadModule('linux', '/sock')
     const v = new m.GstVideo({} as never, 'main')
-    v.push('h264', Buffer.from([1]))
+    v.prepare('h264')
     v.dispose()
 
     sockets[0].emit('connect')
@@ -500,7 +481,7 @@ describe('GstVideo — linux host-process path', () => {
     vi.useFakeTimers()
     const m = await loadModule('linux', '/sock')
     const v = new m.GstVideo({} as never, 'main')
-    v.push('h264', Buffer.from([1]))
+    v.prepare('h264')
     sockets[0].emit('connect')
     sockets[0].write.mockClear()
 
@@ -512,7 +493,7 @@ describe('GstVideo — linux host-process path', () => {
     vi.useFakeTimers()
     const m = await loadModule('linux', '/sock')
     const v = new m.GstVideo({} as never, 'main')
-    v.push('h264', Buffer.from([1]))
+    v.prepare('h264')
     sockets[0].emit('connect')
     sockets[0].write.mockClear()
 
@@ -535,7 +516,7 @@ describe('GstVideo — linux host-process path', () => {
     v.setCodecData(cd2)
     expect(gstHost.stop).toHaveBeenCalledTimes(1)
 
-    v.push('h264', Buffer.from([9]))
+    v.prepare('h264')
     expect(gstHost.createPlayer).toHaveBeenLastCalledWith(expect.any(Number), 'h264', cd2)
   })
 
@@ -544,7 +525,7 @@ describe('GstVideo — linux host-process path', () => {
     const v = new m.GstVideo({} as never)
     v.setCodecData(Buffer.from([7]))
     expect(gstHost.stop).not.toHaveBeenCalled()
-    v.push('h264', Buffer.from([1]))
+    v.prepare('h264')
     expect(gstHost.createPlayer).toHaveBeenCalledWith(expect.any(Number), 'h264', Buffer.from([7]))
   })
 
@@ -552,8 +533,8 @@ describe('GstVideo — linux host-process path', () => {
     const m = await loadModule('linux', '/sock')
     const v1 = new m.GstVideo({} as never, 'main')
     const v2 = new m.GstVideo({} as never, 'dash')
-    v1.push('h264', Buffer.from([1]))
-    v2.push('h264', Buffer.from([2]))
+    v1.prepare('h264')
+    v2.prepare('h264')
 
     v2.setCodecData(Buffer.from([7]))
     sockets[0].emit('connect')
@@ -582,7 +563,7 @@ describe('GstVideo — linux host-process path', () => {
   test('dispose stops the host player', async () => {
     const m = await loadModule('linux', '/sock')
     const v = new m.GstVideo({} as never)
-    v.push('h264', Buffer.from([1]))
+    v.prepare('h264')
     v.dispose()
     expect(gstHost.stop).toHaveBeenCalledTimes(1)
   })
@@ -590,7 +571,7 @@ describe('GstVideo — linux host-process path', () => {
   test('setStreamGamma pushes the calibration to the compositor', async () => {
     const m = await loadModule('linux', '/sock')
     const v = new m.GstVideo({} as never)
-    v.push('h264', Buffer.from([1]))
+    v.prepare('h264')
     m.setStreamGamma(2, 1, 0.9, 0.8, 0.7)
     sockets[0].emit('connect')
     expect(sockets[0].write).toHaveBeenCalledWith('gamma 2 1 0.9 0.8 0.7\n')
@@ -598,10 +579,10 @@ describe('GstVideo — linux host-process path', () => {
 })
 
 describe('GstVideo — darwin in-process addon path', () => {
-  test('creates the addon player, starts it and pushes buffers', async () => {
+  test('creates the addon player and starts it once', async () => {
     const m = await loadModule('darwin')
     const v = new m.GstVideo({} as never)
-    v.push('h264', Buffer.from([1]))
+    v.prepare('h264')
 
     expect(addon.createPlayer).toHaveBeenCalledWith(
       'h264',
@@ -612,11 +593,9 @@ describe('GstVideo — darwin in-process addon path', () => {
     expect(addon.start).toHaveBeenCalledTimes(1)
     expect(addon.setVisible).toHaveBeenCalledWith({ handle: 1 }, true)
     expect(addon.setGamma).toHaveBeenCalledWith({ handle: 1 }, 1, 1, 1, 1, 1)
-    expect(addon.pushBuffer).toHaveBeenCalledTimes(1)
 
-    v.push('h264', Buffer.from([2]))
+    v.prepare('h264')
     expect(addon.createPlayer).toHaveBeenCalledTimes(1)
-    expect(addon.pushBuffer).toHaveBeenCalledTimes(2)
   })
 
   test('notifies the player-created hook after an addon create', async () => {
@@ -624,7 +603,7 @@ describe('GstVideo — darwin in-process addon path', () => {
     const created = vi.fn()
     m.setOnPlayerCreated(created)
     const v = new m.GstVideo({} as never)
-    v.push('h264', Buffer.from([1]))
+    v.prepare('h264')
     expect(created).toHaveBeenCalledTimes(1)
     m.setOnPlayerCreated(null)
   })
@@ -632,8 +611,8 @@ describe('GstVideo — darwin in-process addon path', () => {
   test('switching codecs recreates the in-process player', async () => {
     const m = await loadModule('darwin')
     const v = new m.GstVideo({} as never)
-    v.push('h264', Buffer.from([1]))
-    v.push('h265', Buffer.from([2]))
+    v.prepare('h264')
+    v.prepare('h265')
     expect(addon.stop).toHaveBeenCalledTimes(1)
     expect(addon.createPlayer).toHaveBeenCalledTimes(2)
   })
@@ -657,7 +636,7 @@ describe('GstVideo — darwin in-process addon path', () => {
     v.setContentRegion(10, 20, 800, 480, 1920, 1080)
     expect(addon.setContentRegion).not.toHaveBeenCalled()
 
-    v.push('h264', Buffer.from([1]))
+    v.prepare('h264')
     expect(addon.setContentRegion).toHaveBeenCalledWith({ handle: 1 }, 10, 20, 800, 480, 1920, 1080)
 
     v.setContentRegion(0, 0, 0, 480, 1920, 1080)
@@ -671,12 +650,11 @@ describe('GstVideo — darwin in-process addon path', () => {
     const v = new m.GstVideo({} as never)
 
     fromWebContents.mockReturnValueOnce(null as never)
-    v.push('h264', Buffer.from([1]))
+    v.prepare('h264')
     expect(addon.createPlayer).not.toHaveBeenCalled()
-    expect(addon.pushBuffer).not.toHaveBeenCalled()
 
     win.isDestroyed.mockReturnValueOnce(true)
-    v.push('h264', Buffer.from([1]))
+    v.prepare('h264')
     expect(addon.createPlayer).not.toHaveBeenCalled()
   })
 
@@ -684,15 +662,14 @@ describe('GstVideo — darwin in-process addon path', () => {
     const m = await loadModule('darwin')
     const v = new m.GstVideo({} as never)
     addon.createPlayer.mockReturnValueOnce(null)
-    v.push('h264', Buffer.from([1]))
+    v.prepare('h264')
     expect(addon.start).not.toHaveBeenCalled()
-    expect(addon.pushBuffer).not.toHaveBeenCalled()
   })
 
   test('setVisible drives the addon only when a player exists', async () => {
     const m = await loadModule('darwin')
     const v = new m.GstVideo({} as never)
-    v.push('h264', Buffer.from([1]))
+    v.prepare('h264')
     addon.setVisible.mockClear()
 
     v.setVisible(false)
@@ -706,7 +683,7 @@ describe('GstVideo — darwin in-process addon path', () => {
   test('setStreamGamma reaches live addon players', async () => {
     const m = await loadModule('darwin')
     const v = new m.GstVideo({} as never)
-    v.push('h264', Buffer.from([1]))
+    v.prepare('h264')
     new m.GstVideo({} as never)
     addon.setGamma.mockClear()
 
@@ -718,7 +695,7 @@ describe('GstVideo — darwin in-process addon path', () => {
   test('dispose stops the addon player and survives a stop failure', async () => {
     const m = await loadModule('darwin')
     const v = new m.GstVideo({} as never)
-    v.push('h264', Buffer.from([1]))
+    v.prepare('h264')
     addon.stop.mockImplementationOnce(() => {
       throw new Error('teardown')
     })
@@ -731,7 +708,6 @@ describe('GstVideo — darwin in-process addon path', () => {
     loadState.fail = true
     const m = await loadModule('darwin')
     const v = new m.GstVideo({} as never)
-    v.push('h264', Buffer.from([1]))
     v.prepare('h264')
     v.dispose()
     m.setStreamGamma(2, 1, 1, 1, 1)
@@ -906,14 +882,6 @@ describe('setMacBackdrop', () => {
     expect(addon.setBackdrop).not.toHaveBeenCalled()
   })
 
-  test('skips when the addon lacks setBackdrop', async () => {
-    const m = await loadModule('darwin')
-    const original = addon.setBackdrop
-    addon.setBackdrop = undefined
-    expect(() => m.setMacBackdrop(win as never, '#ffffff')).not.toThrow()
-    addon.setBackdrop = original
-  })
-
   test('skips when the addon failed to load', async () => {
     loadState.fail = true
     const m = await loadModule('darwin')
@@ -973,14 +941,6 @@ describe('openScreenReceiver / closeScreenReceiver', () => {
     expect(m.openScreenReceiver(1, Buffer.from([1]))).toBe(0)
   })
 
-  test('returns 0 when the loaded addon has no receiver method', async () => {
-    const m = await loadModule('darwin')
-    const original = addon.openVideoReceiver
-    addon.openVideoReceiver = undefined as never
-    expect(m.openScreenReceiver(1, Buffer.from([1]))).toBe(0)
-    addon.openVideoReceiver = original
-  })
-
   test('binds the receiver and forwards config atoms to the registered callback', async () => {
     const m = await loadModule('darwin')
     const onConfig = vi.fn()
@@ -1026,14 +986,6 @@ describe('openScreenReceiver / closeScreenReceiver', () => {
     expect(() => m.closeScreenReceiver(1)).not.toThrow()
   })
 
-  test('closeScreenReceiver is a no-op when the addon has no close method', async () => {
-    const m = await loadModule('darwin')
-    const original = addon.closeVideoReceiver
-    addon.closeVideoReceiver = undefined as never
-    expect(() => m.closeScreenReceiver(1)).not.toThrow()
-    addon.closeVideoReceiver = original
-  })
-
   test('closeScreenReceiver forwards to the addon', async () => {
     const m = await loadModule('darwin')
     m.closeScreenReceiver(5)
@@ -1056,14 +1008,6 @@ describe('openAudioReceiver and related controls', () => {
     loadState.fail = true
     const m = await loadModule('darwin')
     expect(m.openAudioReceiver(Buffer.from([1]), opts)).toBeNull()
-  })
-
-  test('returns null when the loaded addon has no receiver method', async () => {
-    const m = await loadModule('darwin')
-    const original = addon.openAudioReceiver
-    addon.openAudioReceiver = undefined as never
-    expect(m.openAudioReceiver(Buffer.from([1]), opts)).toBeNull()
-    addon.openAudioReceiver = original
   })
 
   test('opens the receiver, forwards options and the started callback', async () => {
@@ -1118,50 +1062,35 @@ describe('openAudioReceiver and related controls', () => {
     expect(errorSpy).toHaveBeenCalledWith('[GstVideo] audio receiver failed:', 'rtp bind failed')
   })
 
-  test('setAudioReceiverActive no-ops without an addon or method, forwards otherwise', async () => {
+  test('setAudioReceiverActive no-ops without an addon, forwards otherwise', async () => {
     loadState.fail = true
     const failed = await loadModule('darwin')
     expect(() => failed.setAudioReceiverActive(1, true)).not.toThrow()
 
     loadState.fail = false
     const m = await loadModule('darwin')
-    const original = addon.setAudioReceiverActive
-    addon.setAudioReceiverActive = undefined as never
-    expect(() => m.setAudioReceiverActive(1, true)).not.toThrow()
-    addon.setAudioReceiverActive = original
-
     m.setAudioReceiverActive(1, true)
     expect(addon.setAudioReceiverActive).toHaveBeenCalledWith(1, true)
   })
 
-  test('setAudioReceiverVolume no-ops without an addon or method, forwards otherwise', async () => {
+  test('setAudioReceiverVolume no-ops without an addon, forwards otherwise', async () => {
     loadState.fail = true
     const failed = await loadModule('darwin')
     expect(() => failed.setAudioReceiverVolume(1, 0.5, 200)).not.toThrow()
 
     loadState.fail = false
     const m = await loadModule('darwin')
-    const original = addon.setAudioReceiverVolume
-    addon.setAudioReceiverVolume = undefined as never
-    expect(() => m.setAudioReceiverVolume(1, 0.5, 200)).not.toThrow()
-    addon.setAudioReceiverVolume = original
-
     m.setAudioReceiverVolume(1, 0.5, 200)
     expect(addon.setAudioReceiverVolume).toHaveBeenCalledWith(1, 0.5, 200)
   })
 
-  test('closeAudioReceiver no-ops without an addon or method, forwards otherwise', async () => {
+  test('closeAudioReceiver no-ops without an addon, forwards otherwise', async () => {
     loadState.fail = true
     const failed = await loadModule('darwin')
     expect(() => failed.closeAudioReceiver(1)).not.toThrow()
 
     loadState.fail = false
     const m = await loadModule('darwin')
-    const original = addon.closeAudioReceiver
-    addon.closeAudioReceiver = undefined as never
-    expect(() => m.closeAudioReceiver(1)).not.toThrow()
-    addon.closeAudioReceiver = original
-
     m.closeAudioReceiver(1)
     expect(addon.closeAudioReceiver).toHaveBeenCalledWith(1)
   })
@@ -1184,14 +1113,6 @@ describe('openMicUplink / closeMicUplink', () => {
     loadState.fail = true
     const m = await loadModule('darwin')
     expect(m.openMicUplink(Buffer.from([1]), micOpts)).toBeNull()
-  })
-
-  test('returns null when the loaded addon has no uplink method', async () => {
-    const m = await loadModule('darwin')
-    const original = addon.openMicUplink
-    addon.openMicUplink = undefined as never
-    expect(m.openMicUplink(Buffer.from([1]), micOpts)).toBeNull()
-    addon.openMicUplink = original
   })
 
   test('opens the uplink and forwards every option', async () => {
@@ -1227,35 +1148,23 @@ describe('openMicUplink / closeMicUplink', () => {
     expect(warnSpy).toHaveBeenCalledWith('[GstVideo] mic uplink failed: mic busy')
   })
 
-  test('closeMicUplink no-ops without an addon or method, forwards otherwise', async () => {
+  test('closeMicUplink no-ops without an addon, forwards otherwise', async () => {
     loadState.fail = true
     const failed = await loadModule('darwin')
     expect(() => failed.closeMicUplink(1)).not.toThrow()
 
     loadState.fail = false
     const m = await loadModule('darwin')
-    const original = addon.closeMicUplink
-    addon.closeMicUplink = undefined as never
-    expect(() => m.closeMicUplink(1)).not.toThrow()
-    addon.closeMicUplink = original
-
     m.closeMicUplink(4)
     expect(addon.closeMicUplink).toHaveBeenCalledWith(4)
   })
 })
 
 describe('audio visualizer tap', () => {
-  test('no-ops without an addon or method', async () => {
+  test('no-ops without an addon', async () => {
     loadState.fail = true
     const failed = await loadModule('darwin')
     expect(() => failed.setAudioReceiverVisualizerTap(true)).not.toThrow()
-
-    loadState.fail = false
-    const m = await loadModule('darwin')
-    const original = addon.setAudioVisualizerTap
-    addon.setAudioVisualizerTap = undefined as never
-    expect(() => m.setAudioReceiverVisualizerTap(true)).not.toThrow()
-    addon.setAudioVisualizerTap = original
   })
 
   test('forwards the tap and delivers samples to the registered callback', async () => {

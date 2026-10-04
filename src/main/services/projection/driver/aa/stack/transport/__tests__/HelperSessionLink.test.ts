@@ -58,7 +58,6 @@ describe('HelperSessionLink', () => {
     sockets[0].emit('connect')
     const l = await p
     expect(l.peer).toBe('peer-9')
-    expect(l.closed).toBe(false)
   })
 
   test('connect rejects when the socket errors first', async () => {
@@ -67,12 +66,13 @@ describe('HelperSessionLink', () => {
     await expect(p).rejects.toThrow('refused')
   })
 
-  test('a socket close marks the link closed and re-emits it', () => {
+  test('a socket close stops sends and re-emits the close', () => {
     const { l, sock } = link()
     const closed = vi.fn()
     l.on('close', closed)
     sock.emit('close')
-    expect(l.closed).toBe(true)
+    l.send(1, 0, 2, Buffer.alloc(0))
+    expect(sock.write).not.toHaveBeenCalled()
     expect(closed).toHaveBeenCalledTimes(1)
   })
 

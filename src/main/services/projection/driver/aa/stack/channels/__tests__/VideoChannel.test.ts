@@ -1,17 +1,6 @@
-import { AV_MSG, CH, FRAME_FLAGS } from '../../constants'
-import type { RawFrame } from '../../frame/types'
+import { AV_MSG, CH } from '../../constants'
 import { decodeFields, decodeVarintValue, fieldVarint } from '../protoEnc'
 import { VideoChannel } from '../VideoChannel'
-
-function dummyFrame(channelId: number, msgId: number, payload: Buffer): RawFrame {
-  return {
-    channelId,
-    flags: FRAME_FLAGS.ENC_SIGNAL,
-    msgId,
-    payload,
-    rawPayload: Buffer.concat([Buffer.alloc(2), payload])
-  }
-}
 
 function freshSend() {
   const calls: { channelId: number; msgId: number; data: Buffer }[] = []
@@ -37,36 +26,20 @@ describe('VideoChannel', () => {
   test('START_INDICATION with a session id adopts it', () => {
     const { send } = freshSend()
     const ch = new VideoChannel(send)
-    ch.handleMessage(
-      AV_MSG.START_INDICATION,
-      fieldVarint(1, 7),
-      dummyFrame(CH.VIDEO, AV_MSG.START_INDICATION, Buffer.alloc(0))
-    )
+    ch.handleMessage(AV_MSG.START_INDICATION, fieldVarint(1, 7))
     expect((ch as unknown as { _session: number })._session).toBe(7)
   })
 
   test('START_INDICATION with an empty payload keeps the default session', () => {
     const { send } = freshSend()
     const ch = new VideoChannel(send)
-    expect(() =>
-      ch.handleMessage(
-        AV_MSG.START_INDICATION,
-        Buffer.alloc(0),
-        dummyFrame(CH.VIDEO, AV_MSG.START_INDICATION, Buffer.alloc(0))
-      )
-    ).not.toThrow()
+    expect(() => ch.handleMessage(AV_MSG.START_INDICATION, Buffer.alloc(0))).not.toThrow()
   })
 
   test('START_INDICATION without a session_id keeps the default session', () => {
     const { send } = freshSend()
     const ch = new VideoChannel(send)
-    expect(() =>
-      ch.handleMessage(
-        AV_MSG.START_INDICATION,
-        fieldVarint(2, 3),
-        dummyFrame(CH.VIDEO, AV_MSG.START_INDICATION, Buffer.alloc(0))
-      )
-    ).not.toThrow()
+    expect(() => ch.handleMessage(AV_MSG.START_INDICATION, fieldVarint(2, 3))).not.toThrow()
   })
 
   test('VIDEO_FOCUS_REQUEST mode=PROJECTED responds with focus indication + emits "video-focus-projected"', () => {
@@ -79,11 +52,7 @@ describe('VideoChannel', () => {
 
     // field 2 (mode) varint = 1 (PROJECTED)
     const payload = fieldVarint(2, 1)
-    ch.handleMessage(
-      AV_MSG.VIDEO_FOCUS_REQUEST,
-      payload,
-      dummyFrame(CH.VIDEO, AV_MSG.VIDEO_FOCUS_REQUEST, Buffer.alloc(0))
-    )
+    ch.handleMessage(AV_MSG.VIDEO_FOCUS_REQUEST, payload)
 
     expect(projected).toHaveBeenCalled()
     expect(host).not.toHaveBeenCalled()
@@ -96,11 +65,7 @@ describe('VideoChannel', () => {
     const host = vi.fn()
     ch.on('host-ui-requested', host)
 
-    ch.handleMessage(
-      AV_MSG.VIDEO_FOCUS_REQUEST,
-      fieldVarint(2, 2),
-      dummyFrame(CH.VIDEO, AV_MSG.VIDEO_FOCUS_REQUEST, Buffer.alloc(0))
-    )
+    ch.handleMessage(AV_MSG.VIDEO_FOCUS_REQUEST, fieldVarint(2, 2))
 
     expect(host).toHaveBeenCalled()
   })
@@ -112,11 +77,7 @@ describe('VideoChannel', () => {
     ch.on('host-ui-requested', host)
 
     const payload = Buffer.concat([fieldVarint(1, 5), fieldVarint(2, 3)])
-    ch.handleMessage(
-      AV_MSG.VIDEO_FOCUS_REQUEST,
-      payload,
-      dummyFrame(CH.VIDEO, AV_MSG.VIDEO_FOCUS_REQUEST, Buffer.alloc(0))
-    )
+    ch.handleMessage(AV_MSG.VIDEO_FOCUS_REQUEST, payload)
 
     expect(host).toHaveBeenCalled()
   })
@@ -124,16 +85,14 @@ describe('VideoChannel', () => {
   test('STOP_INDICATION is logged, no further emits', () => {
     const { send } = freshSend()
     const ch = new VideoChannel(send)
-    expect(() =>
-      ch.handleMessage(AV_MSG.STOP_INDICATION, Buffer.alloc(0), dummyFrame(0, 0, Buffer.alloc(0)))
-    ).not.toThrow()
+    expect(() => ch.handleMessage(AV_MSG.STOP_INDICATION, Buffer.alloc(0))).not.toThrow()
   })
 
   test('unhandled msgId is logged at debug', () => {
     const debug = vi.spyOn(console, 'debug').mockImplementation(function () {})
     const { send } = freshSend()
     const ch = new VideoChannel(send)
-    ch.handleMessage(0xdead, Buffer.alloc(0), dummyFrame(0, 0, Buffer.alloc(0)))
+    ch.handleMessage(0xdead, Buffer.alloc(0))
     expect(debug).toHaveBeenCalled()
     debug.mockRestore()
   })
@@ -142,13 +101,7 @@ describe('VideoChannel', () => {
     const debug = vi.spyOn(console, 'debug').mockImplementation(function () {})
     const { send } = freshSend()
     const ch = new VideoChannel(send)
-    expect(() =>
-      ch.handleMessage(
-        AV_MSG.VIDEO_FOCUS_INDICATION,
-        Buffer.alloc(0),
-        dummyFrame(0, 0, Buffer.alloc(0))
-      )
-    ).not.toThrow()
+    expect(() => ch.handleMessage(AV_MSG.VIDEO_FOCUS_INDICATION, Buffer.alloc(0))).not.toThrow()
     expect(debug).toHaveBeenCalled()
     debug.mockRestore()
   })

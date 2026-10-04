@@ -38,22 +38,17 @@ describe('CodecCapabilityService', () => {
     expect(svc.av1).toBe(false)
   })
 
-  test('applyCodecCapabilities ignores null and non-object payloads', () => {
-    const onChange = vi.fn()
-    const svc = new CodecCapabilityService(onChange)
-
-    svc.applyCodecCapabilities(null)
-    svc.applyCodecCapabilities('h265')
-
-    expect(onChange).not.toHaveBeenCalled()
-    expect(svc.hevc).toBe(false)
-  })
-
-  test('applyCodecCapabilities flips supported codecs on and notifies once per change', () => {
+  test('applyGstCodecCaps flips supported codecs on and notifies once per change', () => {
     const changes: Array<[CodecKind, boolean]> = []
     const svc = new CodecCapabilityService((codec, supported) => changes.push([codec, supported]))
+    const all = mkProbe({
+      h265: { hw: true, sw: true },
+      vp9: { hw: true, sw: true },
+      av1: { hw: true, sw: true }
+    })
 
-    svc.applyCodecCapabilities({ h265: { hw: true }, vp9: { sw: true }, av1: { hw: true } })
+    ;(probeGstCodecs as Mock).mockReturnValue(all)
+    svc.applyGstCodecCaps()
 
     expect(svc.hevc).toBe(true)
     expect(svc.vp9).toBe(true)
@@ -64,10 +59,11 @@ describe('CodecCapabilityService', () => {
       ['av1', true]
     ])
 
-    svc.applyCodecCapabilities({ h265: { hw: true }, vp9: { sw: true }, av1: { hw: true } })
+    svc.applyGstCodecCaps()
     expect(changes).toHaveLength(3)
 
-    svc.applyCodecCapabilities({})
+    ;(probeGstCodecs as Mock).mockReturnValue(mkProbe())
+    svc.applyGstCodecCaps()
     expect(svc.hevc).toBe(false)
     expect(svc.vp9).toBe(false)
     expect(svc.av1).toBe(false)

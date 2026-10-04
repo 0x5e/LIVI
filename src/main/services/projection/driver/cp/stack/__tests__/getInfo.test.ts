@@ -15,7 +15,6 @@ function baseConfig(overrides: Partial<CpStackConfig> = {}): CpStackConfig {
     btMac: '11:22:33:44:55:66',
     sourceVersion: '320.17',
     hevc: false,
-    h264: true,
     main: { widthPixels: 800, heightPixels: 480 },
     entertainmentSampleRate: 44100,
     mfi: {} as CpStackConfig['mfi'],

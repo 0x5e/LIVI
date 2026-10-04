@@ -3,7 +3,7 @@ import { configEvents } from '@main/ipc/utils'
 import { SystemSound } from '@main/services/audio'
 import { broadcastToSecondaryRenderers } from '@main/window/broadcast'
 import { getSecondaryWindow, secondaryWindowEvents } from '@main/window/secondaryWindows'
-import type { Config, DevListEntry } from '@shared/types'
+import type { Config } from '@shared/types'
 import { isInputCommand } from '@shared/types/InputCommand'
 import type { NavLocale } from '@shared/utils'
 import { clusterTargetScreens, isClusterDisplayed } from '@shared/utils'
@@ -130,10 +130,8 @@ export class ProjectionService {
       this.drivers.setCpHevcSupported(supported)
     } else if (codec === 'vp9') {
       this.drivers.setAaVp9Supported(supported)
-      this.drivers.setCpVp9Supported(supported)
     } else {
       this.drivers.setAaAv1Supported(supported)
-      this.drivers.setCpAv1Supported(supported)
     }
   })
 
@@ -175,7 +173,6 @@ export class ProjectionService {
       height: this.lastClusterVideoHeight ?? 0
     })
   })
-  private hostDevList: DevListEntry[] = []
   private lastAudioMetaEmitKey = ''
   private readonly bluez = new BluezDeviceClient()
   private readonly aaHelper = new AaHelperSock()
@@ -520,7 +517,6 @@ export class ProjectionService {
         next.wirelessCpEnabled !== prev.wirelessCpEnabled)
     ) {
       this.syncHelperSupervisor()
-      this.emitTransportState()
     }
 
     const outChanged = next.audioOutputDevice !== prev.audioOutputDevice
@@ -581,7 +577,6 @@ export class ProjectionService {
       this.openAaBtSubscription()
       this.populateAaBtPairedListInitial()
         .then(() => {
-          this.emitTransportState()
           this.connectConfiguredAudioDevices().catch(() => {})
         })
         .catch(() => {})
@@ -605,7 +600,6 @@ export class ProjectionService {
     if (this.wirelessPhoneInRange === value) return
     const becameAvailable = !this.wirelessPhoneInRange && value
     this.wirelessPhoneInRange = value
-    this.emitTransportState()
     if (becameAvailable) this.autoStartIfNeeded().catch(console.error)
   }
 
@@ -626,11 +620,6 @@ export class ProjectionService {
       this.webContents.send('projection-event', payload)
     }
     broadcastToSecondaryRenderers('projection-event', payload)
-  }
-
-  // Reflects the current HEVC decode capability seeded into each AA session
-  public getHevcSupported(): boolean {
-    return this.codecCaps.hevc
   }
 
   private onPhoneConnected(protocol: SessionProtocol): void {
@@ -712,8 +701,6 @@ export class ProjectionService {
   }
 
   private handleAudioData(msg: AudioData): void {
-    this.audio.handleAudioData(msg)
-
     if (msg.command != null) {
       this.statusFile.applyAudioCommand(msg.command)
       if (this.lastPluggedProtocol === 'androidauto') {
@@ -787,16 +774,6 @@ export class ProjectionService {
     this.planes.setMainCodec(codec)
   }
 
-  // 'video-config': CarPlay's codec_data record, ahead of the first frame; applied live if
-  // the plane already exists.
-  private readonly onDriverVideoConfig = (codecData: Buffer): void => {
-    this.planes.setMainCodecData(codecData)
-  }
-
-  private readonly onDriverClusterVideoConfig = (codecData: Buffer): void => {
-    this.planes.setClusterCodecData(codecData)
-  }
-
   private readonly onNativeVideoConfig = (id: number, codec: GstVideoCodec, atom: Buffer): void => {
     if (id === VIDEO_PLANE_CLUSTER_RECV) {
       this.onNativeClusterConfig(codec, atom)
@@ -866,14 +843,6 @@ export class ProjectionService {
       this.sessions.dump(
         `cluster-codec ${c} → ${s ? `stored on #${s.index}` : 'NO session (map only)'}`
       )
-    })
-    d.on('video-config', (cd: Buffer) => {
-      const s = this.sessions.byDriver(d)
-      if (s) s.video.main.codecData = cd
-    })
-    d.on('cluster-video-config', (cd: Buffer) => {
-      const s = this.sessions.byDriver(d)
-      if (s) s.video.cluster.codecData = cd
     })
   }
 
@@ -950,9 +919,7 @@ export class ProjectionService {
         onMessage: (msg) => this.onDriverMessage(msg as Message),
         onMetaMessage: (driver, msg) => this.onMetaMessage(driver, msg),
         onVideoCodec: (c) => this.onDriverVideoCodec(c),
-        onClusterVideoCodec: (c) => this.onDriverClusterVideoCodec(c),
-        onVideoConfig: (cd) => this.onDriverVideoConfig(cd),
-        onClusterVideoConfig: (cd) => this.onDriverClusterVideoConfig(cd)
+        onClusterVideoCodec: (c) => this.onDriverClusterVideoCodec(c)
       },
       onAaConnected: (s) => this.onAaConnected(s as AaSession),
       onAaDisconnected: (s) => this.onAaDisconnected(s as AaSession),
@@ -972,8 +939,6 @@ export class ProjectionService {
       onCpCreated: (s) => this.attachCodecCapture(s as CpSession),
       getCpConfigSeed: () => ({
         hevcSupported: this.codecCaps.hevc,
-        vp9Supported: this.codecCaps.vp9,
-        av1Supported: this.codecCaps.av1,
         initialNightMode: deriveInitialNightMode(this.config.appearanceMode)
       }),
       getConfig: () => this.config,
@@ -1035,15 +1000,11 @@ export class ProjectionService {
       hasWiredAaSession: () =>
         this.sessions.all().some((s) => s.protocol === 'androidauto' && s.transport === 'usb'),
       hasWiredCpSession: () =>
-        this.sessions.all().some((s) => s.protocol === 'carplay' && s.transport === 'usb'),
-      onChange: () => this.emitTransportState()
+        this.sessions.all().some((s) => s.protocol === 'carplay' && s.transport === 'usb')
     })
 
     this.audio = new ProjectionAudio(
       () => this.config,
-      (payload) => {
-        this.emitProjectionEvent(payload)
-      },
       (channel, data, chunkSize, extra) => {
         // FFT audio chunks must reach every window that can draw the visualizer
         this.sendChunked(channel, data, chunkSize, extra, this.getAllUiWebContents())
@@ -1070,13 +1031,10 @@ export class ProjectionService {
       restartSession: () => this.restartSession(),
       setVideoVisible: (v) => this.setVideoVisible(v),
       pickPreferredTransport: () => this.pickPreferredTransport(),
-      switchTransport: () => this.switchTransport(),
-      getTransportState: () => this.getTransportState(),
       getDevices: () => this.getDevices(),
       selectDevice: (id) => this.selectDevice(id),
       cycleSession: () => this.sessions.activateNext(),
       forgetDevice: (id) => this.forgetDevice(id),
-      applyCodecCapabilities: (caps) => this.codecCaps.applyCodecCapabilities(caps),
       send: (msg) => this.driver?.send(msg) ?? Promise.resolve(false),
       isUsingAa: () => this.getActiveTransport() === 'aa',
       isStarted: () => this.started,
@@ -1103,8 +1061,6 @@ export class ProjectionService {
         return w > 0 && h > 0 ? { width: w, height: h } : null
       },
       getClusterTargetWebContents: () => this.getClusterTargetWebContents(),
-      reloadConfigFromDisk: () => this.reloadConfigFromDisk(),
-      emitProjectionEvent: (p) => this.emitProjectionEvent(p),
       readActiveMedia: () => ({
         timestamp: new Date().toISOString(),
         payload: this.sessions.active()?.media ?? DEFAULT_MEDIA_DATA_RESPONSE.payload
@@ -1154,10 +1110,6 @@ export class ProjectionService {
     return null
   }
 
-  public getTransportState() {
-    return this.arbiter.getSnapshot()
-  }
-
   public getDevices(): DeviceView[] {
     return this.deviceController.getDevices()
   }
@@ -1168,61 +1120,6 @@ export class ProjectionService {
 
   public selectDevice(id: string): { ok: boolean } {
     return this.deviceController.selectDevice(id)
-  }
-
-  private emitTransportState(): void {
-    this.emitProjectionEvent({
-      type: 'transportState',
-      payload: this.arbiter.getSnapshot()
-    })
-  }
-
-  public async switchTransport(): Promise<{ ok: boolean; active: Transport | null }> {
-    const { ok, target } = this.arbiter.prepareSwitch()
-    if (!ok) return { ok: false, active: target?.transport ?? null }
-
-    if (this.isSwitching) {
-      return { ok: true, active: target?.transport ?? null }
-    }
-
-    this.isSwitching = true
-    try {
-      while (true) {
-        const desired = this.arbiter.getOverride()
-        if (!desired) break
-
-        const wasWireless = this.getActiveTransport() === 'aa' && !this.isActiveAaWired()
-
-        if (this.started) {
-          try {
-            await this.stop()
-          } catch (e) {
-            console.warn('[ProjectionService] switchTransport: stop threw (ignored)', e)
-          }
-        }
-
-        if (wasWireless) {
-          // Leaving wireless: kick the phone off the AP
-          await this.bluez.deauthApClients().catch(() => {})
-        }
-
-        if (desired.transport === 'aa' && desired.mode === 'wireless') {
-          await this.bounceAaBtConnections()
-          // Give BlueZ a moment to commit the disconnect before we re-wake.
-          await new Promise((r) => setTimeout(r, 500))
-          await this.tryAutoConnect({ force: true })
-        }
-
-        await this.autoStartIfNeeded()
-
-        const newOverride = this.arbiter.getOverride()
-        if (!newOverride) break
-        if (newOverride.transport === desired.transport && newOverride.mode === desired.mode) break
-      }
-    } finally {
-      this.isSwitching = false
-    }
-    return { ok: true, active: this.getActiveTransport() }
   }
 
   // Restart the session to apply a config change that needs fresh negotiation
@@ -1383,20 +1280,6 @@ export class ProjectionService {
     const offerable = connected !== '' || (wiredAaActive && phones.length > 0)
     this.setWirelessPhoneInRange(offerable)
     if (!wasSettled) this.autoStartIfNeeded().catch(console.error)
-
-    // Ignore transient empty responses to avoid UI flicker
-    if (devices.length === 0 && this.hostDevList.length > 0) {
-      console.warn('[ProjectionService] empty paired list, keeping last known host entries')
-    } else {
-      this.hostDevList = devices.map((d) => ({
-        id: d.mac,
-        name: d.name || d.mac,
-        type: isPhoneLikeCod(d.class) ? 'AndroidAuto' : '',
-        source: 'host',
-        class: d.class,
-        connected: d.connected
-      }))
-    }
 
     if (this.aaBtActive && connected && this.config.lastConnectedAaBtMac !== connected) {
       configEvents.emit('requestSave', { lastConnectedAaBtMac: connected })
@@ -1824,7 +1707,6 @@ export class ProjectionService {
         }
       } finally {
         this.startPromise = null
-        this.emitTransportState()
       }
     })()
 
@@ -1866,13 +1748,7 @@ export class ProjectionService {
       if (switched || (mc !== undefined && mc !== this.planes.getMainCodec())) this.planes.dispose()
       this.mediaStore.hydrate(next)
       this.navStore.hydrate(next)
-      // Restore the length-prefixed codec_data for this session (null for byte-stream sources).
-      this.planes.restoreCodecs(
-        mc,
-        cc,
-        next.video.main.codecData ?? null,
-        next.video.cluster.codecData ?? null
-      )
+      this.planes.restoreCodecs(mc, cc)
       // CarPlay's planes come back with the receiver's config; the fed ones are primed here.
       if (switched && next.protocol === 'androidauto') {
         this.planes.primeMain()
@@ -1965,7 +1841,6 @@ export class ProjectionService {
       this.aaPlaybackInferred = 0
     })().finally(() => {
       this.stopPromise = null
-      this.emitTransportState()
     })
 
     return this.stopPromise

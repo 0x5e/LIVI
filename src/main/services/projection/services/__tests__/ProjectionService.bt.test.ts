@@ -63,18 +63,7 @@ vi.mock('../ProjectionAudio', () => ({
       resetForSessionStart: vi.fn(),
       resetForSessionStop: vi.fn(),
       setStreamVolume: vi.fn(),
-      setVisualizerEnabled: vi.fn(),
-      handleAudioData: vi.fn()
-    }
-  })
-}))
-
-vi.mock('../FirmwareUpdateService', () => ({
-  FirmwareUpdateService: vi.fn().mockImplementation(function () {
-    return {
-      checkForUpdate: vi.fn(async () => ({ ok: true, hasUpdate: false, raw: {} })),
-      downloadFirmwareToHost: vi.fn(),
-      getLocalFirmwareStatus: vi.fn()
+      setVisualizerEnabled: vi.fn()
     }
   })
 }))
@@ -164,17 +153,6 @@ describe('refreshBtPairedList', () => {
       'requestSave',
       expect.objectContaining({ lastConnectedAaBtMac: 'AA:BB' })
     )
-  })
-
-  test('builds host DevList from paired devices', async () => {
-    const { svc } = newSvc()
-    bluezMock.listPaired.mockResolvedValueOnce([
-      { mac: 'AA:BB', name: 'P1', connected: false },
-      { mac: 'CC:DD', name: 'P2', connected: false }
-    ])
-    await (svc as unknown as { refreshBtPairedList: () => Promise<void> }).refreshBtPairedList()
-    const hostDevList = (svc as unknown as { hostDevList: unknown[] }).hostDevList
-    expect(hostDevList).toHaveLength(2)
   })
 })
 

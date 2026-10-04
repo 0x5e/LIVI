@@ -3,7 +3,6 @@ import type { AudioCommand } from '@shared/types/ProjectionEnums'
 import type { NavLocale } from '@shared/utils'
 import type { Command, NavigationData } from '../messages'
 import { MediaType, NavigationMetaType } from '../messages'
-import type { TransportSnapshot } from '../transport/types'
 import type { SessionProtocol, VideoCodec } from './SessionManager'
 
 export type MediaBag = Record<string, unknown>
@@ -59,18 +58,9 @@ export type ProjectionEvent =
   | { type: 'command'; message: Command }
   | { type: 'projection'; shown: boolean }
   | { type: 'audioDevicesChanged' }
-  | { type: 'transportState'; payload: TransportSnapshot }
   | { type: 'session'; protocol: SessionProtocol | null; position: number; total: number }
   | { type: 'devices'; payload: DeviceView[] }
   | { type: 'media'; payload: { payload: PersistedMediaPayload } }
   | { type: 'media-reset'; reason: string }
   | { type: 'navigation'; payload: NavigationData }
   | { type: 'navigation-reset'; reason: string }
-  | {
-      type: 'attention'
-      payload: {
-        kind: 'call' | 'voiceAssistant' | 'nav'
-        active: boolean
-        phase?: 'incoming' | 'ended'
-      }
-    }

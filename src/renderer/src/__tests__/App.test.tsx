@@ -5,8 +5,6 @@ import { AppContext } from '../context'
 const navigateMock = vi.fn()
 const useKeyDownHandler = vi.fn()
 const updateCamerasMock = vi.fn()
-const listenForEvents = vi.fn()
-const unlistenForEvents = vi.fn()
 const focusFirstInMainMock = vi.fn()
 let capturedKeyDownOpts: any = null
 let mockPathname = '/'
@@ -101,8 +99,6 @@ describe('App', () => {
     navigateMock.mockReset()
     useKeyDownHandler.mockReset()
     updateCamerasMock.mockReset()
-    listenForEvents.mockReset()
-    unlistenForEvents.mockReset()
     focusFirstInMainMock.mockReset()
     mockPathname = '/'
     liviState.settings = {
@@ -114,12 +110,7 @@ describe('App', () => {
     statusState.reverse = false
     statusState.cameraFound = false
     statusState.requestedPath = null
-    ;(window as any).projection = {
-      usb: {
-        listenForEvents,
-        unlistenForEvents
-      }
-    }
+    ;(window as any).projection = {}
     ;(window as any).app = undefined
   })
 
@@ -182,22 +173,6 @@ describe('App', () => {
     expect(focusFirstInMainMock).toHaveBeenCalled()
 
     rafSpy.mockRestore()
-  })
-
-  test('updates cameras again for matching usb event types only', async () => {
-    render(<App />)
-
-    const usbHandler = listenForEvents.mock.calls[0][0]
-
-    updateCamerasMock.mockClear()
-
-    usbHandler(undefined, { type: 'attach' })
-    expect(updateCamerasMock).toHaveBeenCalledTimes(1)
-
-    updateCamerasMock.mockClear()
-
-    usbHandler(undefined, { type: 'something-else' })
-    expect(updateCamerasMock).not.toHaveBeenCalled()
   })
 
   test('removes global input listeners on unmount', async () => {
@@ -602,14 +577,6 @@ describe('App', () => {
       document.dispatchEvent(new Event('visibilitychange'))
     })
     expect(broadcastMediaKey).not.toHaveBeenCalled()
-  })
-
-  test('usb handler tolerates events without a payload', async () => {
-    render(<App />)
-    const usbHandler = listenForEvents.mock.calls[0][0]
-    updateCamerasMock.mockClear()
-    expect(() => usbHandler(undefined)).not.toThrow()
-    expect(updateCamerasMock).not.toHaveBeenCalled()
   })
 
   test('camera enabled state resolves for non-main window roles', async () => {

@@ -108,7 +108,8 @@ describe('AAStack: lifecycle', () => {
     const { stack, session } = setup()
     stack.stop()
     expect(session.close).toHaveBeenCalled()
-    expect(stack.activeSession).toBeNull()
+    stack.requestMainKeyframe()
+    expect(session.requestMainKeyframe).not.toHaveBeenCalled()
   })
 
   test('stop() without an active session does not throw', async () => {
@@ -289,13 +290,6 @@ describe('AAStack: config + keyframe API', () => {
     stack.setConfigRefresh(fn)
     stack.attachLink(fakeLink())
     expect(fn).toHaveBeenCalledTimes(1)
-  })
-
-  test('activeSession getter reflects the adopted session', () => {
-    const stack = new AAStack(baseCfg())
-    expect(stack.activeSession).toBeNull()
-    const { stack: s2, session } = setup()
-    expect(s2.activeSession).toBe(session as never)
   })
 
   test('keyframe + cluster-stream methods delegate to the active session', () => {

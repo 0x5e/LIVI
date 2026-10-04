@@ -1,14 +1,8 @@
 vi.mock('@renderer/components/pages/settings/pages/camera', () => ({
   Camera: () => null
 }))
-vi.mock('@renderer/components/pages/settings/pages/system/iconUploader/IconUploader', () => ({
-  IconUploader: () => null
-}))
 vi.mock('@renderer/components/pages/settings/pages/system/softwareUpdate/SoftwareUpdate', () => ({
   SoftwareUpdate: () => null
-}))
-vi.mock('@renderer/components/pages/settings/pages/system/usbDongle/USBDongle', () => ({
-  USBDongle: () => null
 }))
 vi.mock('@renderer/components/pages/settings/pages/system/About', () => ({
   About: () => null

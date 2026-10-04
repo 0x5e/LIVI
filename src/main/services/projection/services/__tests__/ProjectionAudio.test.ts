@@ -59,15 +59,9 @@ type Subject = ProjectionAudio & Record<string, any>
 
 function createSubject(
   config: Record<string, unknown> = { mediaDelay: 120 },
-  applyStreamVolume = vi.fn(),
-  sendProjectionEvent = vi.fn()
+  applyStreamVolume = vi.fn()
 ): Subject {
-  return new ProjectionAudio(
-    () => config as never,
-    sendProjectionEvent,
-    vi.fn(),
-    applyStreamVolume
-  ) as Subject
+  return new ProjectionAudio(() => config as never, vi.fn(), applyStreamVolume) as Subject
 }
 
 // A HostAudioOutput stand-in that opens with a fixed stream id on start().
@@ -131,7 +125,7 @@ describe('ProjectionAudio levels', () => {
   })
 
   test('without an applyStreamVolume hook the default no-op runs', () => {
-    const a = new ProjectionAudio(() => ({}) as never, vi.fn(), vi.fn())
+    const a = new ProjectionAudio(() => ({}) as never, vi.fn())
     expect(() => a.setStreamVolume('music', 0.5)).not.toThrow()
   })
 
@@ -264,12 +258,10 @@ describe('ProjectionAudio host streams', () => {
     a.primeOutput(3, 48000, 2, 'media')
     a.primeOutput(4, 16000, 1, 'speech')
     a.duck(0.2, 100)
-    a.uiNavHintActive = true
     expect(() => a.resetForSessionStop()).not.toThrow()
     expect(opened[0].stop).toHaveBeenCalled()
     expect(a.hostOutputs()).toEqual([])
     expect(a.duckLevel).toBe(1)
-    expect(a.uiNavHintActive).toBe(false)
     a.resetForSessionStart()
     expect(a.hostOutputs()).toEqual([])
   })
@@ -305,7 +297,7 @@ describe('ProjectionAudio host streams', () => {
 describe('ProjectionAudio visualizer', () => {
   test('host viz samples reach the renderer while a window wants them', () => {
     const sendChunked = vi.fn()
-    const a = new ProjectionAudio(() => ({}) as never, vi.fn(), sendChunked, vi.fn())
+    const a = new ProjectionAudio(() => ({}) as never, sendChunked, vi.fn())
     gstHostMock.emitViz(new Uint8Array([1, 2]))
     expect(sendChunked).not.toHaveBeenCalled()
     a.setVisualizerEnabled(true)
@@ -327,76 +319,11 @@ describe('ProjectionAudio visualizer', () => {
     const a = createSubject()
     a.setVisualizerEnabled(true, 1)
     a.setVisualizerEnabled(true, 2)
-    expect(a.visualizerEnabled).toBe(true)
     expect(gstHostMock.setVisualizerTap).toHaveBeenCalledTimes(1)
     a.setVisualizerEnabled(false, 1)
-    expect(a.visualizerEnabled).toBe(true)
+    expect(gstHostMock.setVisualizerTap).toHaveBeenCalledTimes(1)
     a.setVisualizerEnabled(false, 2)
-    expect(a.visualizerEnabled).toBe(false)
     expect(gstHostMock.setVisualizerTap).toHaveBeenLastCalledWith(false)
-  })
-})
-
-describe('ProjectionAudio attention hints', () => {
-  const command = (cmd: number, extra: Record<string, unknown> = {}) =>
-    ({ decodeType: 1, audioType: 3, command: cmd, ...extra }) as never
-
-  test('an incoming call is announced once until the call ends', () => {
-    const events = vi.fn()
-    const a = createSubject(undefined, vi.fn(), events)
-    a.handleAudioData(command(1))
-    a.handleAudioData(command(2))
-    expect(events).toHaveBeenCalledTimes(1)
-    expect(events).toHaveBeenCalledWith({
-      type: 'attention',
-      payload: { kind: 'call', active: true, phase: 'incoming' }
-    })
-    a.handleAudioData(command(3))
-    expect(events).toHaveBeenLastCalledWith({
-      type: 'attention',
-      payload: { kind: 'call', active: false, phase: 'ended' }
-    })
-    a.handleAudioData(command(3))
-    expect(events).toHaveBeenCalledTimes(2)
-  })
-
-  test('the voice assistant hint is raised once', () => {
-    const events = vi.fn()
-    const a = createSubject(undefined, vi.fn(), events)
-    a.handleAudioData(command(4))
-    a.handleAudioData(command(4))
-    expect(events).toHaveBeenCalledTimes(1)
-    expect(events).toHaveBeenCalledWith({
-      type: 'attention',
-      payload: { kind: 'voiceAssistant', active: true }
-    })
-  })
-
-  test('the nav hint follows navigation and turn by turn start and stop', () => {
-    const events = vi.fn()
-    const a = createSubject(undefined, vi.fn(), events)
-    a.handleAudioData(command(8))
-    expect(events).not.toHaveBeenCalled()
-    a.handleAudioData(command(6))
-    a.handleAudioData(command(7))
-    expect(events).toHaveBeenCalledTimes(1)
-    expect(events).toHaveBeenCalledWith({
-      type: 'attention',
-      payload: { kind: 'nav', active: true }
-    })
-    a.handleAudioData(command(9))
-    expect(events).toHaveBeenLastCalledWith({
-      type: 'attention',
-      payload: { kind: 'nav', active: false }
-    })
-  })
-
-  test('messages without a command and stream commands change nothing', () => {
-    const events = vi.fn()
-    const a = createSubject(undefined, vi.fn(), events)
-    a.handleAudioData({ decodeType: 1, audioType: 3 } as never)
-    for (const cmd of [10, 11, 12, 13, 14, 15, 5]) a.handleAudioData(command(cmd))
-    expect(events).not.toHaveBeenCalled()
   })
 })
 
@@ -416,7 +343,7 @@ describe('ProjectionAudio non-host-process visualizer path', () => {
       '@main/services/projection/services/ProjectionAudio'
     )
     const sendChunked = vi.fn()
-    const a = new NonHostProjectionAudio(() => ({}) as never, vi.fn(), sendChunked, vi.fn())
+    const a = new NonHostProjectionAudio(() => ({}) as never, sendChunked, vi.fn())
 
     // useHostProcess === false takes the receiver-tap else branch instead of gstHost's.
     a.setVisualizerEnabled(true)
@@ -436,17 +363,16 @@ describe('ProjectionAudio non-host-process visualizer path', () => {
 })
 
 describe('ProjectionAudio DEBUG logging', () => {
-  test('logs commands and device changes when DEBUG is on', async () => {
+  test('logs device changes when DEBUG is on', async () => {
     vi.resetModules()
     vi.doMock('@main/constants', () => ({ DEBUG: true }))
     const { ProjectionAudio: Debugging } = await import(
       '@main/services/projection/services/ProjectionAudio'
     )
     const debug = vi.spyOn(console, 'debug').mockImplementation(() => {})
-    const a = new Debugging(() => ({}) as never, vi.fn(), vi.fn(), vi.fn())
-    a.handleAudioData({ decodeType: 1, audioType: 3, command: 6 } as never)
+    const a = new Debugging(() => ({}) as never, vi.fn(), vi.fn())
     a.onAudioDeviceChanged()
-    expect(debug).toHaveBeenCalledTimes(2)
+    expect(debug).toHaveBeenCalledTimes(1)
     debug.mockRestore()
     vi.doUnmock('@main/constants')
   })

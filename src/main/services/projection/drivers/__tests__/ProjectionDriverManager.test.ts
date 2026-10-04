@@ -27,8 +27,6 @@ const { MockAaManager, MockCpManager, lastManager, lastCpManager } = vi.hoisted(
     start = vi.fn()
     close = vi.fn()
     setHevcSupported = vi.fn()
-    setVp9Supported = vi.fn()
-    setAv1Supported = vi.fn()
     setInitialNightMode = vi.fn()
     setClusterStreamActive = vi.fn()
     constructor(opts: { onSpawn: (s: unknown) => void; onHelperPresence: (p: unknown) => void }) {
@@ -83,9 +81,7 @@ function buildDeps(over: Partial<DriverManagerDeps> = {}): {
     onMessage: vi.fn(),
     onMetaMessage: vi.fn(),
     onVideoCodec: vi.fn(),
-    onClusterVideoCodec: vi.fn(),
-    onVideoConfig: vi.fn(),
-    onClusterVideoConfig: vi.fn()
+    onClusterVideoCodec: vi.fn()
   }
   const onAaConnected = vi.fn()
   const onAaDisconnected = vi.fn()
@@ -117,8 +113,6 @@ function buildDeps(over: Partial<DriverManagerDeps> = {}): {
     onCpCreated,
     getCpConfigSeed: () => ({
       hevcSupported: false,
-      vp9Supported: false,
-      av1Supported: false,
       initialNightMode: undefined
     }),
     getConfig: () => ({}) as never,
@@ -334,8 +328,6 @@ describe('ProjectionDriverManager', () => {
     const m = mgr.ensureCpManager() as unknown as InstanceType<typeof MockCpManager>
     expect(m).toBe(lastCpManager.instance)
     expect(m.setHevcSupported).toHaveBeenCalledWith(false)
-    expect(m.setVp9Supported).toHaveBeenCalledWith(false)
-    expect(m.setAv1Supported).toHaveBeenCalledWith(false)
     expect(m.setInitialNightMode).toHaveBeenCalledWith(undefined)
 
     expect(mgr.ensureCpManager()).toBe(m)
@@ -391,12 +383,8 @@ describe('ProjectionDriverManager', () => {
     mgr.ensureCpManager()
     const m = lastCpManager.instance as unknown as InstanceType<typeof MockCpManager>
 
-    mgr.setCpVp9Supported(true)
-    mgr.setCpAv1Supported(true)
     mgr.setCpInitialNightMode(false)
 
-    expect(m.setVp9Supported).toHaveBeenLastCalledWith(true)
-    expect(m.setAv1Supported).toHaveBeenLastCalledWith(true)
     expect(m.setInitialNightMode).toHaveBeenLastCalledWith(false)
   })
 

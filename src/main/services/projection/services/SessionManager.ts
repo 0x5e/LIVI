@@ -19,7 +19,6 @@ export interface SessionDeviceIds {
 
 export interface KeyframeCache {
   codec?: VideoCodec
-  codecData?: Buffer
   width?: number
   height?: number
 }
@@ -241,11 +240,6 @@ export class SessionManager {
   closeByDriver(driver: IPhoneDriver): void {
     const s = this.byDriver(driver)
     if (!s) console.log(`[SESSIONS] closeByDriver → NO matching session`)
-    if (s) this.closeSession(s)
-  }
-
-  closeByDevice(ids: SessionDeviceIds): void {
-    const s = this.byDevice(ids)
     if (s) this.closeSession(s)
   }
 

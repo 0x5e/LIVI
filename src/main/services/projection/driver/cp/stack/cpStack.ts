@@ -53,9 +53,8 @@ import { ntp64Now } from './ntp'
 import { PairSetup } from './pairSetup'
 import { PairVerify } from './pairVerify'
 import { buildResponse, parseMessages, type RtspRequest, type RtspResponse } from './rtspMessage'
-import { ScreenStream } from './screenStream'
 import { TimingSync } from './timingServer'
-import type { CpAudioProfile, CpStackConfig, CpStreamProfile } from './types'
+import type { CpAudioProfile, CpStackConfig } from './types'
 
 const STREAM_TYPE_MAIN_SCREEN = 110
 const STREAM_TYPE_ALT_SCREEN = 111
@@ -150,8 +149,6 @@ interface CpSession {
   /** Media session servers, created during SETUP, torn down with the connection. */
   timing: TimingSync | null
   keepAlive: KeepAliveServer | null
-  screen: ScreenStream | null
-  clusterScreen: ScreenStream | null
   screenNativeId: number | null
   clusterScreenNativeId: number | null
   /** The receiver runs in the addon, so the id is a plane id and the host is not involved. */
@@ -258,8 +255,6 @@ export class CpStack extends EventEmitter {
       deviceBtMac: '',
       timing: null,
       keepAlive: null,
-      screen: null,
-      clusterScreen: null,
       screenNativeId: null,
       clusterScreenNativeId: null,
       screenInProcess: false,
@@ -335,8 +330,6 @@ export class CpStack extends EventEmitter {
     }
     session.timing?.stop()
     session.keepAlive?.stop()
-    session.screen?.stop()
-    session.clusterScreen?.stop()
     // The id is the host's receiver handle, or the plane id where the addon received.
     if (session.screenNativeId != null) {
       if (session.screenInProcess) closeScreenReceiver(session.screenNativeId)
@@ -359,8 +352,6 @@ export class CpStack extends EventEmitter {
     session.event?.close()
     session.timing = null
     session.keepAlive = null
-    session.screen = null
-    session.clusterScreen = null
     session.event = null
   }
 
@@ -423,11 +414,6 @@ export class CpStack extends EventEmitter {
     }
     console.log(`[cpStack] TEARDOWN streams ${types.join(',')}`)
     for (const type of types) {
-      if (type === STREAM_TYPE_MAIN_SCREEN) {
-        session.screen?.stop()
-        session.screen = null
-        continue
-      }
       const idx = session.audioMeta.findIndex((m) => m.type === type)
       if (idx < 0) continue
       const [m] = session.audioMeta.splice(idx, 1)
@@ -1129,75 +1115,39 @@ export class CpStack extends EventEmitter {
     }
     // Without a host process the addon binds the port and feeds the plane directly; the config
     // comes back through onNativeVideoConfig.
-    {
-      const planeId = isCluster ? VIDEO_PLANE_CLUSTER_RECV : VIDEO_PLANE_MAIN
-      const inProcPort = openScreenReceiver(planeId, key)
-      if (inProcPort > 0) {
-        const nativeCodec = this.cfg.hevc ? 'h265' : 'h264'
-        if (isCluster) {
-          session.clusterScreenNativeId = planeId
-          session.clusterScreenInProcess = true
-          if (!session.clusterCodecEmitted) {
-            this.emit('cluster-video-codec', nativeCodec)
-            session.clusterCodecEmitted = true
-          }
-        } else {
-          session.screenNativeId = planeId
-          session.screenInProcess = true
-          if (!session.codecEmitted) {
-            this.emit('video-codec', nativeCodec)
-            session.codecEmitted = true
-          }
-          if (!session.mainStreamReady) {
-            session.mainStreamReady = true
-            if (this._clusterWantActive) this._activateClusterStream(session)
-          }
-          this.emit('main-screen-ready')
-        }
-        console.log(
-          `[cpStack] SETUP screen NATIVE in-process (${isCluster ? 'cluster' : 'main'}, dataPort=${inProcPort}, id=${streamId}, codec=${nativeCodec})`
-        )
-        return inProcPort
-      }
+    const planeId = isCluster ? VIDEO_PLANE_CLUSTER_RECV : VIDEO_PLANE_MAIN
+    const inProcPort = openScreenReceiver(planeId, key)
+    if (inProcPort <= 0) {
+      console.warn(
+        `[cpStack] SETUP screen: the addon opened no receiver (${isCluster ? 'cluster' : 'main'})`
+      )
+      return 0
     }
-    const codec = this.cfg.hevc ? 'h265' : 'h264'
-    const screen = new ScreenStream(key)
-    const codecEvent = isCluster ? 'cluster-video-codec' : 'video-codec'
-    const configEvent = isCluster ? 'cluster-video-config' : 'video-config'
-    const frameEvent = isCluster ? 'cluster-video-frame' : 'video-frame'
-    let firstFrame = true
-    // The stream announces its real codec from the config atom; emit it once, before any
-    // frame, so gst-host builds the matching pipeline.
-    screen.on('codec', (c: 'h264' | 'h265') => {
-      if (isCluster) {
-        if (!session.clusterCodecEmitted) {
-          this.emit(codecEvent, c)
-          session.clusterCodecEmitted = true
-        }
-      } else if (!session.codecEmitted) {
-        this.emit(codecEvent, c)
+    const nativeCodec = this.cfg.hevc ? 'h265' : 'h264'
+    if (isCluster) {
+      session.clusterScreenNativeId = planeId
+      session.clusterScreenInProcess = true
+      if (!session.clusterCodecEmitted) {
+        this.emit('cluster-video-codec', nativeCodec)
+        session.clusterCodecEmitted = true
+      }
+    } else {
+      session.screenNativeId = planeId
+      session.screenInProcess = true
+      if (!session.codecEmitted) {
+        this.emit('video-codec', nativeCodec)
         session.codecEmitted = true
       }
-    })
-    // config carries the codec_data record; frames carry the decrypted length-prefixed NALs.
-    screen.on('config', (codecData: Buffer) => this.emit(configEvent, codecData))
-    screen.on('frame', (raw: Buffer): void => {
-      if (firstFrame) {
-        firstFrame = false
-        if (!isCluster && !session.mainStreamReady) {
-          session.mainStreamReady = true
-          if (this._clusterWantActive) this._activateClusterStream(session)
-        }
+      if (!session.mainStreamReady) {
+        session.mainStreamReady = true
+        if (this._clusterWantActive) this._activateClusterStream(session)
       }
-      this.emit(frameEvent, raw)
-    })
-    const port = await screen.listen()
-    if (isCluster) session.clusterScreen = screen
-    else session.screen = screen
+      this.emit('main-screen-ready')
+    }
     console.log(
-      `[cpStack] SETUP screen (type ${isCluster ? 111 : 110}, dataPort=${port}, codec=${codec}, id=${streamId})`
+      `[cpStack] SETUP screen NATIVE in-process (${isCluster ? 'cluster' : 'main'}, dataPort=${inProcPort}, id=${streamId}, codec=${nativeCodec})`
     )
-    return port
+    return inProcPort
   }
 
   /** Let this phone's audio streams reach the sink, or hold them back. */

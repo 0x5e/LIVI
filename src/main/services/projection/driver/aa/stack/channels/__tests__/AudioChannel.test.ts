@@ -1,18 +1,7 @@
 import type { Mock } from 'vitest'
-import { AV_MSG, CH, FRAME_FLAGS } from '../../constants'
-import type { RawFrame } from '../../frame/types'
+import { AV_MSG, CH } from '../../constants'
 import { AudioChannel, type AudioChannelType } from '../AudioChannel'
 import { fieldVarint } from '../protoEnc'
-
-function dummyFrame(channelId: number, msgId: number, payload: Buffer): RawFrame {
-  return {
-    channelId,
-    flags: FRAME_FLAGS.ENC_SIGNAL,
-    msgId,
-    payload,
-    rawPayload: Buffer.concat([Buffer.alloc(2), payload])
-  }
-}
 
 function freshSend(): {
   send: Mock
@@ -52,11 +41,7 @@ describe('AudioChannel.handleMessage', () => {
 
     // Start proto: field 1 = sessionId
     const startPayload = fieldVarint(1, 42)
-    ch.handleMessage(
-      AV_MSG.START_INDICATION,
-      startPayload,
-      dummyFrame(CH.MEDIA_AUDIO, AV_MSG.START_INDICATION, Buffer.alloc(0))
-    )
+    ch.handleMessage(AV_MSG.START_INDICATION, startPayload)
     expect(start).toHaveBeenCalledWith('media', CH.MEDIA_AUDIO)
   })
 
@@ -65,11 +50,7 @@ describe('AudioChannel.handleMessage', () => {
     const ch = new AudioChannel(CH.MEDIA_AUDIO, send)
     const start = vi.fn()
     ch.on('start', start)
-    ch.handleMessage(
-      AV_MSG.START_INDICATION,
-      fieldVarint(2, 5),
-      dummyFrame(CH.MEDIA_AUDIO, AV_MSG.START_INDICATION, Buffer.alloc(0))
-    )
+    ch.handleMessage(AV_MSG.START_INDICATION, fieldVarint(2, 5))
     expect(start).toHaveBeenCalledWith('media', CH.MEDIA_AUDIO)
   })
 
@@ -79,7 +60,7 @@ describe('AudioChannel.handleMessage', () => {
     const stop = vi.fn()
     ch.on('stop', stop)
 
-    ch.handleMessage(AV_MSG.STOP_INDICATION, Buffer.alloc(0), dummyFrame(0, 0, Buffer.alloc(0)))
+    ch.handleMessage(AV_MSG.STOP_INDICATION, Buffer.alloc(0))
     expect(stop).toHaveBeenCalledWith('media', CH.MEDIA_AUDIO)
   })
 
@@ -87,9 +68,7 @@ describe('AudioChannel.handleMessage', () => {
     const debug = vi.spyOn(console, 'debug').mockImplementation(function () {})
     const { send } = freshSend()
     const ch = new AudioChannel(CH.MEDIA_AUDIO, send)
-    expect(() =>
-      ch.handleMessage(0x1234, Buffer.alloc(0), dummyFrame(0, 0, Buffer.alloc(0)))
-    ).not.toThrow()
+    expect(() => ch.handleMessage(0x1234, Buffer.alloc(0))).not.toThrow()
     expect(debug).toHaveBeenCalled()
     debug.mockRestore()
   })

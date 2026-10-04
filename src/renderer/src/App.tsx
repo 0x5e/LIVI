@@ -235,14 +235,6 @@ function AppInner() {
   useEffect(() => {
     if (!settings) return
     updateCameras(setCameraFound, saveSettings, settings)
-    const usbHandler = (_evt: unknown, ...args: unknown[]) => {
-      const data = (args[0] ?? {}) as { type?: string }
-      if (data.type && ['attach', 'plugged', 'detach', 'unplugged'].includes(data.type)) {
-        updateCameras(setCameraFound, saveSettings, settings)
-      }
-    }
-    const unsubscribe = window.projection.usb.listenForEvents(usbHandler)
-    return unsubscribe
   }, [settings, saveSettings, setCameraFound])
 
   const reverse = useStatusStore((s) => s.reverse)

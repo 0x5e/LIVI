@@ -9,12 +9,10 @@ import { customProxy } from '@main/services/custom/CustomProxy'
 import { hostPowerAvailable, requestPowerAction } from '@main/services/power/hostPower'
 import { compositorRestart } from '@main/services/video/GstVideo'
 import { runtimeStateProps, ServicesProps } from '@main/types'
-import { isMacPlatform } from '@main/utils'
 import { broadcastToRenderers } from '@main/window/broadcast'
-import { getMainWindow } from '@main/window/createWindow'
 import { restoreKioskAfterWmExit } from '@main/window/utils'
 import { spawn } from 'child_process'
-import { app, shell } from 'electron'
+import { app } from 'electron'
 
 let restartInProgress = false
 
@@ -84,21 +82,6 @@ export async function restartApp(
 }
 
 export function registerAppIpc(runtimeState: runtimeStateProps, services: ServicesProps) {
-  const mainWindow = getMainWindow()
-  const isMac = isMacPlatform()
-
-  registerIpcHandle('quit', () =>
-    isMac
-      ? mainWindow?.isFullScreen()
-        ? (() => {
-            runtimeState.suppressNextFsSync = true
-            mainWindow!.once('leave-full-screen', () => mainWindow?.hide())
-            mainWindow!.setFullScreen(false)
-          })()
-        : mainWindow?.hide()
-      : app.quit()
-  )
-
   registerIpcHandle('app:customPageUrl', async () => {
     const proxied = await customProxy.start(runtimeState.config.customUrl)
     if (proxied) return proxied
@@ -130,14 +113,5 @@ export function registerAppIpc(runtimeState: runtimeStateProps, services: Servic
   registerIpcOn('app:media-key', (_evt, command: string) => {
     if (typeof command !== 'string' || !command) return
     broadcastToRenderers('app:media-key', command)
-  })
-
-  registerIpcHandle('app:openExternal', async (_evt, rawUrl: string) => {
-    const url = String(rawUrl ?? '').trim()
-    if (!url) return { ok: false, error: 'Empty URL' }
-    if (!/^https?:\/\//i.test(url)) return { ok: false, error: 'Only http/https URLs are allowed' }
-
-    await shell.openExternal(url)
-    return { ok: true }
   })
 }

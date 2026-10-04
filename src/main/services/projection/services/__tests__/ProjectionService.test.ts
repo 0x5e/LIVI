@@ -86,8 +86,7 @@ vi.mock('../ProjectionAudio', () => ({
       resetForSessionStart: vi.fn(),
       resetForSessionStop: vi.fn(),
       setStreamVolume: vi.fn(),
-      setVisualizerEnabled: vi.fn(),
-      handleAudioData: vi.fn()
+      setVisualizerEnabled: vi.fn()
     }
   })
 }))
@@ -316,19 +315,6 @@ describe('ProjectionService', () => {
       vi.useRealTimers()
     })
 
-    // The helper announced a phone on USB, the session stays held until activated
-    function plugWiredAa(svc: any): number {
-      const driver = Object.assign(new EventEmitter(), {
-        isWiredMode: () => true,
-        usbSerial: () => 'serial-1',
-        close: vi.fn(async () => undefined),
-        requestKeyframe: vi.fn(),
-        setVideoActive: vi.fn(),
-        send: vi.fn(async () => true)
-      })
-      return svc.sessions.upsert(driver, 'androidauto', 'usb', { usbSerial: 'serial-1' }).index
-    }
-
     function freshSvc(): any {
       const svc = new ProjectionService() as any
       routeMockDriver(svc)
@@ -341,34 +327,6 @@ describe('ProjectionService', () => {
       const svc = freshSvc()
       svc.config = { aa: false, connectionPreference: 'auto' }
       expect(svc.pickPreferredTransport()).toBeNull()
-    })
-
-    test('switchTransport is a no-op when only one transport is present', async () => {
-      const svc = freshSvc()
-      svc.config = { aa: false, connectionPreference: 'auto' }
-      svc.start = vi.fn(async () => undefined)
-      svc.stop = vi.fn(async () => undefined)
-
-      const res = await svc.switchTransport()
-      expect(res.ok).toBe(false)
-      expect(svc.stop).not.toHaveBeenCalled()
-    })
-
-    test('override clears when the chosen transport goes away', async () => {
-      const svc = freshSvc()
-      svc.config = { aa: false, connectionPreference: 'auto' }
-      const wired = plugWiredAa(svc)
-      svc.started = true
-      svc.stop = vi.fn(async () => {
-        svc.started = false
-      })
-      svc.start = vi.fn(async () => undefined)
-
-      await svc.switchTransport()
-      expect(svc.pickPreferredTransport()).toBe('aa')
-
-      // The wired candidate follows the helper session, no detach debounce
-      svc.sessions.close(wired)
     })
   })
 
@@ -661,7 +619,7 @@ describe('ProjectionService', () => {
     const { ProjectionAudio } = await import('../ProjectionAudio')
     const svc = new ProjectionService() as any
     routeMockDriver(svc)
-    const applyStreamVolume = vi.mocked(ProjectionAudio).mock.calls.at(-1)?.[3] as (
+    const applyStreamVolume = vi.mocked(ProjectionAudio).mock.calls.at(-1)?.[2] as (
       audioType: number,
       level: number,
       rampMs: number
@@ -767,8 +725,6 @@ describe('ProjectionService', () => {
 
     svc.driver.emit('message', msg)
     svc.driver.emit('message', msg)
-
-    expect(svc.audio.handleAudioData).toHaveBeenCalledTimes(2)
 
     expect(send).toHaveBeenCalledWith('projection-event', {
       type: 'audio',

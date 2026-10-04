@@ -5,7 +5,6 @@
  *
  *   const aa = new AAStack({ huName: 'LIVI' })
  *
- *   aa.on('session',      (session) => { ... })   // new phone connected
  *   aa.on('video-codec',  (codec) => { ... })     // 'h264' | 'h265' chosen by phone at START_INDICATION
  *   aa.on('error',        (err) => { ... })
  *
@@ -108,8 +107,6 @@ export class AAStack extends EventEmitter {
     session.on('connected', () => this.emit('connected'))
     session.on('disconnected', (reason?: string) => this.emit('disconnected', reason))
     session.on('error', (err: Error) => this.emit('error', err))
-
-    this.emit('session', session)
   }
 
   applyDisplayConfig(next: AAStackConfig): void {
@@ -149,10 +146,6 @@ export class AAStack extends EventEmitter {
       }
       this._activeSession = null
     }
-  }
-
-  get activeSession(): Session | null {
-    return this._activeSession
   }
 
   sendTouch(action: number, pointers: TouchPointer[], actionIndex = 0): void {

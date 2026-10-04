@@ -24,21 +24,13 @@ import {
 import { decodeStart, fieldFloat, fieldLenDelim, fieldVarint } from '../channels/protoEnc.js'
 import { VideoChannel } from '../channels/VideoChannel.js'
 import {
-  AUDIO_TYPE,
   AV_MSG,
   AV_SETUP_STATUS,
-  AV_STREAM_TYPE,
-  BT_PAIRING_METHOD,
   CH,
-  COLOR_SCHEME,
   CTRL_MSG,
-  DISPLAY_TYPE,
   FRAME_FLAGS,
   MEDIA_CODEC,
-  SENSOR_TYPE,
-  STATUS_OK,
-  VIDEO_FPS,
-  VIDEO_RESOLUTION
+  STATUS_OK
 } from '../constants.js'
 import { decode, encode, loadProtos, type ProtoTypes } from '../proto/index.js'
 import { type HelperSessionControl, HelperSessionLink } from '../transport/HelperSessionLink.js'
@@ -160,7 +152,6 @@ export class Session extends EventEmitter {
   private _media!: MediaInfoChannel
   private _mic!: MicChannel
   private _nav!: NavigationChannel
-  private _channelMap = new Map<number, number>() // channelId → service type
   private _videoCodecByIndex: VideoCodec[] = []
   private _videoCodec: VideoCodec | null = null
   private _phoneCodecLogged = false
@@ -310,10 +301,7 @@ export class Session extends EventEmitter {
         this._handleAVSetupRequest(channelId, payload)
         return
       }
-      const rawPayload = Buffer.concat([Buffer.allocUnsafe(2), payload])
-      rawPayload.writeUInt16BE(msgId, 0)
-      const frame = { channelId, flags, msgId, payload, rawPayload }
-      this._video?.handleMessage(msgId, payload, frame)
+      this._video?.handleMessage(msgId, payload)
       return
     }
 
@@ -322,20 +310,14 @@ export class Session extends EventEmitter {
         this._handleAVSetupRequest(channelId, payload)
         return
       }
-      const rawPayload = Buffer.concat([Buffer.allocUnsafe(2), payload])
-      rawPayload.writeUInt16BE(msgId, 0)
-      const frame = { channelId, flags, msgId, payload, rawPayload }
-      this._cluster?.handleMessage(msgId, payload, frame)
+      this._cluster?.handleMessage(msgId, payload)
       return
     }
 
     // Audio channels (media/speech/system) share AV wire shape with video.
     const audioCh = this._audio.get(channelId)
     if (audioCh && msgId !== AV_MSG.SETUP_REQUEST) {
-      const rawPayload = Buffer.concat([Buffer.allocUnsafe(2), payload])
-      rawPayload.writeUInt16BE(msgId, 0)
-      const frame = { channelId, flags, msgId, payload, rawPayload }
-      audioCh.handleMessage(msgId, payload, frame)
+      audioCh.handleMessage(msgId, payload)
       return
     }
 
@@ -404,10 +386,7 @@ export class Session extends EventEmitter {
         this._handleAVSetupRequest(channelId, payload)
         return
       }
-      const rawPayload = Buffer.concat([Buffer.allocUnsafe(2), payload])
-      rawPayload.writeUInt16BE(msgId, 0)
-      const frame = { channelId, flags, msgId, payload, rawPayload }
-      this._mic?.handleMessage(msgId, payload, frame)
+      this._mic?.handleMessage(msgId, payload)
       return
     }
 

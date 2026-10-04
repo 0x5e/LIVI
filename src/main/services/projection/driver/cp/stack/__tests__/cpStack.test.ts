@@ -640,6 +640,28 @@ describe('CpStack audio setup formats', () => {
     expect(active).toHaveBeenCalledWith(true, expect.any(Number), 1)
   })
 
+  it('a phone identified later leaves the start reports of the projecting one alone', async () => {
+    const { stack } = await setupAudio({
+      streamConnectionID: 1,
+      audioType: 'speechRecognition',
+      audioFormat: 0x20000000,
+      dataPort: 6000,
+      framesPerPacket: 480
+    })
+    const Same = stack.constructor as new (cfg: CpStackConfig) => EventEmitter
+    const later = new Same(baseCfg())
+    const active = vi.fn()
+    stack.on('audio-active', active)
+
+    reg.gst.onAudioStarted.mock.calls.at(-1)[0](1, 4242)
+    expect(active).toHaveBeenCalledTimes(1)
+
+    internals(stack).stop()
+    internals(later).stop()
+    reg.gst.onAudioStarted.mock.calls.at(-1)[0](1, 4242)
+    expect(active).toHaveBeenCalledTimes(1)
+  })
+
   it('opens the microphone in-process when the addon plays the stream', async () => {
     vi.mocked(openAudioReceiver).mockReturnValueOnce({
       streamId: 0x7c000001,

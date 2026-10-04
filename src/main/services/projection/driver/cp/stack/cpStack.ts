@@ -218,12 +218,20 @@ export class CpStack extends EventEmitter {
     { prof: CpAudioProfile; inProcess: boolean; started: (firstSample: number) => void }
   >()
 
+  /** The host keeps a single start listener. Every stack hears it, the stream id picks the owner,
+   *  so a phone identified later does not take the start reports of the one projecting. */
+  private static readonly _live = new Set<CpStack>()
+  private static readonly _reportStart = (id: number, firstSample: number): void => {
+    for (const stack of CpStack._live) stack._audioStarted(id, firstSample)
+  }
+
   constructor(private readonly cfg: CpStackConfig) {
     super()
     this._mfi = cfg.mfi
+    CpStack._live.add(this)
     // Same reverse path whether the host or the addon received the first sample.
-    onAudioReceiverStarted((id, firstSample) => this._audioStarted(id, firstSample))
-    gstHost.onAudioStarted((id, firstSample) => this._audioStarted(id, firstSample))
+    onAudioReceiverStarted(CpStack._reportStart)
+    gstHost.onAudioStarted(CpStack._reportStart)
   }
 
   private _audioStarted(id: number, firstSample: number): void {
@@ -235,6 +243,7 @@ export class CpStack extends EventEmitter {
 
   stop(): void {
     this._closing = true
+    CpStack._live.delete(this)
     // Tear down live sessions (closes the iAP2-over-CarPlay tunnel to the helper,
     // so its session count drops and the carkit watcher can reconnect on replug).
     for (const sock of [...this._conns]) sock.destroy()

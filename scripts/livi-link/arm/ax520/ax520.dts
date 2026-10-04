@@ -1,11 +1,10 @@
 // SPDX-License-Identifier: GPL-2.0
 /*
- * AXERA AX520 (VehiConn-D5A8). Addresses, IRQs and clock rates come from the DTB appended to the
- * stock kernel. No clock controller or pinctrl driver exists, so clocks are fixed and the pins stay
- * as muboot left them. UART, GIC, timer, USB, the SPI flash, GPIO and SPI1 (the RGB LED) are on,
- * each seen to work. sdio0 is an overlay that rcS applies once it has switched the WiFi module on
- * (GPIO0_24 high): a problem there then stops rcS, which the initramfs recovery shell gets around,
- * and not the kernel.
+ * AXERA AX520. Addresses, IRQs and clock rates come from the DTB appended to the stock kernel. No
+ * clock controller or pinctrl driver exists, so clocks are fixed and the pins stay as muboot left
+ * them. UART, GIC, timer, USB, the SPI flash, GPIO and SPI1 (the RGB LED) are on, each seen to work.
+ * sdio0 is an overlay that board_wifi applies once it has switched the WiFi module on (GPIO0_24
+ * high), so a problem there stops the WiFi bring-up and not the kernel.
  */
 /dts-v1/;
 
@@ -14,13 +13,13 @@
 
 / {
 	compatible = "axera,ax520";
-	model = "AXERA AX520 VehiConn";
+	model = "LIVI Link AX520";
 	#address-cells = <1>;
 	#size-cells = <1>;
 
 	aliases {
 		serial0 = &serial0;
-		/* spi1 so the LED is /dev/spidev1.0, the path livid's LED daemon uses on V821B too. */
+		/* spi1 so the LED is /dev/spidev1.0, the path livid's LED daemon opens. */
 		spi0 = &sfc;
 		spi1 = &spi1;
 		i2c0 = &i2c0;

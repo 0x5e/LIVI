@@ -28,18 +28,6 @@ pub fn from_usb(listener: &TcpListener) -> impl Iterator<Item = TcpStream> + '_ 
     })
 }
 
-/// Stations the bridge has learned behind `port`.
-pub fn stations(bridge: &str, port: &str) -> usize {
-    stations_under(Path::new("/"), bridge, port)
-}
-
-fn stations_under(root: &Path, bridge: &str, port: &str) -> usize {
-    let Some(port) = port_no(root, port) else {
-        return 0;
-    };
-    entries(&fdb(root, bridge)).filter(|e| e.port == port && !e.local).count()
-}
-
 fn over_usb(root: &Path, peer: IpAddr, local: IpAddr) -> bool {
     if peer.is_loopback() || peer == local {
         return true;
@@ -94,7 +82,6 @@ fn fdb(root: &Path, bridge: &str) -> Vec<u8> {
 struct Entry {
     mac: [u8; 6],
     port: u16,
-    local: bool,
 }
 
 /// 16 bytes each: mac[6], port_no, is_local, four bytes of ageing, then the port's high byte.
@@ -102,7 +89,6 @@ fn entries(fdb: &[u8]) -> impl Iterator<Item = Entry> + '_ {
     fdb.as_chunks::<16>().0.iter().map(|e| Entry {
         mac: [e[0], e[1], e[2], e[3], e[4], e[5]],
         port: u16::from(e[6]) | u16::from(e[12]) << 8,
-        local: e[7] != 0,
     })
 }
 
@@ -172,18 +158,9 @@ IP address       HW type     Flags       HW address            Mask     Device
     }
 
     #[test]
-    fn stations_leave_out_the_bridge_itself() {
-        let root = dongle("stations", ARP);
-        assert_eq!(stations_under(&root, "br0", "wlan0"), 1);
-        assert_eq!(stations_under(&root, "br0", USB), 1);
-        assert_eq!(stations_under(&root, "br0", "eth0"), 0);
-        fs::remove_dir_all(root).unwrap();
-    }
-
-    #[test]
     fn a_port_past_255_keeps_its_high_byte() {
         let e = entries(&entry(HOST, 0x102, false)).next().unwrap();
-        assert_eq!((e.mac, e.port, e.local), (HOST, 0x102, false));
+        assert_eq!((e.mac, e.port), (HOST, 0x102));
     }
 
     #[test]

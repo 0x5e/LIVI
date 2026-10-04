@@ -11,7 +11,7 @@
 //     DT (disabled otherwise) take over tick, clock, sched_clock and udelay.
 // Everything is printed, so the boot log says which case it was.
 //
-// The other thing done here is a way to switch peripherals on after boot. Kernel 6.18 has no
+// The other thing done here is a way to switch peripherals on after boot. Mainline has no
 // configfs interface for device-tree overlays any more, so `echo NAME > /sys/firmware/ax520/overlay`
 // applies /dtbo/ax520-NAME.dtbo (baked into the initramfs). A block that freezes the bus on its first
 // register access then costs a power cycle, not a flash.
@@ -23,15 +23,12 @@
 #include <linux/io.h>
 #include <linux/kernel_read_file.h>
 #include <linux/kobject.h>
-#include <linux/jiffies.h>
-#include <linux/kernel_stat.h>
 #include <linux/limits.h>
 #include <linux/of.h>
 #include <linux/of_clk.h>
 #include <linux/printk.h>
 #include <linux/slab.h>
 #include <linux/string.h>
-#include <linux/sysrq.h>
 #include <linux/vmalloc.h>
 #include <asm/mach/arch.h>
 
@@ -42,14 +39,6 @@ static u64 ax520_cntpct(void)
 	u32 lo, hi;
 
 	asm volatile("mrrc p15, 0, %0, %1, c14" : "=r" (lo), "=r" (hi));
-	return ((u64)hi << 32) | lo;
-}
-
-static u64 ax520_cntvct(void)
-{
-	u32 lo, hi;
-
-	asm volatile("mrrc p15, 1, %0, %1, c14" : "=r" (lo), "=r" (hi));
 	return ((u64)hi << 32) | lo;
 }
 
@@ -113,47 +102,6 @@ static void __init ax520_init_time(void)
 	tick_setup_hrtimer_broadcast();
 }
 
-/*
- * SysRq y: state of the timer, the GIC, the USB core and the IRQ counters, printed from the UART interrupt.
- * A kernel whose tick has died still takes that interrupt, and no task has to run for this.
- */
-static void __iomem *dbg_gicd, *dbg_gicc, *dbg_usb, *dbg_cnt;
-
-static void ax520_sysrq_dump(u8 key)
-{
-	u32 pctl, vctl, frq, lo, hi;
-	int i;
-
-	asm volatile("mrc p15, 0, %0, c14, c2, 1" : "=r" (pctl));
-	asm volatile("mrc p15, 0, %0, c14, c3, 1" : "=r" (vctl));
-	asm volatile("mrc p15, 0, %0, c14, c0, 0" : "=r" (frq));
-	pr_info("ax520 dump: jiffies %lu, cntpct %llu, cntvct %llu, cntfrq %u, cntp_ctl %08x, cntv_ctl %08x\n",
-		jiffies, ax520_cntpct(), ax520_cntvct(), frq, pctl, vctl);
-	asm volatile("mrrc p15, 2, %0, %1, c14" : "=r" (lo), "=r" (hi));
-	pr_info("ax520 dump: cntp_cval %08x%08x\n", hi, lo);
-	if (dbg_gicd && dbg_gicc)
-		pr_info("ax520 dump: gic enable %08x %08x, pending %08x %08x, active %08x %08x, cpu ctl %08x pmr %08x rpr %08x hppir %08x\n",
-			readl(dbg_gicd + 0x100), readl(dbg_gicd + 0x104), readl(dbg_gicd + 0x200), readl(dbg_gicd + 0x204),
-			readl(dbg_gicd + 0x300), readl(dbg_gicd + 0x304), readl(dbg_gicc), readl(dbg_gicc + 4),
-			readl(dbg_gicc + 0x14), readl(dbg_gicc + 0x18));
-	if (dbg_usb)
-		pr_info("ax520 dump: usb gisr %08x gmir %08x dmcr %08x phytmsr %08x dmigr %08x digr %08x disgr0 %08x disgr1 %08x disgr2 %08x otgisr %08x\n",
-			readl(dbg_usb + 0xc0), readl(dbg_usb + 0xc4), readl(dbg_usb + 0x100), readl(dbg_usb + 0x114),
-			readl(dbg_usb + 0x130), readl(dbg_usb + 0x140), readl(dbg_usb + 0x144), readl(dbg_usb + 0x148),
-			readl(dbg_usb + 0x14c), readl(dbg_usb + 0x84));
-	if (dbg_cnt)
-		pr_info("ax520 dump: syscnt cntcr %08x cntsr %08x\n", readl(dbg_cnt), readl(dbg_cnt + 4));
-	for (i = 1; i < 64; i++)
-		if (kstat_irqs_usr(i))
-			pr_info("ax520 dump: irq %d count %u\n", i, kstat_irqs_usr(i));
-}
-
-static const struct sysrq_key_op ax520_sysrq_op = {
-	.handler	= ax520_sysrq_dump,
-	.help_msg	= "ax520dump(y)",
-	.action_msg	= "AX520 dump",
-};
-
 static ssize_t overlay_store(struct kobject *kobj, struct kobj_attribute *attr,
 			     const char *buf, size_t count)
 {
@@ -194,11 +142,6 @@ static int __init ax520_overlay_init(void)
 
 	if (!k)
 		return -ENOMEM;
-	dbg_gicd = ioremap(0x08f01000, 0x1000);
-	dbg_gicc = ioremap(0x08f02000, 0x1000);
-	dbg_usb = ioremap(0x0b500000, 0x200);
-	dbg_cnt = ioremap(AX520_SYSCNT_BASE, 0x1000);
-	register_sysrq_key('y', &ax520_sysrq_op);
 	return sysfs_create_file(k, &overlay_attr.attr);
 }
 device_initcall(ax520_overlay_init);

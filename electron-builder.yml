@@ -60,7 +60,7 @@ linux:
         - '**/*'
         - '!**/*.a'
         - '!share/**'
-    - from: native/livi-helperd/target/release/livi-helperd
+    - from: native/livi-helperd/build/Release/livi-helperd
       to: driver/livi-helperd
     - from: assets/authentication
       to: authentication
@@ -86,7 +86,7 @@ mac:
         - '**/*'
         - '!**/*.a'
         - '!share/**'
-    - from: native/livi-helperd/target/release/livi-helperd
+    - from: native/livi-helperd/build/Release/livi-helperd
       to: driver/livi-helperd
     - from: assets/authentication
       to: authentication

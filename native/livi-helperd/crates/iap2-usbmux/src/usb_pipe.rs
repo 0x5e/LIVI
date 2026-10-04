@@ -20,8 +20,17 @@ impl MuxWriter for UsbWriter {
         let mut buf = Buffer::new(data.len());
         buf.extend_from_slice(data);
         let completion = self.0.transfer_blocking(buf, Duration::from_millis(2000));
-        completion.status.map_err(|e| format!("bulk write: {e}"))
+        completion.status.map_err(|e| format!("bulk write: {e}"))?;
+        if ends_on_packet(data.len(), self.0.max_packet_size()) {
+            let zlp = self.0.transfer_blocking(Buffer::new(0), Duration::from_millis(2000));
+            zlp.status.map_err(|e| format!("bulk write, empty packet: {e}"))?;
+        }
+        Ok(())
     }
+}
+
+fn ends_on_packet(len: usize, max_packet: usize) -> bool {
+    len != 0 && len.is_multiple_of(max_packet)
 }
 
 impl MuxReader for UsbReader {
@@ -66,4 +75,19 @@ pub fn open_pipes(serial: &str) -> Result<MuxPipes, String> {
     let ep_in =
         iface.endpoint::<Bulk, In>(EP_IN).map_err(|e| format!("usbmux in endpoint: {e}"))?;
     Ok((Box::new(UsbWriter(ep_out)), Box::new(UsbReader(ep_in))))
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn only_a_transfer_that_fills_its_last_packet_needs_an_empty_one() {
+        assert!(ends_on_packet(512, 512));
+        assert!(ends_on_packet(1024, 512));
+        assert!(!ends_on_packet(476, 512));
+        assert!(!ends_on_packet(513, 512));
+        assert!(!ends_on_packet(0, 512));
+        assert!(!ends_on_packet(512, 0));
+    }
 }

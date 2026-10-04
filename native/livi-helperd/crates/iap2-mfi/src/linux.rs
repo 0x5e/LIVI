@@ -95,7 +95,8 @@ pub struct I2cCoprocessor {
     file: fs::File,
     addr: u16,
     protocol_major: Option<u8>,
-    power: Option<(u32, PowerLine)>,
+    /// Keeps the chip powered, dropping it switches the line off.
+    _power: Option<PowerLine>,
 }
 
 impl I2cCoprocessor {
@@ -104,7 +105,7 @@ impl I2cCoprocessor {
     /// board's supply rail.
     pub fn open(bus: u32, power_gpio: i32) -> Result<Self, MfiError> {
         let power = match u32::try_from(power_gpio) {
-            Ok(gpio) => Some((gpio, PowerLine::on(gpio)?)),
+            Ok(gpio) => Some(PowerLine::on(gpio)?),
             Err(_) => None,
         };
         let bus_path = format!("/dev/i2c-{bus}");
@@ -115,17 +116,13 @@ impl I2cCoprocessor {
             .open(&bus_path)
             .map_err(|e| MfiError::Io(format!("open {bus_path}: {e}")))?;
         set_slave(&file, addr)?;
-        let mut chip = Self { file, addr, protocol_major: None, power };
+        let mut chip = Self { file, addr, protocol_major: None, _power: power };
         chip.protocol_major = chip.read_reg(REG_PROTOCOL_MAJOR, 1).ok().map(|v| v[0]);
         Ok(chip)
     }
 
     pub fn address(&self) -> u16 {
         self.addr
-    }
-
-    pub fn power_gpio(&self) -> Option<u32> {
-        self.power.as_ref().map(|(gpio, _)| *gpio)
     }
 
     fn probe(bus_path: &str) -> Result<u16, MfiError> {

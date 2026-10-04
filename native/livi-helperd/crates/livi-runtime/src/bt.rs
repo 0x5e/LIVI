@@ -663,6 +663,32 @@ pub async fn adapter_address(conn: &Connection, adapter: &str) -> Result<[u8; 6]
     Ok(mac)
 }
 
+/// CarPlay over the cable keeps the phone's Bluetooth to the accessory disconnected.
+pub fn drop_link(conn: &Connection, adapter: &str, mac: String) {
+    let (conn, adapter) = (conn.clone(), adapter.to_string());
+    tokio::spawn(async move {
+        if let Err(e) = crate::livi_sock::device_disconnect(&conn, &adapter, &mac).await {
+            eprintln!("[helperd] {mac} stays on bluetooth: {e}");
+        }
+    });
+}
+
+/// For a session over BlueZ: a phone whose iAP2 runs over the cable by now gets no start there.
+pub fn on_cable(
+    state: std::sync::Arc<crate::state::HelperState>,
+    conn: &Connection,
+    adapter: &str,
+) -> crate::bringup::OnCable {
+    let (conn, adapter) = (conn.clone(), adapter.to_string());
+    crate::bringup::OnCable(std::sync::Arc::new(move |mac: &str| {
+        let cabled = state.carkit_claims(mac);
+        if cabled {
+            drop_link(&conn, &adapter, mac.to_string());
+        }
+        cabled
+    }))
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;

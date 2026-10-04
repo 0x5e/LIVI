@@ -2,33 +2,63 @@ import { DEBUG } from '@main/constants'
 import { type ChildProcess, execFile, spawn } from 'child_process'
 
 const PACTL = 'pactl'
+// pactl translates its output, the parsing here reads the C locale
+const PACTL_ENV = { ...process.env, LC_ALL: 'C' }
 const DEFAULT_SINK = '@DEFAULT_SINK@'
+const NO_SUCH_ENTITY = 'No such entity'
 const CALL_TIMEOUT_MS = 2_000
 const RESTART_DELAY_MS = 2_000
 const ECHO_WINDOW_MS = 400
 const READ_DEBOUNCE_MS = 120
 
 let lastWriteAt = 0
+/** The configured sink while it is not there and the level follows the default sink. */
+let missingSink: string | null = null
 /** The single running sink watcher, so restarts never stack another pactl process. */
 let monitor: { stop: () => void } | null = null
+
+type PactlResult = { out: string | null; error?: string }
 
 function sinkName(configuredDevice: string | undefined): string {
   const s = configuredDevice?.trim()
   return s ? s : DEFAULT_SINK
 }
 
-function run(args: string[]): Promise<string | null> {
-  if (process.platform !== 'linux') return Promise.resolve(null)
+function run(args: string[]): Promise<PactlResult> {
+  if (process.platform !== 'linux')
+    return Promise.resolve({ out: null, error: 'pactl is Linux only' })
   return new Promise((resolve) => {
-    execFile(PACTL, args, { timeout: CALL_TIMEOUT_MS }, (err, stdout) => {
+    execFile(PACTL, args, { timeout: CALL_TIMEOUT_MS, env: PACTL_ENV }, (err, stdout, stderr) => {
       if (err) {
-        if (DEBUG) console.warn(`[SystemVolume] pactl ${args.join(' ')} failed: ${err.message}`)
-        resolve(null)
+        const error = stderr?.trim() || err.message
+        if (DEBUG) console.warn(`[SystemVolume] pactl ${args.join(' ')} failed: ${error}`)
+        resolve({ out: null, error })
         return
       }
-      resolve(stdout)
+      resolve({ out: stdout })
     })
   })
+}
+
+/**
+ * Runs a pactl call on the configured sink. While that sink is not there, playback lands on
+ * the default sink, so the call goes there too.
+ */
+async function onSink(
+  configuredDevice: string | undefined,
+  args: (sink: string) => string[]
+): Promise<PactlResult> {
+  const sink = sinkName(configuredDevice)
+  const res = await run(args(sink))
+  if (sink === DEFAULT_SINK || !res.error?.includes(NO_SUCH_ENTITY)) {
+    if (res.out !== null) missingSink = null
+    return res
+  }
+  if (missingSink !== sink) {
+    missingSink = sink
+    console.warn(`[SystemVolume] ${sink} is not there, following the default sink until it is`)
+  }
+  return run(args(DEFAULT_SINK))
 }
 
 export function parseSinkVolume(stdout: string): number | null {
@@ -41,7 +71,7 @@ export function parseSinkVolume(stdout: string): number | null {
 
 /** Current level of the configured sink, 0.0 to 1.0, or null if it cannot be read. */
 export async function getSystemVolume(configuredDevice?: string): Promise<number | null> {
-  const out = await run(['get-sink-volume', sinkName(configuredDevice)])
+  const { out } = await onSink(configuredDevice, (sink) => ['get-sink-volume', sink])
   return out === null ? null : parseSinkVolume(out)
 }
 
@@ -50,10 +80,11 @@ export async function setSystemVolume(level: number, configuredDevice?: string):
   const clamped = Math.min(1, Math.max(0, level))
   const pct = Math.round(clamped * 100)
   lastWriteAt = Date.now()
-  const sink = sinkName(configuredDevice)
-  const out = await run(['set-sink-volume', sink, `${pct}%`])
-  if (out === null) {
-    console.warn(`[SystemVolume] could not set ${sink} to ${pct} %, is pactl installed?`)
+  const res = await onSink(configuredDevice, (sink) => ['set-sink-volume', sink, `${pct}%`])
+  if (res.out === null) {
+    console.warn(
+      `[SystemVolume] could not set ${sinkName(configuredDevice)} to ${pct} %: ${res.error}`
+    )
     return false
   }
   lastWriteAt = Date.now()
@@ -64,11 +95,13 @@ export async function setSystemVolume(level: number, configuredDevice?: string):
 /**
  * Watch the sink for level changes made outside LIVI and report them as 0.0 to 1.0.
  * Changes we caused ourselves are suppressed for a short window so the two sides
- * cannot chase each other.
+ * cannot chase each other. onSinkBack fires when a configured sink that was missing
+ * shows up, so it can take the head-unit level.
  */
 export function startSystemVolumeMonitor(
   configuredDevice: () => string | undefined,
-  onChange: (level: number) => void
+  onChange: (level: number) => void,
+  onSinkBack: () => void
 ): void {
   if (monitor) return
   if (process.platform !== 'linux') {
@@ -96,8 +129,18 @@ export function startSystemVolumeMonitor(
     }, READ_DEBOUNCE_MS)
   }
 
+  const checkSinkBack = async (): Promise<void> => {
+    const sink = missingSink
+    if (!sink || (await run(['get-sink-volume', sink])).out === null || stopped) return
+    console.log(`[SystemVolume] ${sink} is back`)
+    onSinkBack()
+  }
+
   const spawnMonitor = (): void => {
-    const proc = spawn(PACTL, ['subscribe'], { stdio: ['ignore', 'pipe', 'ignore'] })
+    const proc = spawn(PACTL, ['subscribe'], {
+      stdio: ['ignore', 'pipe', 'ignore'],
+      env: PACTL_ENV
+    })
     child = proc
 
     let buf = ''
@@ -109,6 +152,7 @@ export function startSystemVolumeMonitor(
         const line = buf.slice(0, nl)
         buf = buf.slice(nl + 1)
         if (/Event 'change' on sink #/.test(line)) readSoon()
+        else if (/Event 'new' on sink #/.test(line)) void checkSinkBack()
       }
     })
     proc.on('error', (err) => {

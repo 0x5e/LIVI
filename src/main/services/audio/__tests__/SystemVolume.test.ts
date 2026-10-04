@@ -44,6 +44,27 @@ function pactlAnswers(volumePercent: number | Error): void {
   )
 }
 
+/** Answers per sink, the way pactl does in the C locale for a sink that is not there. */
+function pactlSinks(levels: Record<string, number>): void {
+  execFileMock.mockImplementation(
+    (
+      _cmd: string,
+      args: string[],
+      _opts: unknown,
+      cb: (e: Error | null, out?: string, err?: string) => void
+    ) => {
+      const level = levels[args[1]]
+      if (level === undefined) {
+        cb(new Error('Command failed'), '', 'Failed to get sink information: No such entity\n')
+      } else cb(null, `Volume: front-left: 42000 / ${level}% / -10 dB`, '')
+    }
+  )
+}
+
+function sinksAsked(): string[] {
+  return execFileMock.mock.calls.map((c) => (c[1] as string[])[1])
+}
+
 const originalPlatform = process.platform
 let logSpy: ReturnType<typeof vi.spyOn>
 let warnSpy: ReturnType<typeof vi.spyOn>
@@ -100,6 +121,30 @@ describe('getSystemVolume', () => {
     expect(execFileMock.mock.calls[0][1]).toEqual(['get-sink-volume', '@DEFAULT_SINK@'])
   })
 
+  test('runs pactl in the C locale so its output stays parseable', async () => {
+    const { getSystemVolume } = await load(false)
+    pactlAnswers(30)
+    await getSystemVolume()
+    expect(execFileMock.mock.calls[0][2]).toMatchObject({ env: { LC_ALL: 'C' } })
+  })
+
+  test('reads the default sink while the configured one is not there', async () => {
+    const { getSystemVolume } = await load(false)
+    pactlSinks({ '@DEFAULT_SINK@': 40 })
+    await expect(getSystemVolume('alsa:gone')).resolves.toBe(0.4)
+    expect(sinksAsked()).toEqual(['alsa:gone', '@DEFAULT_SINK@'])
+    expect(warnSpy).toHaveBeenCalledWith(
+      '[SystemVolume] alsa:gone is not there, following the default sink until it is'
+    )
+  })
+
+  test('does not fall back when the configured sink fails for another reason', async () => {
+    const { getSystemVolume } = await load(false)
+    pactlAnswers(new Error('timed out'))
+    await expect(getSystemVolume('alsa:hw0')).resolves.toBeNull()
+    expect(sinksAsked()).toEqual(['alsa:hw0'])
+  })
+
   test('returns null when pactl fails, warning only in debug builds', async () => {
     const debugMod = await load(true)
     pactlAnswers(new Error('not installed'))
@@ -136,20 +181,58 @@ describe('setSystemVolume', () => {
     expect(execFileMock.mock.calls[0][1]).toEqual(['set-sink-volume', '@DEFAULT_SINK@', '0%'])
   })
 
-  test('warns and returns false when pactl fails', async () => {
+  test('warns with the pactl error and returns false when pactl fails', async () => {
     const { setSystemVolume } = await load(false)
     pactlAnswers(new Error('missing'))
     await expect(setSystemVolume(0.5)).resolves.toBe(false)
-    expect(warnSpy).toHaveBeenCalledWith(expect.stringContaining('could not set'))
+    expect(warnSpy).toHaveBeenCalledWith(
+      '[SystemVolume] could not set @DEFAULT_SINK@ to 50 %: missing'
+    )
+  })
+
+  test('says why off linux', async () => {
+    const { setSystemVolume } = await load(false)
+    Object.defineProperty(process, 'platform', { value: 'darwin', configurable: true })
+    await expect(setSystemVolume(0.5)).resolves.toBe(false)
+    expect(warnSpy).toHaveBeenCalledWith(expect.stringContaining('pactl is Linux only'))
+  })
+
+  test('sets the default sink while the configured one is not there, warning once', async () => {
+    const { setSystemVolume } = await load(false)
+    pactlSinks({ '@DEFAULT_SINK@': 0 })
+    await expect(setSystemVolume(0.6, 'alsa:gone')).resolves.toBe(true)
+    await expect(setSystemVolume(0.7, 'alsa:gone')).resolves.toBe(true)
+    expect(execFileMock.mock.calls.map((c) => c[1])).toEqual([
+      ['set-sink-volume', 'alsa:gone', '60%'],
+      ['set-sink-volume', '@DEFAULT_SINK@', '60%'],
+      ['set-sink-volume', 'alsa:gone', '70%'],
+      ['set-sink-volume', '@DEFAULT_SINK@', '70%']
+    ])
+    expect(warnSpy).toHaveBeenCalledTimes(1)
+  })
+
+  test('warns again once the configured sink was back and is gone again', async () => {
+    const { setSystemVolume } = await load(false)
+    pactlSinks({ '@DEFAULT_SINK@': 0 })
+    await setSystemVolume(0.6, 'alsa:hw0')
+    pactlSinks({ '@DEFAULT_SINK@': 0, 'alsa:hw0': 0 })
+    await setSystemVolume(0.6, 'alsa:hw0')
+    pactlSinks({ '@DEFAULT_SINK@': 0 })
+    await setSystemVolume(0.6, 'alsa:hw0')
+    expect(warnSpy).toHaveBeenCalledTimes(2)
   })
 })
 
 describe('startSystemVolumeMonitor', () => {
-  async function startWith(mod: SystemVolumeModule, proc: FakeProc): Promise<{ onChange: Mock }> {
+  async function startWith(
+    mod: SystemVolumeModule,
+    proc: FakeProc
+  ): Promise<{ onChange: Mock; onSinkBack: Mock }> {
     spawnMock.mockReturnValue(proc)
     const onChange = vi.fn()
-    mod.startSystemVolumeMonitor(() => undefined, onChange)
-    return { onChange }
+    const onSinkBack = vi.fn()
+    mod.startSystemVolumeMonitor(() => undefined, onChange, onSinkBack)
+    return { onChange, onSinkBack }
   }
 
   async function flushDebounce(): Promise<void> {
@@ -159,7 +242,7 @@ describe('startSystemVolumeMonitor', () => {
   test('stays inactive off linux', async () => {
     const mod = await load(false)
     Object.defineProperty(process, 'platform', { value: 'darwin', configurable: true })
-    mod.startSystemVolumeMonitor(() => undefined, vi.fn())
+    mod.startSystemVolumeMonitor(() => undefined, vi.fn(), vi.fn())
     expect(spawnMock).not.toHaveBeenCalled()
     expect(logSpy).toHaveBeenCalledWith(expect.stringContaining('not available'))
     mod.stopSystemVolumeMonitor()
@@ -172,7 +255,8 @@ describe('startSystemVolumeMonitor', () => {
     const { onChange } = await startWith(mod, proc)
 
     expect(spawnMock).toHaveBeenCalledWith('pactl', ['subscribe'], {
-      stdio: ['ignore', 'pipe', 'ignore']
+      stdio: ['ignore', 'pipe', 'ignore'],
+      env: expect.objectContaining({ LC_ALL: 'C' })
     })
     pactlAnswers(65)
     proc.stdout.emit('data', "Event 'change' on si")
@@ -230,6 +314,63 @@ describe('startSystemVolumeMonitor', () => {
     mod.stopSystemVolumeMonitor()
   })
 
+  test('hands the level to a configured sink that shows up again', async () => {
+    vi.useFakeTimers()
+    const mod = await load(false)
+    const proc = makeProc()
+    const { onSinkBack } = await startWith(mod, proc)
+
+    pactlSinks({ '@DEFAULT_SINK@': 50 })
+    await mod.setSystemVolume(0.5, 'alsa:hw0')
+    proc.stdout.emit('data', "Event 'new' on sink #70\n")
+    await vi.advanceTimersByTimeAsync(0)
+    expect(onSinkBack).not.toHaveBeenCalled()
+
+    pactlSinks({ '@DEFAULT_SINK@': 50, 'alsa:hw0': 30 })
+    proc.stdout.emit('data', "Event 'new' on sink #71\n")
+    await vi.advanceTimersByTimeAsync(0)
+    expect(onSinkBack).toHaveBeenCalledTimes(1)
+    expect(logSpy).toHaveBeenCalledWith('[SystemVolume] alsa:hw0 is back')
+
+    mod.stopSystemVolumeMonitor()
+  })
+
+  test('ignores new sinks while no configured sink is missing', async () => {
+    vi.useFakeTimers()
+    const mod = await load(false)
+    const proc = makeProc()
+    const { onSinkBack } = await startWith(mod, proc)
+
+    pactlAnswers(50)
+    proc.stdout.emit('data', "Event 'new' on sink #70\n")
+    await vi.advanceTimersByTimeAsync(0)
+    expect(execFileMock).not.toHaveBeenCalled()
+    expect(onSinkBack).not.toHaveBeenCalled()
+
+    mod.stopSystemVolumeMonitor()
+  })
+
+  test('drops a sink return that lands after stop', async () => {
+    vi.useFakeTimers()
+    const mod = await load(false)
+    const proc = makeProc()
+    const { onSinkBack } = await startWith(mod, proc)
+
+    pactlSinks({ '@DEFAULT_SINK@': 50 })
+    await mod.setSystemVolume(0.5, 'alsa:hw0')
+    let answer!: (e: Error | null, out?: string) => void
+    execFileMock.mockImplementation(
+      (_c: string, _a: string[], _o: unknown, cb: (e: Error | null, out?: string) => void) => {
+        answer = cb
+      }
+    )
+    proc.stdout.emit('data', "Event 'new' on sink #70\n")
+    mod.stopSystemVolumeMonitor()
+    answer(null, 'Volume: 30%')
+    await vi.advanceTimersByTimeAsync(0)
+    expect(onSinkBack).not.toHaveBeenCalled()
+  })
+
   test('ignores unreadable levels', async () => {
     vi.useFakeTimers()
     const mod = await load(false)
@@ -249,7 +390,7 @@ describe('startSystemVolumeMonitor', () => {
     const mod = await load(false)
     const proc = makeProc()
     await startWith(mod, proc)
-    mod.startSystemVolumeMonitor(() => undefined, vi.fn())
+    mod.startSystemVolumeMonitor(() => undefined, vi.fn(), vi.fn())
     expect(spawnMock).toHaveBeenCalledTimes(1)
     mod.stopSystemVolumeMonitor()
   })
@@ -319,7 +460,7 @@ describe('startSystemVolumeMonitor', () => {
     const proc2 = makeProc()
     proc2.killed = true
     spawnMock.mockReturnValue(proc2)
-    mod2.startSystemVolumeMonitor(() => undefined, vi.fn())
+    mod2.startSystemVolumeMonitor(() => undefined, vi.fn(), vi.fn())
     mod2.stopSystemVolumeMonitor()
     expect(proc2.kill).not.toHaveBeenCalled()
   })

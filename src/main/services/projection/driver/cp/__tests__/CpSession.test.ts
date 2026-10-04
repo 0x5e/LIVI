@@ -102,6 +102,7 @@ function makeSession(opts?: {
   initialNightMode?: boolean | undefined
   clusterStreamActive?: boolean
   hevc?: boolean
+  isCable?: (ip: string) => boolean
 }): { session: CpSession; stack: Stack; helper: ReturnType<typeof makeHelper> } {
   const helper = makeHelper()
   const session = new CpSession({
@@ -112,7 +113,8 @@ function makeSession(opts?: {
       hevcSupported: opts?.hevc ?? true,
       initialNightMode: opts?.initialNightMode,
       clusterStreamActive: opts?.clusterStreamActive ?? true
-    }
+    },
+    isCable: opts?.isCable
   })
   const stack = stackInstances.at(-1) as unknown as Stack
   return { session, stack, helper }
@@ -227,9 +229,23 @@ describe('CpSession construction and stack config', () => {
 })
 
 describe('CpSession driver surface', () => {
-  it('reports wireless mode', () => {
+  it('is wired only when the phone connected to the address it was given over the cable', () => {
+    const isCable = (ip: string): boolean => ip === 'fe80::80a:a1ca'
+    const cable = fakeSocket('fe80::1%en7') as net.Socket & { localAddress: string }
+    cable.localAddress = 'fe80::80a:a1ca%en7'
+    expect(makeSession({ socket: cable, isCable }).session.isWiredMode()).toBe(true)
+
+    const air = fakeSocket('fe80::2') as net.Socket & { localAddress: string }
+    air.localAddress = 'fe80::99'
+    expect(makeSession({ socket: air, isCable }).session.isWiredMode()).toBe(false)
+    expect(makeSession({ socket: cable }).session.isWiredMode()).toBe(false)
+  })
+
+  it('before the phone connects, follows the iAP2 that brought the session', () => {
     const { session } = makeSession()
     expect(session.isWiredMode()).toBe(false)
+    session.adoptHelperDevice({ btMac: 'AA:BB', usbUdid: '00008110' })
+    expect(session.isWiredMode()).toBe(true)
   })
 
   it('codec toggles and no-op vp9/av1 setters', () => {

@@ -11,11 +11,11 @@ pub fn run(_args: Vec<String>) -> i32 {
 // livi-ledd — LED driver for the LIVI-Link dongles.
 //
 // Drives WS2812-style chips via /dev/spidev1.0 (4-bit-per-bit encoding at
-// ~3.1 MHz). One pixel on V821B, a chain of three on AX520 (the count comes from the
+// 3.2 MHz). One pixel on V821B, a chain of three on AX520 (the count comes from the
 // board's device tree). A board without a pixel (i.MX6UL) has a red status LED and a blue
 // one under /sys/class/leds instead. State inputs are file existence under /tmp/livi/led/
 // and the radio switches in /tmp/livi/radio.conf.
-// Config (WLAN color + brightness) lives in /etc/livi/led.toml.
+// Config (WLAN color + brightness) is /tmp/livi/led.toml, its default /etc/livi/led.toml.
 //
 // Wifi and bluetooth share the one pixel the way two LEDs would, their colours added:
 //   wifi client     → wlan-color solid   (a station is associated to the AP)
@@ -27,7 +27,6 @@ pub fn run(_args: Vec<String>) -> i32 {
 //   flash-error     → red solid, a write or its check failed: do not unplug, do not reboot into it
 //   flash-mode      → red+blue alternating (~2 Hz), a partition is being written
 //   flash-done      → green solid, everything is written and verified: safe to unplug or reboot
-//   iap2-active     → off
 //
 // Brightness = 0 turns the LED off entirely (no separate toggle needed).
 
@@ -46,8 +45,7 @@ const LEDS_DIR: &str = "/sys/class/leds";
 // Chain length, a big-endian u32 on the spidev node. Boards without the property have one LED.
 const LED_COUNT_PROP: &str = "/sys/bus/spi/devices/spi1.0/of_node/livi,led-count";
 // /etc/ is on read-only squashfs; the runtime config lives on tmpfs.
-// rcS seeds it from /etc/livi/led.toml at boot; changes made via the web
-// UI are lost on reboot until we add a writable partition.
+// livid config load seeds it at boot, from the customer partition or /etc/livi/led.toml.
 const CONFIG_PATH: &str = "/tmp/livi/led.toml";
 const PID_PATH: &str = "/tmp/livi/livi-ledd.pid";
 const STATE_DIR: &str = "/tmp/livi/led";
@@ -196,7 +194,6 @@ impl Bt {
 struct State {
     wifi: Wifi,
     bt: Bt,
-    iap2_active: bool,
     flash_mode: bool,
     flash_done: bool,
     flash_error: bool,
@@ -206,11 +203,10 @@ struct State {
 }
 
 impl State {
-    fn read() -> Self {
+    fn read(wifi_client: bool) -> Self {
         Self {
-            wifi: Wifi::of(radio::enabled(Radio::Wifi), wifi_client()),
+            wifi: Wifi::of(radio::enabled(Radio::Wifi), wifi_client),
             bt: Bt::of(radio::enabled(Radio::Bt), exists("bt-connected"), exists("bt-paging")),
-            iap2_active: exists("iap2-active"),
             flash_mode: exists("flash-mode"),
             flash_done: exists("flash-done"),
             flash_error: exists("flash-error"),
@@ -225,7 +221,7 @@ fn exists(name: &str) -> bool {
 
 /// Counted like the web page counts its clients, so the LED and the page agree.
 fn wifi_client() -> bool {
-    livi_net::bridge::stations("br0", "wlan0") > 0
+    livi_wifi::station_count("wlan0") > 0
 }
 
 // ---------------------------------------------------------------------------
@@ -263,8 +259,6 @@ fn render(state: &State, cfg: &Config, tick: u64) -> Rgb {
         if slow_on { RED } else { BLUE }
     } else if state.flash_done {
         GREEN
-    } else if state.iap2_active {
-        OFF
     } else {
         match state.bt {
             Bt::Connected => add(wifi, BLUE),
@@ -293,8 +287,6 @@ fn render_pair(state: &State, cfg: &Config, tick: u64) -> (bool, bool) {
         (slow, !slow)
     } else if state.flash_done {
         (true, true)
-    } else if state.iap2_active {
-        (false, false)
     } else {
         let bt = match state.bt {
             Bt::Connected => true,
@@ -392,7 +384,7 @@ impl Spi {
     fn open() -> std::io::Result<Self> {
         let file = fs::OpenOptions::new().read(true).write(true).open(SPI_DEV)?;
         let fd = file.as_raw_fd();
-        // Mode 0, 8 bits/word, 2.4 MHz.
+        // Mode 0, 8 bits/word, SPI_HZ.
         unsafe {
             let mode: u8 = 0;
             check(libc::ioctl(fd, SPI_IOC_WR_MODE as _, &mode as *const u8))?;
@@ -512,8 +504,12 @@ fn livid_main() -> std::io::Result<()> {
     let mut cfg = Config::load();
     let mut cfg_mtime = mtime(CONFIG_PATH);
     let mut tick: u64 = 0;
+    let mut client = false;
 
     loop {
+        if tick.is_multiple_of(TICK_HZ) {
+            client = wifi_client();
+        }
         if RELOAD.swap(false, Ordering::SeqCst) {
             cfg = Config::load();
         }
@@ -523,7 +519,7 @@ fn livid_main() -> std::io::Result<()> {
             cfg = Config::load();
         }
 
-        leds.show(&State::read(), &cfg, tick);
+        leds.show(&State::read(client), &cfg, tick);
 
         let start = Instant::now();
         thread::sleep(TICK.saturating_sub(start.elapsed()));

@@ -193,7 +193,9 @@ app.whenReady().then(async () => {
         appliedHuVolume = level
         console.log(`[SystemVolume] head unit follows system → ${Math.round(level * 100)} %`)
         saveSettings(runtimeState, { huVolume: level })
-      }
+      },
+      () =>
+        void setSystemVolume(runtimeState.config.huVolume, runtimeState.config.audioOutputDevice)
     )
     if (appliedHuVolume !== null && Math.abs(cfg.huVolume - appliedHuVolume) < 0.005) return
     appliedHuVolume = cfg.huVolume

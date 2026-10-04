@@ -19,8 +19,7 @@ const LINES_MAX: usize = 8;
 const KEEPALIVE_IDLE: libc::c_int = 5;
 const KEEPALIVE_EVERY: libc::c_int = 3;
 const KEEPALIVE_TRIES: libc::c_int = 3;
-/// One order to the dongle is a line out and a line back, nothing that should take long.
-const ORDER_TIMEOUT: Duration = Duration::from_secs(3);
+const CONNECT_TIMEOUT: Duration = Duration::from_secs(3);
 
 /// A phone that opened its channel on the dongle, and the stream that carries it.
 pub struct Session {
@@ -107,9 +106,14 @@ pub fn sessions(ready: impl Fn() -> bool + Send + 'static) -> mpsc::Receiver<Ses
 
 /// Holds a connection open until the dongle says a phone is on it.
 async fn waiting() -> Result<Session, String> {
-    let mut stream = TcpStream::connect(link::addr(livi_net::port::IAP))
-        .await
-        .map_err(|e| format!("dongle: {e}"))?;
+    let blocking = tokio::task::spawn_blocking(|| {
+        livi_net::connect((link::LINK_NAME, livi_net::port::IAP), CONNECT_TIMEOUT)
+    })
+    .await
+    .map_err(|e| format!("dongle: {e}"))?
+    .map_err(|e| format!("dongle: {e}"))?;
+    blocking.set_nonblocking(true).map_err(|e| format!("dongle: {e}"))?;
+    let mut stream = TcpStream::from_std(blocking).map_err(|e| format!("dongle: {e}"))?;
     stream.set_nodelay(true).map_err(|e| format!("nodelay: {e}"))?;
     // Waiting for a phone means a long silence, so the link itself has to say when the dongle is
     // gone. Without this a restarted dongle leaves us listening to nobody.
@@ -156,7 +160,7 @@ fn watch_liveness(stream: &TcpStream) {
 fn address(text: &str) -> Option<[u8; 6]> {
     let mut out = [0u8; 6];
     let mut parts = text.trim().split(':');
-    for byte in out.iter_mut().rev() {
+    for byte in &mut out {
         *byte = u8::from_str_radix(parts.next()?, 16).ok()?;
     }
     parts.next().is_none().then_some(out)
@@ -192,17 +196,7 @@ async fn read_line(stream: &mut TcpStream) -> Result<String, String> {
 
 /// One order to the dongle's accessory, and the line it answers with.
 fn order(line: &str) -> Result<(), String> {
-    use std::io::{BufRead, BufReader, Write as _};
-    let mut stream = livi_net::connect((link::LINK_NAME, livi_net::port::CONTROL), ORDER_TIMEOUT)
-        .map_err(|e| format!("dongle: {e}"))?;
-    stream.set_read_timeout(Some(ORDER_TIMEOUT)).map_err(|e| format!("dongle: {e}"))?;
-    writeln!(stream, "iap {line}").map_err(|e| format!("dongle: {e}"))?;
-    let mut answer = String::new();
-    BufReader::new(&stream).read_line(&mut answer).map_err(|e| format!("dongle: {e}"))?;
-    match answer.trim() {
-        "ok" => Ok(()),
-        other => Err(other.trim_start_matches("error ").to_string()),
-    }
+    crate::ap::order(&format!("iap {line}"))
 }
 
 /// Drops the dongle's link to one phone, which is what BlueZ does on a host that has it.
@@ -221,8 +215,8 @@ mod tests {
     use super::address;
 
     #[test]
-    fn an_address_reads_back_the_way_the_wire_carries_it() {
-        assert_eq!(address("38:BA:B0:A0:E6:6F"), Some([0x6f, 0xe6, 0xa0, 0xb0, 0xba, 0x38]));
+    fn an_address_reads_in_the_order_it_is_written() {
+        assert_eq!(address("38:BA:B0:A0:E6:6F"), Some([0x38, 0xba, 0xb0, 0xa0, 0xe6, 0x6f]));
         assert_eq!(address("38:BA:B0:A0:E6"), None);
         assert_eq!(address("38:BA:B0:A0:E6:6F:11"), None);
         assert_eq!(address("not an address"), None);

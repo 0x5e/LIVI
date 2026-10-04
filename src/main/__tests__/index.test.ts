@@ -431,11 +431,16 @@ describe('main index bootstrap', () => {
     expect(startSystemVolumeMonitor).toHaveBeenCalledTimes(1)
     expect(setSystemVolume).toHaveBeenCalledWith(0.5, 'alsa:hw0')
 
-    const [getDevice, onLevel] = (startSystemVolumeMonitor as Mock).mock.calls[0] as [
+    const [getDevice, onLevel, onSinkBack] = (startSystemVolumeMonitor as Mock).mock.calls[0] as [
       () => string | undefined,
-      (level: number) => void
+      (level: number) => void,
+      () => void
     ]
     expect(getDevice()).toBe('alsa:hw0')
+
+    ;(setSystemVolume as Mock).mockClear()
+    onSinkBack()
+    expect(setSystemVolume).toHaveBeenCalledWith(0.5, 'alsa:hw0')
 
     onLevel(0.8)
     expect(saveSettings).toHaveBeenCalledWith(expect.anything(), { huVolume: 0.8 })

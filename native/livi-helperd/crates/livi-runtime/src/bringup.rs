@@ -1,7 +1,8 @@
 use std::path::Path;
+use std::sync::Arc;
 use std::time::Duration;
 
-use tokio::sync::mpsc;
+use tokio::sync::{Notify, mpsc, watch};
 use tokio::time::Instant;
 
 use iap2_csm::CsmMessage;
@@ -36,14 +37,36 @@ pub struct CpConfig {
     /// Wired only: the USB network interface carrying the AV stream, whose link-local
     /// address the phone connects back to.
     pub av_iface: Option<String>,
+    /// Wired only: where `av_iface` arrives when it is found after the session started. An iPhone
+    /// on a Mac brings its USB network function up only once iAP2 runs over the cable.
+    pub av_iface_late: Option<watch::Receiver<Option<String>>>,
     pub available_current_ma: u16,
     /// The access point's MAC when it is not this host's, so the phone is told the right one.
     pub ap_mac: Option<String>,
     /// Asks an access point that is not this host's for the SSID and channel it is on air with.
     pub ap_on_air: Option<AskOnAir>,
+    /// Bluetooth only: tells whether the phone, by its Bluetooth MAC, runs iAP2 over the cable.
+    pub on_cable: Option<OnCable>,
+    /// Wired only: fires when the phone should hear the start once more, over the iAP2 session it
+    /// already has.
+    pub start_again: Option<Arc<Notify>>,
 }
 
 pub type AskOnAir = fn() -> Option<(String, u8)>;
+
+#[derive(Clone)]
+pub struct OnCable(pub Arc<dyn Fn(&str) -> bool + Send + Sync>);
+
+impl core::fmt::Debug for OnCable {
+    fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
+        f.write_str("OnCable")
+    }
+}
+
+/// The id every session start hands the phone for this accessory.
+pub fn accessory_id(cp: &CpConfig) -> Option<String> {
+    cp.ap_mac.clone().or_else(|| net::wlan_mac(&cp.wifi_iface))
+}
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum BringupEvent {
@@ -51,7 +74,7 @@ pub enum BringupEvent {
     Authenticated,
     Subscribed,
     WifiConfigSent,
-    CarPlayStartSent,
+    CarPlayStartSent { ip: String },
     Incoming { msg_id: u16, frame: Vec<u8> },
     Failed(String),
     Closed,
@@ -234,6 +257,15 @@ fn wifi_config(cp: &CpConfig) -> AccessoryWiFiConfigurationInformation {
     }
 }
 
+/// The phone of a Bluetooth session that runs iAP2 over the cable by now. A start over Bluetooth
+/// would pull it off the cable, so the session ends instead.
+fn on_cable(cp: &CpConfig, frame: &[u8]) -> Option<String> {
+    let ask = cp.on_cable.as_ref()?;
+    let offer = CarPlayAvailability::decode(frame).ok()?;
+    let phone = offer.wireless_attributes?.bluetooth_transport_identifier?;
+    (ask.0)(&phone).then_some(phone)
+}
+
 fn carplay_start_session(cp: &CpConfig, live: OnAir) -> Option<CarPlayStartSession> {
     if cp.transport == Transport::Wired {
         // The link-local the phone connects to: the A/V interface's.
@@ -242,8 +274,9 @@ fn carplay_start_session(cp: &CpConfig, live: OnAir) -> Option<CarPlayStartSessi
             wired_attributes: Some(CarPlayStartSessionWiredAttributes { ip_address: vec![fe80] }),
             wireless_attributes: None,
             port: Some(cp.airplay_port),
-            // No AP interface: the A/V interface stands in.
-            device_identifier: net::wlan_mac(&cp.wifi_iface)
+            // The accessory the phone knows over Wi-Fi, so the cable is the same car. Without an
+            // access point the A/V interface stands in.
+            device_identifier: accessory_id(cp)
                 .or_else(|| cp.av_iface.as_deref().and_then(net::wlan_mac)),
             public_key: Some(cp.public_key.clone()),
             source_version: Some(cp.source_version.clone()),
@@ -263,7 +296,7 @@ fn carplay_start_session(cp: &CpConfig, live: OnAir) -> Option<CarPlayStartSessi
             security_type: Some(cp.security_type as u8),
         }),
         port: Some(cp.airplay_port),
-        device_identifier: cp.ap_mac.clone().or_else(|| net::wlan_mac(&cp.wifi_iface)),
+        device_identifier: accessory_id(cp),
         public_key: Some(cp.public_key.clone()),
         source_version: Some(cp.source_version.clone()),
     })
@@ -324,6 +357,17 @@ async fn wait_for_ap(cp: &CpConfig) -> OnAir {
     live
 }
 
+/// How long the phone's USB network function is waited for once the phone asks for CarPlay.
+const USB_IFACE_WAIT: Duration = Duration::from_secs(5);
+
+/// The A/V interface found after the session started, if it shows up in time.
+async fn late_av_iface(cp: &CpConfig) -> Option<String> {
+    let mut late = cp.av_iface_late.clone()?;
+    let found =
+        tokio::time::timeout(USB_IFACE_WAIT, late.wait_for(Option::is_some)).await.ok()?.ok()?;
+    (*found).clone()
+}
+
 /// Runs the accessory side of a wireless CarPlay session: identification, MFi auth,
 /// subscriptions, then the request/response phase (Wi-Fi config, CarPlayStartSession),
 /// emitting progress and every subsequent incoming message id over `events`.
@@ -331,7 +375,7 @@ pub async fn run_accessory<C: ControlChannel, A: AsyncAuth>(
     mut ch: C,
     mut auth: A,
     id: Identity,
-    cp: CpConfig,
+    mut cp: CpConfig,
     events: mpsc::Sender<BringupEvent>,
     mut vehicle: VehicleFeed,
 ) {
@@ -368,12 +412,26 @@ pub async fn run_accessory<C: ControlChannel, A: AsyncAuth>(
 
     let mut location_types = LocationTypes::default();
     let mut status_wanted = false;
+    // Set once the phone offered CarPlay. A start asked for before that is dropped, the first one
+    // still goes out when the offer comes.
+    let mut offered = false;
+    let again = cp.start_again.clone();
     loop {
         let frame = tokio::select! {
             frame = ch.recv() => match frame {
                 Some(frame) => frame,
                 None => break,
             },
+            _ = asked(again.as_deref()) => {
+                if !offered {
+                    continue;
+                }
+                println!("[cp] the phone hears the start once more");
+                if !send_start(&mut ch, &cp, (None, None), &events, None).await {
+                    break;
+                }
+                continue;
+            }
             changed = vehicle.location.changed() => {
                 if changed.is_err() {
                     continue;
@@ -430,53 +488,22 @@ pub async fn run_accessory<C: ControlChannel, A: AsyncAuth>(
                 let _ = events.send(BringupEvent::WifiConfigSent).await;
             }
             0x4300 => {
+                if let Some(phone) = on_cable(&cp, &frame) {
+                    println!("[cp] {phone} runs iAP2 over the cable, no start over Bluetooth");
+                    break;
+                }
+                if cp.transport == Transport::Wired && cp.av_iface.is_none() {
+                    cp.av_iface = late_av_iface(&cp).await;
+                }
                 let live = if cp.transport == Transport::Wired {
                     (None, None)
                 } else {
                     wait_for_ap(&cp).await
                 };
-                match carplay_start_session(&cp, live) {
-                    Some(start) => {
-                        // Logs the phone's offer and our answer.
-                        match CarPlayAvailability::decode(&frame) {
-                            Ok(a) => println!(
-                                "[cp] CarPlayAvailability wired={:?} wireless={:?}",
-                                a.wired_attributes, a.wireless_attributes
-                            ),
-                            Err(e) => println!("[cp] CarPlayAvailability undecodable: {e}"),
-                        }
-                        let ip = start
-                            .wireless_attributes
-                            .as_ref()
-                            .map(|w| &w.ip_address)
-                            .or_else(|| start.wired_attributes.as_ref().map(|w| &w.ip_address))
-                            .map(|a| a.join(","))
-                            .unwrap_or_default();
-                        println!(
-                            "[cp] CarPlayStartSession ip={ip} port={} device_id={} pk_len={}",
-                            start.port.unwrap_or(0),
-                            start.device_identifier.as_deref().unwrap_or("-"),
-                            start.public_key.as_deref().unwrap_or("").len()
-                        );
-                        if ch.send(start.encode()).await.is_err() {
-                            break;
-                        }
-                        let _ = events.send(BringupEvent::CarPlayStartSent).await;
-                    }
-                    None => {
-                        let why = match (&cp.transport, cp.av_iface.as_deref()) {
-                            (Transport::Wired, None) => {
-                                "the phone's USB network interface was not found".to_string()
-                            }
-                            (Transport::Wired, Some(iface)) => {
-                                format!("no link-local on {iface:?}")
-                            }
-                            _ => format!("no link-local on {:?}", cp.wifi_iface),
-                        };
-                        println!("[cp] CarPlayStartSession not sent: {why}");
-                        let _ = events.send(BringupEvent::Failed(why)).await;
-                    }
+                if !send_start(&mut ch, &cp, live, &events, Some(&frame)).await {
+                    break;
                 }
+                offered = true;
             }
             _ => {}
         }
@@ -485,6 +512,67 @@ pub async fn run_accessory<C: ControlChannel, A: AsyncAuth>(
         }
     }
     let _ = events.send(BringupEvent::Closed).await;
+}
+
+/// Resolves when the start is asked for again, never without a way to ask.
+async fn asked(again: Option<&Notify>) {
+    match again {
+        Some(again) => again.notified().await,
+        None => std::future::pending().await,
+    }
+}
+
+/// Hands the phone a session start, answering `offer` when there is one. False once the channel
+/// is gone.
+async fn send_start<C: ControlChannel>(
+    ch: &mut C,
+    cp: &CpConfig,
+    live: OnAir,
+    events: &mpsc::Sender<BringupEvent>,
+    offer: Option<&[u8]>,
+) -> bool {
+    let Some(start) = carplay_start_session(cp, live) else {
+        let why = match (&cp.transport, cp.av_iface.as_deref()) {
+            (Transport::Wired, None) => {
+                "the phone's USB network interface was not found".to_string()
+            }
+            (Transport::Wired, Some(iface)) => format!("no link-local on {iface:?}"),
+            _ => format!("no link-local on {:?}", cp.wifi_iface),
+        };
+        println!("[cp] CarPlayStartSession not sent: {why}");
+        let _ = events.send(BringupEvent::Failed(why)).await;
+        return true;
+    };
+    // Logs the phone's offer and our answer.
+    match offer.map(CarPlayAvailability::decode) {
+        Some(Ok(a)) => println!(
+            "[cp] CarPlayAvailability wired={:?} wireless={:?}",
+            a.wired_attributes, a.wireless_attributes
+        ),
+        Some(Err(e)) => println!("[cp] CarPlayAvailability undecodable: {e}"),
+        None => {}
+    }
+    let ip = start
+        .wireless_attributes
+        .as_ref()
+        .map(|w| &w.ip_address)
+        .or_else(|| start.wired_attributes.as_ref().map(|w| &w.ip_address))
+        .map(|a| a.join(","))
+        .unwrap_or_default();
+    println!(
+        "[cp] CarPlayStartSession ip={ip} port={} device_id={} pk_len={}",
+        start.port.unwrap_or(0),
+        start.device_identifier.as_deref().unwrap_or("-"),
+        start.public_key.as_deref().unwrap_or("").len()
+    );
+    if ch.send(start.encode()).await.is_err() {
+        return false;
+    }
+    if let Some(id) = &start.device_identifier {
+        crate::bonjour::named(id);
+    }
+    let _ = events.send(BringupEvent::CarPlayStartSent { ip }).await;
+    true
 }
 
 /// Each sentence the phone asked for as its own message. False once the channel is gone.
@@ -530,10 +618,36 @@ mod tests {
             public_key: String::new(),
             transport: Transport::Wireless,
             av_iface: None,
+            av_iface_late: None,
             available_current_ma: 500,
             ap_mac: None,
             ap_on_air: Some(ask),
+            on_cable: None,
+            start_again: None,
         }
+    }
+
+    #[test]
+    fn a_bluetooth_session_gives_way_to_the_cable() {
+        let offer = |phone: Option<&str>| {
+            CarPlayAvailability {
+                wired_attributes: None,
+                wireless_attributes: Some(CarPlayAvailabilityWirelessAttributes {
+                    available: Some(true),
+                    bluetooth_transport_identifier: phone.map(str::to_string),
+                }),
+            }
+            .encode()
+        };
+        let cabled = OnCable(Arc::new(|mac: &str| mac == "0c:6a:c4:4e:f3:2a"));
+        let cp = CpConfig { on_cable: Some(cabled), ..dongle_ap(|| None) };
+        assert_eq!(
+            on_cable(&cp, &offer(Some("0c:6a:c4:4e:f3:2a"))).as_deref(),
+            Some("0c:6a:c4:4e:f3:2a")
+        );
+        assert_eq!(on_cable(&cp, &offer(Some("aa:bb:cc:dd:ee:ff"))), None);
+        assert_eq!(on_cable(&cp, &offer(None)), None);
+        assert_eq!(on_cable(&dongle_ap(|| None), &offer(Some("0c:6a:c4:4e:f3:2a"))), None);
     }
 
     #[tokio::test]
@@ -552,5 +666,24 @@ mod tests {
     async fn a_silent_dongle_leaves_our_own_values() {
         let live = wait_for_ap(&dongle_ap(|| None)).await;
         assert_eq!(live, (None, None));
+    }
+
+    #[tokio::test(start_paused = true)]
+    async fn a_usb_interface_found_after_the_start_is_waited_for() {
+        let (found, late) = watch::channel(None);
+        let cp = CpConfig { av_iface_late: Some(late), ..dongle_ap(|| None) };
+        tokio::spawn(async move {
+            tokio::time::sleep(Duration::from_secs(2)).await;
+            let _ = found.send(Some("en13".into()));
+        });
+        assert_eq!(late_av_iface(&cp).await.as_deref(), Some("en13"));
+    }
+
+    #[tokio::test(start_paused = true)]
+    async fn a_usb_interface_that_never_shows_is_given_up_on() {
+        let (_found, late) = watch::channel(None);
+        let cp = CpConfig { av_iface_late: Some(late), ..dongle_ap(|| None) };
+        assert_eq!(late_av_iface(&cp).await, None);
+        assert_eq!(late_av_iface(&dongle_ap(|| None)).await, None);
     }
 }

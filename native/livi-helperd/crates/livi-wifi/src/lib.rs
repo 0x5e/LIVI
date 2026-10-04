@@ -3,6 +3,8 @@
 //! nl80211 channel-listing (`listing`, `ap_state`, `regulatory_country`)
 //! plus a shared wifid server for the LIVI dongles (see [`server`]).
 
+#[cfg(target_os = "linux")]
+pub mod hostapd;
 pub mod radio;
 #[cfg(target_os = "linux")]
 pub mod server;
@@ -283,7 +285,7 @@ fn rate_mbps(attrs: &[u8]) -> Option<u32> {
     Some(wide.or(narrow)? / 10)
 }
 
-/// How many stations are associated to the AP
+/// How many stations are associated to the AP.
 #[cfg(target_os = "linux")]
 pub fn station_count(iface: &str) -> usize {
     let Ok(name) = std::ffi::CString::new(iface) else {

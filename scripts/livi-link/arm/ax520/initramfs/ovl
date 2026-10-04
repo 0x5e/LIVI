@@ -1,8 +1,7 @@
 #!/bin/sh
 # ovl NAME...: apply /dtbo/ax520-NAME.dtbo as a device-tree overlay, one at a time (see mach.c).
-# The base DTB has gpio0, sdio0 and sfc off. A block that freezes the bus on its first register
-# access then costs a power cycle, not a flash. Order: gpio0 before sdio0 (its power sequencing
-# needs the gpio). Without arguments the available ones are listed.
+# The base DTB has sdio0 off, so a block that freezes the bus on its first register access costs a
+# power cycle, not a flash. Without arguments the available ones are listed.
 F=/sys/firmware/ax520/overlay
 [ -w $F ] || { echo "ovl: no $F (kernel without mach-axera?)"; exit 1; }
 [ $# -gt 0 ] || { ls /dtbo | sed 's/^ax520-//; s/\.dtbo$//'; exit 0; }

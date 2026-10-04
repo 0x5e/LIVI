@@ -10,9 +10,21 @@ const bluezMock = {
   }))
 }
 
+const aaHelperMock = {
+  subscribe: vi.fn((_onEvent: (e: unknown) => void, _onClose?: () => void) => ({
+    close: vi.fn()
+  }))
+}
+
 vi.mock('../../bt/BluezDeviceClient', () => ({
   BluezDeviceClient: vi.fn().mockImplementation(function () {
     return bluezMock
+  })
+}))
+
+vi.mock('../../driver/aa/AaHelperSock', () => ({
+  AaHelperSock: vi.fn().mockImplementation(function () {
+    return aaHelperMock
   })
 }))
 
@@ -101,6 +113,7 @@ beforeEach(async () => {
   bluezMock.connect.mockReset()
   bluezMock.remove.mockReset()
   bluezMock.subscribe.mockReset()
+  aaHelperMock.subscribe.mockReset()
   configEventsMock.emit.mockReset()
   vi.spyOn(console, 'log').mockImplementation(function () {})
   vi.spyOn(console, 'warn').mockImplementation(function () {})
@@ -239,31 +252,31 @@ describe('openAaBtSubscription / closeAaBtSubscription', () => {
   test('open is a no-op without an active supervisor', async () => {
     const { svc } = newSvc()
     ;(svc as unknown as { openAaBtSubscription: () => void }).openAaBtSubscription()
-    expect(bluezMock.subscribe).not.toHaveBeenCalled()
+    expect(aaHelperMock.subscribe).not.toHaveBeenCalled()
   })
 
   test('open with an active supervisor creates a subscription', async () => {
     const { svc, setSupervisor } = newSvc()
     setSupervisor({})
-    bluezMock.subscribe.mockReturnValueOnce({ close: vi.fn() })
+    aaHelperMock.subscribe.mockReturnValueOnce({ close: vi.fn() })
     ;(svc as unknown as { openAaBtSubscription: () => void }).openAaBtSubscription()
-    expect(bluezMock.subscribe).toHaveBeenCalledTimes(1)
+    expect(aaHelperMock.subscribe).toHaveBeenCalledTimes(1)
   })
 
   test('open is idempotent', async () => {
     const { svc, setSupervisor } = newSvc()
     setSupervisor({})
-    bluezMock.subscribe.mockReturnValueOnce({ close: vi.fn() })
+    aaHelperMock.subscribe.mockReturnValueOnce({ close: vi.fn() })
     ;(svc as unknown as { openAaBtSubscription: () => void }).openAaBtSubscription()
     ;(svc as unknown as { openAaBtSubscription: () => void }).openAaBtSubscription()
-    expect(bluezMock.subscribe).toHaveBeenCalledTimes(1)
+    expect(aaHelperMock.subscribe).toHaveBeenCalledTimes(1)
   })
 
   test('close ends the subscription', async () => {
     const { svc, setSupervisor } = newSvc()
     setSupervisor({})
     const closeFn = vi.fn()
-    bluezMock.subscribe.mockReturnValueOnce({ close: closeFn })
+    aaHelperMock.subscribe.mockReturnValueOnce({ close: closeFn })
     ;(svc as unknown as { openAaBtSubscription: () => void }).openAaBtSubscription()
     ;(svc as unknown as { closeAaBtSubscription: () => void }).closeAaBtSubscription()
     expect(closeFn).toHaveBeenCalled()
@@ -279,7 +292,7 @@ describe('openAaBtSubscription / closeAaBtSubscription', () => {
   test('close swallows a throw from the underlying handle', async () => {
     const { svc, setSupervisor } = newSvc()
     setSupervisor({})
-    bluezMock.subscribe.mockReturnValueOnce({
+    aaHelperMock.subscribe.mockReturnValueOnce({
       close: () => {
         throw new Error('already closed')
       }

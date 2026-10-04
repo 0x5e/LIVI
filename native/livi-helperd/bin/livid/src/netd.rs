@@ -1,18 +1,15 @@
-pub fn run(_args: Vec<String>) -> i32 {
-    // ExitCode is opaque; the module either loops forever (returning implicitly)
-    // or calls std::process::exit on setup failure. Treat any normal return as 0.
-    let _ = livid_main();
-    0
+pub fn run(args: Vec<String>) -> i32 {
+    crate::exit_rc(livid_main(&args))
 }
 
 // livi-netd — DHCPv4 server for the LIVI Link dongle.
 //
-// - Serves DHCPv4 on the given interface: pool 10.10.10.100..149, gw/DNS = 10.10.10.1.
+// - Serves DHCPv4 on the given interface from the pool it is given, with no router and no DNS:
+//   the dongle is neither.
 // - Delegates mDNS announce/response to the shared livi-mdns daemon.
 //
 // Usage: livi-netd <iface> [server-ip] [pool-start] [pool-end] [hostname]
 
-use std::env;
 use std::io::{self, Result};
 use std::net::Ipv4Addr;
 use std::process::ExitCode;
@@ -22,7 +19,6 @@ use std::thread;
 const DHCP_MAGIC: [u8; 4] = [99, 130, 83, 99];
 const OPT_MSGTYPE: u8 = 53;
 const OPT_SUBNET: u8 = 1;
-const OPT_HOSTNAME: u8 = 12;
 const OPT_LEASE: u8 = 51;
 const OPT_SERVER: u8 = 54;
 const OPT_END: u8 = 255;
@@ -32,14 +28,13 @@ const MSG_OFFER: u8 = 2;
 const MSG_REQUEST: u8 = 3;
 const MSG_ACK: u8 = 5;
 
-fn livid_main() -> ExitCode {
-    let args: Vec<String> = env::args().collect();
-    let iface = args.get(1).cloned().unwrap_or_else(|| "usb0".into());
+fn livid_main(args: &[String]) -> ExitCode {
+    let iface = args.first().cloned().unwrap_or_else(|| "usb0".into());
     let server_ip: Ipv4Addr =
-        args.get(2).and_then(|s| s.parse().ok()).unwrap_or(Ipv4Addr::new(10, 10, 10, 1));
-    let pool_start: u8 = args.get(3).and_then(|s| s.parse().ok()).unwrap_or(100);
-    let pool_end: u8 = args.get(4).and_then(|s| s.parse().ok()).unwrap_or(149);
-    let hostname: String = args.get(5).cloned().unwrap_or_else(|| "livi-link".into());
+        args.get(1).and_then(|s| s.parse().ok()).unwrap_or(Ipv4Addr::new(10, 10, 10, 1));
+    let pool_start: u8 = args.get(2).and_then(|s| s.parse().ok()).unwrap_or(100);
+    let pool_end: u8 = args.get(3).and_then(|s| s.parse().ok()).unwrap_or(199);
+    let hostname: String = args.get(4).cloned().unwrap_or_else(|| "livi-link".into());
 
     eprintln!(
         "[livi-netd] iface={iface} server={server_ip} pool=10.10.10.{pool_start}..{pool_end} host={hostname}.local"
@@ -59,9 +54,9 @@ fn livid_main() -> ExitCode {
 }
 
 // ============================================================================
-// DHCPv4 server (unchanged from bespoke impl — busybox-udhcpd hits ENOPROTOOPT
-// on this kernel/socket combo; UDP-only with SO_BINDTODEVICE + subnet-broadcast
-// reply works for every common client (systemd-networkd, dhclient, udhcpc).
+// DHCPv4 server. busybox udhcpd hits ENOPROTOOPT on this kernel and socket combination,
+// UDP with SO_BINDTODEVICE and a subnet-broadcast reply works for every common client
+// (systemd-networkd, dhclient, udhcpc).
 // ============================================================================
 
 struct Leases {
@@ -242,8 +237,7 @@ fn build_reply(
     b.extend_from_slice(&[OPT_SUBNET, 4, 255, 255, 255, 0]);
     // No OPT_ROUTER / OPT_DNS: the dongle is neither a gateway nor a
     // resolver. The host must never route internet traffic through us.
-    b.extend_from_slice(&[OPT_HOSTNAME, 9]);
-    b.extend_from_slice(b"livi-link");
+    // No host name either, it would name the client, and mDNS already names the dongle.
     b.push(OPT_END);
     while b.len() < 300 {
         b.push(0);

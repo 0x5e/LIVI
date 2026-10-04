@@ -12,7 +12,11 @@ use std::time::{Duration, Instant};
 
 use livi_net::port::{ACCESSORY, IAP};
 
-use crate::mgmt::{self, Mgmt};
+use crate::mgmt::{
+    self, ADD_UUID, DISCONNECT, LOAD_LINK_KEYS, Mgmt, PIN_CODE_NEG_REPLY, SET_BONDABLE, SET_CLASS,
+    SET_CONNECTABLE, SET_DISCOVERABLE, SET_IO_CAPABILITY, SET_NAME, SET_POWERED, SET_SSP,
+    USER_CONFIRM_REPLY,
+};
 use crate::sdp;
 
 use std::sync::OnceLock;
@@ -23,7 +27,7 @@ static KEYS_PATH: OnceLock<String> = OnceLock::new();
 static NAME_SOURCE: OnceLock<NameSource> = OnceLock::new();
 
 fn keys_path() -> String {
-    KEYS_PATH.get().cloned().unwrap_or_else(|| "/etc/livi-bt-keys".to_string())
+    KEYS_PATH.get().cloned().unwrap_or_default()
 }
 
 fn wifid_ap_name() -> Option<String> {
@@ -34,7 +38,6 @@ const AF_BLUETOOTH: libc::c_int = 31;
 const BTPROTO_L2CAP: libc::c_int = 0;
 const BTPROTO_RFCOMM: libc::c_int = 3;
 const SOCK_SEQPACKET: libc::c_int = 5;
-/// Where the bonds are kept, on the flash.
 /// One stored bond: the address, its kind, the key and its length.
 const KEY_LEN: usize = 25;
 /// A bond may carry one more byte: the channel that phone answers iAP on.
@@ -49,8 +52,8 @@ const RING_SLOW: Duration = Duration::from_secs(30);
 /// How long a phone the host still wants may hold the link before it is disconnected.
 const STALE: Duration = Duration::from_secs(10);
 
-/// Which phones the host wants paged, and what is known about them. No list at all means the
-/// stored bonds are used, an empty list means nobody is paged.
+/// Which phones the host wants paged, and what is known about them. Until the host has said,
+/// nobody is paged: without it nothing would take what a phone says.
 #[derive(Default)]
 struct Phones {
     wanted: Option<Vec<[u8; 6]>>,
@@ -62,12 +65,8 @@ struct Phones {
 }
 
 impl Phones {
-    /// Who to page, from the host if it has said, else every bond.
     fn targets(&self) -> Vec<[u8; 6]> {
-        if let Some(list) = &self.wanted {
-            return list.clone();
-        }
-        stored_keys().iter().filter_map(|key| key.get(..6)?.try_into().ok()).collect()
+        self.wanted.clone().unwrap_or_default()
     }
 
     /// The next phone in the rotation, and whether it is on the air.
@@ -114,20 +113,6 @@ const SERVICE_AUDIO: u8 = 0x20;
 /// No display and no keypad.
 const IO_NO_INPUT_NO_OUTPUT: u8 = 0x03;
 
-const SET_POWERED: u16 = 0x0005;
-const SET_DISCOVERABLE: u16 = 0x0006;
-const SET_CONNECTABLE: u16 = 0x0007;
-const SET_BONDABLE: u16 = 0x0009;
-const SET_SSP: u16 = 0x000b;
-const SET_CLASS: u16 = 0x000e;
-const SET_NAME: u16 = 0x000f;
-const ADD_UUID: u16 = 0x0010;
-const SET_IO_CAPABILITY: u16 = 0x0018;
-const LOAD_LINK_KEYS: u16 = 0x0012;
-const DISCONNECT: u16 = 0x0014;
-const USER_CONFIRM_REPLY: u16 = 0x001c;
-const PIN_CODE_NEG_REPLY: u16 = 0x0017;
-
 const EV_NEW_SETTINGS: u16 = 0x0006;
 const EV_NEW_LINK_KEY: u16 = 0x0009;
 const EV_DEVICE_CONNECTED: u16 = 0x000b;
@@ -139,15 +124,13 @@ const EV_AUTH_FAILED: u16 = 0x0011;
 
 pub struct Config {
     pub keys_path: String,
-    pub name_override: Option<String>,
     pub ap_name: NameSource,
 }
 
 pub fn run(config: Config) -> ExitCode {
     let _ = KEYS_PATH.set(config.keys_path.clone());
     let _ = NAME_SOURCE.set(config.ap_name.clone());
-    let fixed = config.name_override;
-    let name = fixed.clone().or_else(wifid_ap_name).unwrap_or_else(|| NAME.into());
+    let name = wifid_ap_name().unwrap_or_else(|| NAME.into());
     let name = name.as_str();
     let Some((mgmt, local)) = ready() else {
         eprintln!("[iapd] the controller never answered");
@@ -164,29 +147,27 @@ pub fn run(config: Config) -> ExitCode {
     std::thread::spawn(move || ring(&known, &want, &called, &calling_to));
     let (want, known) = (offered.clone(), phones.clone());
     std::thread::spawn(move || control(&want, &known));
-    if fixed.is_none() {
-        let mut shown = name.to_string();
-        std::thread::spawn(move || {
-            loop {
-                std::thread::sleep(NAME_POLL);
-                let Some(current) = wifid_ap_name() else {
-                    continue;
-                };
-                if current == shown {
-                    continue;
-                }
-                match Mgmt::open()
-                    .and_then(|m| m.call(SET_NAME, mgmt::INDEX, &local_name(&current)).map(|_| ()))
-                {
-                    Ok(()) => {
-                        println!("[iapd] the car is now called {current}");
-                        shown = current;
-                    }
-                    Err(e) => eprintln!("[iapd] renaming to {current}: {e}"),
-                }
+    let mut shown = name.to_string();
+    std::thread::spawn(move || {
+        loop {
+            std::thread::sleep(NAME_POLL);
+            let Some(current) = wifid_ap_name() else {
+                continue;
+            };
+            if current == shown {
+                continue;
             }
-        });
-    }
+            match Mgmt::open()
+                .and_then(|m| m.call(SET_NAME, mgmt::INDEX, &local_name(&current)).map(|_| ()))
+            {
+                Ok(()) => {
+                    println!("[iapd] the car is now called {current}");
+                    shown = current;
+                }
+                Err(e) => eprintln!("[iapd] renaming to {current}: {e}"),
+            }
+        }
+    });
     std::thread::spawn(|| {
         if let Err(e) = sdp::serve() {
             eprintln!("[sdp] {e}");
@@ -842,6 +823,11 @@ mod tests {
         assert_eq!(phones.turn(), Some((a, false)));
         assert_eq!(phones.turn(), Some((b, false)));
         assert_eq!(phones.turn(), Some((a, false)));
+    }
+
+    #[test]
+    fn nobody_is_paged_before_the_host_has_said() {
+        assert_eq!(Phones::default().turn(), None);
     }
 
     #[test]

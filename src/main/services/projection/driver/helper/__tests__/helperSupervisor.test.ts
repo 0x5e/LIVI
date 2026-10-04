@@ -206,7 +206,7 @@ describe('spawning', () => {
     const [cmd, args, opts] = mockedSpawn.mock.calls[0]
     expect(String(cmd)).toContain('livi-helperd')
     expect(args).toEqual([])
-    expect(opts.env.LIVI_AA_WIRELESS).toBe('')
+    expect(opts.env.LIVI_AA_WIRELESS).toBe('0')
     expect(opts.env.LIVI_CP_WIRELESS).toBe('1')
   })
 

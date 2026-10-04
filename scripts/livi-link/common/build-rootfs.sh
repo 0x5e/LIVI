@@ -27,9 +27,9 @@ cp "$HOSTAPD" "$WORK/usr/sbin/hostapd"
 
 log "busybox applet symlinks"
 BB_BIN_APPLETS="sh ash cat chmod cp dd df echo grep head ln ls mkdir more mount mv ps rm sed setsid stty sync tail touch umount"
-BB_SBIN_APPLETS="brctl dmesg ifconfig init insmod ip killall mdev reboot rmmod route swapoff swapon sysctl"
+BB_SBIN_APPLETS="brctl dmesg ifconfig init insmod ip killall reboot rmmod"
 BB_USR_BIN_APPLETS="awk basename cut dirname env find hexdump id kill less md5sum nc netstat readlink pgrep pidof pkill seq sha256sum sleep sort strings tee tr uname uniq wc which xargs xxd"
-BB_USR_SBIN_APPLETS="chroot devmem flash_eraseall flashcp hostname httpd i2cdetect i2cdump i2cget i2cset nslookup ntpd sendmail telnetd udhcpc"
+BB_USR_SBIN_APPLETS="devmem flash_eraseall flashcp hostname i2cdetect i2cdump i2cget i2cset telnetd"
 for a in $BB_BIN_APPLETS;       do ln -sf busybox           "$WORK/bin/$a";      done
 for a in $BB_SBIN_APPLETS;      do ln -sf ../bin/busybox    "$WORK/sbin/$a";     done
 for a in $BB_USR_BIN_APPLETS;   do ln -sf ../../bin/busybox "$WORK/usr/bin/$a";  done

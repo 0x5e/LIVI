@@ -208,7 +208,7 @@ jobs:
           set -euo pipefail
           mkdir -p "$TOP"
           bash "$BOARD_DIR/build-userspace.sh"
-          bash "$BOARD_DIR/build-mainline.sh"
+          bash "$BOARD_DIR/build.sh"
           bash scripts/livi-link/common/build-rootfs.sh "$BOARD_DIR"
           bash scripts/livi-link/common/pack-bundle.sh "$BOARD_DIR"
 

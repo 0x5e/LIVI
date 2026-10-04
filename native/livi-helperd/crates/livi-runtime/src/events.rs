@@ -29,6 +29,14 @@ pub fn device_json(frame: &[u8], usb_udid: Option<&str>) -> Option<String> {
     o.finish()
 }
 
+/// The start went out over the cable, naming the address the phone connects to there.
+pub fn wired_start_json(usb_udid: &str, ip: &str) -> String {
+    let mut o = Obj::new("wired-start");
+    o.str("usbUdid", usb_udid);
+    o.str("ip", ip);
+    o.finish().unwrap_or_default()
+}
+
 /// The phone's iAP2 identity, which the UI uses to route metadata to the right session.
 #[derive(Debug, Default, Clone)]
 pub struct EventTag {
@@ -424,6 +432,17 @@ mod device_tests {
             usb_transport_id: "usb-1".into(),
         }
         .encode()
+    }
+
+    #[test]
+    fn the_wired_start_names_the_cable_the_phone_and_the_address() {
+        let mut tag = EventTag::default();
+        tag.learn(&frame());
+        let json = tag.apply(wired_start_json("00008120000924CE2E51A01E", "fe80::80a:a1ca"));
+        assert_eq!(
+            json,
+            "{\"type\":\"wired-start\",\"usbUdid\":\"00008120000924CE2E51A01E\",\"ip\":\"fe80::80a:a1ca\",\"phoneId\":\"0C:6A:C4:4E:F3:2A\",\"usbTransportId\":\"usb-1\"}"
+        );
     }
 
     #[test]

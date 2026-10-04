@@ -43,6 +43,10 @@ function reply(sock: FakeSock, obj: unknown): void {
   sock.emit('data', Buffer.from(`${JSON.stringify(obj)}\n`))
 }
 
+function settle(): Promise<void> {
+  return new Promise((resolve) => setTimeout(resolve, 0))
+}
+
 function wrote(sock: FakeSock): string {
   sock.emit('connect')
   return sock.write.mock.calls[0]?.[0] as string
@@ -209,6 +213,18 @@ describe('CpHelperSock rpc wrappers', () => {
     await expect(bad).rejects.toThrow('no session')
   })
 
+  it('startWired names the phone and throws when it has no wired session', async () => {
+    const helper = new CpHelperSock()
+    const ok = helper.startWired('00008110-000A1B2C3D4E5F00')
+    expect(wrote(sockets[0])).toBe('start-wired 00008110-000A1B2C3D4E5F00\n')
+    reply(sockets[0], { ok: true })
+    await expect(ok).resolves.toBeUndefined()
+
+    const bad = helper.startWired('00008030')
+    reply(sockets[1], { ok: false, error: 'no wired session' })
+    await expect(bad).rejects.toThrow('no wired session')
+  })
+
   it('sendLocation is best-effort and base64-encodes the nmea', async () => {
     const helper = new CpHelperSock()
     const p = helper.sendLocation('$GPGGA')
@@ -233,9 +249,37 @@ describe('CpHelperSock rpc wrappers', () => {
       ['cc:dd', null]
     ]
     const p = helper.sendReconnectTargets(targets)
+    await settle()
     expect(wrote(sockets[0])).toBe(`reconnect-targets ${JSON.stringify(targets)}\n`)
     sockets[0].emit('data', Buffer.from('{"ok":true}\n'))
     await expect(p).resolves.toBeUndefined()
+  })
+
+  it('sends a paging list only once the one before it was answered', async () => {
+    const helper = new CpHelperSock()
+    const first = helper.sendReconnectTargets([['aa:bb', null]])
+    const second = helper.sendReconnectTargets([])
+    await settle()
+    expect(sockets).toHaveLength(1)
+
+    reply(sockets[0], { ok: true })
+    await first
+    await settle()
+    expect(wrote(sockets[1])).toBe('reconnect-targets []\n')
+    sockets[1].emit('data', Buffer.from('{"ok":true}\n'))
+    await expect(second).resolves.toBeUndefined()
+  })
+
+  it('a paging list that failed does not hold up the next', async () => {
+    const helper = new CpHelperSock()
+    const first = helper.sendReconnectTargets([['aa:bb', null]])
+    const second = helper.sendReconnectTargets([])
+    await settle()
+    sockets[0].emit('error', new Error('ENOENT'))
+    await expect(first).rejects.toThrow('ENOENT')
+    await settle()
+    reply(sockets[1], { ok: true })
+    await expect(second).resolves.toBeUndefined()
   })
 
   it('setAaWireless sends 1 when enabled and throws on failure', async () => {

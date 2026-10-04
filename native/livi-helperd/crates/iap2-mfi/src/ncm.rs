@@ -1,13 +1,10 @@
 //! Remote MFi coprocessor: the chip in the LIVI Link dongle, reached over TCP via its `mfid`.
-//!
-//! Wire protocol (matches mfid), big-endian lengths, multiple requests per socket:
-//!   GET_CERT   : [0x01]                              -> [status][len:2][cert]
-//!   SIGN       : [0x02][len:2][challenge]            -> [status][len:2][signature]
-//!   PROTO_MAJOR: [0x03]                              -> [status][len:2][major:1]
+//! The wire is the one in [`crate::server`], several requests per socket.
 
 use std::io::{Read, Write};
 use std::net::TcpStream;
 
+use crate::server::{OP_GET_CERT, OP_PROTOCOL_MAJOR, OP_SIGN, STATUS_OK};
 use crate::*;
 
 pub struct NcmCoprocessor {
@@ -22,13 +19,6 @@ impl NcmCoprocessor {
         Self { addr: addr.to_string(), stream: None, protocol_major: None }
     }
 
-    /// As `new`, but connects immediately.
-    pub fn connect(addr: &str) -> Result<Self, MfiError> {
-        let mut chip = Self::new(addr);
-        chip.ensure()?;
-        Ok(chip)
-    }
-
     fn ensure(&mut self) -> Result<&mut TcpStream, MfiError> {
         if self.stream.is_none() {
             let stream = livi_net::connect(self.addr.as_str(), IO_TIMEOUT)
@@ -41,7 +31,17 @@ impl NcmCoprocessor {
         Ok(self.stream.as_mut().expect("just connected"))
     }
 
+    /// A failed exchange can leave the rest of a late answer in the socket, which the next request
+    /// would read as its own. So a socket that failed is never used again.
     fn try_request(&mut self, req: &[u8]) -> Result<Vec<u8>, MfiError> {
+        let result = self.exchange(req);
+        if matches!(result, Err(MfiError::Io(_))) {
+            self.stream = None;
+        }
+        result
+    }
+
+    fn exchange(&mut self, req: &[u8]) -> Result<Vec<u8>, MfiError> {
         let stream = self.ensure()?;
         stream.write_all(req).map_err(|e| MfiError::Io(format!("mfid write: {e}")))?;
         let mut hdr = [0u8; 3];
@@ -51,7 +51,7 @@ impl NcmCoprocessor {
         if len > 0 {
             stream.read_exact(&mut data).map_err(|e| MfiError::Io(format!("mfid body: {e}")))?;
         }
-        if hdr[0] != 0 {
+        if hdr[0] != STATUS_OK {
             return Err(MfiError::AuthFailed { error_code: None });
         }
         Ok(data)
@@ -61,7 +61,6 @@ impl NcmCoprocessor {
         match self.try_request(req) {
             Err(MfiError::Io(first)) => {
                 // Dead socket: waits briefly, reconnects once.
-                self.stream = None;
                 std::thread::sleep(std::time::Duration::from_millis(500));
                 self.try_request(req).map_err(|e| match e {
                     MfiError::Io(second) => MfiError::Io(format!("{first}; retry: {second}")),
@@ -78,14 +77,14 @@ impl AuthCoprocessor for NcmCoprocessor {
         if let Some(v) = self.protocol_major {
             return Ok(v);
         }
-        let d = self.request(&[0x03])?;
+        let d = self.request(&[OP_PROTOCOL_MAJOR])?;
         let v = *d.first().ok_or_else(|| MfiError::Io("mfid: empty proto".into()))?;
         self.protocol_major = Some(v);
         Ok(v)
     }
 
     fn read_certificate(&mut self) -> Result<Vec<u8>, MfiError> {
-        self.request(&[0x01])
+        self.request(&[OP_GET_CERT])
     }
 
     fn generate_challenge_response(&mut self, challenge: &[u8]) -> Result<Vec<u8>, MfiError> {
@@ -94,10 +93,33 @@ impl AuthCoprocessor for NcmCoprocessor {
             return Err(MfiError::ChallengeSize(n));
         }
         let mut req = Vec::with_capacity(3 + n);
-        req.push(0x02);
+        req.push(OP_SIGN);
         req.push(((n >> 8) & 0xff) as u8);
         req.push((n & 0xff) as u8);
         req.extend_from_slice(challenge);
         self.request(&req)
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use std::net::TcpListener;
+
+    #[test]
+    fn a_socket_that_failed_is_not_used_again() {
+        let listener = TcpListener::bind("127.0.0.1:0").unwrap();
+        let addr = listener.local_addr().unwrap().to_string();
+        let mfid = std::thread::spawn(move || {
+            let (mut s, _) = listener.accept().unwrap();
+            let mut req = [0u8; 1];
+            s.read_exact(&mut req).unwrap();
+            // The header cut short, as a connection that breaks off mid-answer leaves it.
+            s.write_all(&[STATUS_OK]).unwrap();
+        });
+        let mut chip = NcmCoprocessor::new(&addr);
+        assert!(matches!(chip.try_request(&[OP_GET_CERT]), Err(MfiError::Io(_))));
+        assert!(chip.stream.is_none());
+        mfid.join().unwrap();
     }
 }

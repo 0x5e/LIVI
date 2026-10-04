@@ -17,6 +17,10 @@ pub const PUSH_PORT: u16 = 5610;
 
 const BEGIN: &str = "__LIVI_B__";
 const END: &str = "__LIVI_E__";
+const STATUS: &str = "__LIVI_RC__";
+/// Reading a whole partition back for its md5 is the longest of these.
+const REMOTE_TIMEOUT: Duration = Duration::from_secs(120);
+const WRITE_TIMEOUT: Duration = Duration::from_secs(300);
 const CONNECT_TIMEOUT: Duration = Duration::from_secs(5);
 const READ_SLICE: Duration = Duration::from_millis(500);
 
@@ -182,6 +186,41 @@ impl Shell {
         c.write_all(data).map_err(|e| format!("send: {e}"))?;
         c.shutdown(Shutdown::Write).map_err(|e| format!("shutdown: {e}"))?;
         Ok(())
+    }
+}
+
+impl crate::dongle::Remote for Shell {
+    fn run(&mut self, cmd: &str) -> Result<String, String> {
+        let out = Shell::run(self, &format!("{cmd}\necho {STATUS}$?"), REMOTE_TIMEOUT)?;
+        let (body, rc) =
+            out.rsplit_once(STATUS).ok_or_else(|| format!("`{cmd}` left no exit status"))?;
+        let body = body.trim_end().to_string();
+        match rc.trim() {
+            "0" => Ok(body),
+            rc => Err(format!("`{cmd}` exit {rc}: {body}")),
+        }
+    }
+
+    fn write_mtd(&mut self, node: &str, data: &[u8]) -> Result<(), String> {
+        let port = PUSH_PORT;
+        let done = format!("/tmp/livi-write.{port}");
+        // `head -c` ends the pipe after the last byte, whether or not nc notices the end.
+        self.sh(&format!(
+            "pkill -f 'nc -l -p {port}' 2>/dev/null; rm -f {done}; \
+             setsid sh -c 'nc -l -p {port} | head -c {len} | dd of={node} bs=64k conv=fsync 2>/dev/null; sync; touch {done}' >/dev/null 2>&1 &",
+            len = data.len()
+        ))?;
+        sleep(Duration::from_secs(1));
+        self.send(data, port)?;
+        let deadline = Instant::now() + WRITE_TIMEOUT;
+        while Instant::now() < deadline {
+            if self.sh(&format!("[ -e {done} ] && echo done"))?.trim() == "done" {
+                let _ = self.sh(&format!("rm -f {done}"));
+                return Ok(());
+            }
+            sleep(Duration::from_secs(1));
+        }
+        Err(format!("writing {node} did not finish within {WRITE_TIMEOUT:?}"))
     }
 }
 

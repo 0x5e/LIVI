@@ -14,8 +14,14 @@ pub struct HelperState {
     carkit: Mutex<Vec<SharedTag>>,
     links: Mutex<HashSet<String>>,
     vehicle: Vehicle,
-    wired: Mutex<HashMap<String, Arc<Notify>>>,
+    wired: Mutex<HashMap<String, Wired>>,
     redo: Mutex<HashSet<String>>,
+}
+
+/// A running wired session: how to end it, and how to have it offer CarPlay again.
+struct Wired {
+    restart: Arc<Notify>,
+    again: Arc<Notify>,
 }
 
 impl HelperState {
@@ -27,8 +33,8 @@ impl HelperState {
         self.vehicle.feed()
     }
 
-    pub fn wired_started(&self, serial: &str, restart: Arc<Notify>) {
-        self.wired.lock().unwrap().insert(serial.to_string(), restart);
+    pub fn wired_started(&self, serial: &str, restart: Arc<Notify>, again: Arc<Notify>) {
+        self.wired.lock().unwrap().insert(serial.to_string(), Wired { restart, again });
     }
 
     pub fn wired_ended(&self, serial: &str) {
@@ -39,11 +45,17 @@ impl HelperState {
     pub fn restart_wired(&self) -> usize {
         let wired = self.wired.lock().unwrap();
         let mut redo = self.redo.lock().unwrap();
-        for (serial, restart) in wired.iter() {
+        for (serial, w) in wired.iter() {
             redo.insert(serial.clone());
-            restart.notify_one();
+            w.restart.notify_one();
         }
         wired.len()
+    }
+
+    /// Has this phone's wired session offer CarPlay again over the iAP2 it already runs.
+    pub fn start_wired_again(&self, serial: &str) -> bool {
+        let wired = self.wired.lock().unwrap();
+        wired.get(serial).inspect(|w| w.again.notify_one()).is_some()
     }
 
     /// Whether this phone's session was ended for a fresh start, once.
@@ -91,6 +103,16 @@ impl HelperState {
             t.lock().unwrap().phone_id.as_deref().is_some_and(|p| p.eq_ignore_ascii_case(bt_mac))
         })
     }
+
+    /// True when iAP2 over Bluetooth with this phone would compete with carkit for it: carkit runs
+    /// with this phone, or with one it has not identified yet. The phone takes the transport of
+    /// whichever identified last, so a Bluetooth session pulls it off the cable.
+    pub fn carkit_claims(&self, bt_mac: &str) -> bool {
+        let sessions = self.carkit.lock().unwrap();
+        sessions.iter().any(|t| {
+            t.lock().unwrap().phone_id.as_deref().is_none_or(|p| p.eq_ignore_ascii_case(bt_mac))
+        })
+    }
 }
 
 #[cfg(test)]
@@ -124,6 +146,35 @@ mod tests {
         assert!(!state.carkit_blocks("AA:BB:CC:DD:EE:FF"));
         state.carkit_ended(&unlearned);
         assert!(!state.carkit_blocks(""));
+    }
+
+    #[test]
+    fn carkit_claims_its_phone_and_any_it_has_not_identified() {
+        let state = HelperState::default();
+        assert!(!state.carkit_claims("0c:6a:c4:4e:f3:2a"));
+        let unidentified = tag(None);
+        state.carkit_started(unidentified.clone());
+        assert!(state.carkit_claims("AA:BB:CC:DD:EE:FF"));
+        unidentified.lock().unwrap().phone_id = Some("0C:6A:C4:4E:F3:2A".into());
+        assert!(state.carkit_claims("0c:6a:c4:4e:f3:2a"));
+        assert!(!state.carkit_claims("AA:BB:CC:DD:EE:FF"));
+        state.carkit_ended(&unidentified);
+        assert!(!state.carkit_claims("0c:6a:c4:4e:f3:2a"));
+    }
+
+    #[tokio::test]
+    async fn a_wired_session_is_asked_for_another_start_without_being_ended() {
+        let state = HelperState::default();
+        let (restart, again) = (Arc::new(Notify::new()), Arc::new(Notify::new()));
+        state.wired_started("00008120", restart.clone(), again.clone());
+
+        assert!(!state.start_wired_again("00008030"));
+        assert!(state.start_wired_again("00008120"));
+        again.notified().await;
+        assert!(!state.take_redo("00008120"));
+
+        state.wired_ended("00008120");
+        assert!(!state.start_wired_again("00008120"));
     }
 
     #[test]

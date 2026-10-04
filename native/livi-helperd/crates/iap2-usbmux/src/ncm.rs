@@ -1,4 +1,4 @@
-// Userspace NCM host for the iPhone network function the kernel cdc_ncm driver rejects.
+// Userspace NCM host for the iPhone's CarPlay network function.
 
 use std::fs;
 use std::os::fd::{AsRawFd, FromRawFd, OwnedFd, RawFd};
@@ -8,10 +8,12 @@ use std::sync::Arc;
 use std::sync::atomic::{AtomicBool, AtomicU16, Ordering};
 use std::time::Duration;
 
-use nusb::transfer::{Buffer, Bulk, ControlIn, ControlType, In, Out, Recipient};
-use nusb::{Device, Endpoint, MaybeFuture};
+use nusb::transfer::{
+    Buffer, Bulk, ControlIn, ControlOut, ControlType, In, Interrupt, Out, Recipient,
+};
+use nusb::{Device, Endpoint, Interface, MaybeFuture};
 
-use crate::linux::{find_iphones, open_by_address}; // NcmBridge is local-USB only
+use crate::linux::{IPhoneDev, find_iphones, open_by_address}; // NcmBridge is local-USB only
 use crate::ntb::{build_ntb, parse_ntb};
 
 const NCM_CONTROL_CLASS: u8 = 0x02;
@@ -20,12 +22,27 @@ const NCM_DATA_CLASS: u8 = 0x0a;
 const TAP_MTU_BUF: usize = 4096;
 const USB_READ_BUF: usize = 32768;
 
+const GET_NTB_PARAMETERS: u8 = 0x80;
+const NTB_PARAMETERS_LEN: u16 = 28;
+const SET_NTB_FORMAT: u8 = 0x84;
+const SET_NTB_INPUT_SIZE: u8 = 0x86;
+const SET_CRC_MODE: u8 = 0x8a;
+const SET_ETHERNET_PACKET_FILTER: u8 = 0x43;
+/// Directed, broadcast and all multicast, as cdc_ncm asks for it.
+const PACKET_FILTER: u16 = 0x000e;
+const NTB_INPUT_SIZE: u32 = 16384;
+const CONTROL_TIMEOUT: Duration = Duration::from_secs(1);
+/// How many link notifications are logged, the rest are only read.
+const NOTIFICATIONS_LOGGED: usize = 8;
+
 static TAP_SEQ: AtomicU16 = AtomicU16::new(0);
 
 pub struct NcmBridge {
     pub ifname: String,
     /// None when the kernel already provides the interface and nothing needs bridging.
     run: Option<Arc<AtomicBool>>,
+    /// Held for the bridge's life: letting go hands the function back to cdc_ncm.
+    _control: Option<Interface>,
 }
 
 impl Drop for NcmBridge {
@@ -43,14 +60,24 @@ struct NcmFunction {
     data: u8,
     ep_in: u8,
     ep_out: u8,
+    /// The control interface's interrupt endpoint, where the link notifications come.
+    ep_notify: Option<u8>,
 }
 
 fn find_ncm_function(device: &Device) -> Option<NcmFunction> {
     let config = device.active_configuration().ok()?;
     let mut control = None;
+    let mut ep_notify = None;
     for desc in config.interface_alt_settings() {
         if desc.class() == NCM_CONTROL_CLASS && desc.subclass() == NCM_CONTROL_SUBCLASS {
             control = Some(desc.interface_number());
+            ep_notify = desc
+                .endpoints()
+                .find(|ep| {
+                    ep.transfer_type() == nusb::descriptors::TransferType::Interrupt
+                        && ep.address() & 0x80 != 0
+                })
+                .map(|ep| ep.address());
         }
         if let Some(control) = control.filter(|_| desc.class() == NCM_DATA_CLASS) {
             let (mut ep_in, mut ep_out) = (0u8, 0u8);
@@ -65,7 +92,13 @@ fn find_ncm_function(device: &Device) -> Option<NcmFunction> {
                 }
             }
             if ep_in != 0 && ep_out != 0 {
-                return Some(NcmFunction { control, data: desc.interface_number(), ep_in, ep_out });
+                return Some(NcmFunction {
+                    control,
+                    data: desc.interface_number(),
+                    ep_in,
+                    ep_out,
+                    ep_notify,
+                });
             }
         }
     }
@@ -95,7 +128,7 @@ fn open_tap(ifname: &str) -> Result<OwnedFd, String> {
     const IFF_TAP: libc::c_short = 0x0002;
     const IFF_NO_PI: libc::c_short = 0x1000;
 
-    let fd = unsafe { libc::open(c"/dev/net/tun".as_ptr(), libc::O_RDWR) };
+    let fd = unsafe { libc::open(c"/dev/net/tun".as_ptr(), libc::O_RDWR | libc::O_CLOEXEC) };
     if fd < 0 {
         return Err(format!("open /dev/net/tun: {}", std::io::Error::last_os_error()));
     }
@@ -165,27 +198,37 @@ impl NcmBridge {
             .find(|d| d.serial == serial)
             .ok_or_else(|| format!("iphone {serial} not found"))?;
 
-        if let Some(ifname) = kernel_ncm_iface(&dev.sysfs) {
-            println!("[ncm] using kernel cdc_ncm interface {ifname}");
-            link_local_profile(&ifname);
-            return Ok(Self { ifname, run: None });
-        }
-
         let device = open_by_address(dev.bus, dev.address)?;
         let func = find_ncm_function(&device).ok_or("no NCM function in the active config")?;
+        Self::bridge(&dev, &device, &func).or_else(|e| {
+            eprintln!("[ncm] no bridge ({e}), the kernel's interface it is");
+            let ifname = kernel_ncm_iface(&dev.sysfs).ok_or(e)?;
+            println!("[ncm] using kernel cdc_ncm interface {ifname}");
+            link_local_profile(&ifname);
+            Ok(Self { ifname, run: None, _control: None })
+        })
+    }
 
-        let _control = device
-            .claim_interface(func.control)
+    fn bridge(dev: &IPhoneDev, device: &Device, func: &NcmFunction) -> Result<Self, String> {
+        let control = device
+            .detach_and_claim_interface(func.control)
             .wait()
             .map_err(|e| format!("claim NCM control {}: {e}", func.control))?;
         let data_iface = device
-            .claim_interface(func.data)
+            .detach_and_claim_interface(func.data)
             .wait()
             .map_err(|e| format!("claim NCM data {}: {e}", func.data))?;
+        ncm_setup(&control, func.control);
         // Alt setting 1 is the one with the bulk endpoints; alt 0 carries no data.
         data_iface.set_alt_setting(1).wait().map_err(|e| format!("NCM alt setting: {e}"))?;
+        // The phone reports the link up, and passes traffic, only once a packet filter is set.
+        if let Err(e) =
+            class_out(&control, func.control, SET_ETHERNET_PACKET_FILTER, PACKET_FILTER, &[])
+        {
+            eprintln!("[ncm] packet filter: {e}");
+        }
 
-        let host_mac = host_mac(&device, &dev.sysfs, func.control);
+        let host_mac = host_mac(device, &dev.sysfs, func.control);
         let ep_in = data_iface
             .endpoint::<Bulk, In>(func.ep_in)
             .map_err(|e| format!("NCM in endpoint: {e}"))?;
@@ -209,6 +252,9 @@ impl NcmBridge {
 
         spawn_usb_to_tap(ep_in, tap.clone(), run.clone());
         spawn_tap_to_usb(ep_out, tap, run.clone());
+        if let Some(ep) = func.ep_notify.and_then(|a| control.endpoint::<Interrupt, In>(a).ok()) {
+            spawn_notifications(ep, run.clone());
+        }
 
         println!(
             "[ncm] up on {ifname}: if{}/{} ep=0x{:02x}/0x{:02x} mac={}",
@@ -218,8 +264,84 @@ impl NcmBridge {
             func.ep_out,
             host_mac.as_deref().unwrap_or("?")
         );
-        Ok(Self { ifname, run: Some(run) })
+        Ok(Self { ifname, run: Some(run), _control: Some(control) })
     }
+}
+
+fn class_out(
+    control: &Interface,
+    iface: u8,
+    request: u8,
+    value: u16,
+    data: &[u8],
+) -> Result<(), String> {
+    control
+        .control_out(
+            ControlOut {
+                control_type: ControlType::Class,
+                recipient: Recipient::Interface,
+                request,
+                value,
+                index: iface as u16,
+                data,
+            },
+            CONTROL_TIMEOUT,
+        )
+        .wait()
+        .map_err(|e| format!("request 0x{request:02x}: {e}"))
+}
+
+/// What an NCM host settles with the function before its data path opens: NTB parameters,
+/// no CRC, 16-bit NTBs and the input size.
+fn ncm_setup(control: &Interface, iface: u8) {
+    let params = control
+        .control_in(
+            ControlIn {
+                control_type: ControlType::Class,
+                recipient: Recipient::Interface,
+                request: GET_NTB_PARAMETERS,
+                value: 0,
+                index: iface as u16,
+                length: NTB_PARAMETERS_LEN,
+            },
+            CONTROL_TIMEOUT,
+        )
+        .wait();
+    if let Err(e) = params {
+        eprintln!("[ncm] NTB parameters: {e}");
+    }
+    let steps: [(u8, &[u8]); 3] = [
+        (SET_CRC_MODE, &[]),
+        (SET_NTB_FORMAT, &[]),
+        (SET_NTB_INPUT_SIZE, &NTB_INPUT_SIZE.to_le_bytes()),
+    ];
+    for (request, data) in steps {
+        if let Err(e) = class_out(control, iface, request, 0, data) {
+            eprintln!("[ncm] {e}");
+        }
+    }
+}
+
+/// Reads the link notifications so the phone can hand them over, and logs the first ones.
+fn spawn_notifications(mut ep: Endpoint<Interrupt, In>, run: Arc<AtomicBool>) {
+    std::thread::spawn(move || {
+        let mut logged = 0;
+        while run.load(Ordering::SeqCst) {
+            let len = ep.max_packet_size().max(1);
+            let completion = ep.transfer_blocking(Buffer::new(len), Duration::from_millis(2000));
+            match completion.status {
+                Ok(()) if logged < NOTIFICATIONS_LOGGED => {
+                    logged += 1;
+                    let bytes: Vec<String> =
+                        completion.buffer.iter().map(|b| format!("{b:02x}")).collect();
+                    println!("[ncm] link notification {}", bytes.join(" "));
+                }
+                Ok(()) => {}
+                Err(e) if is_timeout(&e) => {}
+                Err(_) => return,
+            }
+        }
+    });
 }
 
 fn spawn_usb_to_tap(mut ep_in: Endpoint<Bulk, In>, tap: Arc<OwnedFd>, run: Arc<AtomicBool>) {

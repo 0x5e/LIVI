@@ -10,7 +10,7 @@ use base64::Engine;
 use base64::engine::general_purpose::STANDARD;
 use tokio::io::{AsyncReadExt, AsyncWriteExt};
 use tokio::net::{UnixListener, UnixStream};
-use tokio::sync::{Notify, mpsc};
+use tokio::sync::{Notify, mpsc, watch};
 
 use iap2_link::LinkConfig;
 
@@ -54,10 +54,18 @@ impl Broadcaster {
     }
 }
 
+/// BlueZ, once the adapter is up: where a phone's link is dropped, and the address a tunnelled
+/// session names. Wired CarPlay needs none of it, so the socket serves before it is there.
+#[derive(Clone)]
+pub struct Bluez {
+    pub bus: zbus::Connection,
+    pub adapter: String,
+    pub bt_mac: [u8; 6],
+}
+
 #[derive(Clone)]
 pub struct LiviSockConfig {
     pub path: String,
-    pub adapter: String,
     pub identity: Identity,
     pub cp: CpConfig,
     /// Who drops a phone's link where there is no BlueZ to ask.
@@ -84,7 +92,7 @@ pub type PushTargets = Arc<dyn Fn(Vec<String>) -> Result<(), String> + Send + Sy
 pub async fn serve<A>(
     cfg: LiviSockConfig,
     auth: A,
-    bus: Option<zbus::Connection>,
+    bluez: watch::Receiver<Option<Bluez>>,
     bcast: Broadcaster,
     state: Arc<HelperState>,
 ) -> io::Result<()>
@@ -100,11 +108,11 @@ where
         let (stream, _) = listener.accept().await?;
         let auth = auth.clone();
         let cfg = cfg.clone();
-        let bus = bus.clone();
+        let bluez = bluez.borrow().clone();
         let bcast = bcast.clone();
         let state = state.clone();
         tokio::spawn(async move {
-            if let Err(e) = handle(stream, auth, cfg, bus, bcast, state).await {
+            if let Err(e) = handle(stream, auth, cfg, bluez, bcast, state).await {
                 eprintln!("[cp-sock] connection error: {e}");
             }
         });
@@ -136,7 +144,7 @@ async fn handle<A>(
     mut stream: UnixStream,
     mut auth: A,
     cfg: LiviSockConfig,
-    bus: Option<zbus::Connection>,
+    bluez: Option<Bluez>,
     bcast: Broadcaster,
     state: Arc<HelperState>,
 ) -> io::Result<()>
@@ -168,6 +176,13 @@ where
                 "[cp-sock] tunnel up (cid={cid}, btMac={})",
                 if bt_mac.is_empty() { "unknown" } else { bt_mac }
             );
+            let cfg = match &bluez {
+                Some(bluez) => LiviSockConfig {
+                    identity: Identity { bt_mac: bluez.bt_mac, ..cfg.identity },
+                    ..cfg
+                },
+                None => cfg,
+            };
             run_tunnel(stream, auth, cfg, bcast, cid.to_string(), state.vehicle_feed());
             Ok(())
         }
@@ -197,8 +212,8 @@ where
             let json = if arg.is_empty() {
                 err_json("disconnect requires a MAC")
             } else {
-                match bus.as_ref() {
-                    Some(bus) => match device_disconnect(bus, &cfg.adapter, arg).await {
+                match bluez.as_ref() {
+                    Some(bluez) => match device_disconnect(&bluez.bus, &bluez.adapter, arg).await {
                         Ok(()) => "{\"ok\":true}".to_string(),
                         Err(e) => err_json(&e),
                     },
@@ -227,7 +242,8 @@ where
                     if before != after
                         && let Some(push) = cfg.targets.clone()
                     {
-                        let macs = after.into_iter().map(|(mac, _)| mac).collect();
+                        let macs: Vec<String> = after.into_iter().map(|(mac, _)| mac).collect();
+                        println!("[helperd] the dongle pages {macs:?}");
                         if let Ok(Err(e)) = tokio::task::spawn_blocking(move || push(macs)).await {
                             eprintln!("[helperd] the dongle refused the paging list: {e}");
                         }
@@ -258,6 +274,15 @@ where
             let n = state.restart_wired();
             println!("[cp-sock] drop-iap2: {n} wired session(s) end for a fresh start");
             reply(&mut stream, "{\"ok\":true}").await
+        }
+        "start-wired" => {
+            let json = if state.start_wired_again(arg) {
+                println!("[cp-sock] start-wired: {arg} offers CarPlay again");
+                "{\"ok\":true}".to_string()
+            } else {
+                err_json(&format!("no wired session for {arg:?}"))
+            };
+            reply(&mut stream, &json).await
         }
         other => reply(&mut stream, &err_json(&format!("unknown command: {other}"))).await,
     }
@@ -392,13 +417,23 @@ pub async fn pump_events_for(
             BringupEvent::Failed(e) => eprintln!("[cp-sock] {tag} bring-up failed: {e}"),
             BringupEvent::Identified => println!("[cp] {tag}: identification accepted"),
             BringupEvent::Authenticated => println!("[cp] {tag}: MFi auth succeeded"),
-            BringupEvent::CarPlayStartSent => println!("[cp] {tag}: CarPlayStartSession sent"),
+            BringupEvent::CarPlayStartSent { ip } => {
+                println!("[cp] {tag}: CarPlayStartSession sent");
+                if let Some(udid) = usb_udid.as_deref() {
+                    let json = events::wired_start_json(udid, &ip);
+                    bcast.push_json(ident.lock().unwrap().apply(json));
+                }
+            }
             _ => {}
         }
     }
 }
 
-async fn device_disconnect(bus: &zbus::Connection, adapter: &str, mac: &str) -> Result<(), String> {
+pub async fn device_disconnect(
+    bus: &zbus::Connection,
+    adapter: &str,
+    mac: &str,
+) -> Result<(), String> {
     let path = format!("/org/bluez/{}/dev_{}", adapter, mac.replace(':', "_").to_uppercase());
     bus.call_method(Some("org.bluez"), path.as_str(), Some("org.bluez.Device1"), "Disconnect", &())
         .await

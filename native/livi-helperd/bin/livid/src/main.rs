@@ -1,6 +1,6 @@
 // livid — multi-call binary for the LIVI Link dongles.
 //
-// Symlinks (livi-netd, livi-httpd, livi-bt-up, livi-ledd)
+// Symlinks named after the modules (common/build-rootfs.sh makes them)
 // point at this binary; argv[0]'s basename selects the module. Every module
 // exposes `pub fn run(args: Vec<String>) -> i32`. Sharing the Rust runtime
 // across all tools cuts >3 MiB of duplicated allocator/panic/std code.
@@ -13,6 +13,7 @@ mod bt_up;
 mod btd;
 mod config;
 mod iapd;
+#[cfg(not(target_arch = "riscv32"))]
 mod imx6ul;
 mod ledd;
 mod mfid;
@@ -25,12 +26,13 @@ fn board() -> (&'static str, &'static str) {
     let compatible = std::fs::read("/sys/firmware/devicetree/base/compatible").unwrap_or_default();
     let has = |c: &[u8]| compatible.windows(c.len()).any(|w| w == c);
     if has(b"axera,ax520") {
-        ("AX520 + AIC8800D80", "ax520_aic8800d80")
-    } else if has(b"livi,link-imx6ull") {
-        imx6ul::module()
-    } else {
-        ("V821B + AIC8800D80", "v821b_aic8800d80")
+        return ("AX520 + AIC8800D80", "ax520_aic8800d80");
     }
+    #[cfg(not(target_arch = "riscv32"))]
+    if has(b"livi,link-imx6ull") {
+        return imx6ul::module();
+    }
+    ("V821B + AIC8800D80", "v821b_aic8800d80")
 }
 
 /// What the Wi-Fi module of a firmware target speaks beyond 802.11n.
@@ -43,7 +45,7 @@ fn wifi_standards(target: &str) -> livi_wifi::server::Standards {
     }
 }
 
-/// Flashing stays off where the partition layout is not wired up.
+/// What the web page offers on this board: its LED and the partitions a bundle may write.
 fn web_caps() -> livi_web::WebCaps {
     let (model, target) = board();
     let slot = |typ, node: &str, magic: &[u8], size| livi_web::MtdSlot {
@@ -56,8 +58,8 @@ fn web_caps() -> livi_web::WebCaps {
     };
     // The bundle types are the MTD numbers. The bootloader partition is never in the table, a bad
     // write there needs the flash off the board (AX520, i.MX6UL) or FEL (V821B).
-    let (led, flash) = if target == "ax520_aic8800d80" {
-        (
+    let (led, flash) = match target {
+        "ax520_aic8800d80" => (
             true,
             livi_web::Flash {
                 mtd: vec![
@@ -70,9 +72,9 @@ fn web_caps() -> livi_web::WebCaps {
                 // The loader after the bootrom reads the flash in quad mode and needs QE set.
                 check: Some("/usr/sbin/sfc-sr".into()),
             },
-        )
-    } else if target.starts_with("imx6ul_") {
-        (
+        ),
+        #[cfg(not(target_arch = "riscv32"))]
+        t if t.starts_with("imx6ul_") => (
             false,
             livi_web::Flash {
                 mtd: vec![
@@ -87,9 +89,8 @@ fn web_caps() -> livi_web::WebCaps {
                 ],
                 ..Default::default()
             },
-        )
-    } else {
-        (
+        ),
+        _ => (
             true,
             livi_web::Flash {
                 mtd: vec![
@@ -98,14 +99,13 @@ fn web_caps() -> livi_web::WebCaps {
                 ],
                 ..Default::default()
             },
-        )
+        ),
     };
     livi_web::WebCaps {
         model: model.into(),
         target: target.into(),
         port: 80,
         wifi_iface: "wlan0".into(),
-        bridge: Some("br0".into()),
         host_iface: "usb0".into(),
         mfi: mfid::STATE.into(),
         bt: "hci0".into(),
@@ -138,8 +138,8 @@ fn main() -> ExitCode {
 
     let rc = match cmd {
         "livi-bt-up" | "bt-up" => bt_up::run(rest),
-        // The same diagnostics livi-link carries: what the management socket says about
-        // the controller, and whether the tunnel could claim it.
+        // Diagnostics: what the management socket says about the controller, and whether the
+        // tunnel could claim it.
         "bt-mgmt" => exit_rc(livi_iapd::mgmt::probe()),
         "bt-probe" => exit_rc(livi_btd::probe()),
         "livi-btd" | "btd" => btd::run(rest),
@@ -148,7 +148,7 @@ fn main() -> ExitCode {
         "livi-httpd" | "httpd" => livi_web::run(web_caps()),
         "livi-ledd" | "ledd" => ledd::run(rest),
         "livi-netd" | "netd" => netd::run(rest),
-        "livi-config" | "config" => config::run(rest),
+        "config" => config::run(rest),
         "livi-mfid" | "mfid" => mfid::run(rest),
         "livi-wifid" | "wifid" => wifid::run(rest),
         _ => {

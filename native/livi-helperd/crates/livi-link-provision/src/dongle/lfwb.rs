@@ -9,6 +9,7 @@
 
 use md5::{Digest, Md5};
 
+use super::Remote;
 use super::shell::BindShell;
 
 const MAGIC: &[u8; 4] = b"LFWB";
@@ -114,12 +115,18 @@ pub fn raw_node(node: &str) -> String {
     }
 }
 
-/// `write_mtd`, then reads the partition back off the chip and compares. For flash that can accept a
-/// write command and silently drop it (a chip whose write protection is set answers the same way).
-pub fn write_mtd_verified(sh: &mut BindShell, node: &str, data: &[u8]) -> Result<(), String> {
-    write_mtd(sh, node, data)?;
+/// Writes the node, then reads the partition back off the chip and compares. For flash that can
+/// accept a write command and silently drop it (a chip whose write protection is set answers the
+/// same way).
+pub fn write_mtd_verified<R: Remote>(sh: &mut R, node: &str, data: &[u8]) -> Result<(), String> {
+    sh.write_mtd(node, data)?;
     let raw = raw_node(node);
-    let out = sh.run(&format!("head -c {} {raw} | md5sum", data.len()))?;
+    // A system without the raw node gets the block node, its page cache dropped first so the read
+    // still reaches the chip.
+    let out = sh.run(&format!(
+        "n={raw}; [ -c $n ] || {{ sync; echo 3 > /proc/sys/vm/drop_caches; n={node}; }}; head -c {} $n | md5sum",
+        data.len()
+    ))?;
     let got = out.split_whitespace().next().unwrap_or("");
     let want = md5_hex(data);
     if got != want {

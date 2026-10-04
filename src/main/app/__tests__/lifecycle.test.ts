@@ -8,11 +8,6 @@ vi.mock('@main/window/createWindow', () => ({
   getMainWindow: vi.fn(() => null)
 }))
 
-const { releaseDongleForQuit } = vi.hoisted(() => ({
-  releaseDongleForQuit: vi.fn(() => Promise.resolve())
-}))
-vi.mock('@main/services/link/dongleAp', () => ({ releaseDongleForQuit }))
-
 describe('setupLifecycle', () => {
   const originalPlatform = process.platform
   let killSpy: MockInstance
@@ -182,7 +177,6 @@ describe('setupLifecycle', () => {
     expect(projectionService.disconnectPhone).toHaveBeenCalledTimes(1)
     expect(telemetrySocket.disconnect).toHaveBeenCalledTimes(1)
     expect(projectionService.stop).toHaveBeenCalledTimes(1)
-    expect(releaseDongleForQuit).toHaveBeenCalledTimes(1)
     expect(killSpy).toHaveBeenCalledWith(process.pid, 'SIGKILL')
   })
 

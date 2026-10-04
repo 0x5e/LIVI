@@ -39,19 +39,19 @@ shopt -s nullglob
 log "apply kernel patches (fotg210 udc: second interrupt line, pullup, polarity, IRQs before bind, status bits that clear; dw spi: wait for the last frame; spidev for the LED)"
 apply_patches "$HERE/kernel-patches" "$KDIR"
 
-log "install LIVI-Link AX520 DTS (VehiConn-D5A8 CarPlay dongle)"
+log "install LIVI-Link AX520 DTS"
 mkdir -p "$KDIR/arch/arm/boot/dts/axera"
-cp -f "$HERE/ax520.dts" "$KDIR/arch/arm/boot/dts/axera/ax520-vehiconn.dts"
+cp -f "$HERE/ax520.dts" "$KDIR/arch/arm/boot/dts/axera/ax520-livi-link.dts"
 OVERLAYS=$(cd "$HERE/overlays" && ls *.dtso | sed 's/\.dtso$//')
 rm -f "$KDIR"/arch/arm/boot/dts/axera/ax520-*.dtbo
 {
   echo '# SPDX-License-Identifier: GPL-2.0'
-  echo 'dtb-$(CONFIG_ARCH_AXERA) += ax520-vehiconn.dtb'
+  echo 'dtb-$(CONFIG_ARCH_AXERA) += ax520-livi-link.dtb'
   for o in $OVERLAYS; do
     cp -f "$HERE/overlays/$o.dtso" "$KDIR/arch/arm/boot/dts/axera/ax520-$o.dtso"
     echo "dtb-\$(CONFIG_ARCH_AXERA) += ax520-$o.dtbo"
   done
-  echo 'DTC_FLAGS_ax520-vehiconn := -@'
+  echo 'DTC_FLAGS_ax520-livi-link := -@'
 } > "$KDIR/arch/arm/boot/dts/axera/Makefile"
 grep -q 'subdir-y += axera' "$KDIR/arch/arm/boot/dts/Makefile" \
   || echo 'subdir-y += axera' >> "$KDIR/arch/arm/boot/dts/Makefile"
@@ -191,18 +191,14 @@ log "layer LIVI AX520 config onto allnoconfig"
   --enable SQUASHFS_XZ \
   \
   --enable USB_SUPPORT \
-  --enable USB \
   --enable COMPILE_TEST \
   --enable USB_FOTG210 \
-  --enable USB_FOTG210_HCD \
   --enable USB_FOTG210_UDC \
   --enable USB_GADGET \
   --enable USB_LIBCOMPOSITE \
   --enable USB_CONFIGFS \
   --enable USB_CONFIGFS_NCM \
   --enable USB_CONFIGFS_ACM \
-  --enable USB_CONFIGFS_ECM \
-  --enable USB_CONFIGFS_RNDIS \
   \
   --enable NET \
   --enable INET \
@@ -214,17 +210,19 @@ log "layer LIVI AX520 config onto allnoconfig"
   \
   --enable DEBUG_KERNEL \
   --enable DEBUG_FS \
-  --enable DYNAMIC_DEBUG \
   --enable DEVMEM \
   --disable STRICT_DEVMEM \
   --enable MAGIC_SYSRQ \
-  --enable SOFTLOCKUP_DETECTOR \
-  --enable DETECT_HUNG_TASK \
-  --set-val DEFAULT_HUNG_TASK_TIMEOUT 30 \
-  --enable WQ_WATCHDOG \
   --set-val CONSOLE_LOGLEVEL_DEFAULT 8
 
 make ARCH=arm CROSS_COMPILE="$CROSS_COMPILE" olddefconfig
+
+# Everything the ways in hang on has to have survived olddefconfig, a dropped dependency is silent.
+for sym in ARCH_AXERA ARM_APPENDED_DTB SERIAL_8250_DW USB_FOTG210_UDC USB_CONFIGFS_NCM USB_CONFIGFS_ACM \
+           MMC_DW_PLTFM SPI_DW_MMIO MTD_SPI_NOR SPI_SPIDEV I2C_GPIO SQUASHFS SQUASHFS_XZ BLK_DEV_INITRD \
+           BRIDGE CFG80211 BT AIC_WLAN_SUPPORT; do
+  grep -q "^CONFIG_$sym=y" .config || { log "CONFIG_$sym did not make it into .config"; exit 4; }
+done
 
 # ---------------------------------------------------------------------------
 # 4) Build
@@ -237,7 +235,7 @@ make ARCH=arm CROSS_COMPILE="$CROSS_COMPILE" -j"$JOBS" dtbs
 make ARCH=arm CROSS_COMPILE="$CROSS_COMPILE" -j"$JOBS" zImage modules
 
 ZIMAGE=$KDIR/arch/arm/boot/zImage
-DTB=$KDIR/arch/arm/boot/dts/axera/ax520-vehiconn.dtb
+DTB=$KDIR/arch/arm/boot/dts/axera/ax520-livi-link.dtb
 [[ -f $ZIMAGE && -f $DTB ]] || { log "build did not produce zImage + DTB"; exit 4; }
 log "zImage: $(stat -c%s "$ZIMAGE") B   DTB: $(stat -c%s "$DTB") B"
 
@@ -284,12 +282,8 @@ make_uimage "$OUT/zImage_w_dtb.bin" "$OUT/livi-link-ax520-boot.uimg" "LIVI-Link 
 BOOT_PART_SIZE=$((3 * 1024 * 1024))  # 3 MiB — the "boot" mtd region's real size.
 UIMG_SIZE=$(wc -c < "$OUT/livi-link-ax520-boot.uimg")
 (( UIMG_SIZE <= BOOT_PART_SIZE )) || { log "uImage is $UIMG_SIZE B, the boot partition only $BOOT_PART_SIZE B"; exit 4; }
-{
-  cat "$OUT/livi-link-ax520-boot.uimg"
-  head -c $((BOOT_PART_SIZE - UIMG_SIZE)) /dev/zero | tr '\0' '\377'
-} > "$OUT/livi-link-ax520-boot-padded.uimg"
-log "boot uImage: $UIMG_SIZE B, padded to $BOOT_PART_SIZE B"
+log "boot uImage: $UIMG_SIZE B of $BOOT_PART_SIZE B"
 
-log "done — $OUT/livi-link-ax520-boot-padded.uimg"
+log "done — $OUT/livi-link-ax520-boot.uimg"
 
 build_livid

@@ -14,10 +14,8 @@ pub fn run(args: Vec<String>) -> i32 {
         .map(|a| a.trim_start_matches("/dev/i2c-"))
         .and_then(|a| a.parse::<u32>().ok())
         .unwrap_or(1);
-    let power_gpio: i32 =
-        std::env::var("LIVI_MFI_POWER_GPIO").ok().and_then(|s| s.parse().ok()).unwrap_or(-1);
-
-    let mut chip = match I2cCoprocessor::open(bus, power_gpio) {
+    // The dongles power the chip themselves, there is no GPIO to switch.
+    let mut chip = match I2cCoprocessor::open(bus, -1) {
         Ok(chip) => chip,
         Err(e) => {
             eprintln!("[mfid] no MFi chip on i2c-{bus}: {e}");

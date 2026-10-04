@@ -43,8 +43,6 @@ pub struct WebCaps {
     pub port: u16,
     /// The AP interface whose SSID/MAC/rates the WiFi card shows (e.g. "wlan0").
     pub wifi_iface: String,
-    /// The bridge whose forwarding table names the AP's clients; None counts them via nl80211.
-    pub bridge: Option<String>,
     /// The host-facing interface whose MAC stands in as the dongle's address.
     pub host_iface: String,
     /// Where mfid notes the MFi coprocessor it found.
@@ -188,19 +186,6 @@ fn route(
     if !c.flash.mtd.is_empty() && (method, path) == ("POST", "/api/flash") {
         return flash_dispatch(c, body, clen);
     }
-    if method == "POST" {
-        let typ = path.strip_prefix("/api/flash/mtd").and_then(|n| n.parse::<u8>().ok());
-        if let Some(slot) = typ.and_then(|t| c.flash.mtd.iter().find(|s| s.typ == t)) {
-            if slot.stage.is_some() || slot.before_write.is_some() {
-                return (
-                    S_400,
-                    T_JSON,
-                    err_json(&format!("{} takes its image only from a bundle", slot.node)),
-                );
-            }
-            return flash(&c.flash, slot, body, clen);
-        }
-    }
 
     match (method, path) {
         ("GET", "/") | ("GET", "/index.html") => (S_200, T_HTML, INDEX_HTML.as_bytes().to_vec()),
@@ -223,7 +208,7 @@ fn caps_json() -> String {
     format!(r#"{{"flash":{{"mtd":{}}},"led":{}}}"#, !caps().flash.mtd.is_empty(), caps().led)
 }
 
-/// The single upload endpoint takes a `.lfwb` bundle.
+/// The single upload endpoint takes a `.lfwb` bundle, told by its magic.
 fn flash_dispatch(
     c: &WebCaps,
     body: Option<&[u8]>,
@@ -236,98 +221,6 @@ fn flash_dispatch(
         return flash_bundle(&c.flash, body, clen);
     }
     (S_400, T_JSON, err_json("not a LIVI Link firmware bundle (.lfwb)"))
-}
-
-fn flash(
-    f: &Flash,
-    slot: &MtdSlot,
-    body: Option<&[u8]>,
-    clen: u64,
-) -> (&'static str, &'static str, Vec<u8>) {
-    let (node, slot_size, magic) = (slot.node.as_str(), slot.size, slot.magic.as_slice());
-    let Some(data) = body else {
-        return (S_400, T_JSON, err_json("empty body"));
-    };
-    if clen == 0 || (data.len() as u64) != clen {
-        return (S_400, T_JSON, err_json("content-length mismatch"));
-    }
-    if data.len() as u64 > slot_size {
-        return (
-            S_400,
-            T_JSON,
-            err_json(&format!("payload {} B exceeds {} slot ({} B)", data.len(), node, slot_size)),
-        );
-    }
-    if data.len() < 512 {
-        return (S_400, T_JSON, err_json("payload absurdly small — refusing"));
-    }
-
-    // Pre-flight: refuse anything whose header magic does not match the
-    // partition type. This is the guard that prevents a wrong file from
-    // bricking mtd1 — the flash write only starts if the payload looks
-    // structurally plausible.
-    if !data.starts_with(magic) {
-        let want = String::from_utf8_lossy(magic).to_string();
-        let got: String = data
-            .iter()
-            .take(magic.len())
-            .map(|b| if b.is_ascii_graphic() || *b == b' ' { *b as char } else { '.' })
-            .collect();
-        return (
-            S_400,
-            T_JSON,
-            err_json(&format!(
-                "payload magic mismatch for /dev/{node}: expected {:?}, got {:?} — refusing",
-                want, got
-            )),
-        );
-    }
-
-    // Tell livi-ledd we're flashing → red/blue alternating blink, until the write is verified.
-    led_flash_running();
-
-    // Write, then fsync so the block driver commits the NOR erase+program.
-    let path = format!("/dev/{node}");
-    write_progress(node, 0, data.len(), "write");
-    if let Err(e) = write_chunked(&path, data, node) {
-        led_flash_error();
-        write_progress(node, 0, data.len(), "error");
-        return (S_500, T_JSON, err_json(&format!("write /dev/{node}: {e}")));
-    }
-
-    // Post-flight: read what we just wrote back off flash and byte-compare.
-    // Only reboot on a verified-good write. If verify fails we leave the
-    // partition in whatever state it is in (bricked), but at least we do
-    // NOT reboot into it — the caller learns and can FEL-recover instead.
-    write_progress(node, data.len(), data.len(), "verify");
-    match verify_flash(&raw_mtd(node), data) {
-        Ok(()) => {
-            if let Err(e) = post_write_check(f) {
-                led_flash_error();
-                write_progress(node, data.len(), data.len(), "error");
-                return (S_500, T_JSON, err_json(&e));
-            }
-            write_progress(node, data.len(), data.len(), "done");
-            led_flash_done();
-            reboot_after(Duration::from_millis(500));
-            (
-                S_200,
-                T_JSON,
-                ok_json(&format!("wrote {} B to /dev/{node}, verified, rebooting", data.len())),
-            )
-        }
-        Err(e) => {
-            led_flash_error();
-            write_progress(node, data.len(), data.len(), "error");
-            (
-                S_500,
-                T_JSON,
-                err_json(&format!(
-                    "verify /dev/{node} failed after write: {e} — DO NOT reboot, use FEL to restore"
-                )),
-            )
-        }
-    }
 }
 
 // ---------------------------------------------------------------------------
@@ -363,9 +256,6 @@ fn flash_bundle(
     }
     if data.len() < BUNDLE_HDR_LEN {
         return (S_400, T_JSON, err_json("bundle too small for header"));
-    }
-    if &data[0..4] != BUNDLE_MAGIC {
-        return (S_400, T_JSON, err_json("bundle magic mismatch — expected LFWB"));
     }
     if data[4] != BUNDLE_VERSION {
         return (S_400, T_JSON, err_json(&format!("bundle version {} not supported", data[4])));
@@ -418,7 +308,7 @@ fn flash_bundle(
 
     // Every image is checked before the first one is written. A bundle this dongle cannot take in full (a type it has
     // no slot for, an image too big, a wrong header, one that does not stage) must not leave the flash half rewritten.
-    let mut staged: Vec<Option<Vec<u8>>> = Vec::with_capacity(descs.len());
+    let mut staged: Vec<(&MtdSlot, Option<Vec<u8>>)> = Vec::with_capacity(descs.len());
     for d in descs.iter() {
         let Some(slot) = f.mtd.iter().find(|s| s.typ == d.typ) else {
             return (
@@ -449,7 +339,7 @@ fn flash_bundle(
             );
         }
         let Some(stage) = slot.stage else {
-            staged.push(None);
+            staged.push((slot, None));
             continue;
         };
         let raw = raw_mtd(&slot.node);
@@ -457,7 +347,7 @@ fn flash_bundle(
             .map_err(|e| format!("read {raw}: {e}"))
             .and_then(|now| stage(slice, &now))
         {
-            Ok(part) => staged.push(Some(part)),
+            Ok(part) => staged.push((slot, Some(part))),
             Err(e) => {
                 return (
                     S_400,
@@ -477,38 +367,9 @@ fn flash_bundle(
     // Walk images: skip if the on-flash content already matches, else write+verify.
     let mut wrote_any = false;
     let mut report: Vec<String> = Vec::new();
-    for (d, staged) in descs.iter().zip(&staged) {
-        let Some(slot) = f.mtd.iter().find(|s| s.typ == d.typ) else {
-            led_flash_error();
-            return (
-                S_400,
-                T_JSON,
-                err_json(&format!("image type {} is not for this dongle", d.typ)),
-            );
-        };
-        let (node, magic, slot_size) = (slot.node.as_str(), slot.magic.as_slice(), slot.size);
+    for (d, (slot, staged)) in descs.iter().zip(&staged) {
+        let node = slot.node.as_str();
         let slice = &data[d.payload_offset..d.payload_offset + d.length as usize];
-
-        if (d.length as u64) > slot_size {
-            led_flash_error();
-            return (
-                S_400,
-                T_JSON,
-                err_json(&format!(
-                    "image type {} ({}) is {} B, exceeds slot {} B",
-                    d.typ, node, d.length, slot_size
-                )),
-            );
-        }
-        if !slice.starts_with(magic) {
-            led_flash_error();
-            return (
-                S_400,
-                T_JSON,
-                err_json(&format!("image type {} payload magic mismatch for {}", d.typ, node)),
-            );
-        }
-
         let image = staged.as_deref().unwrap_or(slice);
         let len = image.len();
         let path = format!("/dev/{node}");
@@ -745,14 +606,8 @@ fn bt_json() -> String {
     if mac.is_empty() {
         mac = read_trim("/tmp/livi/bt-mac");
     }
-    // Advertised (friendly) name — the string a phone would see when scanning.
-    // Populated by whichever routine sets HCI Write_Local_Name; empty until
-    // that lands. Prefer sysfs (upstream drivers expose it) then our cached
-    // file, then fall back to no value at all.
+    // The name a phone sees when scanning, from sysfs where the driver exposes it.
     let mut name = read_trim(&format!("/sys/class/bluetooth/{bt}/name"));
-    if name.is_empty() {
-        name = read_trim("/tmp/livi/bt-name");
-    }
     // iapd sets the controller name to the AP name (see livi-iapd), and the AIC driver exposes
     // no sysfs name file — so read it from the same hostapd config the AP name comes from.
     if name.is_empty() {
@@ -822,12 +677,7 @@ fn wifi_json() -> String {
         }
     }
     let mac = read_trim(&format!("/sys/class/net/{iface}/address"));
-    // Clients from the bridge forwarding table where there is a bridge, else via an nl80211
-    // station dump.
-    let clients = match caps().bridge.as_deref() {
-        Some(br) => livi_net::bridge::stations(br, iface),
-        None => livi_wifi::station_count(iface),
-    };
+    let clients = livi_wifi::station_count(iface);
     let (downrate, uprate) = livi_wifi::station_rates(iface).unwrap_or((0, 0));
     let downbytes = read_trim(&format!("/sys/class/net/{iface}/statistics/rx_bytes"))
         .parse::<u64>()
@@ -888,7 +738,7 @@ fn err_json(msg: &str) -> Vec<u8> {
 // ---------------------------------------------------------------------------
 
 // /etc/ is read-only squashfs; runtime config lives on tmpfs and is
-// seeded from /etc/livi/led.toml by rcS at boot.
+// seeded from /etc/livi/led.toml by livid config load at boot.
 const LED_CFG: &str = "/tmp/livi/led.toml";
 const LED_PID: &str = "/tmp/livi/livi-ledd.pid";
 
@@ -1005,7 +855,7 @@ fn set_led(body: Option<&[u8]>) -> (&'static str, &'static str, Vec<u8>) {
         return (S_500, T_JSON, err_json(&format!("write {LED_CFG}: {e}")));
     }
     kick_ledd();
-    // Persist to mtd4 in the background so the response returns promptly.
+    // Persist to the customer partition in the background so the response returns promptly.
     // Wear is not a concern at the debounced pace at which the UI sends
     // updates (150 ms per user gesture, one write per real change).
     persist_config();

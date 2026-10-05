@@ -1,23 +1,27 @@
-//! Local credential provider. Credentials remain outside the application bundle.
+//! Software coprocessor over the credentials seeded beside the app (identity.pk8 +
+//! certificate.p7b), for a phone that would otherwise wait for a dongle's MFi chip.
 use super::{AuthCoprocessor, MfiError};
 use p256::{
     ecdsa::{Signature, SigningKey, signature::hazmat::PrehashSigner},
     pkcs8::DecodePrivateKey,
 };
 use std::path::Path;
+
+fn fail(e: impl core::fmt::Display) -> MfiError {
+    MfiError::Io(e.to_string())
+}
+
 pub struct LocalCoprocessor {
     key: SigningKey,
     certificate: Vec<u8>,
 }
 impl LocalCoprocessor {
     pub fn load(path: &Path) -> Result<Self, MfiError> {
-        let fail = |e: String| MfiError::Io(format!("local authentication: {e}"));
-        let bytes = std::fs::read(path.join("identity.pk8")).map_err(|e| fail(e.to_string()))?;
-        let key = SigningKey::from_pkcs8_der(&bytes).map_err(|e| fail(e.to_string()))?;
-        let certificate =
-            std::fs::read(path.join("certificate.p7b")).map_err(|e| fail(e.to_string()))?;
+        let bytes = std::fs::read(path.join("identity.pk8")).map_err(fail)?;
+        let key = SigningKey::from_pkcs8_der(&bytes).map_err(fail)?;
+        let certificate = std::fs::read(path.join("certificate.p7b")).map_err(fail)?;
         if certificate.is_empty() {
-            return Err(fail("empty certificate".into()));
+            return Err(fail("empty certificate"));
         }
         Ok(Self { key, certificate })
     }

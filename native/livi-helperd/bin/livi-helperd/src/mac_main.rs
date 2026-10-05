@@ -9,7 +9,7 @@ use std::time::Duration;
 
 use iap2_csm::messages::wifi::SecurityType;
 use iap2_link::LinkConfig;
-use iap2_mfi::{AuthCoprocessor, NcmCoprocessor, NoCoprocessor, local::LocalCoprocessor};
+use iap2_mfi::{AuthCoprocessor, LocalCoprocessor, NcmCoprocessor, NoCoprocessor};
 use livi_runtime::bonjour::Bonjour;
 use livi_runtime::bringup::{CpConfig, run_accessory};
 use livi_runtime::driver::spawn_link_stream;
@@ -35,22 +35,31 @@ fn env_s(key: &str, default: &str) -> String {
 }
 
 /// Software MFi identity from `LIVI_AUTH_DIR` (identity.pk8 + certificate.p7b), loaded the
-/// same way MacPlay does. Serves every session while the dongle is absent; the dongle's
-/// own chip takes over (and gives this back) as it comes and goes.
-fn local_auth() -> Box<dyn AuthCoprocessor + Send> {
+/// same way MacPlay does. `None` when there is nothing usable there. Serves every session while
+/// the dongle is absent; the dongle's own chip takes over (and gives this back) as it comes and
+/// goes.
+fn local_auth() -> Option<LocalCoprocessor> {
     let dir = env_s("LIVI_AUTH_DIR", "");
     if dir.is_empty() {
-        return Box::new(NoCoprocessor);
+        return None;
     }
     match LocalCoprocessor::load(std::path::Path::new(&dir)) {
         Ok(chip) => {
             println!("[helperd] local MFi credentials loaded from {dir}");
-            Box::new(chip)
+            Some(chip)
         }
         Err(e) => {
-            eprintln!("[helperd] local authentication: {e}");
-            Box::new(NoCoprocessor)
+            eprintln!("[helperd] local authentication from {dir}: {e}");
+            None
         }
+    }
+}
+
+/// The local identity when there is one, the stand-in that refuses everything when there is not.
+fn local_chip(local: Option<LocalCoprocessor>) -> Box<dyn AuthCoprocessor + Send> {
+    match local {
+        Some(chip) => Box::new(chip),
+        None => Box::new(NoCoprocessor),
     }
 }
 
@@ -210,7 +219,10 @@ async fn identify_on_link(link: Arc<LinkPresence>, mut auth: SharedCoprocessor) 
 
 fn start_carplay_seam(link: Arc<LinkPresence>) {
     let (cp, identity) = cp_config();
-    let auth = SharedCoprocessor::new(local_auth());
+    let local = local_auth();
+    // A local identity answers for the chip, so a wired phone need not wait for the dongle.
+    let has_local = local.is_some();
+    let auth = SharedCoprocessor::new(local_chip(local));
     let bcast = Broadcaster::default();
     let state = Arc::new(HelperState::default());
 
@@ -234,7 +246,7 @@ fn start_carplay_seam(link: Arc<LinkPresence>) {
             arrived.push_json("{\"type\":\"link\",\"up\":true}".into());
         },
         move || {
-            down_auth.replace(local_auth());
+            down_auth.replace(local_chip(local_auth()));
             // Everything it carried is gone with it, and a blocking read would not notice for
             // another ten seconds.
             let closed = livi_dongle::iap::drop_sessions();
@@ -280,10 +292,13 @@ fn start_carplay_seam(link: Arc<LinkPresence>) {
         },
         bcast.clone(),
         state.clone(),
-        // System usbmuxd phones need no dongle; local MFi credentials answer for the chip.
-        LinkPresence::always(),
+        // With a local identity a wired phone needs no dongle; without one it waits for the Link.
+        if has_local { LinkPresence::always() } else { link.clone() },
     ));
-    println!("[helperd] wired CarPlay watcher started (system usbmuxd), waiting for the LIVI Link");
+    println!(
+        "[helperd] wired CarPlay watcher started (system usbmuxd), MFi from {}",
+        if has_local { "local credentials" } else { "the LIVI Link" }
+    );
     if dongle_ap {
         tokio::spawn(crate::link::relay_stations(bcast.clone()));
     }

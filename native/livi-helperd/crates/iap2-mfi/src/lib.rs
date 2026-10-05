@@ -45,7 +45,7 @@ impl core::fmt::Display for MfiError {
                 let addrs: Vec<String> = probed.iter().map(|a| format!("0x{a:02X}")).collect();
                 write!(f, "no coprocessor answered at {}", addrs.join("/"))
             }
-            MfiError::Io(e) => write!(f, "i2c io: {e}"),
+            MfiError::Io(e) => write!(f, "{e}"),
         }
     }
 }
@@ -95,3 +95,4 @@ pub use server::serve;
 
 // Software coprocessor from local credential files (identity.pk8 + certificate.p7b).
 pub mod local;
+pub use local::LocalCoprocessor;

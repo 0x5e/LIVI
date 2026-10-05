@@ -25,7 +25,7 @@ vi.mock('node:fs', () => {
   return { ...__m, default: __m }
 })
 vi.mock('electron', () => ({
-  app: { getPath: vi.fn(() => '/data') }
+  app: { getPath: vi.fn(() => '/data'), getAppPath: vi.fn(() => '/app') }
 }))
 vi.mock('../../cp/stack/identity', () => ({
   loadOrCreateIdentity: vi.fn(() => ({

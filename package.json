@@ -1,6 +1,6 @@
 {
   "name": "LIVI",
-  "version": "9.3.0",
+  "version": "9.4.0",
   "description": "LIVI - Linux In-Vehicle Infotainment",
   "desktopName": "dev.f-io.livi.desktop",
   "main": "./out/main/main.js",
@@ -11,7 +11,7 @@
   ],
   "homepage": "https://f-io.dev",
   "license": "GPL-3.0-or-later",
-  "packageManager": "pnpm@12.10.1",
+  "packageManager": "pnpm@12.11.2",
   "scripts": {
     "prepare": "husky",
     "dev": "vite",
@@ -47,14 +47,14 @@
     "*.rs": "rustfmt"
   },
   "dependencies": {
-    "@base-ui/react": "^1.8.0",
+    "@base-ui/react": "^1.9.0",
     "@emotion/react": "^11.14.0",
     "@emotion/styled": "^11.14.1",
     "@fontsource/roboto": "^5.3.0",
-    "@mui/icons-material": "^9.4.0",
-    "@mui/material": "^9.4.0",
-    "@mui/system": "^9.4.0",
-    "i18next": "^26.4.2",
+    "@mui/icons-material": "^9.5.0",
+    "@mui/material": "^9.5.0",
+    "@mui/system": "^9.5.0",
+    "i18next": "^26.4.3",
     "react-i18next": "^17.0.16",
     "react-router": "^8.4.0",
     "zustand": "^5.0.15"
@@ -63,7 +63,7 @@
     "@biomejs/biome": "^2.5.15",
     "@testing-library/jest-dom": "^7.0.1",
     "@testing-library/react": "^16.3.3",
-    "@types/node": "^26.6.4",
+    "@types/node": "^26.6.5",
     "@types/react": "^19.3.0",
     "@types/react-dom": "^19.3.0",
     "@vitejs/plugin-react": "^6.1.2",

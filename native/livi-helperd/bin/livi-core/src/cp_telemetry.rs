@@ -12,6 +12,7 @@ pub struct CpTelemetry {
     helper: HelperSock,
     night: Option<bool>,
     limited_ui: Option<bool>,
+    video_allowed: Option<bool>,
 }
 
 fn changed(prev: &Map<String, Value>, next: &Map<String, Value>, key: &str) -> bool {
@@ -38,7 +39,7 @@ fn km(range: f64) -> Value {
 
 impl CpTelemetry {
     pub fn new(helper: HelperSock) -> Self {
-        Self { helper, night: None, limited_ui: None }
+        Self { helper, night: None, limited_ui: None, video_allowed: None }
     }
 
     pub fn follow(&mut self, prev: &Map<String, Value>, next: &Map<String, Value>, cp: &CpHandle) {
@@ -56,6 +57,11 @@ impl CpTelemetry {
             if self.limited_ui != Some(limited) {
                 self.limited_ui = Some(limited);
                 cp.send(CpCmd::LimitedUi(limited));
+            }
+            let parked = g == PARK;
+            if self.video_allowed != Some(parked) {
+                self.video_allowed = Some(parked);
+                cp.send(CpCmd::VideoAllowed(parked));
             }
         }
         if VEHICLE_STATUS_KEYS.iter().any(|k| changed(prev, next, k)) {
@@ -103,6 +109,7 @@ impl CpTelemetry {
     pub fn hydrate(&mut self, snap: &Map<String, Value>, cp: &CpHandle) {
         self.night = None;
         self.limited_ui = None;
+        self.video_allowed = None;
         self.follow(&Map::new(), snap, cp);
     }
 }
@@ -199,7 +206,7 @@ mod tests {
     }
 
     #[test]
-    fn only_park_and_neutral_lift_the_limited_ui() {
+    fn park_and_neutral_lift_the_limited_ui_and_only_park_allows_video() {
         let (tx, mut cmds) = mpsc::unbounded_channel();
         let cp = CpHandle::from_sender(tx);
         let mut t = CpTelemetry::new(HelperSock::default());
@@ -216,8 +223,10 @@ mod tests {
 
         step(json!({ "gear": "p" }));
         assert_eq!(cmds.try_recv(), Ok(CpCmd::LimitedUi(false)));
+        assert_eq!(cmds.try_recv(), Ok(CpCmd::VideoAllowed(true)));
         step(json!({ "gear": "D" }));
         assert_eq!(cmds.try_recv(), Ok(CpCmd::LimitedUi(true)));
+        assert_eq!(cmds.try_recv(), Ok(CpCmd::VideoAllowed(false)));
         step(json!({ "gear": 3 }));
         step(json!({ "reverse": true }));
         assert!(cmds.try_recv().is_err());
@@ -228,5 +237,7 @@ mod tests {
 
         t.hydrate(&obj(json!({ "gear": "N" })), &cp);
         assert_eq!(cmds.try_recv(), Ok(CpCmd::LimitedUi(false)));
+        assert_eq!(cmds.try_recv(), Ok(CpCmd::VideoAllowed(false)));
+        assert!(cmds.try_recv().is_err());
     }
 }

@@ -28,6 +28,9 @@ on:
 permissions:
   contents: write
 
+env:
+  CARGO_INCREMENTAL: 0
+
 jobs:
   workspace-tests:
     name: cargo test shared crates (host)
@@ -42,8 +45,9 @@ jobs:
         uses: actions/cache@v5
         with:
           path: |
-            ~/.cargo/registry
-            ~/.cargo/git
+            ~/.cargo/registry/index
+            ~/.cargo/registry/cache
+            ~/.cargo/git/db
             native/target
           key: cargo-shared-${{ hashFiles('native/Cargo.lock', 'native/**/Cargo.toml') }}
           restore-keys: cargo-shared-
@@ -191,8 +195,9 @@ jobs:
         uses: actions/cache@v5
         with:
           path: |
-            ~/.cargo/registry
-            ~/.cargo/git
+            ~/.cargo/registry/index
+            ~/.cargo/registry/cache
+            ~/.cargo/git/db
             native/target
           key: cargo-livi-link-riscv32-${{ hashFiles('native/Cargo.lock', 'native/**/Cargo.toml') }}
           restore-keys: cargo-livi-link-riscv32-
@@ -233,8 +238,9 @@ jobs:
         uses: actions/cache@v5
         with:
           path: |
-            ~/.cargo/registry
-            ~/.cargo/git
+            ~/.cargo/registry/index
+            ~/.cargo/registry/cache
+            ~/.cargo/git/db
             native/target
           key: cargo-livi-link-${{ matrix.target }}-${{ hashFiles('native/Cargo.lock', 'native/**/Cargo.toml') }}
           restore-keys: cargo-livi-link-${{ matrix.target }}-
@@ -406,8 +412,9 @@ jobs:
         uses: actions/cache@v5
         with:
           path: |
-            ~/.cargo/registry
-            ~/.cargo/git
+            ~/.cargo/registry/index
+            ~/.cargo/registry/cache
+            ~/.cargo/git/db
             native/target
           key: cargo-livi-link-tool-${{ matrix.name }}-${{ hashFiles('native/Cargo.lock', 'native/**/Cargo.toml') }}
           restore-keys: cargo-livi-link-tool-${{ matrix.name }}-

@@ -6,6 +6,10 @@ on:
   pull_request:
     branches: [main, dev]
 
+env:
+  CARGO_INCREMENTAL: 0
+  CARGO_PROFILE_DEV_DEBUG: 0
+
 jobs:
   checks:
     name: Lint, Typecheck, Tests
@@ -62,8 +66,9 @@ jobs:
         uses: actions/cache@v5
         with:
           path: |
-            ~/.cargo/registry
-            ~/.cargo/git
+            ~/.cargo/registry/index
+            ~/.cargo/registry/cache
+            ~/.cargo/git/db
             native/target
           key: cargo-check-${{ hashFiles('native/Cargo.lock', 'native/**/Cargo.toml') }}
           restore-keys: cargo-check-
@@ -209,8 +214,9 @@ jobs:
         uses: actions/cache@v5
         with:
           path: |
-            ~/.cargo/registry
-            ~/.cargo/git
+            ~/.cargo/registry/index
+            ~/.cargo/registry/cache
+            ~/.cargo/git/db
             native/target
           key: cargo-check-macos-${{ hashFiles('native/Cargo.lock', 'native/**/Cargo.toml') }}
           restore-keys: cargo-check-macos-

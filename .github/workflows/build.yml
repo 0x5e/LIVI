@@ -34,6 +34,9 @@ permissions:
   contents: write
   actions: write
 
+env:
+  CARGO_INCREMENTAL: 0
+
 jobs:
   plan:
     name: Plan build matrix
@@ -168,8 +171,9 @@ jobs:
         uses: actions/cache@v5
         with:
           path: |
-            ~/.cargo/registry
-            ~/.cargo/git
+            ~/.cargo/registry/index
+            ~/.cargo/registry/cache
+            ~/.cargo/git/db
             native/target
           key: cargo-linux-x64-${{ hashFiles('native/Cargo.lock', 'native/**/Cargo.toml') }}
           restore-keys: cargo-linux-x64-
@@ -217,8 +221,9 @@ jobs:
         uses: actions/cache@v5
         with:
           path: |
-            ~/.cargo/registry
-            ~/.cargo/git
+            ~/.cargo/registry/index
+            ~/.cargo/registry/cache
+            ~/.cargo/git/db
             native/target
           key: cargo-linux-arm64-${{ hashFiles('native/Cargo.lock', 'native/**/Cargo.toml') }}
           restore-keys: cargo-linux-arm64-
@@ -296,8 +301,9 @@ jobs:
         uses: actions/cache@v5
         with:
           path: |
-            ~/.cargo/registry
-            ~/.cargo/git
+            ~/.cargo/registry/index
+            ~/.cargo/registry/cache
+            ~/.cargo/git/db
             native/target
           key: cargo-macos-${{ matrix.arch }}-${{ hashFiles('native/Cargo.lock', 'native/**/Cargo.toml') }}
           restore-keys: cargo-macos-${{ matrix.arch }}-

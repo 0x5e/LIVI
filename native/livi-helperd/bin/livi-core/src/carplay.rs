@@ -26,6 +26,7 @@ pub struct GstMedia {
     video: Arc<VideoPlane>,
     started: broadcast::Sender<(u32, u32)>,
     video_status: Arc<Mutex<Option<VideoStatus>>>,
+    output_delays: Arc<Mutex<HashMap<u32, u32>>>,
 }
 
 impl GstMedia {
@@ -35,11 +36,16 @@ impl GstMedia {
         let tx = started.clone();
         let video_status = Arc::new(Mutex::new(None));
         let latest = video_status.clone();
+        let output_delays = Arc::new(Mutex::new(HashMap::new()));
+        let delays = output_delays.clone();
         tokio::spawn(async move {
             loop {
                 match events.recv().await {
                     Ok(HostEvent::AudioStarted { stream, first_sample }) => {
                         let _ = tx.send((stream, first_sample));
+                    }
+                    Ok(HostEvent::AudioDelay { stream, ms }) => {
+                        delays.lock().unwrap_or_else(|e| e.into_inner()).insert(stream, ms);
                     }
                     Ok(HostEvent::UrlStatus { plane: PLANE_VIDEO, status }) => {
                         *latest.lock().unwrap_or_else(|e| e.into_inner()) =
@@ -50,7 +56,7 @@ impl GstMedia {
                 }
             }
         });
-        Arc::new(Self { gst, video, started, video_status })
+        Arc::new(Self { gst, video, started, video_status, output_delays })
     }
 }
 
@@ -101,6 +107,10 @@ impl Media for GstMedia {
         self.gst.set_audio_volume(stream, level, ramp_ms);
     }
 
+    fn audio_output_delay(&self, stream: u32) -> Option<u32> {
+        self.output_delays.lock().unwrap_or_else(|e| e.into_inner()).get(&stream).copied()
+    }
+
     fn close_audio(&self, stream: u32) {
         self.gst.close_audio(stream);
     }
@@ -130,12 +140,15 @@ impl Media for GstMedia {
         self.started.subscribe()
     }
 
-    fn play_video(&self, url: String, audio_device: String) {
+    fn play_video(&self, url: String, audio_device: String, muted: bool) {
         self.forget_video_status();
         let plane = self.video.clone();
         let turn = plane.turn();
         tokio::spawn(async move {
             if plane.play(turn, &url, &audio_device).await {
+                if muted {
+                    plane.set_muted(true);
+                }
                 println!("[core] video {url} on its own plane");
             }
         });

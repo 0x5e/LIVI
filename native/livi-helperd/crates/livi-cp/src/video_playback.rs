@@ -100,7 +100,8 @@ fn seconds(v: Option<&Value>) -> Option<f64> {
     }
 }
 
-/// One line for the log: type, kind, id and property of a message on the video stream.
+/// One line for the log: type, kind, id and property of a message on the video stream, with the
+/// values it sets.
 pub fn describe(message: &Value) -> String {
     let mut parts = Vec::new();
     for key in ["type", "controlMessage", "kind", "property"] {
@@ -113,6 +114,23 @@ pub fn describe(message: &Value) -> String {
     }
     if let Some(url) = message.get("item").and_then(|i| text_of(i, "Content-Location")) {
         parts.push(format!("url={url}"));
+    }
+    if let Some(rate) = seconds(message.get("rate")) {
+        parts.push(format!("rate={rate}"));
+    }
+    if let Some(time) = seconds(message.get("time")) {
+        parts.push(format!("time={time:.3}"));
+    }
+    match message.get("value") {
+        Some(Value::Bool(on)) => parts.push(format!("value={on}")),
+        Some(info @ Value::Dict(_)) => {
+            for key in ["position", "rate"] {
+                if let Some(v) = seconds(info.get(key)) {
+                    parts.push(format!("{key}={v:.3}"));
+                }
+            }
+        }
+        _ => {}
     }
     if parts.is_empty() { "no type".into() } else { parts.join(" ") }
 }
@@ -404,6 +422,13 @@ mod tests {
 
         let rate =
             message(vec![("type", Value::String("setRate".into())), ("rate", Value::Int(1))]);
+        assert_eq!(describe(&rate), "type=setRate rate=1");
+        let mute = message(vec![
+            ("type", Value::String("setProperty".into())),
+            ("property", Value::String("muted".into())),
+            ("value", Value::Bool(true)),
+        ]);
+        assert_eq!(describe(&mute), "type=setProperty property=muted value=true");
         assert_eq!(playback.handle(&rate, None), (None, true));
         assert_eq!(playback.handle(&rate, None), (None, false), "only the first start counts");
 
@@ -416,7 +441,10 @@ mod tests {
             VideoStatus { position: Some(61.5), ready: true, playing: true, ..Default::default() };
         let (answer, _) = playback.handle(&ask, Some(&playing));
         let answer = answer.unwrap();
-        assert_eq!(describe(&answer), "type=playbackInfo kind=response messageID=7");
+        assert_eq!(
+            describe(&answer),
+            "type=playbackInfo kind=response messageID=7 position=61.500 rate=1.000"
+        );
         let info = answer.get("value").unwrap();
         assert_eq!(info.get("position").and_then(|p| seconds(Some(p))), Some(61.5));
         assert_eq!(info.get("rate").and_then(|p| seconds(Some(p))), Some(1.0));

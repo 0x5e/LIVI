@@ -26,4 +26,6 @@ pub mod video_playback;
 pub mod video_proxy;
 
 #[cfg(test)]
+mod test_tls;
+#[cfg(test)]
 mod ts_vectors;

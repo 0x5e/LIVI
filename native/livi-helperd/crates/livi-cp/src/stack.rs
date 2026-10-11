@@ -1,6 +1,7 @@
 use std::io;
 use std::net::SocketAddr;
 use std::sync::Arc;
+use std::sync::atomic::{AtomicBool, Ordering};
 use std::time::{Duration, Instant};
 
 use tokio::io::{AsyncReadExt, AsyncWriteExt};
@@ -15,6 +16,7 @@ use crate::control_cipher::ControlCipher;
 use crate::crypto::hkdf_sha512;
 use crate::helper_sock::HelperSock;
 use crate::hid::{self, Contact, KnobState};
+use crate::hls::Client;
 use crate::hls_gateway::Gateway;
 use crate::iap_tunnel::IapTunnel;
 use crate::identity::Identity;
@@ -29,7 +31,7 @@ use crate::rtsp::{self, Request, Response};
 use crate::timing::ntp64_now;
 use crate::timing_sync::TimingSync;
 use crate::video_playback;
-use crate::video_proxy::{ProxyOffer, Tunnel};
+use crate::video_proxy::ProxyOffer;
 
 const STREAM_MAIN_SCREEN: u64 = 110;
 const STREAM_ALT_SCREEN: u64 = 111;
@@ -267,11 +269,12 @@ struct Conn<M: Media> {
     call_active: bool,
     speech_active: bool,
     video_player: video_playback::Playback,
+    /// The phone's word, kept for a stream that is opened again.
+    video_muted: Arc<AtomicBool>,
 }
 
 /// A queued video playing, ended by dropping it.
 struct VideoRun {
-    _tunnel: Tunnel,
     _gateway: Gateway,
     restarts: tokio::task::JoinHandle<()>,
     stop: Box<dyn Fn() + Send + Sync>,
@@ -292,14 +295,22 @@ async fn reopen_video<M: Media>(
     media: Arc<M>,
     url: String,
     device: String,
+    muted: Arc<AtomicBool>,
     mut started_over: mpsc::UnboundedReceiver<()>,
 ) {
     while started_over.recv().await.is_some() {
         println!("[cpStack] video stream started over, opening it again");
         media.stop_video();
         tokio::time::sleep(VIDEO_REOPEN_PAUSE).await;
-        media.play_video(url.clone(), device.clone());
+        media.play_video(url.clone(), device.clone(), muted.load(Ordering::Relaxed));
     }
+}
+
+/// The RTP sample the speaker plays now: the first one plus what played since, `lag_ms` behind
+/// its arrival.
+fn sounding_sample(first: u32, since_first_s: f64, lag_ms: u32, rate: u32) -> u32 {
+    let played = (since_first_s - f64::from(lag_ms) / 1000.0).max(0.0);
+    (i64::from(first) + (played * f64::from(rate) + 0.5).floor() as i64) as u32
 }
 
 async fn accept(listener: &Option<TcpListener>) -> io::Result<(TcpStream, SocketAddr)> {
@@ -457,6 +468,7 @@ pub async fn run<M: Media>(
         call_active: false,
         speech_active: false,
         video_player: video_playback::Playback::default(),
+        video_muted: Arc::new(AtomicBool::new(false)),
     };
     let mut buf = vec![0u8; 64 * 1024];
     let mut event_buf = vec![0u8; 16 * 1024];
@@ -1159,6 +1171,7 @@ impl<M: Media> Conn<M> {
                 if message.get("property").and_then(Value::as_str) == Some("muted") =>
             {
                 if let Some(Value::Bool(muted)) = message.get("value") {
+                    self.video_muted.store(*muted, Ordering::Relaxed);
                     self.ctx.media.set_video_muted(*muted);
                 }
             }
@@ -1215,35 +1228,29 @@ impl<M: Media> Conn<M> {
             println!("[cpStack] no proxy from the phone, {url} is out of reach");
             return;
         };
-        match Tunnel::open(offer, url).await {
-            Ok(Some(tunnel)) => {
-                let (started_over, restarts) = mpsc::unbounded_channel();
-                let gateway = match Gateway::open(tunnel.url(), started_over).await {
-                    Ok(gateway) => gateway,
-                    Err(e) => {
-                        println!("[cpStack] no gateway for video {url}: {e}");
-                        return;
-                    }
-                };
-                println!("[cpStack] video {url} reachable at {}", gateway.url());
-                let device = self.ctx.config.borrow().audio_device.clone();
-                let media = self.ctx.media.clone();
-                media.play_video(gateway.url().into(), device.clone());
-                let restarts = tokio::spawn(reopen_video(
-                    media.clone(),
-                    gateway.url().into(),
-                    device,
-                    restarts,
-                ));
-                let stop = Box::new(move || media.stop_video());
-                self.video_tunnel =
-                    Some(VideoRun { _tunnel: tunnel, _gateway: gateway, restarts, stop });
+        let (started_over, restarts) = mpsc::unbounded_channel();
+        let gateway = match Gateway::open(Client::through(offer), url, started_over).await {
+            Ok(gateway) => gateway,
+            Err(e) => {
+                println!("[cpStack] no gateway for video {url}: {e}");
+                return;
             }
-            Ok(None) => {
-                println!("[cpStack] video {url} is not plain http, LIVI plays no DRM content")
-            }
-            Err(e) => println!("[cpStack] no tunnel for video {url}: {e}"),
-        }
+        };
+        println!("[cpStack] video {url} reachable at {}", gateway.url());
+        let device = self.ctx.config.borrow().audio_device.clone();
+        let muted = item.and_then(|i| i.get("muted")).and_then(Value::as_bool).unwrap_or(false);
+        self.video_muted.store(muted, Ordering::Relaxed);
+        let media = self.ctx.media.clone();
+        media.play_video(gateway.url().into(), device.clone(), muted);
+        let restarts = tokio::spawn(reopen_video(
+            media.clone(),
+            gateway.url().into(),
+            device,
+            self.video_muted.clone(),
+            restarts,
+        ));
+        let stop = Box::new(move || media.stop_video());
+        self.video_tunnel = Some(VideoRun { _gateway: gateway, restarts, stop });
     }
 
     async fn relay_iap(&mut self, iap: &[u8]) {
@@ -1349,11 +1356,14 @@ impl<M: Media> Conn<M> {
                     ("sampleRate".to_string(), Value::Int(u64::from(a.sample_rate))),
                 ];
                 if let Some((first, at)) = a.origin {
-                    let lag = f64::from(a.playout_latency_ms) / 1000.0;
-                    let elapsed = (at.elapsed().as_secs_f64() - lag).max(0.0);
-                    let play = (i64::from(first)
-                        + (elapsed * f64::from(a.sample_rate) + 0.5).floor() as i64)
-                        as u32;
+                    // The jitter buffer, then what the pipeline measurably takes to the speaker.
+                    let output = self.ctx.media.audio_output_delay(a.host_stream).unwrap_or(0);
+                    let play = sounding_sample(
+                        first,
+                        at.elapsed().as_secs_f64(),
+                        a.playout_latency_ms + output,
+                        a.sample_rate,
+                    );
                     let ntp = self.timing.as_ref().map_or_else(ntp64_now, TimingSync::synced_ntp);
                     s.push(("streamConnectionID".to_string(), a.connection_id.clone()));
                     s.push(("timestamp".to_string(), Value::Int(ntp)));
@@ -1755,6 +1765,7 @@ pub(crate) mod tests {
         calls: Mutex<Vec<String>>,
         pub(crate) started: broadcast::Sender<(u32, u32)>,
         pub(crate) video_status: Mutex<Option<crate::media::VideoStatus>>,
+        pub(crate) output_delay: Mutex<Option<u32>>,
     }
 
     impl FakeMedia {
@@ -1763,6 +1774,7 @@ pub(crate) mod tests {
                 calls: Mutex::default(),
                 started: broadcast::channel(8).0,
                 video_status: Mutex::default(),
+                output_delay: Mutex::default(),
             })
         }
 
@@ -1807,6 +1819,9 @@ pub(crate) mod tests {
         fn set_audio_volume(&self, stream: u32, level: f64, ramp_ms: u32) {
             self.log(format!("volume {stream} {level} {ramp_ms}"));
         }
+        fn audio_output_delay(&self, _stream: u32) -> Option<u32> {
+            *self.output_delay.lock().unwrap()
+        }
         fn close_audio(&self, stream: u32) {
             self.log(format!("close_audio {stream}"));
         }
@@ -1823,8 +1838,9 @@ pub(crate) mod tests {
         fn audio_started(&self) -> broadcast::Receiver<(u32, u32)> {
             self.started.subscribe()
         }
-        fn play_video(&self, url: String, audio_device: String) {
-            self.log(format!("play_video {url} {audio_device}"));
+        fn play_video(&self, url: String, audio_device: String, muted: bool) {
+            let muted = if muted { " muted" } else { "" };
+            self.log(format!("play_video {url} {audio_device}{muted}"));
         }
         fn set_video_rate(&self, rate: f64) {
             self.log(format!("video_rate {rate}"));
@@ -2006,6 +2022,18 @@ pub(crate) mod tests {
     }
 
     #[test]
+    fn the_feedback_names_the_sample_the_speaker_plays_now() {
+        assert_eq!(sounding_sample(100, 0.5, 1000, 48_000), 100, "still in the jitter buffer");
+        assert_eq!(sounding_sample(100, 2.0, 1000, 48_000), 100 + 48_000);
+        assert_eq!(
+            sounding_sample(100, 2.0, 1300, 48_000),
+            100 + 33_600,
+            "the measured output delay moves it back"
+        );
+        assert_eq!(sounding_sample(u32::MAX, 2.0, 1000, 48_000), 47_999, "RTP time wraps");
+    }
+
+    #[test]
     fn audio_types_map_onto_kinds() {
         assert_eq!(audio_profile("telephony").kind, AudioKind::Call);
         assert_eq!(audio_profile("speechRecognition").label, "speech");
@@ -2160,6 +2188,59 @@ pub(crate) mod tests {
             ["play", "video_rate 0", "seek_video 12", "video_muted true", "stop_video"]
         );
         assert!(!rig._dir.0.join("video").exists(), "without debug nothing is kept");
+    }
+
+    #[tokio::test]
+    async fn a_muted_item_starts_muted() {
+        let mut rig = Rig::with_video(true, false).await;
+        let secret = rig.secret;
+        rig.phone.verify(&secret, b"phone-1").await;
+        let offered = Value::Array(vec![Value::String(video_playback::FEATURE.into())]);
+        let session = dict([("timingPort", Value::Int(9)), ("features", offered)]);
+        rig.phone.plist("SETUP", "/s", &session).await;
+        let video = dict([
+            ("type", Value::Int(STREAM_DATA)),
+            ("clientTypeUUID", Value::String(video_playback::DATASTREAM_UUID.to_lowercase())),
+        ]);
+        rig.phone.plist("SETUP", "/s", &dict([("streams", Value::Array(vec![video]))])).await;
+        let media = dict([
+            ("type", Value::Int(102)),
+            ("streamConnectionID", Value::Int(44)),
+            ("audioType", Value::String("media".into())),
+            ("audioFormat", Value::Int(0x10)),
+            ("audioLatencyMs", Value::Int(1000)),
+        ]);
+        rig.phone.plist("SETUP", "/s", &dict([("streams", Value::Array(vec![media]))])).await;
+        let offer = dict([
+            ("type", Value::String("setProxyParameters".into())),
+            (
+                "params",
+                dict([
+                    ("proxyUrl", Value::String("https://[fe80::1]".into())),
+                    ("proxyPort", Value::Int(60664)),
+                    ("proxyPsk", Value::Data(vec![1; 32])),
+                    ("proxyPskIdentity", Value::Data(vec![2; 16])),
+                    ("proxyAuthorization", Value::String("Basic eDp5".into())),
+                ]),
+            ),
+        ]);
+        rig.phone.request("POST", "/command", &bplist::encode(&offer)).await;
+
+        let item = dict([
+            ("Content-Location", Value::String("http://127.0.0.1:58539/mirror/index.m3u8".into())),
+            ("muted", Value::Bool(true)),
+        ]);
+        let message = dict([("type", Value::String("insertPlayQueueItem".into())), ("item", item)]);
+        let body = bplist::encode(&dict([(
+            "params",
+            dict([("data", Value::Data(bplist::encode(&message)))]),
+        )]));
+        rig.phone.request_with("POST", "/command", "X-Apple-StreamID: 2\r\n", &body).await;
+
+        let plays: Vec<String> =
+            rig.media.calls().into_iter().filter(|c| c.starts_with("play_video")).collect();
+        assert_eq!(plays.len(), 1);
+        assert!(plays[0].ends_with(" muted"), "{plays:?}");
     }
 
     #[tokio::test]

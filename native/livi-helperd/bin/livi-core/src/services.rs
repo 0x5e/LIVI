@@ -241,8 +241,7 @@ impl CarPlay {
             config,
             refresh: Some(Arc::new(move || refreshing.refresh())),
             debug: self.debug,
-            // gst-host plays URLs on Linux only so far.
-            video_playback: cfg!(not(target_os = "macos")),
+            video_playback: true,
             video_capture: self.debug.then(|| self.user_data.join("log/video-playback")),
         });
         let (events_tx, events) = mpsc::unbounded_channel();

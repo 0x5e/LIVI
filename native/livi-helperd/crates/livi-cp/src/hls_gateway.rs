@@ -1,19 +1,18 @@
-//! Stands between the player on this machine and the HLS source behind the phone, http or https.
+//! Stands between the player on this machine and the video source behind the phone, http or https.
 //! Playlists lose their low-latency lines and point back here, and a stream that starts over is
-//! reported, so the player can be opened afresh in the new size. Nothing is filtered, the player
-//! fails on its own where it cannot play.
+//! reported, so the player can be opened afresh in the new size.
 
 use std::collections::HashMap;
 use std::io;
 use std::sync::Arc;
 use std::time::Duration;
 
-use tokio::io::{AsyncRead, AsyncReadExt, AsyncWriteExt};
+use tokio::io::{AsyncRead, AsyncReadExt, AsyncWrite, AsyncWriteExt};
 use tokio::net::{TcpListener, TcpStream};
 use tokio::sync::{Mutex, mpsc};
 use tokio::task::{JoinHandle, JoinSet};
 
-use crate::hls::{self, Client, Playlist, Target};
+use crate::hls::{self, Client, Conn, Dialer, FETCH_TIMEOUT, Playlist, Target};
 
 /// hlsdemux2 aborts the whole process when one blocking reload overlaps the next, so the gateway
 /// waits upstream in its place.
@@ -138,20 +137,19 @@ impl Upstream {
 
     /// A playlist that offers a blocking reload is asked for its next part, so the player gets it
     /// the moment it exists. A failed blocking request falls back to the plain playlist.
-    async fn fetch(&self, path: &str) -> io::Result<Vec<u8>> {
+    async fn fetch_playlist(&self, path: &str) -> io::Result<Vec<u8>> {
         let url = self.source(path);
         let key = path.split('?').next().unwrap_or(path);
         let waits_for = self.next_parts.lock().unwrap_or_else(|e| e.into_inner()).get(key).copied();
         let blocking = waits_for
-            .filter(|_| is_playlist(path) && !path.contains("_HLS_"))
+            .filter(|_| !path.contains("_HLS_"))
             .map(|(msn, part)| hls::with_query(&url, &format!("_HLS_msn={msn}&_HLS_part={part}")));
-        let attempts = if is_playlist(path) { PLAYLIST_ATTEMPTS } else { 1 };
         let mut client = self.client.lock().await;
         let mut failed = 0;
         loop {
             let ask = blocking.as_deref().filter(|_| failed == 0).unwrap_or(&url);
             match client.get(ask).await {
-                Err(e) if failed + 1 < attempts => {
+                Err(e) if failed + 1 < PLAYLIST_ATTEMPTS => {
                     failed += 1;
                     println!("[hlsGateway] {path}: {e}, trying again");
                     tokio::time::sleep(RETRY_PAUSE).await;
@@ -159,6 +157,94 @@ impl Upstream {
                 other => return other,
             }
         }
+    }
+
+    /// Fails only while the player has got nothing yet.
+    async fn pass(&self, ask: &Request, player: &mut TcpStream) -> io::Result<Passed> {
+        let url = self.source(&ask.path);
+        let target = Target::of(&url)?;
+        let origin = target.origin();
+        let (kept, dialer) = {
+            let mut client = self.client.lock().await;
+            (client.take(&origin), client.dialer())
+        };
+        let method = if ask.head_only { "HEAD" } else { "GET" };
+        let request = format!(
+            "{method} {} HTTP/1.1\r\nHost: {}\r\n{}\r\n",
+            target.path, target.host, ask.range
+        );
+        let reused = kept.is_some();
+        let (mut conn, head, early) = match ask_source(&dialer, &target, kept, &request).await {
+            // A server may close a connection that sat idle, that one gets a fresh try.
+            Err(e) if reused && e.kind() != io::ErrorKind::TimedOut => {
+                ask_source(&dialer, &target, None, &request).await
+            }
+            other => other,
+        }
+        .map_err(|e| io::Error::new(e.kind(), format!("{url}: {e}")))?;
+        let lower = head.to_ascii_lowercase();
+        let body = Body::of(&lower, ask.head_only);
+        let reusable =
+            !matches!(body, Body::ToClose) && header(&lower, "connection") != Some("close");
+        let found_ok = lower.split(' ').nth(1) == Some("200");
+        // A playlist without .m3u8 in its path is known by its type, the phone's player goes by
+        // the same.
+        let playlist = header(&lower, "content-type").is_some_and(|t| t.contains("mpegurl"));
+        if found_ok && playlist {
+            let mut list = Vec::new();
+            return match body.copy(&early, &mut conn, &mut list).await {
+                Ok(()) => {
+                    if reusable {
+                        self.client.lock().await.keep(origin, conn);
+                    }
+                    Ok(Passed::Playlist(list))
+                }
+                Err(cut) => {
+                    let e = cut.error();
+                    Err(io::Error::new(e.kind(), format!("{url}: {e}")))
+                }
+            };
+        }
+        let close = ask.close || matches!(body, Body::ToClose);
+        if player.write_all(self.head_for_player(&head, &url, close).as_bytes()).await.is_err() {
+            return Ok(Passed::Through(false));
+        }
+        match body.copy(&early, &mut conn, player).await {
+            Ok(()) => {
+                if reusable {
+                    self.client.lock().await.keep(origin, conn);
+                }
+                Ok(Passed::Through(!close))
+            }
+            Err(Cut::Source(e)) => {
+                println!("[hlsGateway] {url}: cut off: {e}");
+                Ok(Passed::Through(false))
+            }
+            // A player that seeks drops the connection and asks again from elsewhere.
+            Err(Cut::Player) => Ok(Passed::Through(false)),
+        }
+    }
+
+    /// The connection lines are this gateway's own, a redirect points back here.
+    fn head_for_player(&self, head: &str, url: &str, close: bool) -> String {
+        let mut lines = head.lines().map(|l| l.trim_end_matches('\r'));
+        let mut out = format!("{}\r\n", lines.next().unwrap_or_default());
+        for line in lines {
+            let Some((name, value)) = line.split_once(':') else { continue };
+            match name.trim().to_ascii_lowercase().as_str() {
+                "connection" | "keep-alive" | "proxy-connection" => continue,
+                "location" => match self.local(url, value.trim()) {
+                    Some(local) => out.push_str(&format!("{name}: {local}\r\n")),
+                    None => out.push_str(&format!("{line}\r\n")),
+                },
+                _ => out.push_str(&format!("{line}\r\n")),
+            }
+        }
+        if close {
+            out.push_str("Connection: close\r\n");
+        }
+        out.push_str("\r\n");
+        out
     }
 
     /// Playlists lose their low-latency lines and point back here, the rest goes out as it came.
@@ -193,6 +279,218 @@ impl Upstream {
         if before.is_some_and(|before| !before.continued_by(&now)) {
             let _ = self.started_over.send(());
         }
+    }
+}
+
+enum Passed {
+    /// The answer went to the player, the connection to it stays open when true.
+    Through(bool),
+    /// A playlist after all, it gets rewritten like one.
+    Playlist(Vec<u8>),
+}
+
+/// Connects unless `kept`, asks and waits for the head of the answer, each step within the fetch
+/// time, so a failure says which one hung. Returns the head as sent and the body bytes behind it.
+async fn ask_source(
+    dialer: &Dialer,
+    target: &Target<'_>,
+    kept: Option<Box<dyn Conn>>,
+    request: &str,
+) -> io::Result<(Box<dyn Conn>, String, Vec<u8>)> {
+    let timed_out = |what: String| io::Error::new(io::ErrorKind::TimedOut, what);
+    let mut conn = match kept {
+        Some(conn) => conn,
+        None => {
+            let to = target.address();
+            tokio::time::timeout(FETCH_TIMEOUT, dialer.connect(target))
+                .await
+                .map_err(|_| timed_out(format!("no connection to {to} after {FETCH_TIMEOUT:?}")))?
+                .map_err(|e| io::Error::new(e.kind(), format!("no connection to {to}: {e}")))?
+        }
+    };
+    conn.write_all(request.as_bytes()).await?;
+    let mut all = Vec::new();
+    let head = async {
+        let mut chunk = [0u8; 4096];
+        loop {
+            if let Some(end) = all.windows(4).position(|w| w == b"\r\n\r\n") {
+                return Ok(end);
+            }
+            if all.len() > MAX_HEAD {
+                return Err(io::Error::other("an answer head without end"));
+            }
+            let n = conn.read(&mut chunk).await?;
+            if n == 0 {
+                return Err(io::Error::from(io::ErrorKind::UnexpectedEof));
+            }
+            all.extend_from_slice(&chunk[..n]);
+        }
+    };
+    let end = tokio::time::timeout(FETCH_TIMEOUT, head)
+        .await
+        .map_err(|_| timed_out(format!("connected, no answer after {FETCH_TIMEOUT:?}")))??;
+    let early = all.split_off(end + 4);
+    all.truncate(end);
+    Ok((conn, String::from_utf8_lossy(&all).into_owned(), early))
+}
+
+/// A header's value in a lower case head.
+fn header<'a>(head: &'a str, name: &str) -> Option<&'a str> {
+    head.lines().find_map(|line| {
+        let (key, value) = line.split_once(':')?;
+        (key.trim() == name).then(|| value.trim())
+    })
+}
+
+/// How much of the body is still to come, by the way the source marks its end.
+enum Body {
+    Empty,
+    Left(u64),
+    Chunked(Chunks),
+    ToClose,
+}
+
+/// Where a body stopped short.
+enum Cut {
+    Source(io::Error),
+    Player,
+}
+
+impl Cut {
+    fn error(self) -> io::Error {
+        match self {
+            Self::Source(e) => e,
+            Self::Player => io::Error::from(io::ErrorKind::BrokenPipe),
+        }
+    }
+}
+
+impl Body {
+    fn of(head: &str, head_only: bool) -> Self {
+        let status = head.split(' ').nth(1).and_then(|s| s.parse::<u16>().ok()).unwrap_or(0);
+        if head_only || status / 100 == 1 || status == 204 || status == 304 {
+            return Self::Empty;
+        }
+        if header(head, "transfer-encoding").is_some_and(|v| v.contains("chunked")) {
+            return Self::Chunked(Chunks::default());
+        }
+        match header(head, "content-length").and_then(|v| v.parse().ok()) {
+            Some(len) => Self::Left(len),
+            None => Self::ToClose,
+        }
+    }
+
+    /// How many of `bytes` belong to the body, and whether it ends with them.
+    fn take(&mut self, bytes: &[u8]) -> io::Result<(usize, bool)> {
+        Ok(match self {
+            Self::Empty => (0, true),
+            Self::Left(left) => {
+                let n = bytes.len().min(usize::try_from(*left).unwrap_or(usize::MAX));
+                *left -= n as u64;
+                (n, *left == 0)
+            }
+            Self::Chunked(chunks) => match chunks.end_in(bytes)? {
+                Some(end) => (end, true),
+                None => (bytes.len(), false),
+            },
+            Self::ToClose => (bytes.len(), false),
+        })
+    }
+
+    /// The body as it came, chunk lines included, from `early` on.
+    async fn copy<W: AsyncWrite + Unpin>(
+        mut self,
+        early: &[u8],
+        from: &mut Box<dyn Conn>,
+        to: &mut W,
+    ) -> Result<(), Cut> {
+        let mut buf = vec![0u8; 64 * 1024];
+        let mut piece = early;
+        loop {
+            let (len, ended) = self.take(piece).map_err(Cut::Source)?;
+            to.write_all(&piece[..len]).await.map_err(|_| Cut::Player)?;
+            if ended {
+                return Ok(());
+            }
+            let n = from.read(&mut buf).await.map_err(Cut::Source)?;
+            if n == 0 {
+                return match self {
+                    Self::ToClose => Ok(()),
+                    _ => Err(Cut::Source(io::ErrorKind::UnexpectedEof.into())),
+                };
+            }
+            piece = &buf[..n];
+        }
+    }
+}
+
+/// Follows a chunked body as it passes, to know where it ends.
+#[derive(Default)]
+struct Chunks {
+    state: ChunkState,
+    line: Vec<u8>,
+}
+
+#[derive(Default)]
+enum ChunkState {
+    #[default]
+    Size,
+    Data(u64),
+    /// The line end behind the data.
+    DataEnd(u8),
+    Trailer,
+}
+
+impl Chunks {
+    /// The length of `bytes` up to the end of the body, once the end is among them.
+    fn end_in(&mut self, bytes: &[u8]) -> io::Result<Option<usize>> {
+        let mut at = 0;
+        while at < bytes.len() {
+            match &mut self.state {
+                ChunkState::Data(left) => {
+                    let n = (bytes.len() - at).min(usize::try_from(*left).unwrap_or(usize::MAX));
+                    at += n;
+                    *left -= n as u64;
+                    if *left == 0 {
+                        self.state = ChunkState::DataEnd(2);
+                    }
+                }
+                ChunkState::DataEnd(left) => {
+                    at += 1;
+                    *left -= 1;
+                    if *left == 0 {
+                        self.state = ChunkState::Size;
+                    }
+                }
+                ChunkState::Size | ChunkState::Trailer => {
+                    let byte = bytes[at];
+                    at += 1;
+                    if byte != b'\n' {
+                        if self.line.len() > MAX_HEAD {
+                            return Err(io::Error::other("a chunk line without end"));
+                        }
+                        self.line.push(byte);
+                        continue;
+                    }
+                    let line = std::mem::take(&mut self.line);
+                    let line = line.strip_suffix(b"\r").unwrap_or(&line);
+                    if matches!(self.state, ChunkState::Trailer) {
+                        if line.is_empty() {
+                            return Ok(Some(at));
+                        }
+                        continue;
+                    }
+                    let size = std::str::from_utf8(line)
+                        .ok()
+                        .and_then(|l| l.split(';').next())
+                        .and_then(|s| u64::from_str_radix(s.trim(), 16).ok())
+                        .ok_or_else(|| io::Error::other("a chunk without size"))?;
+                    self.state =
+                        if size == 0 { ChunkState::Trailer } else { ChunkState::Data(size) };
+                }
+            }
+        }
+        Ok(None)
     }
 }
 
@@ -266,7 +564,17 @@ fn without_blocking_reload(text: &str) -> String {
 async fn serve(upstream: Arc<Upstream>, mut sock: TcpStream) {
     let mut buf = Vec::new();
     while let Some(ask) = read_request(&mut sock, &mut buf).await {
-        let (status, body) = match upstream.fetch(&ask.path).await {
+        let fetched = if is_playlist(&ask.path) {
+            upstream.fetch_playlist(&ask.path).await
+        } else {
+            match upstream.pass(&ask, &mut sock).await {
+                Ok(Passed::Through(true)) => continue,
+                Ok(Passed::Through(false)) => return,
+                Ok(Passed::Playlist(list)) => Ok(list),
+                Err(e) => Err(e),
+            }
+        };
+        let (status, body) = match fetched {
             Ok(body) => ("200 OK", upstream.answer(&ask.path, body)),
             Err(e) => {
                 println!("[hlsGateway] {}: {e}", ask.path);
@@ -299,6 +607,8 @@ struct Request {
     head_only: bool,
     /// The client closes the connection after the answer.
     close: bool,
+    /// The Range and If-Range lines, for the source.
+    range: String,
 }
 
 async fn read_request<S: AsyncRead + Unpin>(sock: &mut S, buf: &mut Vec<u8>) -> Option<Request> {
@@ -309,10 +619,17 @@ async fn read_request<S: AsyncRead + Unpin>(sock: &mut S, buf: &mut Vec<u8>) -> 
             let mut lines = head.lines();
             let mut words = lines.next()?.split(' ');
             let (method, path) = (words.next()?, words.next()?);
-            let close = lines
-                .map(str::to_ascii_lowercase)
-                .any(|l| l.starts_with("connection:") && l.contains("close"));
-            return Some(Request { path: path.to_string(), head_only: method == "HEAD", close });
+            let (mut close, mut range) = (false, String::new());
+            for line in lines.map(|l| l.trim_end_matches('\r')) {
+                let Some((name, value)) = line.split_once(':') else { continue };
+                match name.trim().to_ascii_lowercase().as_str() {
+                    "connection" => close |= value.to_ascii_lowercase().contains("close"),
+                    "range" | "if-range" => range.push_str(&format!("{line}\r\n")),
+                    _ => {}
+                }
+            }
+            let head_only = method == "HEAD";
+            return Some(Request { path: path.to_string(), head_only, close, range });
         }
         if buf.len() > MAX_HEAD {
             return None;
@@ -477,18 +794,13 @@ mod tests {
         );
 
         let segment = gateway.url().replace("index.m3u8", "seg_5.m4s");
-        let asks: Vec<_> = (0..3).map(|_| tokio::spawn(ask_owned(segment.clone()))).collect();
-        for answer in asks {
-            assert!(answer.await.unwrap().ends_with("\r\n\r\nsegment five"));
+        for _ in 0..3 {
+            assert!(ask(&segment, "").await.ends_with("\r\n\r\nsegment five"));
         }
         assert_eq!(*phone.connections.lock().unwrap(), 1);
 
         let missing = ask(&gateway.url().replace("index.m3u8", "gone.m4s"), "").await;
-        assert!(missing.starts_with("HTTP/1.1 502 Bad Gateway\r\n"));
-    }
-
-    async fn ask_owned(url: String) -> String {
-        ask(&url, "").await
+        assert!(missing.starts_with("HTTP/1.1 404 Not Found\r\n"), "{missing}");
     }
 
     #[tokio::test]
@@ -610,12 +922,17 @@ mod tests {
                     }
                     let mut buf = Vec::new();
                     while let Some(ask) = read_request(&mut tls, &mut buf).await {
-                        let body = match ask.path.as_str() {
-                            "/cdn/play" => list.clone().into_bytes(),
-                            _ => b"tls segment".to_vec(),
+                        let (kind, body) = match ask.path.as_str() {
+                            "/cdn/play" => (
+                                "Content-Type: application/vnd.apple.mpegurl\r\n",
+                                list.clone().into_bytes(),
+                            ),
+                            _ => ("", b"tls segment".to_vec()),
                         };
-                        let head =
-                            format!("HTTP/1.1 200 OK\r\nContent-Length: {}\r\n\r\n", body.len());
+                        let head = format!(
+                            "HTTP/1.1 200 OK\r\n{kind}Content-Length: {}\r\n\r\n",
+                            body.len()
+                        );
                         if tls.write_all(head.as_bytes()).await.is_err()
                             || tls.write_all(&body).await.is_err()
                         {

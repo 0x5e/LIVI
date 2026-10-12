@@ -6,6 +6,7 @@ use std::path::PathBuf;
 use ts_rs::TS;
 
 use crate::PROTOCOL;
+use crate::config::{WIFI_PASSWORD_MAX, WIFI_PASSWORD_MIN, defaults};
 use crate::frame::MAX_FRAME;
 use crate::message::{FromCore, ToCore};
 
@@ -45,9 +46,15 @@ fn typescript_contract_is_current() {
     let generated = fs::read_to_string(out.join(FILE));
     let _ = fs::remove_dir_all(&out);
     assert_eq!(files, [FILE], "every contract type has to export to {FILE}");
-    // The numbers a client checks against, which ts-rs has no export for.
-    let constants =
-        format!("export const MAX_FRAME = {MAX_FRAME};\n\nexport const PROTOCOL = {PROTOCOL};\n");
+    // Values ts-rs has no export for: the numbers a client checks against and the settings
+    // before core answers.
+    let defaults = serde_json::to_string_pretty(&defaults()).unwrap();
+    let constants = format!(
+        "export const MAX_FRAME = {MAX_FRAME};\n\nexport const PROTOCOL = {PROTOCOL};\n\n\
+         export const WIFI_PASSWORD_MIN = {WIFI_PASSWORD_MIN};\n\n\
+         export const WIFI_PASSWORD_MAX = {WIFI_PASSWORD_MAX};\n\n\
+         export const DEFAULT_CONFIG: Config = {defaults};\n"
+    );
     let generated = sorted(&format!("{}\n\n{constants}", generated.unwrap()));
 
     let path = checked_in().join(FILE);

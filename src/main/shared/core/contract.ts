@@ -16,7 +16,11 @@ export type Config = { debugLogging: boolean, wirelessAaEnabled: boolean, wirele
 /**
  * -1 when the coprocessor has no power pin.
  */
-carPlayMfiPowerGpio: number, gpsEnabled: boolean, gpsDevice: string, gpsBaudRate: number, 
+carPlayMfiPowerGpio: number, 
+/**
+ * Dedicated HLS video Stream insted of embedded into CarPlay video.
+ */
+carPlayHlsVideo: boolean, gpsEnabled: boolean, gpsDevice: string, gpsBaudRate: number, 
 /**
  * From the last GPS fix, applied at startup.
  */
@@ -41,6 +45,219 @@ displayMode: string, displayGamma: number, displayContrast: number, displayColor
  * Override for the logo on the CarPlay tile that leads back to LIVI.
  */
 carplayIcon120?: string, carplayIcon180?: string, carplayIcon256?: string, updateNightly: boolean, dismissedPackages: Array<string>, bindings: KeyBindings, };
+
+export const DEFAULT_CONFIG: Config = {
+  "debugLogging": false,
+  "wirelessAaEnabled": false,
+  "wirelessCpEnabled": false,
+  "wifiPassword": "12345678",
+  "btAdapter": "hci0",
+  "wifiInterface": "wlan0",
+  "wifiDedicatedInterface": false,
+  "wifiType": "5ghz",
+  "wifiChannel": 36,
+  "wifiChannelWidth": 40,
+  "country": "DE",
+  "carPlaySourceVersion": "950.7.1",
+  "carPlayMfiI2cBus": 2,
+  "carPlayMfiPowerGpio": -1,
+  "carPlayHlsVideo": false,
+  "gpsEnabled": false,
+  "gpsDevice": "/dev/ttyAMA0",
+  "gpsBaudRate": 38400,
+  "timezone": "",
+  "projectionWidth": 1280,
+  "projectionHeight": 720,
+  "projectionFps": 60,
+  "projectionDpi": 0,
+  "projectionViewAreaTop": 0,
+  "projectionViewAreaBottom": 0,
+  "projectionViewAreaLeft": 0,
+  "projectionViewAreaRight": 0,
+  "projectionSafeAreaTop": 0,
+  "projectionSafeAreaBottom": 0,
+  "projectionSafeAreaLeft": 0,
+  "projectionSafeAreaRight": 0,
+  "projectionSafeAreaDrawOutside": true,
+  "clusterWidth": 1280,
+  "clusterHeight": 720,
+  "clusterFps": 60,
+  "clusterDpi": 0,
+  "clusterViewAreaTop": 0,
+  "clusterViewAreaBottom": 0,
+  "clusterViewAreaLeft": 0,
+  "clusterViewAreaRight": 0,
+  "clusterSafeAreaTop": 60,
+  "clusterSafeAreaBottom": 10,
+  "clusterSafeAreaLeft": 300,
+  "clusterSafeAreaRight": 300,
+  "lastConnectedAaBtMac": "",
+  "darkMode": true,
+  "overlayMessages": true,
+  "displayBrightness": 1.0,
+  "displayBrightnessAuto": true,
+  "carName": "LIVI",
+  "oemName": "App",
+  "hand": 0,
+  "carType": 1,
+  "evConnectorTypes": [],
+  "maxSpeedKph": 200,
+  "speedScaleStep": 40,
+  "maxRpm": 5000,
+  "redlineRpm": 4500,
+  "speedUnit": "kmh",
+  "temperatureUnit": "celsius",
+  "samplingFrequency": 1,
+  "disableAudioOutput": false,
+  "huVolume": 0.95,
+  "huVolumeLinkSystem": true,
+  "audioVolume": 0.95,
+  "navVolume": 0.95,
+  "voiceAssistantVolume": 0.95,
+  "callVolume": 0.95,
+  "systemSoundsVolume": 0.75,
+  "audioOutputDevice": "",
+  "audioOutputDeviceLabel": "",
+  "audioInputDevice": "",
+  "audioInputDeviceLabel": "",
+  "visualAudioDelayMs": 0,
+  "autoConn": true,
+  "autoSwitchOnReverse": true,
+  "startPage": "/",
+  "language": "en",
+  "kiosk": {
+    "main": false,
+    "dash": false,
+    "aux": false
+  },
+  "uiZoomPercent": 100,
+  "appearanceMode": "auto",
+  "displayMode": "",
+  "displayGamma": 1.0,
+  "displayContrast": 1.0,
+  "displayColorR": 1.0,
+  "displayColorG": 1.0,
+  "displayColorB": 1.0,
+  "cameraId": "",
+  "camera": {
+    "main": true,
+    "dash": false,
+    "aux": false
+  },
+  "cameraMirror": false,
+  "cameraRotation": 0,
+  "media": {
+    "main": true,
+    "dash": false,
+    "aux": false
+  },
+  "dashboards": {
+    "dash1": {
+      "main": true,
+      "dash": false,
+      "aux": false,
+      "pos": 1
+    },
+    "dash2": {
+      "main": true,
+      "dash": false,
+      "aux": false,
+      "pos": 2
+    },
+    "dash3": {
+      "main": true,
+      "dash": false,
+      "aux": false,
+      "pos": 3
+    },
+    "dash4": {
+      "main": true,
+      "dash": false,
+      "aux": false,
+      "pos": 4
+    }
+  },
+  "custom": {
+    "main": false,
+    "dash": false,
+    "aux": false
+  },
+  "customUrl": "",
+  "mainScreenBounds": {
+    "x": 0,
+    "y": 0,
+    "width": 0,
+    "height": 0
+  },
+  "dashScreenBounds": {
+    "x": 0,
+    "y": 0,
+    "width": 0,
+    "height": 0
+  },
+  "auxScreenBounds": {
+    "x": 0,
+    "y": 0,
+    "width": 0,
+    "height": 0
+  },
+  "mainScreenWidth": 1280,
+  "mainScreenHeight": 720,
+  "dashScreenActive": false,
+  "dashScreenWidth": 1280,
+  "dashScreenHeight": 720,
+  "auxScreenActive": false,
+  "auxScreenWidth": 800,
+  "auxScreenHeight": 480,
+  "primaryColorDark": "",
+  "primaryColorLight": "",
+  "highlightColorLight": "",
+  "highlightColorDark": "",
+  "backgroundColorDark": "",
+  "backgroundColorLight": "",
+  "carplayIcon120": "",
+  "carplayIcon180": "",
+  "carplayIcon256": "",
+  "updateNightly": false,
+  "dismissedPackages": [],
+  "bindings": {
+    "up": "ArrowUp",
+    "down": "ArrowDown",
+    "left": "ArrowLeft",
+    "right": "ArrowRight",
+    "selectUp": "",
+    "selectDown": "Enter",
+    "back": "Backspace",
+    "knobLeft": "",
+    "knobRight": "",
+    "knobUp": "",
+    "knobDown": "",
+    "home": "KeyH",
+    "cycleSession": "KeyS",
+    "playPause": "KeyP",
+    "play": "",
+    "pause": "",
+    "next": "KeyN",
+    "prev": "KeyB",
+    "acceptPhone": "KeyA",
+    "rejectPhone": "KeyR",
+    "phoneKey0": "Digit0",
+    "phoneKey1": "Digit1",
+    "phoneKey2": "Digit2",
+    "phoneKey3": "Digit3",
+    "phoneKey4": "Digit4",
+    "phoneKey5": "Digit5",
+    "phoneKey6": "Digit6",
+    "phoneKey7": "Digit7",
+    "phoneKey8": "Digit8",
+    "phoneKey9": "Digit9",
+    "phoneKeyStar": "",
+    "phoneKeyHash": "",
+    "phoneKeyHookSwitch": "",
+    "voiceAssistant": "KeyV",
+    "voiceAssistantRelease": ""
+  }
+};
 
 export type DashboardSlot = { main: boolean, dash: boolean, aux: boolean, pos: number, };
 
@@ -232,6 +449,10 @@ checked: boolean, phase: UpdatePhase, received: number,
 total: number, error: string | null, };
 
 export type UpdatePhase = "idle" | "download" | "ready" | "installing" | "relaunching" | "error";
+
+export const WIFI_PASSWORD_MAX = 63;
+
+export const WIFI_PASSWORD_MIN = 8;
 
 export type WifiBand = "2.4ghz" | "5ghz" | "6ghz";
 

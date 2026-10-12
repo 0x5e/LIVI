@@ -140,11 +140,12 @@ plugins=(
   libgstvideoconvertscale.dylib
   libgstopengl.dylib
   libgstosxvideo.dylib
-  # video LIVI fetches from a URL: playbin3, hlsdemux2, souphttpsrc, qtdemux
+  # video LIVI fetches from a URL: playbin3, hlsdemux2, souphttpsrc, qtdemux, tsdemux
   libgstplayback.dylib
   libgstadaptivedemux2.dylib
   libgstsoup.dylib
   libgstisomp4.dylib
+  libgstmpegtsdemux.dylib
 )
 
 # PATCHED_APPLEMEDIA (from build-patched-macos.sh) replaces the prebuilt applemedia plugin

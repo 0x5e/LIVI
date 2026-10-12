@@ -117,6 +117,8 @@ pub struct StackConfig {
     /// Sink and source, empty for the system default.
     pub audio_device: String,
     pub audio_input_device: String,
+    /// The host plays a queued video itself, so the phone may hand one over.
+    pub hls_video: bool,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq)]
@@ -195,8 +197,6 @@ pub struct StackCtx<M: Media> {
     /// The access point's MAC can change while LIVI runs, and /info must name the current one.
     pub refresh: Option<Arc<dyn Fn() + Send + Sync>>,
     pub debug: bool,
-    /// The host plays a queued video itself, so the phone may hand one over.
-    pub video_playback: bool,
     /// Where the payloads of the video streams are kept, for reading their format.
     pub video_capture: Option<std::path::PathBuf>,
 }
@@ -837,7 +837,7 @@ impl<M: Media> Conn<M> {
         if !offered.is_empty() {
             println!("[cpStack] phone offers {}", offered.join(", "));
         }
-        if offered.contains(&video_playback::FEATURE) && self.ctx.video_playback {
+        if offered.contains(&video_playback::FEATURE) && self.ctx.config.borrow().hls_video {
             self.video_playback = true;
             if let Some(root) = &self.ctx.video_capture {
                 let capture = video_playback::Capture::new(root);
@@ -1314,6 +1314,10 @@ impl<M: Media> Conn<M> {
         self.video_muted.store(muted, Ordering::Relaxed);
         let media = self.ctx.media.clone();
         media.play_video(gateway.url().into(), device.clone(), muted);
+        let start = self.video_player.position();
+        if start > 0.0 {
+            media.seek_video(start);
+        }
         let restarts = tokio::spawn(reopen_video(
             media.clone(),
             gateway.url().into(),
@@ -2059,6 +2063,7 @@ pub(crate) mod tests {
                 info,
                 audio_device: "out".into(),
                 audio_input_device: "in".into(),
+                hls_video: video,
             });
             std::mem::forget(_tx);
             let media = FakeMedia::new();
@@ -2070,7 +2075,6 @@ pub(crate) mod tests {
                 config,
                 refresh: Some(Arc::new(|| println!("[test] refreshed"))),
                 debug: true,
-                video_playback: video,
                 video_capture: capture.then(|| dir.0.join("video")),
             });
             let listener = net::tcp_listener().unwrap();

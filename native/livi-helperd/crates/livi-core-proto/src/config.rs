@@ -6,6 +6,10 @@ use ts_rs::TS;
 
 use crate::state::PerScreen;
 
+/// The length a WPA2 passphrase may have.
+pub const WIFI_PASSWORD_MIN: usize = 8;
+pub const WIFI_PASSWORD_MAX: usize = 63;
+
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize, TS)]
 #[serde(rename_all = "camelCase")]
 #[ts(export_to = "contract.ts", optional_fields)]
@@ -28,6 +32,8 @@ pub struct Config {
     pub car_play_mfi_i2c_bus: u32,
     /// -1 when the coprocessor has no power pin.
     pub car_play_mfi_power_gpio: i32,
+    /// Dedicated HLS video Stream insted of embedded into CarPlay video.
+    pub car_play_hls_video: bool,
 
     pub gps_enabled: bool,
     pub gps_device: String,
@@ -410,6 +416,7 @@ pub fn defaults() -> Config {
         car_play_source_version: "950.7.1".into(),
         car_play_mfi_i2c_bus: 2,
         car_play_mfi_power_gpio: -1,
+        car_play_hls_video: false,
         gps_enabled: false,
         gps_device: "/dev/ttyAMA0".into(),
         gps_baud_rate: 38400,

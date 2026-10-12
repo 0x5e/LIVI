@@ -1,7 +1,6 @@
 import type { WifiBand } from '@shared/core/contract'
 import type { Config } from '@shared/types'
-import { PAGES } from '@shared/types'
-import { WIFI_PASSWORD_MAX, WIFI_PASSWORD_MIN } from '@shared/types/Config'
+import { PAGES, WIFI_PASSWORD_MAX, WIFI_PASSWORD_MIN } from '@shared/types'
 import {
   MAX_HEIGHT,
   MAX_WIDTH,

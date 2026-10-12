@@ -966,6 +966,7 @@ mod tests {
                 info: crate::info::tests::sample(),
                 audio_device: String::new(),
                 audio_input_device: String::new(),
+                hls_video: false,
             });
             std::mem::forget(tx);
             let ctx = Arc::new(StackCtx {
@@ -976,7 +977,6 @@ mod tests {
                 config,
                 refresh: None,
                 debug: false,
-                video_playback: false,
                 video_capture: None,
             });
             let listener = net::tcp_listener().unwrap();

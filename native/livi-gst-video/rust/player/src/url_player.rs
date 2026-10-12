@@ -24,6 +24,7 @@ struct Heard {
     ended: bool,
     failed: bool,
     hold: Hold,
+    start_at: Option<f64>,
 }
 
 /// Holds playback while the queue fills, from an empty one every segment comes just in time.
@@ -147,11 +148,15 @@ impl UrlPlayer {
 
     pub fn seek(&self, seconds: f64) {
         (self.say)(&format!("[gst_video] the phone seeks to {seconds:.3} s"));
-        let to = gst::ClockTime::from_nseconds((seconds.max(0.0) * 1e9) as u64);
-        let flags = gst::SeekFlags::FLUSH | gst::SeekFlags::KEY_UNIT;
-        if let Err(e) = self.playbin.seek_simple(flags, to) {
-            (self.say)(&format!("[gst_video] seek to {seconds:.1} s failed: {e}"));
+        {
+            let mut heard = self.heard.lock().unwrap_or_else(|e| e.into_inner());
+            let (_, state, _) = self.playbin.state(gst::ClockTime::ZERO);
+            if !matches!(state, gst::State::Paused | gst::State::Playing) {
+                heard.start_at = Some(seconds);
+                return;
+            }
         }
+        seek_to(&self.playbin, seconds, &self.say);
     }
 
     pub fn set_muted(&self, muted: bool) {
@@ -244,6 +249,22 @@ fn watch_bus(playbin: &gst::Element, heard: Arc<Mutex<Heard>>, say: Say) {
         match msg.view() {
             gst::MessageView::StateChanged(s) if src == own_name => {
                 say(&format!("[gst_video] playbin3 {:?} to {:?}", s.old(), s.current()));
+                let prerolled = s.old() == gst::State::Ready && s.current() == gst::State::Paused;
+                if prerolled
+                    && let Some(at) = heard.start_at.take()
+                    && let Some(playbin) = player.upgrade()
+                {
+                    let say = say.clone();
+                    // Never from a streaming thread directly.
+                    playbin.call_async(move |p| {
+                        if p.query_duration::<gst::ClockTime>().is_none() {
+                            say(&format!("[gst_video] a live stream, {at:.3} s is left out"));
+                            return;
+                        }
+                        say(&format!("[gst_video] the stream is ready, seeking to {at:.3} s"));
+                        seek_to(p, at, &say);
+                    });
+                }
             }
             gst::MessageView::Buffering(b) => {
                 let percent = b.percent().clamp(0, 100);
@@ -296,6 +317,14 @@ fn watch_bus(playbin: &gst::Element, heard: Arc<Mutex<Heard>>, say: Say) {
         }
         gst::BusSyncReply::Drop
     });
+}
+
+fn seek_to(playbin: &gst::Element, seconds: f64, say: &Say) {
+    let to = gst::ClockTime::from_nseconds((seconds.max(0.0) * 1e9) as u64);
+    let flags = gst::SeekFlags::FLUSH | gst::SeekFlags::KEY_UNIT;
+    if let Err(e) = playbin.seek_simple(flags, to) {
+        say(&format!("[gst_video] seek to {seconds:.1} s failed: {e}"));
+    }
 }
 
 fn seconds(t: gst::ClockTime) -> f64 {

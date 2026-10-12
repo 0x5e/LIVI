@@ -1,5 +1,5 @@
 import { Box, Typography } from '@mui/material'
-import type { WindowId } from '@shared/types'
+import type { Screen } from '@shared/types'
 import { ROUTES } from '@shared/types'
 import { isClusterOnScreen } from '@shared/utils'
 import { useEffect, useRef } from 'react'
@@ -25,7 +25,7 @@ const TRANSPORT_ACTIONS: BindKey[] = [
 ]
 
 type Props = {
-  role: Exclude<WindowId, 'main'>
+  role: Exclude<Screen, 'main'>
   emptyLabel: string
 }
 
@@ -67,7 +67,7 @@ export const SecondaryAppShell = ({ role, emptyLabel }: Props) => {
 }
 
 type InnerProps = {
-  role: Exclude<WindowId, 'main'>
+  role: Exclude<Screen, 'main'>
 }
 
 const SecondaryShellInner = ({ role }: InnerProps) => {

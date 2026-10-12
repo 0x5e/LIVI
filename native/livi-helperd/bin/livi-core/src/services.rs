@@ -241,7 +241,6 @@ impl CarPlay {
             config,
             refresh: Some(Arc::new(move || refreshing.refresh())),
             debug: self.debug,
-            video_playback: true,
             video_capture: self.debug.then(|| self.user_data.join("log/video-playback")),
         });
         let (events_tx, events) = mpsc::unbounded_channel();

@@ -16,7 +16,7 @@ use tokio_openssl::SslStream;
 
 use crate::video_proxy::ProxyOffer;
 
-const FETCH_TIMEOUT: Duration = Duration::from_secs(4);
+pub(crate) const FETCH_TIMEOUT: Duration = Duration::from_secs(4);
 const NAL_LENGTH: usize = 4;
 
 /// The video track of an init segment.
@@ -318,7 +318,7 @@ impl<'a> Target<'a> {
     }
 }
 
-trait Conn: AsyncRead + AsyncWrite + Unpin + Send + Sync {}
+pub(crate) trait Conn: AsyncRead + AsyncWrite + Unpin + Send + Sync {}
 impl<T: AsyncRead + AsyncWrite + Unpin + Send + Sync> Conn for T {}
 
 fn system_trust() -> io::Result<SslConnector> {
@@ -335,28 +335,27 @@ fn system_trust() -> io::Result<SslConnector> {
     Ok(TRUST.get_or_init(|| trust).clone())
 }
 
-/// One connection per origin kept open, through the phone each new one costs a handshake.
+/// Connections kept open by origin, through the phone each new one costs a handshake.
 #[derive(Default)]
 pub struct Client {
-    open: HashMap<String, Box<dyn Conn>>,
-    /// None connects directly.
-    phone: Option<Arc<ProxyOffer>>,
-    trust: Option<SslConnector>,
+    open: HashMap<String, Vec<Box<dyn Conn>>>,
+    dialer: Dialer,
 }
 
 impl Client {
     pub fn through(phone: Arc<ProxyOffer>) -> Self {
-        Self { phone: Some(phone), ..Self::default() }
+        Self { dialer: Dialer { phone: Some(phone), trust: None }, ..Self::default() }
     }
 
     #[cfg(test)]
-    pub(crate) fn trusting(self, trust: SslConnector) -> Self {
-        Self { trust: Some(trust), ..self }
+    pub(crate) fn trusting(mut self, trust: SslConnector) -> Self {
+        self.dialer.trust = Some(trust);
+        self
     }
 
     pub async fn get(&mut self, url: &str) -> io::Result<Vec<u8>> {
         let target = Target::of(url)?;
-        let open = self.open.remove(&target.origin());
+        let open = self.take(&target.origin());
         let reused = open.is_some();
         match self.exchange(&target, open, url).await {
             // A server may close a connection that sat idle, that one gets a fresh try.
@@ -367,7 +366,57 @@ impl Client {
         }
     }
 
-    async fn connect(&self, target: &Target<'_>) -> io::Result<Box<dyn Conn>> {
+    pub(crate) fn take(&mut self, origin: &str) -> Option<Box<dyn Conn>> {
+        self.open.get_mut(origin)?.pop()
+    }
+
+    pub(crate) fn keep(&mut self, origin: String, conn: Box<dyn Conn>) {
+        self.open.entry(origin).or_default().push(conn);
+    }
+
+    pub(crate) fn dialer(&self) -> Dialer {
+        self.dialer.clone()
+    }
+
+    async fn exchange(
+        &mut self,
+        target: &Target<'_>,
+        open: Option<Box<dyn Conn>>,
+        url: &str,
+    ) -> io::Result<Vec<u8>> {
+        let fetch = async {
+            let mut sock = match open {
+                Some(sock) => sock,
+                None => self.dialer.connect(target).await?,
+            };
+            let ask = format!("GET {} HTTP/1.1\r\nHost: {}\r\n\r\n", target.path, target.host);
+            sock.write_all(ask.as_bytes()).await?;
+            let (head, body, again) = read_answer(&mut sock, url).await?;
+            Ok::<_, io::Error>((head, body, again.then_some(sock)))
+        };
+        let (head, body, sock) = tokio::time::timeout(FETCH_TIMEOUT, fetch)
+            .await
+            .map_err(|_| io::Error::new(io::ErrorKind::TimedOut, format!("{url}: timed out")))??;
+        if let Some(sock) = sock {
+            self.keep(target.origin(), sock);
+        }
+        if head.split(' ').nth(1) != Some("200") {
+            let line = head.lines().next().unwrap_or_default().to_string();
+            return Err(io::Error::other(format!("{url}: {line}")));
+        }
+        Ok(body)
+    }
+}
+
+#[derive(Clone, Default)]
+pub(crate) struct Dialer {
+    /// None connects directly.
+    phone: Option<Arc<ProxyOffer>>,
+    trust: Option<SslConnector>,
+}
+
+impl Dialer {
+    pub(crate) async fn connect(&self, target: &Target<'_>) -> io::Result<Box<dyn Conn>> {
         let plain: Box<dyn Conn> = match &self.phone {
             Some(phone) => {
                 let (tunnel, early) = phone.connect(&target.address()).await?;
@@ -390,35 +439,6 @@ impl Client {
             SslStream::new(ssl.map_err(io::Error::other)?, plain).map_err(io::Error::other)?;
         Pin::new(&mut tls).connect().await.map_err(io::Error::other)?;
         Ok(Box::new(tls))
-    }
-
-    async fn exchange(
-        &mut self,
-        target: &Target<'_>,
-        open: Option<Box<dyn Conn>>,
-        url: &str,
-    ) -> io::Result<Vec<u8>> {
-        let fetch = async {
-            let mut sock = match open {
-                Some(sock) => sock,
-                None => self.connect(target).await?,
-            };
-            let ask = format!("GET {} HTTP/1.1\r\nHost: {}\r\n\r\n", target.path, target.host);
-            sock.write_all(ask.as_bytes()).await?;
-            let (head, body, again) = read_answer(&mut sock, url).await?;
-            Ok::<_, io::Error>((head, body, again.then_some(sock)))
-        };
-        let (head, body, sock) = tokio::time::timeout(FETCH_TIMEOUT, fetch)
-            .await
-            .map_err(|_| io::Error::new(io::ErrorKind::TimedOut, format!("{url}: timed out")))??;
-        if let Some(sock) = sock {
-            self.open.insert(target.origin(), sock);
-        }
-        if head.split(' ').nth(1) != Some("200") {
-            let line = head.lines().next().unwrap_or_default().to_string();
-            return Err(io::Error::other(format!("{url}: {line}")));
-        }
-        Ok(body)
     }
 }
 

@@ -145,6 +145,7 @@
     "top": "Вгорі",
     "bottom": "Внизу",
     "drawOutside": "Малювати за межами",
+    "carPlayHlsVideo": "Відтворення відео CarPlay через HLS",
     "mainScreen": "Головний екран",
     "displayMode": "Режим дисплея",
     "displayModeDefault": "Стандарт панелі",

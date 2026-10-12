@@ -5,7 +5,7 @@ import { DashboardConfig } from '@renderer/components/pages/telemetry/config'
 import { normalizeDashComponents } from '@renderer/components/pages/telemetry/utils'
 import { AppContext } from '@renderer/context'
 import { useNavbarHidden } from '@renderer/hooks/useNavbarHidden'
-import type { WindowId } from '@shared/types'
+import type { Screen } from '@shared/types'
 import { useLiviStore } from '@store/store'
 import { clamp } from '@utils/index'
 import * as React from 'react'
@@ -13,7 +13,7 @@ import { FC, useContext, useEffect, useState } from 'react'
 import { useKeyboardNavigation } from './hooks/useKeyboardNavigation'
 
 type TelemetryProps = {
-  windowRole?: WindowId
+  windowRole?: Screen
 }
 
 export const Telemetry: FC<TelemetryProps> = ({ windowRole = 'main' }) => {

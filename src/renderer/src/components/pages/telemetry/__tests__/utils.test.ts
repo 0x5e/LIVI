@@ -1,7 +1,7 @@
-import type { DashboardsConfig } from '@shared/types'
+import type { Dashboards } from '@shared/types'
 import { normalizeDashComponents } from '../utils'
 
-const slot = (overrides: Partial<DashboardsConfig['dash1']> = {}): DashboardsConfig['dash1'] => ({
+const slot = (overrides: Partial<Dashboards['dash1']> = {}): Dashboards['dash1'] => ({
   main: false,
   dash: false,
   aux: false,
@@ -16,7 +16,7 @@ describe('normalizeDashComponents', () => {
   })
 
   test('filters by window role and returns only entries enabled for that role', () => {
-    const dashboards: DashboardsConfig = {
+    const dashboards: Dashboards = {
       dash1: slot({ main: true, pos: 1 }),
       dash2: slot({ main: false, dash: true, pos: 2 }),
       dash3: slot({ aux: true, pos: 3 }),
@@ -35,7 +35,7 @@ describe('normalizeDashComponents', () => {
   })
 
   test('sorts by position and renumbers to 1..n', () => {
-    const dashboards: DashboardsConfig = {
+    const dashboards: Dashboards = {
       dash1: slot({ main: true, pos: 30 }),
       dash2: slot({ main: true, pos: 10 }),
       dash3: slot({ main: true, pos: 20 }),
@@ -52,7 +52,7 @@ describe('normalizeDashComponents', () => {
   })
 
   test('rounds finite positions and pushes invalid positions to the end', () => {
-    const dashboards: DashboardsConfig = {
+    const dashboards: Dashboards = {
       dash1: slot({ main: true, pos: 2.2 }),
       dash2: slot({ main: true, pos: Number.NaN }),
       dash3: slot({ main: true, pos: 1.6 }),
@@ -70,7 +70,7 @@ describe('normalizeDashComponents', () => {
   })
 
   test('defaults to main window role when none is provided', () => {
-    const dashboards: DashboardsConfig = {
+    const dashboards: Dashboards = {
       dash1: slot({ main: true, pos: 1 }),
       dash2: slot({ dash: true, pos: 2 }),
       dash3: slot({ pos: 3 }),

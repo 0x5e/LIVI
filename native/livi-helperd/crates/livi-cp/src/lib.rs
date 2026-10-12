@@ -12,6 +12,7 @@ pub mod info;
 pub mod keep_alive;
 pub mod manager;
 pub mod media;
+pub mod mfi4;
 pub mod net;
 pub mod pair_setup;
 pub mod pair_verify;

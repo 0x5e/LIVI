@@ -23,6 +23,7 @@ use crate::identity::Identity;
 use crate::info::{self, ALT_UUID, InfoConfig, MAIN_UUID};
 use crate::keep_alive::KeepAlive;
 use crate::media::{AudioCodec, AudioRequest, Media, MicRequest};
+use crate::mfi4;
 use crate::net;
 use crate::pair_setup::PairSetup;
 use crate::pair_verify::PairVerify;
@@ -227,6 +228,8 @@ struct Conn<M: Media> {
     peer: SocketAddr,
     pair_setup: PairSetup,
     pair_verify: PairVerify,
+    /// Mutual authentication, once the phone asked for it on this connection.
+    mfi4: Option<mfi4::Session>,
     cipher: Option<ControlCipher>,
     sealed: Vec<u8>,
     plain: Vec<u8>,
@@ -409,6 +412,32 @@ fn status(code: u16) -> Response {
     Response { status: Some(code), ..Default::default() }
 }
 
+fn octet(result: Result<Vec<u8>, String>, what: &str) -> Response {
+    match result {
+        Ok(body) => Response {
+            headers: vec![("Content-Type".into(), OCTET.into())],
+            body,
+            ..Default::default()
+        },
+        Err(e) => {
+            println!("[cpStack] {what}: {e}");
+            status(500)
+        }
+    }
+}
+
+/// A number the way the phone writes headers: 0x for hex, a leading 0 for octal.
+fn header_number(req: &Request, name: &str) -> Option<u32> {
+    let v = req.headers.get(name)?.trim();
+    if let Some(hex) = v.strip_prefix("0x").or_else(|| v.strip_prefix("0X")) {
+        u32::from_str_radix(hex, 16).ok()
+    } else if v.len() > 1 && v.starts_with('0') {
+        u32::from_str_radix(&v[1..], 8).ok()
+    } else {
+        v.parse().ok()
+    }
+}
+
 fn stream_key(shared: &[u8; 32], id: &str, info: &str) -> [u8; 32] {
     hkdf_sha512(shared, format!("DataStream-Salt{id}").as_bytes(), info.as_bytes())
 }
@@ -429,6 +458,7 @@ pub async fn run<M: Media>(
         peer,
         pair_setup: PairSetup::new(),
         pair_verify: PairVerify::new(),
+        mfi4: None,
         cipher: None,
         sealed: Vec::new(),
         plain: Vec::new(),
@@ -595,6 +625,34 @@ impl<M: Media> Conn<M> {
         Ok(())
     }
 
+    /// Also carries the phone's transcript proof through the channel, ours goes back the same way.
+    async fn mfi4_auth_setup(&mut self, req: &Request) -> Response {
+        let session = self.mfi4.get_or_insert_with(|| {
+            println!("[cpStack] MFi4 mutual authentication");
+            mfi4::Session::new(self.ctx.pairings.dir())
+        });
+        if header_number(req, "x-apple-pairingtranscript").is_some_and(|v| v != 0) {
+            session.binds_pairing = true;
+        }
+        let pair_verify = &self.pair_verify;
+        let mut bound = false;
+        let mut check = |shown: &[u8]| {
+            let (expected, ours) = pair_verify
+                .transcript_proofs()
+                .ok_or_else(|| "nothing to bind, pair-verify has not run".to_string())?;
+            if shown.get(..expected.len()) != Some(&expected[..]) {
+                return Err("the phone's transcript proof does not match".to_string());
+            }
+            bound = true;
+            Ok(ours.to_vec())
+        };
+        let result = session.handle(&req.body, &self.ctx.helper, &mut check).await;
+        if bound {
+            println!("[cpStack] MFi4: this pair-verify is bound to the mutual authentication");
+        }
+        octet(result, "MFi4 auth-setup")
+    }
+
     async fn handle(&mut self, req: &Request) -> Response {
         let path = req.path.to_lowercase();
         let chatty = req.method == "OPTIONS" || path.ends_with("/feedback");
@@ -637,6 +695,15 @@ impl<M: Media> Conn<M> {
             "TEARDOWN" => return self.handle_teardown(req),
             _ => {}
         }
+        if path.ends_with("/pair-setup")
+            && let Some(session) = self.mfi4.as_mut()
+        {
+            let (pair_setup, ctx) = (&mut self.pair_setup, &self.ctx);
+            let mut through =
+                |data: &[u8]| Ok(pair_setup.handle(data, &ctx.identity, &ctx.pairings));
+            let result = session.handle(&req.body, &ctx.helper, &mut through).await;
+            return octet(result, "MFi4 pair-setup");
+        }
         if path.ends_with("/pair-setup") {
             let body = self.pair_setup.handle(&req.body, &self.ctx.identity, &self.ctx.pairings);
             return Response {
@@ -652,6 +719,11 @@ impl<M: Media> Conn<M> {
                 body,
                 ..Default::default()
             };
+        }
+        if path.ends_with("/auth-setup")
+            && header_number(req, "x-apple-at") == Some(mfi4::AUTH_TYPE)
+        {
+            return self.mfi4_auth_setup(req).await;
         }
         if path.ends_with("/auth-setup") {
             return match auth_setup::handle(&req.body, &self.ctx.helper).await {

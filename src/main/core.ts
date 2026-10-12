@@ -13,7 +13,7 @@ import { app } from 'electron'
 const WELCOME_WAIT_MS = 3000
 /** On macOS Electron is the app and starts core, unless one answers by then. */
 const START_AFTER_MS = 1000
-/** Core put an update in place, the app starts again from it. */
+/** Core asks for a restart */
 const RELAUNCH_THE_APP = 75
 /** "1" when stdin is a pipe from the process that started this one, it ends when that dies. */
 const LIFELINE_ENV = 'LIVI_LIFELINE'

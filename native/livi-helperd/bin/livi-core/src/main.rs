@@ -84,7 +84,7 @@ fn main() -> ExitCode {
             power::run(power::Power::Reboot);
             ExitCode::SUCCESS
         }
-        Ok(Exit::Restart(Some(_))) if cfg!(target_os = "macos") => {
+        Ok(Exit::Restart(_)) if cfg!(target_os = "macos") => {
             println!("[core] the app starts again");
             ExitCode::from(RELAUNCH_THE_APP)
         }
@@ -98,7 +98,7 @@ fn main() -> ExitCode {
     code
 }
 
-/// The macOS app starts again from its freshly updated bundle on this exit code.
+/// On macOS the app starts core, so only the app can start everything again.
 const RELAUNCH_THE_APP: u8 = 75;
 
 enum Exit {

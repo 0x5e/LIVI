@@ -967,6 +967,7 @@ mod tests {
                 audio_device: String::new(),
                 audio_input_device: String::new(),
                 hls_video: false,
+                vehicle_state: false,
             });
             std::mem::forget(tx);
             let ctx = Arc::new(StackCtx {

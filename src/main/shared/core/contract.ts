@@ -20,7 +20,11 @@ carPlayMfiPowerGpio: number,
 /**
  * Dedicated HLS video Stream insted of embedded into CarPlay video.
  */
-carPlayHlsVideo: boolean, gpsEnabled: boolean, gpsDevice: string, gpsBaudRate: number, 
+carPlayHlsVideo: boolean, 
+/**
+ * Shares vehicle state with the phone, such as the route it navigates.
+ */
+carPlayVehicleState: boolean, gpsEnabled: boolean, gpsDevice: string, gpsBaudRate: number, 
 /**
  * From the last GPS fix, applied at startup.
  */
@@ -62,6 +66,7 @@ export const DEFAULT_CONFIG: Config = {
   "carPlayMfiI2cBus": 2,
   "carPlayMfiPowerGpio": -1,
   "carPlayHlsVideo": false,
+  "carPlayVehicleState": false,
   "gpsEnabled": false,
   "gpsDevice": "/dev/ttyAMA0",
   "gpsBaudRate": 38400,

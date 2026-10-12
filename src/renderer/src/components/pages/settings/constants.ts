@@ -22,6 +22,7 @@ export const requiresRestartParams: (keyof Config)[] = [
   'wirelessAaEnabled',
   'wirelessCpEnabled',
   'carPlayHlsVideo',
+  'carPlayVehicleState',
 
   'displayMode',
 

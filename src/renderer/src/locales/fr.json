@@ -146,6 +146,7 @@
     "bottom": "Bas",
     "drawOutside": "Afficher en dehors",
     "carPlayHlsVideo": "Lecture vidéo HLS CarPlay",
+    "carPlayVehicleState": "État du véhicule CarPlay",
     "mainScreen": "Affichage Principal",
     "displayMode": "Mode d'affichage",
     "displayModeDefault": "Réglage du panneau",

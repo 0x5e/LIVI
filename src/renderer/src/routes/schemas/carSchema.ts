@@ -166,6 +166,13 @@ export const carSchema: SettingsNode<Config> = {
       }
     },
     {
+      type: 'checkbox',
+      label: 'CarPlay Vehicle State',
+      labelKey: 'settings.carPlayVehicleState',
+      icon: 'car',
+      path: 'carPlayVehicleState'
+    },
+    {
       type: 'custom',
       label: 'Car Data',
       labelKey: 'settings.carData',

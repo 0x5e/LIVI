@@ -31,6 +31,7 @@ use crate::pairings::Pairings;
 use crate::rtsp::{self, Request, Response};
 use crate::timing::ntp64_now;
 use crate::timing_sync::TimingSync;
+use crate::vehicle_state::{self, Lane, VehicleState};
 use crate::video_playback;
 use crate::video_proxy::ProxyOffer;
 
@@ -119,6 +120,8 @@ pub struct StackConfig {
     pub audio_input_device: String,
     /// The host plays a queued video itself, so the phone may hand one over.
     pub hls_video: bool,
+    /// The phone shares vehicle state with the car.
+    pub vehicle_state: bool,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq)]
@@ -256,6 +259,10 @@ struct Conn<M: Media> {
     video_settings_out: Option<mpsc::UnboundedReceiver<Vec<u8>>>,
     video_overlay: Option<IapTunnel>,
     video_overlay_out: Option<mpsc::UnboundedReceiver<Vec<u8>>>,
+    vehicle_state: Option<VehicleState>,
+    vehicle_streams: Vec<(Lane, IapTunnel, mpsc::UnboundedSender<Vec<u8>>)>,
+    vehicle_in: Option<mpsc::UnboundedSender<(Lane, Vec<u8>)>>,
+    vehicle_out: Option<mpsc::UnboundedReceiver<(Lane, Vec<u8>)>>,
     video_screen_borrowed: bool,
     video_allowed: bool,
     video_proxy: Option<Arc<ProxyOffer>>,
@@ -340,7 +347,7 @@ async fn read_relay(
     }
 }
 
-async fn recv_iap(out: &mut Option<mpsc::UnboundedReceiver<Vec<u8>>>) -> Option<Vec<u8>> {
+async fn recv_iap<T>(out: &mut Option<mpsc::UnboundedReceiver<T>>) -> Option<T> {
     match out {
         Some(rx) => rx.recv().await,
         None => std::future::pending().await,
@@ -483,6 +490,10 @@ pub async fn run<M: Media>(
         video_settings_out: None,
         video_overlay: None,
         video_overlay_out: None,
+        vehicle_state: None,
+        vehicle_streams: Vec::new(),
+        vehicle_in: None,
+        vehicle_out: None,
         video_screen_borrowed: false,
         video_allowed: true,
         video_proxy: None,
@@ -566,6 +577,10 @@ pub async fn run<M: Media>(
             setting = recv_iap(&mut conn.video_settings_out) => match setting {
                 Some(setting) => conn.keep_side_message("settings", &setting),
                 None => conn.video_settings_out = None,
+            },
+            vehicle = recv_iap(&mut conn.vehicle_out) => match vehicle {
+                Some((lane, message)) => conn.on_vehicle_message(lane, &message),
+                None => conn.vehicle_out = None,
             },
             start = recv_started(&mut started) => match start {
                 Ok((stream, first_sample)) => conn.audio_started(stream, first_sample),
@@ -759,6 +774,9 @@ impl<M: Media> Conn<M> {
                     entries.extend(video_playback::info_entries(features, self.video_allowed));
                 }
             }
+            if let (Some(state), Value::Dict(entries)) = (&self.vehicle_state, &mut info) {
+                entries.push(state.info_entry());
+            }
             let count = |k: &str| info.get(k).and_then(Value::as_array).map_or(0, <[Value]>::len);
             println!(
                 "[cpStack] /info audio: disableAudioOutput={} audioFormats={} audioLatencies={}",
@@ -845,6 +863,9 @@ impl<M: Media> Conn<M> {
                 self.video_capture = Some(capture);
             }
         }
+        if offered.contains(&vehicle_state::FEATURE) && self.ctx.config.borrow().vehicle_state {
+            self.vehicle_state = Some(VehicleState::new(self.ctx.debug));
+        }
 
         let mut timing = match TimingSync::listen() {
             Ok(t) => t,
@@ -893,6 +914,9 @@ impl<M: Media> Conn<M> {
         }
         if self.video_playback {
             features.push(Value::String(video_playback::FEATURE.into()));
+        }
+        if self.vehicle_state.is_some() {
+            features.push(Value::String(vehicle_state::FEATURE.into()));
         }
         let mut resp = vec![
             ("timingPort".to_string(), Value::Int(u64::from(timing_port))),
@@ -1060,6 +1084,56 @@ impl<M: Media> Conn<M> {
         ]))
     }
 
+    /// One of the two vehicle state streams, both answered on their own connection.
+    fn setup_vehicle_stream(&mut self, lane: Lane, sd: &Value) -> Result<Value, String> {
+        let shared = self
+            .pair_verify
+            .shared_secret()
+            .ok_or("vehicle state DataStream SETUP arrived before pair-verify")?;
+        let into_session = self
+            .vehicle_in
+            .get_or_insert_with(|| {
+                let (tx, rx) = mpsc::unbounded_channel();
+                self.vehicle_out = Some(rx);
+                tx
+            })
+            .clone();
+        let deliver = Arc::new(move |message: Vec<u8>| {
+            let _ = into_session.send((lane, message));
+        });
+        let name = match lane {
+            Lane::High => "vehicle state (high priority)",
+            Lane::Normal => "vehicle state",
+        };
+        let seed = id_text(sd.get("seed"));
+        let (tunnel, to_phone) =
+            IapTunnel::listen_duplex(name, &shared, &seed, deliver).map_err(|e| e.to_string())?;
+        let port = tunnel.port();
+        self.vehicle_streams.retain(|(l, ..)| *l != lane);
+        self.vehicle_streams.push((lane, tunnel, to_phone));
+        self.last_stream_id += 1;
+        let id = self.last_stream_id;
+        println!("[cpStack] SETUP {name} (type 130, streamID={id}, dataPort={port})");
+        Ok(dict([
+            ("type", Value::Int(STREAM_DATA)),
+            ("streamID", Value::Int(id)),
+            ("dataPort", Value::Int(u64::from(port))),
+        ]))
+    }
+
+    fn on_vehicle_message(&mut self, lane: Lane, message: &[u8]) {
+        let Some(state) = &mut self.vehicle_state else { return };
+        for (lane, answer) in state.handle(lane, message) {
+            let stream = self.vehicle_streams.iter().find(|(l, ..)| *l == lane);
+            match stream.or(self.vehicle_streams.first()) {
+                Some((_, _, to_phone)) => {
+                    let _ = to_phone.send(answer);
+                }
+                None => println!("[cpVehicle] no stream left to answer on"),
+            }
+        }
+    }
+
     fn setup_data_stream(&mut self, sd: &Value) -> Result<Option<Value>, String> {
         let uuid = sd.get("clientTypeUUID").and_then(Value::as_str).unwrap_or("").to_uppercase();
         if uuid == video_playback::DATASTREAM_UUID && self.video_playback {
@@ -1119,6 +1193,14 @@ impl<M: Media> Conn<M> {
                 ("streamID", Value::Int(id)),
                 ("dataPort", Value::Int(u64::from(port))),
             ])));
+        }
+        let lane = match uuid.as_str() {
+            vehicle_state::HIGH_PRIORITY_DATASTREAM_UUID => Some(Lane::High),
+            vehicle_state::DATASTREAM_UUID => Some(Lane::Normal),
+            _ => None,
+        };
+        if let Some(lane) = lane.filter(|_| self.vehicle_state.is_some()) {
+            return self.setup_vehicle_stream(lane, sd).map(Some);
         }
         if uuid != IAP_DATASTREAM_UUID {
             let what = match uuid.as_str() {
@@ -1833,6 +1915,7 @@ pub(crate) mod tests {
     };
     use crate::identity::load_or_create;
     use crate::media::AudioStream;
+    use crate::opack;
     use crate::pair_setup::tlv;
     use crate::pairings::tests::TempDir;
     use crate::tlv8;
@@ -2050,6 +2133,14 @@ pub(crate) mod tests {
         }
 
         async fn with_video(video: bool, capture: bool) -> Self {
+            Self::build(video, capture, false).await
+        }
+
+        async fn with_vehicle_state() -> Self {
+            Self::build(false, false, true).await
+        }
+
+        async fn build(video: bool, capture: bool, vehicle_state: bool) -> Self {
             let dir = TempDir::new();
             let identity = load_or_create(&dir.0.join("identity.json"));
             let pairings = Pairings::new(dir.0.join("pairings.json"));
@@ -2064,6 +2155,7 @@ pub(crate) mod tests {
                 audio_device: "out".into(),
                 audio_input_device: "in".into(),
                 hls_video: video,
+                vehicle_state,
             });
             std::mem::forget(_tx);
             let media = FakeMedia::new();
@@ -2524,6 +2616,91 @@ pub(crate) mod tests {
         .await
         .unwrap();
         assert_eq!(std::fs::read(kept).unwrap(), b"opak");
+    }
+
+    #[tokio::test]
+    async fn vehicle_state_is_claimed_described_and_answered_on_its_own_stream() {
+        let mut rig = Rig::with_vehicle_state().await;
+        let secret = rig.secret;
+        rig.phone.verify(&secret, b"phone-1").await;
+        let offered = Value::Array(vec![Value::String(vehicle_state::FEATURE.into())]);
+        let session = dict([("timingPort", Value::Int(9)), ("features", offered)]);
+        let resp = rig.phone.plist("SETUP", "/s", &session).await;
+        let enabled = resp.get("enabledFeatures").and_then(Value::as_array).unwrap();
+        assert!(enabled.contains(&Value::String(vehicle_state::FEATURE.into())));
+        let info = rig.phone.plist("GET", "/info", &Value::Dict(Vec::new())).await;
+        let described = info.get("vehicleStateProtocolInfo").unwrap();
+        assert_eq!(described.get("pluginCount").and_then(Value::as_int), Some(1));
+
+        let stream = dict([
+            ("type", Value::Int(STREAM_DATA)),
+            ("clientTypeUUID", Value::String(vehicle_state::HIGH_PRIORITY_DATASTREAM_UUID.into())),
+            ("seed", Value::Int(11)),
+        ]);
+        let out =
+            rig.phone.plist("SETUP", "/s", &dict([("streams", Value::Array(vec![stream]))])).await;
+        let stream = &out.get("streams").and_then(Value::as_array).unwrap()[0];
+        assert_eq!(int_of(stream, "streamID"), 2);
+        let port = int_of(stream, "dataPort") as u16;
+
+        let key = |info: &[u8]| hkdf_sha512(&rig.phone.shared, b"DataStream-Salt11", info);
+        let mut cipher = ControlCipher::new(
+            key(b"DataStream-Input-Encryption-Key"),
+            key(b"DataStream-Output-Encryption-Key"),
+        );
+        let ask = opack::dict([
+            ("command", opack::Value::str("configRequest")),
+            ("transactionID", opack::Value::Int(-5)),
+        ]);
+        let message = opack::encode(&opack::dict([
+            ("pluginID", opack::Value::Int(0)),
+            ("pluginData", opack::Value::Data(opack::encode(&ask))),
+        ]));
+        let mut package = vec![0u8; 32];
+        package[..4].copy_from_slice(&(32 + message.len() as u32).to_be_bytes());
+        package[4..8].copy_from_slice(b"asyn");
+        package[16..20].copy_from_slice(b"cmnd");
+        package.extend_from_slice(&message);
+        let mut sock = TcpStream::connect(("127.0.0.1", port)).await.unwrap();
+        sock.write_all(&cipher.encrypt(&package)).await.unwrap();
+
+        let (mut sealed, mut plain) = (Vec::new(), Vec::new());
+        let mut chunk = vec![0u8; 16 * 1024];
+        while plain.len() < 4
+            || plain.len() < u32::from_be_bytes(plain[..4].try_into().unwrap()) as usize
+        {
+            let n = tokio::time::timeout(Duration::from_secs(5), sock.read(&mut chunk))
+                .await
+                .unwrap()
+                .unwrap();
+            assert!(n > 0, "vehicle state stream closed");
+            sealed.extend_from_slice(&chunk[..n]);
+            let (data, rest) = cipher.decrypt(&sealed).unwrap();
+            plain.extend(data);
+            sealed = rest;
+        }
+        assert_eq!(&plain[4..8], b"asyn");
+        assert_eq!(&plain[16..20], b"cmnd");
+        let outer = opack::decode(&plain[32..]).unwrap();
+        let answer =
+            opack::decode(outer.get("pluginData").and_then(opack::Value::as_data).unwrap())
+                .unwrap();
+        assert_eq!(answer.get("command").and_then(opack::Value::as_str), Some("configResponse"));
+        assert_eq!(answer.get("transactionID").and_then(opack::Value::as_int), Some(-5));
+    }
+
+    #[tokio::test]
+    async fn vehicle_state_stays_off_without_the_switch() {
+        let mut rig = Rig::new().await;
+        let secret = rig.secret;
+        rig.phone.verify(&secret, b"phone-1").await;
+        let offered = Value::Array(vec![Value::String(vehicle_state::FEATURE.into())]);
+        let session = dict([("timingPort", Value::Int(9)), ("features", offered)]);
+        let resp = rig.phone.plist("SETUP", "/s", &session).await;
+        let enabled = resp.get("enabledFeatures").and_then(Value::as_array).unwrap();
+        assert!(!enabled.contains(&Value::String(vehicle_state::FEATURE.into())));
+        let info = rig.phone.plist("GET", "/info", &Value::Dict(Vec::new())).await;
+        assert!(info.get("vehicleStateProtocolInfo").is_none());
     }
 
     #[tokio::test]

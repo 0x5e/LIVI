@@ -34,6 +34,8 @@ pub struct Config {
     pub car_play_mfi_power_gpio: i32,
     /// Dedicated HLS video Stream insted of embedded into CarPlay video.
     pub car_play_hls_video: bool,
+    /// Shares vehicle state with the phone, such as the route it navigates.
+    pub car_play_vehicle_state: bool,
 
     pub gps_enabled: bool,
     pub gps_device: String,
@@ -417,6 +419,7 @@ pub fn defaults() -> Config {
         car_play_mfi_i2c_bus: 2,
         car_play_mfi_power_gpio: -1,
         car_play_hls_video: false,
+        car_play_vehicle_state: false,
         gps_enabled: false,
         gps_device: "/dev/ttyAMA0".into(),
         gps_baud_rate: 38400,

@@ -34,8 +34,10 @@ pub struct Config {
     pub car_play_mfi_power_gpio: i32,
     /// Dedicated HLS video Stream insted of embedded into CarPlay video.
     pub car_play_hls_video: bool,
-    /// Shares vehicle state with the phone, such as the route it navigates.
-    pub car_play_vehicle_state: bool,
+    /// Climate controls in the phone's dock and climate app.
+    pub car_play_vehicle_climate: bool,
+    /// Where the phone puts its dock and status bar.
+    pub car_play_dock_position: DockPosition,
 
     pub gps_enabled: bool,
     pub gps_device: String,
@@ -146,20 +148,17 @@ pub struct Config {
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub main_screen_bounds: Option<WindowBounds>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub dash_screen_bounds: Option<WindowBounds>,
+    pub cluster_screen_bounds: Option<WindowBounds>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub aux_screen_bounds: Option<WindowBounds>,
     pub main_screen_width: u32,
     pub main_screen_height: u32,
-    pub dash_screen_active: bool,
-    pub dash_screen_width: u32,
-    pub dash_screen_height: u32,
+    pub cluster_screen_active: bool,
+    pub cluster_screen_width: u32,
+    pub cluster_screen_height: u32,
     pub aux_screen_active: bool,
     pub aux_screen_width: u32,
     pub aux_screen_height: u32,
-
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub last_known_gps: Option<LastKnownGps>,
 
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub primary_color_dark: Option<String>,
@@ -214,6 +213,15 @@ pub enum AppearanceMode {
 pub enum SpeedUnit {
     Kmh,
     Mph,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, TS)]
+#[serde(rename_all = "camelCase")]
+#[ts(export_to = "contract.ts")]
+pub enum DockPosition {
+    Auto,
+    Side,
+    Bottom,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, TS)]
@@ -314,17 +322,17 @@ impl EvConnectorType {
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, TS)]
 #[ts(export_to = "contract.ts")]
 pub struct Dashboards {
-    pub dash1: DashboardSlot,
-    pub dash2: DashboardSlot,
-    pub dash3: DashboardSlot,
-    pub dash4: DashboardSlot,
+    pub dashboard1: DashboardSlot,
+    pub dashboard2: DashboardSlot,
+    pub dashboard3: DashboardSlot,
+    pub dashboard4: DashboardSlot,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, TS)]
 #[ts(export_to = "contract.ts")]
 pub struct DashboardSlot {
     pub main: bool,
-    pub dash: bool,
+    pub cluster: bool,
     pub aux: bool,
     pub pos: u32,
 }
@@ -336,19 +344,6 @@ pub struct WindowBounds {
     pub y: i32,
     pub width: u32,
     pub height: u32,
-}
-
-#[derive(Debug, Clone, Copy, PartialEq, Serialize, Deserialize, TS)]
-#[ts(export_to = "contract.ts", optional_fields)]
-pub struct LastKnownGps {
-    pub lat: f64,
-    pub lng: f64,
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub alt: Option<f64>,
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub heading: Option<f64>,
-    /// Milliseconds since the epoch.
-    pub ts: u64,
 }
 
 /// Each value is a KeyboardEvent.code, empty when unbound.
@@ -398,9 +393,9 @@ pub struct KeyBindings {
 }
 
 pub fn defaults() -> Config {
-    let off = PerScreen { main: false, dash: false, aux: false };
-    let main_only = PerScreen { main: true, dash: false, aux: false };
-    let slot = |pos| DashboardSlot { main: true, dash: false, aux: false, pos };
+    let off = PerScreen { main: false, cluster: false, aux: false };
+    let main_only = PerScreen { main: true, cluster: false, aux: false };
+    let slot = |pos| DashboardSlot { main: true, cluster: false, aux: false, pos };
     let no_bounds = Some(WindowBounds { x: 0, y: 0, width: 0, height: 0 });
     let empty = || Some(String::new());
     Config {
@@ -419,7 +414,8 @@ pub fn defaults() -> Config {
         car_play_mfi_i2c_bus: 2,
         car_play_mfi_power_gpio: -1,
         car_play_hls_video: false,
-        car_play_vehicle_state: false,
+        car_play_vehicle_climate: true,
+        car_play_dock_position: DockPosition::Bottom,
         gps_enabled: false,
         gps_device: "/dev/ttyAMA0".into(),
         gps_baud_rate: 38400,
@@ -497,21 +493,25 @@ pub fn defaults() -> Config {
         camera_mirror: false,
         camera_rotation: 0,
         media: main_only,
-        dashboards: Dashboards { dash1: slot(1), dash2: slot(2), dash3: slot(3), dash4: slot(4) },
+        dashboards: Dashboards {
+            dashboard1: slot(1),
+            dashboard2: slot(2),
+            dashboard3: slot(3),
+            dashboard4: slot(4),
+        },
         custom: off,
         custom_url: String::new(),
         main_screen_bounds: no_bounds,
-        dash_screen_bounds: no_bounds,
+        cluster_screen_bounds: no_bounds,
         aux_screen_bounds: no_bounds,
         main_screen_width: 1280,
         main_screen_height: 720,
-        dash_screen_active: false,
-        dash_screen_width: 1280,
-        dash_screen_height: 720,
+        cluster_screen_active: false,
+        cluster_screen_width: 1280,
+        cluster_screen_height: 720,
         aux_screen_active: false,
         aux_screen_width: 800,
         aux_screen_height: 480,
-        last_known_gps: None,
         primary_color_dark: empty(),
         primary_color_light: empty(),
         highlight_color_light: empty(),

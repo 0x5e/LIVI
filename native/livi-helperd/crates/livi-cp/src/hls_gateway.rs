@@ -67,7 +67,6 @@ impl Gateway {
         Ok(Self { url, task })
     }
 
-    /// Where the player fetches the stream.
     pub fn url(&self) -> &str {
         &self.url
     }

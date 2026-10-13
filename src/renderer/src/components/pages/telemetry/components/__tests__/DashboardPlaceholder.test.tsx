@@ -1,14 +1,14 @@
 import { act, render, screen } from '@testing-library/react'
-import { DashPlaceholder } from '../DashPlaceholder'
+import { DashboardPlaceholder } from '../DashboardPlaceholder'
 
-describe('DashPlaceholder', () => {
+describe('DashboardPlaceholder', () => {
   afterEach(() => {
     document.getElementById('content-root')?.remove()
     vi.restoreAllMocks()
   })
 
   test('renders title even when content-root is missing', () => {
-    render(<DashPlaceholder title="Telemetry Placeholder" />)
+    render(<DashboardPlaceholder title="Telemetry Placeholder" />)
 
     expect(screen.getByText('Telemetry Placeholder')).toBeInTheDocument()
   })
@@ -31,7 +31,7 @@ describe('DashPlaceholder', () => {
       disconnect = disconnect
     }
 
-    render(<DashPlaceholder title="Telemetry Placeholder" />)
+    render(<DashboardPlaceholder title="Telemetry Placeholder" />)
 
     const fill = screen.getByText('Telemetry Placeholder').parentElement as HTMLElement
     expect(fill).toHaveStyle({ position: 'absolute' })
@@ -60,7 +60,7 @@ describe('DashPlaceholder', () => {
       disconnect = disconnect
     }
 
-    const { unmount } = render(<DashPlaceholder title="Telemetry Placeholder" />)
+    const { unmount } = render(<DashboardPlaceholder title="Telemetry Placeholder" />)
 
     unmount()
 

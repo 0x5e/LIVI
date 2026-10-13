@@ -48,7 +48,7 @@ function installCore(): FakeCore {
 
 const state = (config: unknown, main = 'livi'): State =>
   ({
-    front: { main, dash: 'livi', aux: 'livi' },
+    front: { main, cluster: 'livi', aux: 'livi' },
     sessions: { active: null, position: 0, total: 0 },
     nowPlaying: {
       title: null,
@@ -143,9 +143,9 @@ describe('store', () => {
     })
 
     test('a secondary window names its role', async () => {
-      window.history.replaceState({}, '', '/?role=dash')
+      window.history.replaceState({}, '', '/?role=cluster')
       const { fake } = await loadFreshStore()
-      expect(fake.client).toBe('ui:dash')
+      expect(fake.client).toBe('ui:cluster')
       window.history.replaceState({}, '', '/')
     })
 
@@ -592,10 +592,10 @@ describe('store', () => {
     expect(result.current).toBe(false)
   })
 
-  test('the cluster-dash setter updates state', async () => {
+  test('the cluster-dashboard setter updates state', async () => {
     const { useStatusStore } = await loadFreshStore()
 
-    useStatusStore.getState().setClusterDashActive(true)
-    expect(useStatusStore.getState().clusterDashActive).toBe(true)
+    useStatusStore.getState().setClusterDashboardActive(true)
+    expect(useStatusStore.getState().clusterDashboardActive).toBe(true)
   })
 })

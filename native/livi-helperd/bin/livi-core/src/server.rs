@@ -30,7 +30,7 @@ pub struct Core {
     pub restart: AtomicBool,
     /// The user quit LIVI, not a signal or a closed window.
     pub quit_asked: AtomicBool,
-    /// Only kept because statusData.json publishes it.
+    /// Only kept because state/status.json publishes it.
     pub ui_path: watch::Sender<String>,
     pub relaunch: std::sync::Mutex<Option<PathBuf>>,
     asks: UiSenders,
@@ -329,7 +329,7 @@ mod tests {
         crate::projection::DongleAsks,
         crate::projection::UpdateAsks,
     ) {
-        let livi = PerScreen { main: Front::Livi, dash: Front::Livi, aux: Front::Livi };
+        let livi = PerScreen { main: Front::Livi, cluster: Front::Livi, aux: Front::Livi };
         let hub = Hub::new(State {
             front: livi,
             sessions: Default::default(),

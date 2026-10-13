@@ -1,11 +1,11 @@
 import { NavFull } from '../../widgets'
-import { DashFrame } from '../dash1/DashFrame'
+import { DashboardFrame } from '../dashboard1/DashboardFrame'
 
 /** Gauges + telltales with the full turn-by-turn navigation in the centre. */
-export function Dash2() {
+export function Dashboard2() {
   return (
-    <DashFrame>
+    <DashboardFrame>
       <NavFull />
-    </DashFrame>
+    </DashboardFrame>
   )
 }

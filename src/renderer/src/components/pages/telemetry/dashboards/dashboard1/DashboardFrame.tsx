@@ -3,7 +3,7 @@ import { speedIn } from '@renderer/utils/units'
 import { CarType, DEFAULT_CONFIG } from '@shared/types'
 import { useLiviStore, useStatusStore } from '@store/store'
 import { type ReactNode, useEffect, useMemo, useState } from 'react'
-import { DashShell } from '../../components/DashShell'
+import { DashboardShell } from '../../components/DashboardShell'
 import { useVehicleTelemetry } from '../../hooks/useVehicleTelemetry'
 import {
   FuelGauge,
@@ -50,7 +50,7 @@ const stageOffset = (w: number, h: number): { left: number; top: number } => {
   }
 }
 
-export type DashFrameProps = {
+export type DashboardFrameProps = {
   /** Centre slot, e.g. the mini-nav or the full nav. */
   children?: ReactNode
   /** The cluster map fills the whole background and each instrument floats over it; a soft
@@ -59,20 +59,20 @@ export type DashFrameProps = {
 }
 
 /**
- * Shared dash frame: speed + gear gauges, telltale bar, oil/fuel bottom bar on a scaled
+ * Shared dashboard frame: speed + gear gauges, telltale bar, oil/fuel bottom bar on a scaled
  * 1280×720 stage over a dark backdrop. The centre is a slot (pass mini-nav or full nav as
  * `children`); set `clusterFull` to drop the backdrop so the cluster plane shows behind.
  */
-export function DashFrame({ children, clusterFull }: DashFrameProps) {
+export function DashboardFrame({ children, clusterFull }: DashboardFrameProps) {
   const theme = useTheme()
   const { telemetry } = useVehicleTelemetry()
-  const isClusterDash = clusterFull === true
-  const setClusterDashActive = useStatusStore((s) => s.setClusterDashActive)
+  const isClusterDashboard = clusterFull === true
+  const setClusterDashboardActive = useStatusStore((s) => s.setClusterDashboardActive)
   useEffect(() => {
-    if (!isClusterDash) return
-    setClusterDashActive(true)
-    return () => setClusterDashActive(false)
-  }, [isClusterDash, setClusterDashActive])
+    if (!isClusterDashboard) return
+    setClusterDashboardActive(true)
+    return () => setClusterDashboardActive(false)
+  }, [isClusterDashboard, setClusterDashboardActive])
 
   const speedKph = typeof telemetry?.speedKph === 'number' ? telemetry.speedKph : 0
   const rpm = typeof telemetry?.rpm === 'number' ? telemetry.rpm : 0
@@ -129,7 +129,7 @@ export function DashFrame({ children, clusterFull }: DashFrameProps) {
   const [offset, setOffset] = useState(() => stageOffset(window.innerWidth, window.innerHeight))
   const [scaleLive, setScaleLive] = useState(false)
 
-  // Single source of truth: the dash fills the fixed full-window telemetry root, so
+  // Single source of truth: the dashboard fills the fixed full-window telemetry root, so
   // the window size IS the host size. It is read once at first render and again only
   // on window resize / fullscreen transitions — never re-measured in between.
   useEffect(() => {
@@ -166,10 +166,10 @@ export function DashFrame({ children, clusterFull }: DashFrameProps) {
   const calRectColor = isDark ? 'rgba(0, 0, 0, 0.6)' : 'rgba(255, 255, 255, 0.78)'
 
   return (
-    <DashShell>
+    <DashboardShell>
       <Box sx={{ width: '100%', height: '100%', position: 'relative', overflow: 'hidden' }}>
-        {/* Normal dash: a plain dark backdrop. Either cluster mode drops it so the plane shows. */}
-        {!isClusterDash && (
+        {/* Normal cluster: a plain dark backdrop. Either cluster mode drops it so the plane shows. */}
+        {!isClusterDashboard && (
           <Box sx={{ position: 'absolute', inset: 0, backgroundColor: clusterBg }} />
         )}
 
@@ -309,7 +309,7 @@ export function DashFrame({ children, clusterFull }: DashFrameProps) {
             />
           </Box>
 
-          {/* CENTRE SLOT — mini-nav (Dash 1), full nav (Dash 2), or empty (Dash 3 cluster) */}
+          {/* CENTRE SLOT — mini-nav (Dashboard 1), full nav (Dashboard 2), or empty (Dashboard 3 cluster) */}
           {children}
 
           {/* BOTTOM BAR — oil temp (left) + fuel/charge (right) */}
@@ -330,6 +330,6 @@ export function DashFrame({ children, clusterFull }: DashFrameProps) {
           </Box>
         </Box>
       </Box>
-    </DashShell>
+    </DashboardShell>
   )
 }

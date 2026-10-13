@@ -1,8 +1,7 @@
-//! Data streams (stream type 130) on their own connection, such as iAP2 once the phone sent
-//! disableBluetooth. Inside the control channel framing, keyed from the SETUP seed, 32-byte
-//! big-endian package headers carry the messages: size, package type, group, message type,
-//! reply token, reply error. iAP2 rides 'comm' packages and only flows in, its way back is the
-//! event channel. A duplex stream also answers on the same connection.
+//! Data streams (type 130) on their own connection. Inside the control channel framing, keyed
+//! from the SETUP seed, a 32-byte big-endian header carries size, package type, group, message
+//! type, reply token and reply error. iAP2 only flows in here and answers on the event channel,
+//! a duplex stream answers on its own connection.
 
 use std::io;
 use std::sync::Arc;
@@ -24,7 +23,6 @@ const PACKAGE_SYNC: u32 = 0x7379_6e63;
 const PACKAGE_REPLY: u32 = 0x7270_6c79;
 const MAX_PACKAGE: usize = 4 * 1024 * 1024;
 
-/// Hands every message the phone sends on a duplex stream to its owner.
 pub type Deliver = Arc<dyn Fn(Vec<u8>) + Send + Sync>;
 
 pub struct IapTunnel {

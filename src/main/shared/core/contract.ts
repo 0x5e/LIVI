@@ -22,9 +22,13 @@ carPlayMfiPowerGpio: number,
  */
 carPlayHlsVideo: boolean, 
 /**
- * Shares vehicle state with the phone, such as the route it navigates.
+ * Climate controls in the phone's dock and climate app.
  */
-carPlayVehicleState: boolean, gpsEnabled: boolean, gpsDevice: string, gpsBaudRate: number, 
+carPlayVehicleClimate: boolean, 
+/**
+ * Where the phone puts its dock and status bar.
+ */
+carPlayDockPosition: DockPosition, gpsEnabled: boolean, gpsDevice: string, gpsBaudRate: number, 
 /**
  * From the last GPS fix, applied at startup.
  */
@@ -44,7 +48,7 @@ redlineRpm: number, speedUnit: SpeedUnit, temperatureUnit: TemperatureUnit, samp
 /**
  * "WIDTHxHEIGHT", empty leaves the panel at the mode it came up in.
  */
-displayMode: string, displayGamma: number, displayContrast: number, displayColorR: number, displayColorG: number, displayColorB: number, cameraId: string, camera: PerScreen<boolean>, cameraMirror: boolean, cameraRotation: 0 | 90 | 180 | 270, media: PerScreen<boolean>, dashboards: Dashboards, custom: PerScreen<boolean>, customUrl: string, mainScreenBounds?: WindowBounds, dashScreenBounds?: WindowBounds, auxScreenBounds?: WindowBounds, mainScreenWidth: number, mainScreenHeight: number, dashScreenActive: boolean, dashScreenWidth: number, dashScreenHeight: number, auxScreenActive: boolean, auxScreenWidth: number, auxScreenHeight: number, lastKnownGps?: LastKnownGps, primaryColorDark?: string, primaryColorLight?: string, highlightColorLight?: string, highlightColorDark?: string, backgroundColorDark?: string, backgroundColorLight?: string, 
+displayMode: string, displayGamma: number, displayContrast: number, displayColorR: number, displayColorG: number, displayColorB: number, cameraId: string, camera: PerScreen<boolean>, cameraMirror: boolean, cameraRotation: 0 | 90 | 180 | 270, media: PerScreen<boolean>, dashboards: Dashboards, custom: PerScreen<boolean>, customUrl: string, mainScreenBounds?: WindowBounds, clusterScreenBounds?: WindowBounds, auxScreenBounds?: WindowBounds, mainScreenWidth: number, mainScreenHeight: number, clusterScreenActive: boolean, clusterScreenWidth: number, clusterScreenHeight: number, auxScreenActive: boolean, auxScreenWidth: number, auxScreenHeight: number, primaryColorDark?: string, primaryColorLight?: string, highlightColorLight?: string, highlightColorDark?: string, backgroundColorDark?: string, backgroundColorLight?: string, 
 /**
  * Override for the logo on the CarPlay tile that leads back to LIVI.
  */
@@ -66,7 +70,8 @@ export const DEFAULT_CONFIG: Config = {
   "carPlayMfiI2cBus": 2,
   "carPlayMfiPowerGpio": -1,
   "carPlayHlsVideo": false,
-  "carPlayVehicleState": false,
+  "carPlayVehicleClimate": true,
+  "carPlayDockPosition": "bottom",
   "gpsEnabled": false,
   "gpsDevice": "/dev/ttyAMA0",
   "gpsBaudRate": 38400,
@@ -132,7 +137,7 @@ export const DEFAULT_CONFIG: Config = {
   "language": "en",
   "kiosk": {
     "main": false,
-    "dash": false,
+    "cluster": false,
     "aux": false
   },
   "uiZoomPercent": 100,
@@ -146,45 +151,45 @@ export const DEFAULT_CONFIG: Config = {
   "cameraId": "",
   "camera": {
     "main": true,
-    "dash": false,
+    "cluster": false,
     "aux": false
   },
   "cameraMirror": false,
   "cameraRotation": 0,
   "media": {
     "main": true,
-    "dash": false,
+    "cluster": false,
     "aux": false
   },
   "dashboards": {
-    "dash1": {
+    "dashboard1": {
       "main": true,
-      "dash": false,
+      "cluster": false,
       "aux": false,
       "pos": 1
     },
-    "dash2": {
+    "dashboard2": {
       "main": true,
-      "dash": false,
+      "cluster": false,
       "aux": false,
       "pos": 2
     },
-    "dash3": {
+    "dashboard3": {
       "main": true,
-      "dash": false,
+      "cluster": false,
       "aux": false,
       "pos": 3
     },
-    "dash4": {
+    "dashboard4": {
       "main": true,
-      "dash": false,
+      "cluster": false,
       "aux": false,
       "pos": 4
     }
   },
   "custom": {
     "main": false,
-    "dash": false,
+    "cluster": false,
     "aux": false
   },
   "customUrl": "",
@@ -194,7 +199,7 @@ export const DEFAULT_CONFIG: Config = {
     "width": 0,
     "height": 0
   },
-  "dashScreenBounds": {
+  "clusterScreenBounds": {
     "x": 0,
     "y": 0,
     "width": 0,
@@ -208,9 +213,9 @@ export const DEFAULT_CONFIG: Config = {
   },
   "mainScreenWidth": 1280,
   "mainScreenHeight": 720,
-  "dashScreenActive": false,
-  "dashScreenWidth": 1280,
-  "dashScreenHeight": 720,
+  "clusterScreenActive": false,
+  "clusterScreenWidth": 1280,
+  "clusterScreenHeight": 720,
   "auxScreenActive": false,
   "auxScreenWidth": 800,
   "auxScreenHeight": 480,
@@ -264,9 +269,9 @@ export const DEFAULT_CONFIG: Config = {
   }
 };
 
-export type DashboardSlot = { main: boolean, dash: boolean, aux: boolean, pos: number, };
+export type DashboardSlot = { main: boolean, cluster: boolean, aux: boolean, pos: number, };
 
-export type Dashboards = { dash1: DashboardSlot, dash2: DashboardSlot, dash3: DashboardSlot, dash4: DashboardSlot, };
+export type Dashboards = { dashboard1: DashboardSlot, dashboard2: DashboardSlot, dashboard3: DashboardSlot, dashboard4: DashboardSlot, };
 
 /**
  * Active projects, available is held or on the access point, offline is
@@ -279,6 +284,8 @@ export type DeviceView = { id: string, name?: string, model?: string, protocol?:
  * Place among the sessions, counted from 1.
  */
 session?: number, };
+
+export type DockPosition = "auto" | "side" | "bottom";
 
 export type DongleRadios = { wifi: boolean, bt: boolean, };
 
@@ -296,12 +303,6 @@ export type Input = { "kind": "pointer", screen: Screen, points: Array<Point>, }
  * Each value is a KeyboardEvent.code, empty when unbound.
  */
 export type KeyBindings = { up: string, down: string, left: string, right: string, selectUp: string, selectDown: string, back: string, knobLeft: string, knobRight: string, knobUp: string, knobDown: string, home: string, cycleSession: string, playPause: string, play: string, pause: string, next: string, prev: string, acceptPhone: string, rejectPhone: string, phoneKey0: string, phoneKey1: string, phoneKey2: string, phoneKey3: string, phoneKey4: string, phoneKey5: string, phoneKey6: string, phoneKey7: string, phoneKey8: string, phoneKey9: string, phoneKeyStar: string, phoneKeyHash: string, phoneKeyHookSwitch: string, voiceAssistant: string, voiceAssistantRelease: string, };
-
-export type LastKnownGps = { lat: number, lng: number, alt?: number, heading?: number, 
-/**
- * Milliseconds since the epoch.
- */
-ts: number, };
 
 /**
  * Down is phone to car, the stream, up is car to phone, touch and mic.
@@ -358,7 +359,7 @@ export const PROTOCOL = 5;
 
 export type PatchOp = { "op": "set", path: Array<string>, value: unknown, } | { "op": "remove", path: Array<string>, };
 
-export type PerScreen<T> = { main: T, dash: T, aux: T, };
+export type PerScreen<T> = { main: T, cluster: T, aux: T, };
 
 export type Phase = "down" | "move" | "up" | "cancel";
 
@@ -381,7 +382,7 @@ run: string,
  */
 url: string | null, };
 
-export type Screen = "main" | "dash" | "aux";
+export type Screen = "main" | "cluster" | "aux";
 
 export type Sessions = { active: Protocol | null, 
 /**

@@ -167,10 +167,27 @@ export const carSchema: SettingsNode<Config> = {
     },
     {
       type: 'checkbox',
-      label: 'CarPlay Vehicle State',
-      labelKey: 'settings.carPlayVehicleState',
-      icon: 'car',
-      path: 'carPlayVehicleState'
+      label: 'CarPlay Climate Controls',
+      labelKey: 'settings.carPlayVehicleClimate',
+      icon: 'climate',
+      path: 'carPlayVehicleClimate'
+    },
+    {
+      type: 'select',
+      label: 'CarPlay Dock',
+      labelKey: 'settings.carPlayDockPosition',
+      icon: 'edgeBottom',
+      path: 'carPlayDockPosition',
+      displayValue: true,
+      options: [
+        { label: 'Bottom', labelKey: 'settings.carPlayDockBottom', value: 'bottom' },
+        { label: 'Side', labelKey: 'settings.carPlayDockSide', value: 'side' },
+        { label: 'Automatic', labelKey: 'settings.carPlayDockAuto', value: 'auto' }
+      ],
+      page: {
+        title: 'CarPlay Dock',
+        labelTitle: 'settings.carPlayDockPosition'
+      }
     },
     {
       type: 'custom',

@@ -309,7 +309,7 @@ mod tests {
     fn a_blinker_or_the_hazards_make_it_tick() {
         let livi = livi_core_proto::state::PerScreen {
             main: livi_core_proto::state::Front::Livi,
-            dash: livi_core_proto::state::Front::Livi,
+            cluster: livi_core_proto::state::Front::Livi,
             aux: livi_core_proto::state::Front::Livi,
         };
         let mut s = State {

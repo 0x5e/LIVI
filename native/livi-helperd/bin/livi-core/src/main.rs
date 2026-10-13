@@ -43,6 +43,7 @@ mod resources;
 mod server;
 mod services;
 mod spectrum;
+mod state_files;
 mod status_file;
 mod system_volume;
 mod telemetry;
@@ -141,7 +142,7 @@ async fn run() -> Result<Exit, String> {
     };
     let config_file = ConfigFile::new(paths.config.clone(), paths.config_backup.clone());
     let config = config_file.load(&host);
-    let livi = PerScreen { main: Front::Livi, dash: Front::Livi, aux: Front::Livi };
+    let livi = PerScreen { main: Front::Livi, cluster: Front::Livi, aux: Front::Livi };
     let quit = Arc::new(Notify::new());
     if std::env::var(LIFELINE_ENV).is_ok_and(|v| v == "1") {
         let quit = quit.clone();
@@ -175,12 +176,13 @@ async fn run() -> Result<Exit, String> {
     tokio::spawn(dongle::run(core.hub.clone(), dongle_asks));
     tokio::spawn(wifi_options::follow(core.clone()));
     let (inside, inside_rx) = tokio::sync::mpsc::unbounded_channel();
-    tokio::spawn(telemetry::run(core.clone(), inside_rx));
-    tokio::spawn(gnss::run(core.clone(), inside.clone(), user_data.clone()));
-    tokio::spawn(car_bridge::run(core.clone(), inside));
+    let saved = state_files::saved(&user_data);
+    tokio::spawn(telemetry::run(core.clone(), inside_rx, saved));
+    tokio::spawn(gnss::run(core.clone(), inside.clone()));
+    tokio::spawn(car_bridge::run(core.clone(), inside.clone()));
     tokio::spawn(system_volume::follow(core.clone()));
     tokio::spawn(update::run(core.clone(), update_asks));
-    tokio::spawn(status_file::run(core.clone(), core.activity(), user_data.clone()));
+    state_files::start(&core, core.activity(), &user_data);
     let res = Resources::from_env();
     tokio::spawn(audio_devices::follow(core.hub.clone(), res.gstreamer.clone()));
     host_setup::prepare();
@@ -204,6 +206,7 @@ async fn run() -> Result<Exit, String> {
         socket.clone(),
         quit.clone(),
         asks,
+        inside,
     );
 
     tokio::select! {

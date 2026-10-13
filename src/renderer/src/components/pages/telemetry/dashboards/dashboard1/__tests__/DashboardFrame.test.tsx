@@ -1,24 +1,24 @@
 import { createTheme, ThemeProvider } from '@mui/material'
 import { CarType } from '@shared/types'
 import { act, fireEvent, render, screen, waitFor } from '@testing-library/react'
-import { DashFrame } from '../DashFrame'
+import { DashboardFrame } from '../DashboardFrame'
 
 const useVehicleTelemetryMock = vi.fn()
-const setClusterDashActive = vi.fn()
+const setClusterDashboardActive = vi.fn()
 let settings: Record<string, unknown> | undefined
 
 vi.mock('../../../hooks/useVehicleTelemetry', () => ({
   useVehicleTelemetry: () => useVehicleTelemetryMock()
 }))
 
-vi.mock('../../../components/DashShell', () => ({
-  DashShell: ({ children }: { children: React.ReactNode }) => <div>{children}</div>
+vi.mock('../../../components/DashboardShell', () => ({
+  DashboardShell: ({ children }: { children: React.ReactNode }) => <div>{children}</div>
 }))
 
 vi.mock('@store/store', () => ({
   useLiviStore: (selector: (s: { settings: unknown }) => unknown) => selector({ settings }),
-  useStatusStore: (selector: (s: { setClusterDashActive: unknown }) => unknown) =>
-    selector({ setClusterDashActive })
+  useStatusStore: (selector: (s: { setClusterDashboardActive: unknown }) => unknown) =>
+    selector({ setClusterDashboardActive })
 }))
 
 vi.mock('../../../widgets', () => ({
@@ -73,7 +73,7 @@ vi.mock('../../../widgets', () => ({
   }) => <div>{`Telltale:${turn}:${hazards}:${lights}:${highBeam}:${parkingBrake}:${ambientC}`}</div>
 }))
 
-describe('DashFrame', () => {
+describe('DashboardFrame', () => {
   beforeEach(() => {
     vi.clearAllMocks()
     settings = { carType: undefined }
@@ -81,7 +81,7 @@ describe('DashFrame', () => {
     useVehicleTelemetryMock.mockReturnValue({ telemetry: {} })
   })
 
-  test('renders the full-cluster frame and toggles the cluster-dash flag', () => {
+  test('renders the full-cluster frame and toggles the cluster-dashboard flag', () => {
     settings = { carType: CarType.Electric }
     useVehicleTelemetryMock.mockReturnValue({
       telemetry: {
@@ -99,9 +99,9 @@ describe('DashFrame', () => {
       }
     })
 
-    const { unmount } = render(<DashFrame clusterFull />)
+    const { unmount } = render(<DashboardFrame clusterFull />)
 
-    expect(setClusterDashActive).toHaveBeenCalledWith(true)
+    expect(setClusterDashboardActive).toHaveBeenCalledWith(true)
     expect(screen.getByText('Fuel:battery:40')).toBeInTheDocument()
     expect(screen.getByText('Gauge:88:true')).toBeInTheDocument()
     expect(screen.getByText('Soft:KPH:88:rgba(255, 255, 255, 0.78)')).toBeInTheDocument()
@@ -109,13 +109,13 @@ describe('DashFrame', () => {
 
     unmount()
 
-    expect(setClusterDashActive).toHaveBeenLastCalledWith(false)
+    expect(setClusterDashboardActive).toHaveBeenLastCalledWith(false)
   })
 
   test('renders the plain frame with fallbacks when telemetry is empty', () => {
-    render(<DashFrame />)
+    render(<DashboardFrame />)
 
-    expect(setClusterDashActive).not.toHaveBeenCalled()
+    expect(setClusterDashboardActive).not.toHaveBeenCalled()
     expect(screen.getByText('Fuel:fuel:0')).toBeInTheDocument()
     expect(screen.getByText('Soft:KPH:0:undefined')).toBeInTheDocument()
     expect(screen.getAllByText('Gauge:0:undefined')).toHaveLength(2)
@@ -124,7 +124,7 @@ describe('DashFrame', () => {
 
   test('without settings the scales keep their defaults', () => {
     settings = undefined
-    const { container } = render(<DashFrame />)
+    const { container } = render(<DashboardFrame />)
 
     const scales = Array.from(container.querySelectorAll('[data-scale]')).map((g) =>
       g.getAttribute('data-scale')
@@ -143,7 +143,7 @@ describe('DashFrame', () => {
       redlineRpm: 6500
     }
     useVehicleTelemetryMock.mockReturnValue({ telemetry: { speedKph: 100, oilC: 90 } })
-    const { container } = render(<DashFrame />)
+    const { container } = render(<DashboardFrame />)
 
     expect(screen.getByText('Soft:MPH:62:undefined')).toBeInTheDocument()
     expect(screen.getByText('Temp:90:fahrenheit')).toBeInTheDocument()
@@ -163,7 +163,7 @@ describe('DashFrame', () => {
   test('forwards a right turn signal', () => {
     useVehicleTelemetryMock.mockReturnValue({ telemetry: { turn: 'right' } })
 
-    render(<DashFrame />)
+    render(<DashboardFrame />)
 
     expect(screen.getByText('Telltale:right:false:false:false:false:undefined')).toBeInTheDocument()
   })
@@ -172,7 +172,7 @@ describe('DashFrame', () => {
     Object.defineProperty(window, 'innerWidth', { configurable: true, value: 640 })
     Object.defineProperty(window, 'innerHeight', { configurable: true, value: 360 })
     try {
-      const { container } = render(<DashFrame />)
+      const { container } = render(<DashboardFrame />)
 
       const stage = Array.from(container.querySelectorAll('div')).find((d) =>
         window.getComputedStyle(d).transform.includes('scale(0.5)')
@@ -187,7 +187,7 @@ describe('DashFrame', () => {
   test('rescales on a settled window resize, collapses blips and cancels on unmount', () => {
     vi.useFakeTimers()
     try {
-      const { container, unmount } = render(<DashFrame />)
+      const { container, unmount } = render(<DashboardFrame />)
 
       Object.defineProperty(window, 'innerWidth', { configurable: true, value: 1278 })
       Object.defineProperty(window, 'innerHeight', { configurable: true, value: 720 })
@@ -236,7 +236,7 @@ describe('DashFrame', () => {
   test('renders under a dark theme', () => {
     render(
       <ThemeProvider theme={createTheme({ palette: { mode: 'dark' } })}>
-        <DashFrame clusterFull />
+        <DashboardFrame clusterFull />
       </ThemeProvider>
     )
 

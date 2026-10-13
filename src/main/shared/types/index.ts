@@ -4,7 +4,6 @@ export type {
   DashboardSlot,
   Dashboards,
   KeyBindings,
-  LastKnownGps,
   PerScreen,
   Screen,
   SpeedUnit,

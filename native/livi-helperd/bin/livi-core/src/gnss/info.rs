@@ -1,4 +1,4 @@
-//! The GPS settings page and gpsData.json read these shapes as they are.
+//! The GPS settings page and state/gps.json read these shapes as they are.
 
 use serde::{Serialize, Serializer};
 

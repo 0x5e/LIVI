@@ -74,13 +74,13 @@ const SecondaryShellInner = ({ role }: InnerProps) => {
   const navRef = useRef<HTMLDivElement | null>(null)
   const mainRef = useRef<HTMLDivElement | null>(null)
   const settings = useLiviStore((s) => s.settings)
-  const clusterDashActive = useStatusStore((s) => s.clusterDashActive)
-  const hasClusterDash = isClusterOnScreen(settings, role)
+  const clusterDashboardActive = useStatusStore((s) => s.clusterDashboardActive)
+  const hasClusterDashboard = isClusterOnScreen(settings, role)
 
-  // Core puts the cluster plane on this screen while a cluster dash shows
+  // Core puts the cluster plane on this screen while a cluster dashboard shows
   useEffect(() => {
-    reportShown(role, clusterDashActive ? 'cluster' : 'livi')
-  }, [role, clusterDashActive])
+    reportShown(role, clusterDashboardActive ? 'cluster' : 'livi')
+  }, [role, clusterDashboardActive])
 
   useEffect(() => {
     return window.app?.onMediaKey?.((command) => {
@@ -158,8 +158,11 @@ const SecondaryShellInner = ({ role }: InnerProps) => {
 
   return (
     <AppLayout navRef={navRef} mainRef={mainRef} receivingVideo={false}>
-      {hasClusterDash && settings && (
-        <Cluster visible={clusterDashActive} showLoadingPlaceholder={!clusterDashActive} />
+      {hasClusterDashboard && settings && (
+        <Cluster
+          visible={clusterDashboardActive}
+          showLoadingPlaceholder={!clusterDashboardActive}
+        />
       )}
       <Routes>
         <Route path={ROUTES.TELEMETRY} element={<Telemetry windowRole={role} />} />

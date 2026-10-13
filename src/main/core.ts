@@ -35,6 +35,7 @@ function coreProgram(): { bin: string; env: NodeJS.ProcessEnv } | null {
       ...process.env,
       ...where,
       LIVI_NO_UI: '1',
+      LIVI_VERSION: app.getVersion(),
       [LIFELINE_ENV]: '1',
       LIVI_UI_PLANES: uiPlanesPath()
     }

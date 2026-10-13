@@ -27,7 +27,7 @@ use tokio::sync::{Notify, broadcast, mpsc, oneshot, watch};
 use crate::aa_telemetry::AaTelemetry;
 use crate::android_auto;
 use crate::carplay::night_mode;
-use crate::cp_telemetry::CpTelemetry;
+use crate::cp_telemetry::{CpTelemetry, FROM_CARPLAY};
 use crate::devices::{self, Devices, Seen};
 use crate::hands_free::{self, Back, HandsFree, Io};
 use crate::helper;
@@ -35,6 +35,7 @@ use crate::hub::Hub;
 use crate::nav_text;
 use crate::spectrum;
 use crate::status_file::Activity;
+use crate::telemetry::{CLIMATE, SOURCE};
 use crate::update::UpdateAsk;
 
 const RAMP_DOWN_MS: u32 = 500;
@@ -306,7 +307,7 @@ fn bound(b: &KeyBindings, code: &str) -> Option<Key> {
 }
 
 fn shows_cluster(wants: &PerScreen<Front>) -> bool {
-    [wants.main, wants.dash, wants.aux].contains(&Front::Cluster)
+    [wants.main, wants.cluster, wants.aux].contains(&Front::Cluster)
 }
 
 fn session_ids(ids: &devices::Ids) -> Ids {
@@ -342,6 +343,8 @@ pub struct Drivers {
     pub aa_crop: watch::Receiver<Option<Crop>>,
     pub phone_io: mpsc::UnboundedSender<Io>,
     pub phone_back: mpsc::UnboundedReceiver<Back>,
+    /// Into the telemetry, like any producer inside core.
+    pub telemetry: mpsc::UnboundedSender<Value>,
 }
 
 pub struct Projection {
@@ -351,6 +354,7 @@ pub struct Projection {
     aa_crop: watch::Receiver<Option<Crop>>,
     phone_io: mpsc::UnboundedSender<Io>,
     phone_back: Option<mpsc::UnboundedReceiver<Back>>,
+    telemetry: mpsc::UnboundedSender<Value>,
     hands_free: HandsFree,
     /// Wired and USB serial of each Android Auto session until it projects.
     aa_spawned: HashMap<AaId, (bool, Option<String>)>,
@@ -464,7 +468,7 @@ impl Projection {
         devices: Devices,
         wants: PerScreen<Front>,
     ) -> Self {
-        let Drivers { cp, aa, aa_crop, phone_io, phone_back } = drivers;
+        let Drivers { cp, aa, aa_crop, phone_io, phone_back, telemetry } = drivers;
         let cfg = hub.config();
         cp.send(CpCmd::InitialNightMode(night_mode(cfg.appearance_mode)));
         let cluster_on = shows_cluster(&wants);
@@ -476,6 +480,7 @@ impl Projection {
             aa_crop,
             phone_io,
             phone_back: Some(phone_back),
+            telemetry,
             hands_free: HandsFree::default(),
             aa_spawned: HashMap::new(),
             plane,
@@ -715,6 +720,10 @@ impl Projection {
             }
             CpEvent::Metadata { id, event } => self.metadata(Link::Cp(id), &event),
             CpEvent::Spawned { .. } => self.cp_telemetry.hydrate(&self.telemetry_seen, &self.cp),
+            CpEvent::Climate { mut climate, .. } => {
+                climate.insert(SOURCE.into(), FROM_CARPLAY.into());
+                let _ = self.telemetry.send(serde_json::json!({ CLIMATE: climate }));
+            }
             CpEvent::VideoCodec { .. } => {}
             CpEvent::PhoneUtcOffset { minutes } => {
                 tokio::spawn(crate::gnss::timezone::apply_phone_offset(minutes));
@@ -1107,7 +1116,7 @@ impl Projection {
     fn asked(&mut self, asked: PerScreen<Front>) {
         let before = self.wants.main;
         let last = std::mem::replace(&mut self.asked, asked);
-        for screen in [Screen::Main, Screen::Dash, Screen::Aux] {
+        for screen in [Screen::Main, Screen::Cluster, Screen::Aux] {
             if asked.get(screen) != last.get(screen) {
                 *self.wants.get_mut(screen) = *asked.get(screen);
             }
@@ -1239,7 +1248,7 @@ impl Projection {
         let targets = self.targets();
         self.devices.page(targets, false);
         let main = self.front_main();
-        let (dash, aux) = (self.wants.dash, self.wants.aux);
+        let (cluster, aux) = (self.wants.cluster, self.wants.aux);
         let position = self.sessions.iter().position(|s| s.active);
         let sessions = Sessions {
             active: position.map(|i| self.sessions[i].link.protocol()),
@@ -1253,7 +1262,7 @@ impl Projection {
         written_out(&mut navigation, nav_text::Language::of(&self.config_seen.language));
         self.hub.update(|s| {
             s.front.main = main;
-            s.front.dash = dash;
+            s.front.cluster = cluster;
             s.front.aux = aux;
             s.sessions = sessions;
             s.now_playing = now_playing;
@@ -1818,10 +1827,11 @@ mod tests {
         aa: mpsc::UnboundedReceiver<AaCmd>,
         crop: watch::Sender<Option<Crop>>,
         io: mpsc::UnboundedReceiver<Io>,
+        telemetry: mpsc::UnboundedReceiver<Value>,
     }
 
     fn livi() -> PerScreen<Front> {
-        PerScreen { main: Front::Livi, dash: Front::Livi, aux: Front::Livi }
+        PerScreen { main: Front::Livi, cluster: Front::Livi, aux: Front::Livi }
     }
 
     impl Rig {
@@ -1850,12 +1860,14 @@ mod tests {
                 livi_cp::helper_sock::HelperSock::new(dir.0.join("cp-bt.sock")),
             );
             let (phone_io, io) = mpsc::unbounded_channel();
+            let (telemetry_tx, telemetry) = mpsc::unbounded_channel();
             let drivers = Drivers {
                 cp: CpHandle::from_sender(tx),
                 aa: AaHandle::from_sender(aa_tx),
                 aa_crop,
                 phone_io,
                 phone_back: mpsc::unbounded_channel().1,
+                telemetry: telemetry_tx,
             };
             let p = Projection::new(
                 hub.clone(),
@@ -1867,7 +1879,7 @@ mod tests {
                 livi(),
             );
             assert_eq!(aa.try_recv(), Ok(AaCmd::ClusterActive(false)));
-            let mut rig = Self { dir, hub, p, cmds, aa, crop, io };
+            let mut rig = Self { dir, hub, p, cmds, aa, crop, io, telemetry };
             assert_eq!(rig.drain(), [CpCmd::InitialNightMode(None), CpCmd::ClusterActive(false)]);
             rig
         }
@@ -2142,7 +2154,7 @@ mod tests {
         );
         rig.p.input(Input::Pointer { screen: Screen::Main, points: vec![] });
         let dash = Point { id: 0, x: 0.5, y: 0.5, phase: Phase::Down };
-        rig.p.input(Input::Pointer { screen: Screen::Dash, points: vec![dash] });
+        rig.p.input(Input::Pointer { screen: Screen::Cluster, points: vec![dash] });
         rig.p.keyframe();
         assert_eq!(rig.drain(), [stack(1, StackCmd::Keyframe)]);
     }
@@ -2292,10 +2304,14 @@ mod tests {
 
         rig.p.on_event(CpEvent::Call { id: 1, phase: CallPhase::Ringing });
         assert_eq!(rig.front(), Front::Projection);
-        rig.p.asked(PerScreen { dash: Front::Cluster, ..livi() });
+        rig.p.asked(PerScreen { cluster: Front::Cluster, ..livi() });
         assert_eq!(rig.front(), Front::Projection);
         // The UI follows without a home press, that would end the call or Siri.
-        rig.p.asked(PerScreen { main: Front::Projection, dash: Front::Cluster, aux: Front::Livi });
+        rig.p.asked(PerScreen {
+            main: Front::Projection,
+            cluster: Front::Cluster,
+            aux: Front::Livi,
+        });
         assert_eq!(rig.drain(), [CpCmd::ClusterActive(true), stack(1, StackCmd::Keyframe)]);
 
         rig.p.on_event(CpEvent::SpeechActive { id: 1, active: true });
@@ -2338,6 +2354,17 @@ mod tests {
         assert_eq!(rig.front(), Front::Projection);
         rig.p.on_event(CpEvent::Disconnected { id: 1 });
         assert_eq!(rig.front(), Front::Livi);
+    }
+
+    #[tokio::test]
+    async fn the_phones_climate_lands_in_the_telemetry() {
+        let mut rig = Rig::new();
+        let climate = json!({ "auto": false }).as_object().cloned().unwrap();
+        rig.p.on_event(CpEvent::Climate { id: 1, climate });
+        assert_eq!(
+            rig.telemetry.try_recv(),
+            Ok(json!({ "climate": { "auto": false, "source": "carplay" } }))
+        );
     }
 
     #[tokio::test]
@@ -2439,11 +2466,11 @@ mod tests {
     #[tokio::test]
     async fn the_cluster_streams_while_a_screen_shows_it() {
         let mut rig = Rig::new();
-        rig.p.asked(PerScreen { dash: Front::Cluster, ..livi() });
-        rig.p.asked(PerScreen { main: Front::Cluster, dash: Front::Cluster, aux: Front::Livi });
+        rig.p.asked(PerScreen { cluster: Front::Cluster, ..livi() });
+        rig.p.asked(PerScreen { main: Front::Cluster, cluster: Front::Cluster, aux: Front::Livi });
         assert_eq!(rig.drain(), [CpCmd::ClusterActive(true)]);
-        assert_eq!(rig.hub.watch().borrow().front.dash, Front::Cluster);
-        rig.p.asked(PerScreen { dash: Front::Cluster, ..livi() });
+        assert_eq!(rig.hub.watch().borrow().front.cluster, Front::Cluster);
+        rig.p.asked(PerScreen { cluster: Front::Cluster, ..livi() });
         rig.p.asked(livi());
         assert_eq!(rig.drain(), [CpCmd::ClusterActive(false)]);
     }

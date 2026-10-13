@@ -1,8 +1,8 @@
 import type { Dashboards, Screen } from '@shared/types'
 
-const DASH_IDS: (keyof Dashboards)[] = ['dash1', 'dash2', 'dash3', 'dash4']
+const DASH_IDS: (keyof Dashboards)[] = ['dashboard1', 'dashboard2', 'dashboard3', 'dashboard4']
 
-export const normalizeDashComponents = (
+export const normalizeDashboardComponents = (
   dashboards: Dashboards | null | undefined,
   windowRole: Screen = 'main'
 ) => {

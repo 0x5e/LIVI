@@ -80,7 +80,7 @@ const CarplayComponent: React.FC<CarplayProps> = ({
   const theme = useTheme()
 
   const isStreaming = useStatusStore((s) => s.isStreaming)
-  const clusterDashActive = useStatusStore((s) => s.clusterDashActive)
+  const clusterDashboardActive = useStatusStore((s) => s.clusterDashboardActive)
   const isProjectionActive = useProjectionActive()
 
   const frontMain = useLiviStore((s) => s.front?.main)
@@ -92,8 +92,11 @@ const CarplayComponent: React.FC<CarplayProps> = ({
 
   // Core shows the video plane while the projection or the cluster is in front
   useEffect(() => {
-    reportShown('main', pathname === '/' ? 'projection' : clusterDashActive ? 'cluster' : 'livi')
-  }, [pathname, clusterDashActive])
+    reportShown(
+      'main',
+      pathname === '/' ? 'projection' : clusterDashboardActive ? 'cluster' : 'livi'
+    )
+  }, [pathname, clusterDashboardActive])
 
   useEffect(() => {
     document.documentElement.classList.toggle('show-video', pathname === '/' && receivingVideo)

@@ -19,7 +19,8 @@ describe('carSchema', () => {
       'redlineRpm',
       'speedUnit',
       'temperatureUnit',
-      'carPlayVehicleState',
+      'carPlayVehicleClimate',
+      'carPlayDockPosition',
       'carType'
     ])
     expect(children.at(-1)?.type).toBe('custom')

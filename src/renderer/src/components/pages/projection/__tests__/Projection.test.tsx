@@ -82,10 +82,10 @@ describe('Projection page', () => {
     rerender(<Projection {...baseProps()} />)
     expect(reportShownMock).toHaveBeenLastCalledWith('main', 'livi')
 
-    statusState.clusterDashActive = true
+    statusState.clusterDashboardActive = true
     rerender(<Projection {...baseProps()} />)
     expect(reportShownMock).toHaveBeenLastCalledWith('main', 'cluster')
-    statusState.clusterDashActive = false
+    statusState.clusterDashboardActive = false
   })
 
   test('a connected phone turns the status overlay to its phone phase', () => {
@@ -245,7 +245,7 @@ function baseSettings(overrides: any = {}) {
     width: 800,
     height: 480,
     fps: 60,
-    cluster: { main: false, dash: false, aux: false },
+    cluster: { main: false, cluster: false, aux: false },
     ...overrides
   }
 }
@@ -258,7 +258,7 @@ function baseProps(overrides: any = {}) {
       width: 800,
       height: 480,
       fps: 60,
-      cluster: { main: false, dash: false, aux: false }
+      cluster: { main: false, cluster: false, aux: false }
     },
     ...overrides
   }

@@ -8,13 +8,13 @@ vi.mock('../components/secondaryWindow/SecondaryAppShell', () => ({
   )
 }))
 
-import DashApp from '../DashApp'
+import ClusterApp from '../ClusterApp'
 
-describe('DashApp', () => {
-  test('mounts SecondaryAppShell with role=dash and the Dash empty label', () => {
-    render(<DashApp />)
+describe('ClusterApp', () => {
+  test('mounts SecondaryAppShell with role=cluster and the Cluster empty label', () => {
+    render(<ClusterApp />)
     const shell = screen.getByTestId('shell')
-    expect(shell).toHaveAttribute('data-role', 'dash')
-    expect(shell).toHaveTextContent('Dash Window')
+    expect(shell).toHaveAttribute('data-role', 'cluster')
+    expect(shell).toHaveTextContent('Cluster Window')
   })
 })

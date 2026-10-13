@@ -3,7 +3,7 @@ import { CoreSession } from '../session'
 
 const state = (huVolume: number) =>
   ({
-    front: { main: 'livi', dash: 'livi', aux: 'livi' },
+    front: { main: 'livi', cluster: 'livi', aux: 'livi' },
     config: { huVolume }
   }) as unknown as State
 
@@ -144,7 +144,7 @@ describe('CoreSession', () => {
 
   test('showing without a connection waits for the welcome', async () => {
     const { session, sent } = setup(false)
-    session.show('dash', 'cluster')
+    session.show('cluster', 'cluster')
     await Promise.resolve()
     expect(sent).toHaveLength(1)
   })

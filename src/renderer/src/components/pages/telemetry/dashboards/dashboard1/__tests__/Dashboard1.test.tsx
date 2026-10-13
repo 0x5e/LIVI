@@ -1,5 +1,5 @@
 import { fireEvent, render, screen, waitFor } from '@testing-library/react'
-import { Dash1 } from '../Dash1'
+import { Dashboard1 } from '../Dashboard1'
 
 const useVehicleTelemetryMock = vi.fn()
 
@@ -7,8 +7,8 @@ vi.mock('../../../hooks/useVehicleTelemetry', () => ({
   useVehicleTelemetry: () => useVehicleTelemetryMock()
 }))
 
-vi.mock('../../../components/DashShell', () => ({
-  DashShell: ({ children }: { children: React.ReactNode }) => <div>{children}</div>
+vi.mock('../../../components/DashboardShell', () => ({
+  DashboardShell: ({ children }: { children: React.ReactNode }) => <div>{children}</div>
 }))
 
 vi.mock('../../../widgets', () => ({
@@ -34,7 +34,7 @@ vi.mock('../../../widgets', () => ({
   )
 }))
 
-describe('Dash1', () => {
+describe('Dashboard1', () => {
   beforeEach(async () => {
     vi.clearAllMocks()
 
@@ -51,7 +51,7 @@ describe('Dash1', () => {
   })
 
   test('renders all dashboard widgets with telemetry values', async () => {
-    render(<Dash1 />)
+    render(<Dashboard1 />)
 
     // left ring is fed speed, right ring is fed rpm
     expect(screen.getByText('Gauge:123')).toBeInTheDocument()
@@ -68,7 +68,7 @@ describe('Dash1', () => {
       telemetry: {}
     })
 
-    render(<Dash1 />)
+    render(<Dashboard1 />)
 
     // both rings read 0 (speed + rpm)
     expect(screen.getAllByText('Gauge:0')).toHaveLength(2)
@@ -83,13 +83,13 @@ describe('Dash1', () => {
       }
     })
 
-    render(<Dash1 />)
+    render(<Dashboard1 />)
 
     expect(screen.getByText('Soft:GEAR:3')).toBeInTheDocument()
   })
 
   test('handles a window resize without breaking rendered widgets', async () => {
-    const { unmount } = render(<Dash1 />)
+    const { unmount } = render(<Dashboard1 />)
 
     Object.defineProperty(window, 'innerWidth', { configurable: true, value: 640 })
     Object.defineProperty(window, 'innerHeight', { configurable: true, value: 360 })

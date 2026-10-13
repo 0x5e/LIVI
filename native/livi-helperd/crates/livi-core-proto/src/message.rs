@@ -22,7 +22,7 @@ pub enum ToCore {
         id: u32,
         action: Action,
     },
-    /// The UI's route, only because statusData.json publishes it.
+    /// The UI's route, only because state/status.json publishes it.
     Path {
         path: String,
     },

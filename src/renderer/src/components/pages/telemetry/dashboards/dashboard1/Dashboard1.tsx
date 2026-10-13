@@ -1,11 +1,11 @@
-import { DashFrame } from './DashFrame'
+import { DashboardFrame } from './DashboardFrame'
 import { NavMiniCenter } from './NavMiniCenter'
 
 /** Telemetry cluster: gauges + telltales, mini turn-by-turn nav in the centre. */
-export function Dash1() {
+export function Dashboard1() {
   return (
-    <DashFrame>
+    <DashboardFrame>
       <NavMiniCenter />
-    </DashFrame>
+    </DashboardFrame>
   )
 }

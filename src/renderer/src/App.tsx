@@ -33,7 +33,7 @@ function AppInner() {
   const settings = useLiviStore((s) => s.settings)
   const saveSettings = useLiviStore((s) => s.saveSettings)
   const setCameraFound = useStatusStore((s) => s.setCameraFound)
-  const clusterDashActive = useStatusStore((s) => s.clusterDashActive)
+  const clusterDashboardActive = useStatusStore((s) => s.clusterDashboardActive)
 
   const navRef = useRef<HTMLDivElement | null>(null)
   const mainRef = useRef<HTMLDivElement | null>(null)
@@ -292,7 +292,10 @@ function AppInner() {
       )}
       {/* The only cluster overlay, it owns the plane reveal. */}
       {settings && (
-        <Cluster visible={clusterDashActive} showLoadingPlaceholder={!clusterDashActive} />
+        <Cluster
+          visible={clusterDashboardActive}
+          showLoadingPlaceholder={!clusterDashboardActive}
+        />
       )}
       <Box sx={{ width: '100%', height: '100%' }}>{element}</Box>
       <PhoneOverlay />

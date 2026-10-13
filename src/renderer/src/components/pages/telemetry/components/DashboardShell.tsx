@@ -2,18 +2,18 @@ import { Box } from '@mui/material'
 import type { PropsWithChildren } from 'react'
 import * as React from 'react'
 
-type DashShellProps = PropsWithChildren<{
+type DashboardShellProps = PropsWithChildren<{
   className?: string
   designWidth?: number
   designHeight?: number
 }>
 
-export function DashShell({
+export function DashboardShell({
   children,
   className,
   designWidth = 1280,
   designHeight = 720
-}: DashShellProps) {
+}: DashboardShellProps) {
   const [size, setSize] = React.useState({ w: window.innerWidth, h: window.innerHeight })
 
   React.useEffect(() => {
@@ -44,7 +44,7 @@ export function DashShell({
         minHeight: 0,
         overflow: 'hidden',
         WebkitFontSmoothing: 'antialiased',
-        '--dash-scale': String(scale)
+        '--dashboard-scale': String(scale)
       }}
     >
       {children}

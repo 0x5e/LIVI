@@ -250,7 +250,7 @@ export interface StatusStore {
   activeProtocol: ActiveProtocol
   isStreaming: boolean
   cameraFound: boolean
-  clusterDashActive: boolean
+  clusterDashboardActive: boolean
   requestedPath: string | null
 
   setCameraFound: (found: boolean) => void
@@ -258,7 +258,7 @@ export interface StatusStore {
   setStreaming: (streaming: boolean) => void
   setReverse: (reverse: boolean) => void
   setLights: (lights: boolean) => void
-  setClusterDashActive: (active: boolean) => void
+  setClusterDashboardActive: (active: boolean) => void
   requestPath: (path: string) => void
   clearRequestedPath: () => void
 }
@@ -269,7 +269,7 @@ export const useStatusStore = create<StatusStore>((set, get) => ({
   activeProtocol: null,
   isStreaming: false,
   cameraFound: false,
-  clusterDashActive: false,
+  clusterDashboardActive: false,
   requestedPath: null,
 
   setCameraFound: (found) => set({ cameraFound: found }),
@@ -281,7 +281,7 @@ export const useStatusStore = create<StatusStore>((set, get) => ({
   setStreaming: (streaming) => set({ isStreaming: streaming }),
   setReverse: (reverse) => set({ reverse }),
   setLights: (lights) => set({ lights }),
-  setClusterDashActive: (active) => set({ clusterDashActive: active }),
+  setClusterDashboardActive: (active) => set({ clusterDashboardActive: active }),
   requestPath: (path) => set({ requestedPath: path }),
   clearRequestedPath: () => set({ requestedPath: null })
 }))

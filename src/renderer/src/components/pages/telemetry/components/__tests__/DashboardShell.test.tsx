@@ -1,12 +1,12 @@
 import { act, fireEvent, render } from '@testing-library/react'
-import { DashShell } from '../DashShell'
+import { DashboardShell } from '../DashboardShell'
 
 function setWindowSize(w: number, h: number): void {
   Object.defineProperty(window, 'innerWidth', { configurable: true, value: w })
   Object.defineProperty(window, 'innerHeight', { configurable: true, value: h })
 }
 
-describe('DashShell', () => {
+describe('DashboardShell', () => {
   beforeEach(async () => {
     vi.clearAllMocks()
     setWindowSize(1024, 768)
@@ -14,32 +14,32 @@ describe('DashShell', () => {
 
   test('derives the initial scale from the window before resize information is available', async () => {
     const { container } = render(
-      <DashShell>
+      <DashboardShell>
         <div>Telemetry content</div>
-      </DashShell>
+      </DashboardShell>
     )
 
-    expect(container.firstChild).toHaveStyle('--dash-scale: 0.8')
+    expect(container.firstChild).toHaveStyle('--dashboard-scale: 0.8')
   })
 
   test('falls back to scale 1 while the window reports no size', async () => {
     setWindowSize(0, 0)
     const { container } = render(
-      <DashShell>
+      <DashboardShell>
         <div>Telemetry content</div>
-      </DashShell>
+      </DashboardShell>
     )
 
-    expect(container.firstChild).toHaveStyle('--dash-scale: 1')
+    expect(container.firstChild).toHaveStyle('--dashboard-scale: 1')
   })
 
   test('applies a settled window resize using the default design size', () => {
     vi.useFakeTimers()
     try {
       const { container } = render(
-        <DashShell>
+        <DashboardShell>
           <div>Telemetry content</div>
-        </DashShell>
+        </DashboardShell>
       )
 
       setWindowSize(640, 360)
@@ -48,7 +48,7 @@ describe('DashShell', () => {
         vi.advanceTimersByTime(150)
       })
 
-      expect(container.firstChild).toHaveStyle('--dash-scale: 0.5')
+      expect(container.firstChild).toHaveStyle('--dashboard-scale: 0.5')
     } finally {
       vi.useRealTimers()
     }
@@ -58,9 +58,9 @@ describe('DashShell', () => {
     vi.useFakeTimers()
     try {
       const { container } = render(
-        <DashShell designWidth={1000} designHeight={500}>
+        <DashboardShell designWidth={1000} designHeight={500}>
           <div>Telemetry content</div>
-        </DashShell>
+        </DashboardShell>
       )
 
       setWindowSize(500, 400)
@@ -69,7 +69,7 @@ describe('DashShell', () => {
         vi.advanceTimersByTime(150)
       })
 
-      expect(container.firstChild).toHaveStyle('--dash-scale: 0.5')
+      expect(container.firstChild).toHaveStyle('--dashboard-scale: 0.5')
     } finally {
       vi.useRealTimers()
     }
@@ -79,9 +79,9 @@ describe('DashShell', () => {
     vi.useFakeTimers()
     try {
       const { container } = render(
-        <DashShell designWidth={1000} designHeight={500}>
+        <DashboardShell designWidth={1000} designHeight={500}>
           <div>Telemetry content</div>
-        </DashShell>
+        </DashboardShell>
       )
 
       setWindowSize(900, 200)
@@ -90,7 +90,7 @@ describe('DashShell', () => {
         vi.advanceTimersByTime(150)
       })
 
-      expect(container.firstChild).toHaveStyle('--dash-scale: 0.4')
+      expect(container.firstChild).toHaveStyle('--dashboard-scale: 0.4')
     } finally {
       vi.useRealTimers()
     }
@@ -100,9 +100,9 @@ describe('DashShell', () => {
     vi.useFakeTimers()
     try {
       const { container } = render(
-        <DashShell>
+        <DashboardShell>
           <div>Telemetry content</div>
-        </DashShell>
+        </DashboardShell>
       )
 
       setWindowSize(1022, 768)
@@ -116,7 +116,7 @@ describe('DashShell', () => {
         vi.advanceTimersByTime(150)
       })
 
-      expect(container.firstChild).toHaveStyle('--dash-scale: 0.8')
+      expect(container.firstChild).toHaveStyle('--dashboard-scale: 0.8')
     } finally {
       vi.useRealTimers()
     }
@@ -126,9 +126,9 @@ describe('DashShell', () => {
     vi.useFakeTimers()
     try {
       const { container, unmount } = render(
-        <DashShell>
+        <DashboardShell>
           <div>Telemetry content</div>
-        </DashShell>
+        </DashboardShell>
       )
 
       setWindowSize(640, 360)

@@ -222,6 +222,22 @@ describe('Projection page', () => {
     expect(videoContainer.style.visibility).toBe('visible')
     expect(videoContainer.style.zIndex).toBe('1')
   })
+
+  test('touch and the view area mask sit in the stream box, not on the whole window', () => {
+    const settings = baseSettings({
+      projectionWidth: 1920,
+      projectionHeight: 1080,
+      projectionViewAreaTop: 54
+    })
+    const { container } = render(<Projection {...baseProps({ receivingVideo: true, settings })} />)
+
+    const box = container.querySelector('#projection-stream') as HTMLElement
+    expect(box.querySelector('#videoContainer')).not.toBeNull()
+    expect(box.style.position).toBe('absolute')
+    expect(box.style.left).toBe('50%')
+    const mask = Array.from(box.children).filter((c) => c.id !== 'videoContainer')
+    expect((mask[0] as HTMLElement).style.height).toBe('5%')
+  })
 })
 
 function baseSettings(overrides: any = {}) {

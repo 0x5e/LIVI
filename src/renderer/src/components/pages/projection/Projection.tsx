@@ -10,6 +10,7 @@ import {
   useStatusStore
 } from '../../../store/store'
 import { useProjectionMultiTouch } from './hooks/useProjectionTouch'
+import { streamBox } from './streamBox'
 import { ViewAreaMask } from './ViewAreaMask'
 
 interface CarplayProps {
@@ -181,7 +182,8 @@ const CarplayComponent: React.FC<CarplayProps> = ({
         opacity: showProjectionOverlay ? 1 : 0,
         transition: 'opacity 120ms ease',
         pointerEvents: inProjection && isStreaming ? 'auto' : 'none',
-        zIndex: showProjectionOverlay ? 999 : -1
+        zIndex: showProjectionOverlay ? 999 : -1,
+        containerType: 'size'
       }}
     >
       {pathname === '/' && (
@@ -189,35 +191,40 @@ const CarplayComponent: React.FC<CarplayProps> = ({
       )}
 
       <div
-        id="videoContainer"
-        ref={videoContainerRef}
-        {...touchHandlers}
-        style={{
-          height: '100%',
-          width: '100%',
-          padding: 0,
-          margin: 0,
-          display: 'block',
-          touchAction: 'none',
-          backgroundColor: receivingVideo ? 'transparent' : theme.palette.background.default,
-          visibility: receivingVideo ? 'visible' : 'hidden',
-          zIndex: receivingVideo ? 1 : -1,
-          position: 'relative',
-          overflow: 'hidden'
-        }}
-      />
+        id="projection-stream"
+        style={streamBox(settings.projectionWidth, settings.projectionHeight)}
+      >
+        <div
+          id="videoContainer"
+          ref={videoContainerRef}
+          {...touchHandlers}
+          style={{
+            height: '100%',
+            width: '100%',
+            padding: 0,
+            margin: 0,
+            display: 'block',
+            touchAction: 'none',
+            backgroundColor: receivingVideo ? 'transparent' : theme.palette.background.default,
+            visibility: receivingVideo ? 'visible' : 'hidden',
+            zIndex: receivingVideo ? 1 : -1,
+            position: 'relative',
+            overflow: 'hidden'
+          }}
+        />
 
-      <ViewAreaMask
-        visible={receivingVideo}
-        displayWidth={settings.projectionWidth}
-        displayHeight={settings.projectionHeight}
-        insets={{
-          top: settings.projectionViewAreaTop ?? 0,
-          bottom: settings.projectionViewAreaBottom ?? 0,
-          left: settings.projectionViewAreaLeft ?? 0,
-          right: settings.projectionViewAreaRight ?? 0
-        }}
-      />
+        <ViewAreaMask
+          visible={receivingVideo}
+          displayWidth={settings.projectionWidth}
+          displayHeight={settings.projectionHeight}
+          insets={{
+            top: settings.projectionViewAreaTop ?? 0,
+            bottom: settings.projectionViewAreaBottom ?? 0,
+            left: settings.projectionViewAreaLeft ?? 0,
+            right: settings.projectionViewAreaRight ?? 0
+          }}
+        />
+      </div>
     </div>
   )
 }

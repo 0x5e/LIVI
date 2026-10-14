@@ -19,7 +19,6 @@ describe('carSchema', () => {
       'redlineRpm',
       'speedUnit',
       'temperatureUnit',
-      'carPlayVehicleClimate',
       'carPlayDockPosition',
       'carType'
     ])

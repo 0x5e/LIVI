@@ -11,46 +11,45 @@
 //! whole. LIVI sends the merged snapshot to every client as `telemetry:update`.
 //!
 //! Where each field goes, ✓ used, · not used, TODO the receiver takes it and LIVI does not send
-//! it yet. LIVI holds every field in its store and hands it to every Socket.IO client. CarPlay
-//! Ultra lists what its vehicle state adds to Classic.
+//! it yet. LIVI holds every field in its store and hands it to every Socket.IO client.
 //!
-//! | Field                               | LIVI | Android Auto | CarPlay Classic   | CarPlay Ultra |
-//! |-------------------------------------|------|--------------|-------------------|---------------|
-//! | speedKph                            | ✓    | ✓            | TODO              | TODO          |
-//! | rpm                                 | ✓    | ✓            | ·                 | TODO          |
-//! | gear                                | ✓    | ✓            | ✓                 | TODO          |
-//! | reverse                             | ✓    | ✓ (gear)     | ✓ (gear)          | ·             |
-//! | steeringDeg                         | ✓    | ·            | ·                 | ·             |
-//! | turnSignal                          | ✓    | ✓            | ·                 | TODO          |
-//! | lights, highBeam, hazards           | ✓    | ✓            | ·                 | ·             |
-//! | parkingBrake                        | ✓    | ✓            | ·                 | ·             |
-//! | nightMode                           | ✓    | ✓            | ✓                 | ·             |
-//! | path                                | ✓    | ·            | ·                 | ·             |
-//! | volume                              | ✓    | ·            | ·                 | ·             |
-//! | fuelPct                             | ✓    | ✓            | ✓ (warning)       | TODO          |
-//! | rangeKm                             | ✓    | ✓            | ✓                 | ·             |
-//! | rangeFuelKm, rangeElectricKm        | ✓    | ·            | ✓ (hybrid)        | ·             |
-//! | fuelRateLph, consumption*           | ✓    | ·            | ·                 | TODO          |
-//! | batteryCapacityKwh, batteryLevelKwh | ✓    | ✓            | ✓ (warning), TODO | TODO          |
-//! | carType                             | ✓    | ✓            | ✓                 | ·             |
-//! | evConnectorTypes                    | ✓    | ✓            | ·                 | ·             |
-//! | coolantC                            | ✓    | ·            | ·                 | TODO          |
-//! | iatC, transmissionC                 | ✓    | ·            | ·                 | ·             |
-//! | oilC                                | ✓    | ·            | ·                 | ·             |
-//! | ambientC                            | ✓    | ✓            | ✓                 | ·             |
-//! | baroKpa                             | ✓    | ✓            | ·                 | ·             |
-//! | mapKpa, boostKpa, throttlePct       | ✓    | ·            | ·                 | ·             |
-//! | lambda, afr                         | ✓    | ·            | ·                 | ·             |
-//! | batteryV                            | ✓    | ·            | ·                 | ·             |
-//! | ambientLux                          | ✓    | ·            | ·                 | ·             |
-//! | dimmerPct                           | ✓    | ·            | ·                 | ·             |
-//! | odometerKm, odometerTripKm          | ✓    | ✓            | ·                 | ·             |
-//! | drivingStatus                       | ✓    | ✓            | ·                 | ·             |
-//! | gps                                 | ✓    | ✓            | ✓                 | ·             |
-//! | tirePressure                        | ✓    | TODO         | ·                 | TODO          |
-//! | can                                 | ✓    | ·            | ·                 | ·             |
-//! | gnss                                | ✓    | ·            | ·                 | ·             |
-//! | climate                             | ✓    | ·            | ·                 | ✓             |
+//! | Field                               | LIVI | Android Auto | CarPlay Classic | CarPlay Ultra |
+//! |-------------------------------------|------|--------------|-----------------|---------------|
+//! | speedKph                            | ✓    | ✓            | TODO            | TODO          |
+//! | rpm                                 | ✓    | ✓            | ·               | TODO          |
+//! | gear                                | ✓    | ✓            | ✓               | ✓             |
+//! | reverse                             | ✓    | ✓ (gear)     | ✓ (gear)        | ✓ (gear)      |
+//! | steeringDeg                         | ✓    | ·            | ·               | ·             |
+//! | turnSignal                          | ✓    | ✓            | ·               | TODO          |
+//! | lights, highBeam, hazards           | ✓    | ✓            | ·               | ·             |
+//! | parkingBrake                        | ✓    | ✓            | ·               | ·             |
+//! | nightMode                           | ✓    | ✓            | ✓               | ✓             |
+//! | path                                | ✓    | ·            | ·               | ·             |
+//! | volume                              | ✓    | ·            | ·               | ·             |
+//! | fuelPct                             | ✓    | ✓            | ✓ (warning)     | ✓             |
+//! | rangeKm                             | ✓    | ✓            | ✓               | ✓             |
+//! | rangeFuelKm, rangeElectricKm        | ✓    | ·            | ✓ (hybrid)      | ✓ (hybrid)    |
+//! | fuelRateLph, consumption*           | ✓    | ·            | ·               | TODO          |
+//! | batteryCapacityKwh, batteryLevelKwh | ✓    | ✓            | ✓ (warning)     | ✓             |
+//! | carType                             | ✓    | ✓            | ✓               | ✓             |
+//! | evConnectorTypes                    | ✓    | ✓            | ·               | ·             |
+//! | coolantC                            | ✓    | ·            | ·               | TODO          |
+//! | iatC, transmissionC                 | ✓    | ·            | ·               | ·             |
+//! | oilC                                | ✓    | ·            | ·               | ·             |
+//! | ambientC                            | ✓    | ✓            | ✓               | ✓             |
+//! | baroKpa                             | ✓    | ✓            | ·               | ·             |
+//! | mapKpa, boostKpa, throttlePct       | ✓    | ·            | ·               | ·             |
+//! | lambda, afr                         | ✓    | ·            | ·               | ·             |
+//! | batteryV                            | ✓    | ·            | ·               | ·             |
+//! | ambientLux                          | ✓    | ·            | ·               | ·             |
+//! | dimmerPct                           | ✓    | ·            | ·               | ·             |
+//! | odometerKm, odometerTripKm          | ✓    | ✓            | ·               | ·             |
+//! | drivingStatus                       | ✓    | ✓            | ·               | ·             |
+//! | gps                                 | ✓    | ✓            | ✓               | ✓             |
+//! | tirePressure                        | ✓    | TODO         | ·               | TODO          |
+//! | can                                 | ✓    | ·            | ·               | ·             |
+//! | gnss                                | ✓    | ·            | ·               | ·             |
+//! | climate                             | ✓    | ·            | ·               | ✓             |
 //!
 //! With `autoSwitchOnReverse` on, `gear` and `reverse` also bring the camera to the front of the
 //! main screen while the car reverses.

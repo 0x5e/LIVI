@@ -166,13 +166,6 @@ export const carSchema: SettingsNode<Config> = {
       }
     },
     {
-      type: 'checkbox',
-      label: 'CarPlay Climate Controls',
-      labelKey: 'settings.carPlayVehicleClimate',
-      icon: 'climate',
-      path: 'carPlayVehicleClimate'
-    },
-    {
       type: 'select',
       label: 'CarPlay Dock',
       labelKey: 'settings.carPlayDockPosition',

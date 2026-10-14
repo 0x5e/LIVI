@@ -276,20 +276,22 @@ pub fn init(state: &mut LiviState, handle: &LoopHandle<'static, LiviState>) {
     open_screen(state, 0);
 }
 
+/// The configured numbers are the content size, the video and UI area.
 fn default_size(state: &LiviState, screen_idx: usize) -> (i32, i32) {
     let s = &state.screens[screen_idx];
+    let inset = s.top_inset();
     if s.req_width > 0 && s.req_height > 0 {
-        return (s.req_width, s.req_height);
+        return (s.req_width, s.req_height + inset);
     }
     if let Ok(v) = std::env::var("LIVI_OUTPUT_SIZE")
         && let Some((w, h)) = v.split_once('x')
-        && let (Ok(w), Ok(h)) = (w.parse(), h.parse())
+        && let (Ok(w), Ok(h)) = (w.parse::<i32>(), h.parse::<i32>())
         && w > 0
         && h > 0
     {
-        return (w, h);
+        return (w, h + inset);
     }
-    (1280, 720)
+    (1280, 720 + inset)
 }
 
 pub fn open_screen(state: &mut LiviState, screen_idx: usize) {

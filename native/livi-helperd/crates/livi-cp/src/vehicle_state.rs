@@ -470,7 +470,7 @@ const VENTS_AUTO: &str = "ventsAuto";
 
 /// The climate LIVI starts with, AUTO at 21 °C.
 pub fn default_climate() -> Climate {
-    VehicleState::new(false, true, "").climate().unwrap_or_default()
+    VehicleState::new(false, "").climate().unwrap_or_default()
 }
 
 fn to_json(v: &Value) -> Option<serde_json::Value> {
@@ -494,11 +494,14 @@ pub struct VehicleState {
 }
 
 impl VehicleState {
-    pub fn new(debug: bool, climate_controls: bool, app_version: &str) -> Self {
-        let mut accessories = vec![navigation(), automaker_settings(app_version)];
-        if climate_controls {
-            accessories.extend([climate(), seats(), vehicle_resources()]);
-        }
+    pub fn new(debug: bool, app_version: &str) -> Self {
+        let accessories = vec![
+            navigation(),
+            automaker_settings(app_version),
+            climate(),
+            seats(),
+            vehicle_resources(),
+        ];
         let values = accessories
             .iter()
             .flat_map(|a| &a.services)
@@ -666,7 +669,7 @@ impl VehicleState {
         out
     }
 
-    /// The climate as LIVI's telemetry holds it, None without the climate controls.
+    /// The climate as LIVI's telemetry holds it, None when the description names no climate.
     pub fn climate(&self) -> Option<Climate> {
         self.characteristic(AUTO_CLIMATE)?;
         let mut block: Climate = CLIMATE_KEYS
@@ -932,7 +935,7 @@ mod tests {
 
     #[test]
     fn info_describes_route_sharing_for_one_plugin() {
-        let (key, info) = VehicleState::new(false, true, "9.5.0").info_entry();
+        let (key, info) = VehicleState::new(false, "9.5.0").info_entry();
         assert_eq!(key, "vehicleStateProtocolInfo");
         assert_eq!(info.get("protocolVersion").and_then(bplist::Value::as_str), Some("1.0"));
         let mapping = info.get("pluginMapping").and_then(|m| m.get(PLUGIN));
@@ -977,7 +980,7 @@ mod tests {
 
     #[test]
     fn the_phone_reads_follows_and_writes() {
-        let mut state = VehicleState::new(false, true, "9.5.0");
+        let mut state = VehicleState::new(false, "9.5.0");
         // A configRequest as an iPhone sends it.
         let ask =
             hex("e248706c7567696e4944084a706c7567696e44617461912ee247636f6d6d616e644d636f6e666967
@@ -1028,22 +1031,8 @@ mod tests {
     }
 
     #[test]
-    fn without_climate_controls_the_car_names_neither_climate_nor_its_interior() {
-        let (_, info) = VehicleState::new(false, false, "9.5.0").info_entry();
-        let plugin = &info.get("pluginConfigs").and_then(bplist::Value::as_array).unwrap()[0];
-        let kinds: Vec<u64> = plugin
-            .get("accessories")
-            .and_then(bplist::Value::as_array)
-            .unwrap()
-            .iter()
-            .filter_map(|a| a.get("type").and_then(bplist::Value::as_int))
-            .collect();
-        assert_eq!(kinds, [0x0E00_0002, 0x0500_0001]);
-    }
-
-    #[test]
     fn the_vehicle_app_shows_the_livi_version() {
-        let (_, info) = VehicleState::new(false, false, "9.5.0").info_entry();
+        let (_, info) = VehicleState::new(false, "9.5.0").info_entry();
         let plugin = &info.get("pluginConfigs").and_then(bplist::Value::as_array).unwrap()[0];
         let settings = plugin
             .get("accessories")
@@ -1068,13 +1057,13 @@ mod tests {
         assert_eq!(initial(0x3000_0017), text("9.5.0"));
         assert_eq!(initial(0x3600_0006), Some(bplist::Value::Int(0)));
 
-        let (_, info) = VehicleState::new(false, false, "").info_entry();
+        let (_, info) = VehicleState::new(false, "").info_entry();
         assert!(format!("{info:?}").contains("String(\"?\")"), "an unknown version shows as ?");
     }
 
     #[test]
     fn both_front_seats_heat_in_two_steps() {
-        let (_, info) = VehicleState::new(false, true, "9.5.0").info_entry();
+        let (_, info) = VehicleState::new(false, "9.5.0").info_entry();
         let plugin = &info.get("pluginConfigs").and_then(bplist::Value::as_array).unwrap()[0];
         let seats = plugin
             .get("accessories")
@@ -1103,7 +1092,7 @@ mod tests {
 
     #[test]
     fn a_seat_heats_while_its_level_is_above_zero() {
-        let mut state = VehicleState::new(false, true, "9.5.0");
+        let mut state = VehicleState::new(false, "9.5.0");
         let [(level, on), _] = SEAT_HEATING;
         state.handle(
             Lane::High,
@@ -1127,7 +1116,7 @@ mod tests {
 
     #[test]
     fn front_and_rear_windows_heat_through_their_wires() {
-        let (_, info) = VehicleState::new(false, true, "9.5.0").info_entry();
+        let (_, info) = VehicleState::new(false, "9.5.0").info_entry();
         let plugin = &info.get("pluginConfigs").and_then(bplist::Value::as_array).unwrap()[0];
         let climate = plugin
             .get("accessories")
@@ -1162,7 +1151,7 @@ mod tests {
 
     #[test]
     fn each_vent_has_its_button_and_auto_takes_them_all() {
-        let mut state = VehicleState::new(false, true, "9.5.0");
+        let mut state = VehicleState::new(false, "9.5.0");
         let directions: Vec<_> =
             VENTS.iter().map(|vent| state.values.get(&(vent + 3)).cloned()).collect();
         let one = |d| Some(Value::Array(vec![Value::Int(d)]));
@@ -1195,7 +1184,7 @@ mod tests {
 
     #[test]
     fn max_ac_cools_with_everything_and_gives_the_settings_back() {
-        let mut state = VehicleState::new(false, true, "9.5.0");
+        let mut state = VehicleState::new(false, "9.5.0");
         let (level, _) = FAN;
         let iids =
             [MAX_AC, DRIVER_TARGET_TEMPERATURE, PASSENGER_TARGET_TEMPERATURE, RECIRCULATION, level];
@@ -1242,7 +1231,7 @@ mod tests {
 
     #[test]
     fn auto_runs_the_fan_until_it_is_set_by_hand() {
-        let mut state = VehicleState::new(false, true, "9.5.0");
+        let mut state = VehicleState::new(false, "9.5.0");
         let (level, _) = FAN;
         let iids = [AUTO_CLIMATE, FAN_AUTO, level].map(Value::Int).to_vec();
         state.handle(Lane::High, &command("registerRequest", Value::Array(iids)));
@@ -1271,7 +1260,7 @@ mod tests {
 
     #[test]
     fn the_fan_stops_at_level_zero_and_comes_back_at_its_last_level() {
-        let mut state = VehicleState::new(false, true, "9.5.0");
+        let mut state = VehicleState::new(false, "9.5.0");
         let (level, on) = FAN;
         let iids = vec![Value::Int(level), Value::Int(on)];
         state.handle(Lane::High, &command("registerRequest", Value::Array(iids)));
@@ -1299,7 +1288,7 @@ mod tests {
 
     #[test]
     fn synced_zones_follow_the_driver_until_the_passenger_is_set() {
-        let mut state = VehicleState::new(false, true, "9.5.0");
+        let mut state = VehicleState::new(false, "9.5.0");
         let iids = [DRIVER_TARGET_TEMPERATURE, PASSENGER_TARGET_TEMPERATURE, ZONES_SYNCED];
         state.handle(
             Lane::High,
@@ -1341,7 +1330,7 @@ mod tests {
 
     #[test]
     fn both_front_seats_have_their_own_temperature() {
-        let (_, info) = VehicleState::new(false, true, "9.5.0").info_entry();
+        let (_, info) = VehicleState::new(false, "9.5.0").info_entry();
         let plugin = &info.get("pluginConfigs").and_then(bplist::Value::as_array).unwrap()[0];
         let climate = plugin
             .get("accessories")
@@ -1366,7 +1355,7 @@ mod tests {
 
     #[test]
     fn climate_is_described_and_set_from_the_phone() {
-        let mut state = VehicleState::new(false, true, "9.5.0");
+        let mut state = VehicleState::new(false, "9.5.0");
         let (_, info) = state.info_entry();
         let plugin = &info.get("pluginConfigs").and_then(bplist::Value::as_array).unwrap()[0];
         let accessories = plugin.get("accessories").and_then(bplist::Value::as_array).unwrap();
@@ -1434,15 +1423,11 @@ mod tests {
                 "driverSeatHeating": 0, "passengerSeatHeating": 0
             })
         );
-        let mut without = VehicleState::new(false, false, "9.5.0");
-        assert!(without.climate().is_none());
-        assert!(without.set_climate(&default_climate()).is_empty());
-        assert!(!without.values.contains_key(&AUTO_CLIMATE));
     }
 
     #[test]
     fn livi_sets_climate_and_the_phone_hears_what_changed() {
-        let mut state = VehicleState::new(false, true, "9.5.0");
+        let mut state = VehicleState::new(false, "9.5.0");
         let (level, on) = FAN;
         let iids = [AUTO_CLIMATE, FAN_AUTO, level, on, DRIVER_TARGET_TEMPERATURE];
         state.handle(
@@ -1499,7 +1484,7 @@ mod tests {
 
     #[test]
     fn what_cannot_be_read_gets_no_answer() {
-        let mut state = VehicleState::new(true, true, "9.5.0");
+        let mut state = VehicleState::new(true, "9.5.0");
         assert!(state.handle(Lane::High, b"\xA0").is_empty());
         let inner = opack::encode(&dict([("command", Value::str("configRequest"))]));
         let elsewhere =

@@ -34,8 +34,6 @@ pub struct Config {
     pub car_play_mfi_power_gpio: i32,
     /// Dedicated HLS video Stream insted of embedded into CarPlay video.
     pub car_play_hls_video: bool,
-    /// Climate controls in the phone's dock and climate app.
-    pub car_play_vehicle_climate: bool,
     /// Where the phone puts its dock and status bar.
     pub car_play_dock_position: DockPosition,
 
@@ -414,7 +412,6 @@ pub fn defaults() -> Config {
         car_play_mfi_i2c_bus: 2,
         car_play_mfi_power_gpio: -1,
         car_play_hls_video: false,
-        car_play_vehicle_climate: true,
         car_play_dock_position: DockPosition::Bottom,
         gps_enabled: false,
         gps_device: "/dev/ttyAMA0".into(),
@@ -451,7 +448,7 @@ pub fn defaults() -> Config {
         display_brightness: 1.0,
         display_brightness_auto: true,
         car_name: "LIVI".into(),
-        oem_name: "App".into(),
+        oem_name: "LIVI".into(),
         hand: HandDriveType::Lhd,
         car_type: Some(CarType::Gasoline),
         ev_connector_types: Some(Vec::new()),

@@ -120,7 +120,6 @@ pub struct StackConfig {
     pub audio_input_device: String,
     /// The host plays a queued video itself, so the phone may hand one over.
     pub hls_video: bool,
-    pub vehicle_climate: bool,
     /// Shown in the phone's vehicle app.
     pub app_version: String,
 }
@@ -205,9 +204,6 @@ pub struct StackCtx<M: Media> {
     pub debug: bool,
     /// Where the payloads of the video streams are kept, for reading their format.
     pub video_capture: Option<std::path::PathBuf>,
-    /// The fake phone cannot run MFi4, so a test says whether it passed.
-    #[cfg(test)]
-    pub mfi4_proven: bool,
 }
 
 struct AudioStreamState {
@@ -266,8 +262,9 @@ struct Conn<M: Media> {
     video_overlay: Option<IapTunnel>,
     video_overlay_out: Option<mpsc::UnboundedReceiver<Vec<u8>>>,
     vehicle_state: Option<VehicleState>,
-    /// Climate from LIVI that came before the phone set up vehicle state.
-    climate_pending: Climate,
+    /// Whether the phone offered the vehicle state protocol, so enabledFeatures only claims it back
+    /// when the phone asked for it.
+    offered_vehicle_state: bool,
     climate_reported: Option<Climate>,
     vehicle_streams: Vec<(Lane, IapTunnel, mpsc::UnboundedSender<Vec<u8>>)>,
     vehicle_in: Option<mpsc::UnboundedSender<(Lane, Vec<u8>)>>,
@@ -468,6 +465,8 @@ pub async fn run<M: Media>(
     println!("[cpStack] control connection from {peer}");
     let mut started = Some(ctx.media.audio_started());
     let (mut rd, mut wr) = stream.into_split();
+    // Always described, the phone's own Ultra or Classic choice decides what it uses.
+    let vehicle_state = VehicleState::new(ctx.debug, &ctx.config.borrow().app_version);
     let mut conn = Conn {
         ctx,
         events,
@@ -499,8 +498,8 @@ pub async fn run<M: Media>(
         video_settings_out: None,
         video_overlay: None,
         video_overlay_out: None,
-        vehicle_state: None,
-        climate_pending: Climate::new(),
+        vehicle_state: Some(vehicle_state),
+        offered_vehicle_state: false,
         climate_reported: None,
         vehicle_streams: Vec::new(),
         vehicle_in: None,
@@ -649,15 +648,6 @@ impl<M: Media> Conn<M> {
             }
         }
         Ok(())
-    }
-
-    /// Vehicle state is CarPlay Ultra, which only a CP3.0 accessory gets.
-    fn mfi4_proven(&self) -> bool {
-        #[cfg(test)]
-        if self.ctx.mfi4_proven {
-            return true;
-        }
-        self.mfi4.as_ref().is_some_and(mfi4::Session::proven)
     }
 
     /// Also carries the phone's transcript proof through the channel, ours goes back the same way.
@@ -886,23 +876,7 @@ impl<M: Media> Conn<M> {
                 self.video_capture = Some(capture);
             }
         }
-        if offered.contains(&vehicle_state::FEATURE) {
-            if self.mfi4_proven() {
-                let (climate, version) = {
-                    let cfg = self.ctx.config.borrow();
-                    (cfg.vehicle_climate, cfg.app_version.clone())
-                };
-                let mut state = VehicleState::new(self.ctx.debug, climate, &version);
-                state.set_climate(&std::mem::take(&mut self.climate_pending));
-                self.vehicle_state = Some(state);
-                self.report_climate();
-            } else {
-                println!(
-                    "[cpStack] the phone offers vehicle state, but MFi4 did not prove the phone \
-                     and LIVI to each other, it stays off"
-                );
-            }
-        }
+        self.offered_vehicle_state = offered.contains(&vehicle_state::FEATURE);
 
         let mut timing = match TimingSync::listen() {
             Ok(t) => t,
@@ -952,7 +926,7 @@ impl<M: Media> Conn<M> {
         if self.video_playback {
             features.push(Value::String(video_playback::FEATURE.into()));
         }
-        if self.vehicle_state.is_some() {
+        if self.offered_vehicle_state {
             features.push(Value::String(vehicle_state::FEATURE.into()));
         }
         let mut resp = vec![
@@ -1949,10 +1923,7 @@ impl<M: Media> Conn<M> {
             }
             StackCmd::PhoneBtMac(mac) => self.phone_bt_mac = mac,
             StackCmd::Climate(climate) => {
-                let Some(state) = &mut self.vehicle_state else {
-                    self.climate_pending.extend(climate);
-                    return;
-                };
+                let Some(state) = &mut self.vehicle_state else { return };
                 let answers = state.set_climate(&climate);
                 self.to_vehicle_streams(answers);
                 self.report_climate();
@@ -2196,14 +2167,6 @@ pub(crate) mod tests {
         }
 
         async fn with_video(video: bool, capture: bool) -> Self {
-            Self::build(video, capture, false).await
-        }
-
-        async fn with_mfi4() -> Self {
-            Self::build(false, false, true).await
-        }
-
-        async fn build(video: bool, capture: bool, mfi4_proven: bool) -> Self {
             let dir = TempDir::new();
             let identity = load_or_create(&dir.0.join("identity.json"));
             let pairings = Pairings::new(dir.0.join("pairings.json"));
@@ -2218,7 +2181,6 @@ pub(crate) mod tests {
                 audio_device: "out".into(),
                 audio_input_device: "in".into(),
                 hls_video: video,
-                vehicle_climate: true,
                 app_version: "9.5.0".into(),
             });
             std::mem::forget(_tx);
@@ -2232,7 +2194,6 @@ pub(crate) mod tests {
                 refresh: Some(Arc::new(|| println!("[test] refreshed"))),
                 debug: true,
                 video_capture: capture.then(|| dir.0.join("video")),
-                mfi4_proven,
             });
             let listener = net::tcp_listener().unwrap();
             let port = net::local_port(listener.local_addr());
@@ -2685,7 +2646,7 @@ pub(crate) mod tests {
 
     #[tokio::test]
     async fn vehicle_state_is_claimed_described_and_answered_on_its_own_stream() {
-        let mut rig = Rig::with_mfi4().await;
+        let mut rig = Rig::new().await;
         let secret = rig.secret;
         rig.phone.verify(&secret, b"phone-1").await;
         let warmer = serde_json::json!({ "driverTargetC": 23 }).as_object().cloned().unwrap();
@@ -2770,19 +2731,19 @@ pub(crate) mod tests {
     }
 
     #[tokio::test]
-    async fn vehicle_state_stays_off_unless_offered_after_mfi4() {
-        for (mfi4, offered) in [(true, "hevc"), (false, vehicle_state::FEATURE)] {
-            let mut rig = if mfi4 { Rig::with_mfi4().await } else { Rig::new().await };
+    async fn vehicle_state_is_always_described_and_enabled_only_when_offered() {
+        for (offered, on) in [("hevc", false), (vehicle_state::FEATURE, true)] {
+            let mut rig = Rig::new().await;
             let secret = rig.secret;
             rig.phone.verify(&secret, b"phone-1").await;
             let offered = Value::Array(vec![Value::String(offered.into())]);
             let session = dict([("timingPort", Value::Int(9)), ("features", offered)]);
             let resp = rig.phone.plist("SETUP", "/s", &session).await;
             let enabled = resp.get("enabledFeatures").and_then(Value::as_array).unwrap();
-            assert!(!enabled.contains(&Value::String(vehicle_state::FEATURE.into())));
+            assert_eq!(enabled.contains(&Value::String(vehicle_state::FEATURE.into())), on);
             let info = rig.phone.plist("GET", "/info", &Value::Dict(Vec::new())).await;
-            assert!(info.get("vehicleStateProtocolInfo").is_none());
-            assert!(info.get("displayPanels").is_none());
+            assert!(info.get("vehicleStateProtocolInfo").is_some());
+            assert!(info.get("displayPanels").is_some());
         }
     }
 

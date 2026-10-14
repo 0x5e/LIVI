@@ -980,7 +980,6 @@ mod tests {
                 audio_device: String::new(),
                 audio_input_device: String::new(),
                 hls_video: false,
-                vehicle_climate: true,
                 app_version: "9.5.0".into(),
             });
             std::mem::forget(tx);
@@ -993,7 +992,6 @@ mod tests {
                 refresh: None,
                 debug: false,
                 video_capture: None,
-                mfi4_proven: false,
             });
             let listener = net::tcp_listener().unwrap();
             let port = net::local_port(listener.local_addr());

@@ -63,10 +63,6 @@ carPlayMfiPowerGpio: number,
  */
 carPlayHlsVideo: boolean, 
 /**
- * Climate controls in the phone's dock and climate app.
- */
-carPlayVehicleClimate: boolean, 
-/**
  * Where the phone puts its dock and status bar.
  */
 carPlayDockPosition: DockPosition, gpsEnabled: boolean, gpsDevice: string, gpsBaudRate: number, 
@@ -111,7 +107,6 @@ export const DEFAULT_CONFIG: Config = {
   "carPlayMfiI2cBus": 2,
   "carPlayMfiPowerGpio": -1,
   "carPlayHlsVideo": false,
-  "carPlayVehicleClimate": true,
   "carPlayDockPosition": "bottom",
   "gpsEnabled": false,
   "gpsDevice": "/dev/ttyAMA0",
@@ -148,7 +143,7 @@ export const DEFAULT_CONFIG: Config = {
   "displayBrightness": 1.0,
   "displayBrightnessAuto": true,
   "carName": "LIVI",
-  "oemName": "App",
+  "oemName": "LIVI",
   "hand": 0,
   "carType": 1,
   "evConnectorTypes": [],

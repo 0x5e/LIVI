@@ -16,6 +16,7 @@ vi.mock('@main/logTimestamps', () => ({ logThroughCore }))
 class FakeChild extends EventEmitter {
   stdin = Object.assign(new EventEmitter(), { write: vi.fn() })
   kill = vi.fn()
+  unref = vi.fn()
 }
 
 const realPlatform = process.platform
@@ -166,6 +167,31 @@ describe('core on macOS', () => {
     expect(app.relaunch).not.toHaveBeenCalled()
     child.emit('exit', 75)
     expect(app.relaunch).toHaveBeenCalledTimes(1)
+    expect(app.relaunch).toHaveBeenCalledWith()
+    expect(app.quit).toHaveBeenCalled()
+  })
+
+  test('the installed app comes back through LaunchServices, like a start from the Dock', async () => {
+    Object.assign(app, { isPackaged: true })
+    Object.defineProperty(process, 'resourcesPath', {
+      value: '/Applications/LIVI.app/Contents/Resources',
+      configurable: true
+    })
+    const { startCore } = await load()
+    void startCore({ config: {} } as never, vi.fn())
+    vi.advanceTimersByTime(1000)
+    vi.mocked(app.relaunch).mockClear()
+    const waiter = new FakeChild()
+    spawnMock.mockReturnValueOnce(waiter)
+    child.emit('exit', 75)
+    expect(app.relaunch).not.toHaveBeenCalled()
+    const [shell, args, opts] = spawnMock.mock.calls.at(-1)
+    expect(shell).toBe('/bin/sh')
+    expect(args[1]).toContain(`kill -0 ${process.pid}`)
+    expect(args[1]).toContain('exec /usr/bin/open "$0"')
+    expect(args[2]).toBe('/Applications/LIVI.app')
+    expect(opts).toEqual({ detached: true, stdio: 'ignore' })
+    expect(waiter.unref).toHaveBeenCalled()
     expect(app.quit).toHaveBeenCalled()
   })
 

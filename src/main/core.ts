@@ -57,10 +57,27 @@ function launchCore(): void {
     logThroughCore(null)
     child = null
     console.log(`[core] ended (${code})`)
-    if (code === RELAUNCH_THE_APP) app.relaunch()
+    if (code === RELAUNCH_THE_APP) relaunch()
     app.quit()
   })
   child = proc
+}
+
+/**
+ * Started past LaunchServices, the new instance loses the local network permission and cannot
+ * reach the dongle, so the installed app comes back through open, as from the Dock. Electron's
+ * relauncher dropped that open now and then, a detached waiter does not.
+ */
+function relaunch(): void {
+  if (!app.isPackaged) {
+    app.relaunch()
+    return
+  }
+  const waitThenOpen = `while kill -0 ${process.pid} 2>/dev/null; do sleep 0.2; done; exec /usr/bin/open "$0"`
+  spawn('/bin/sh', ['-c', waitThenOpen, join(process.resourcesPath, '..', '..')], {
+    detached: true,
+    stdio: 'ignore'
+  }).unref()
 }
 
 /** SIGTERM lets core say goodbye to the phones first. */

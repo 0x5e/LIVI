@@ -88,7 +88,7 @@ describe('DashboardFrame', () => {
         speedKph: 88,
         rpm: 2200,
         gear: 'D',
-        turn: 'left',
+        turnSignal: 'left',
         hazards: true,
         lights: true,
         highBeam: true,
@@ -161,7 +161,7 @@ describe('DashboardFrame', () => {
   })
 
   test('forwards a right turn signal', () => {
-    useVehicleTelemetryMock.mockReturnValue({ telemetry: { turn: 'right' } })
+    useVehicleTelemetryMock.mockReturnValue({ telemetry: { turnSignal: 'right' } })
 
     render(<DashboardFrame />)
 

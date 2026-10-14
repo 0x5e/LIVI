@@ -1,47 +1,56 @@
 //! What the car and programs outside LIVI push into its telemetry, merged into one snapshot.
 //!
 //! Push over Socket.IO to `ws://<livi-host>:4000`, event `telemetry:push`, for example
-//! `io('ws://livi.local:4000').emit('telemetry:push', { speedKph: 73 })`. A push may carry any
-//! subset of the fields. `gps`, `can` and `climate` merge field by field, so
-//! `{ gps: { lat: 50 } }` keeps the last `lng`, every other field is replaced whole. LIVI sends
-//! the merged snapshot to every client as `telemetry:update`.
+//! `io('ws://livi.local:4000').emit('telemetry:push', { speedKph: 73 })`, or as plain HTTP,
+//! `curl -d '{"speedKph":73}' http://livi.local:4000/telemetry`. From a shell LIVI's own core
+//! does it, `livi-core telemetry set speedKph=73 gps.lat=53.59`, `livi-core telemetry help`
+//! lists the rest.
 //!
-//! Where each field goes, ✓ used, · not sent, TODO not wired yet:
+//! A push may carry any subset of the fields. `gps`, `can`, `climate` and `tirePressure` merge
+//! field by field, so `{ gps: { lat: 50 } }` keeps the last `lng`, every other field is replaced
+//! whole. LIVI sends the merged snapshot to every client as `telemetry:update`.
 //!
-//! | Field                               | LIVI | Android Auto | CarPlay            |
-//! |-------------------------------------|------|--------------|--------------------|
-//! | speedKph                            | ✓    | ✓            | TODO               |
-//! | rpm                                 | ✓    | ✓            | TODO               |
-//! | gear                                | ✓    | ✓            | ✓                  |
-//! | reverse                             | ✓    | ✓ (gear)     | ✓ (gear)           |
-//! | steeringDeg                         | ✓    | ·            | TODO               |
-//! | turn                                | ✓    | ✓            | TODO               |
-//! | lights, highBeam, hazards           | ✓    | ✓            | TODO               |
-//! | parkingBrake                        | ✓    | ✓            | TODO               |
-//! | nightMode                           | ✓    | ✓            | ✓                  |
-//! | path                                | ✓    | ·            | ·                  |
-//! | volume                              | ✓    | ·            | ·                  |
-//! | fuelPct                             | ✓    | ✓            | ✓ (range warning)  |
-//! | rangeKm                             | ✓    | ✓            | ✓                  |
-//! | rangeFuelKm, rangeElectricKm        | ·    | ·            | ✓ (hybrid)         |
-//! | fuelRateLph, consumption*           | ✓    | ·            | TODO               |
-//! | batteryCapacityKwh, batteryLevelKwh | ·    | ✓            | ✓ (hybrid warning) |
-//! | carType, evConnectorTypes           | ✓    | ✓            | ✓                  |
-//! | coolantC, oilC, iatC                | ✓    | ·            | TODO               |
-//! | transmissionC                       | ✓    | ·            | TODO               |
-//! | ambientC                            | ✓    | ✓            | ✓                  |
-//! | baroKpa                             | ✓    | ✓            | TODO               |
-//! | mapKpa, boostKpa                    | ✓    | ·            | TODO               |
-//! | lambda, afr                         | ✓    | ·            | TODO               |
-//! | batteryV                            | ✓    | ·            | TODO               |
-//! | ambientLux                          | ✓    | ·            | ·                  |
-//! | dimmerPct                           | ✓    | ·            | ·                  |
-//! | odometerKm, odometerTripKm          | ✓    | ✓            | TODO               |
-//! | drivingStatus                       | ✓    | ✓            | ·                  |
-//! | gps                                 | ✓    | ✓            | ✓                  |
-//! | can                                 | ✓    | ·            | ·                  |
-//! | gnss                                | ✓    | ·            | ·                  |
-//! | climate                             | ·    | ·            | ✓                  |
+//! Where each field goes, ✓ used, · not used, TODO the receiver takes it and LIVI does not send
+//! it yet. LIVI holds every field in its store and hands it to every Socket.IO client. CarPlay
+//! Ultra lists what its vehicle state adds to Classic.
+//!
+//! | Field                               | LIVI | Android Auto | CarPlay Classic   | CarPlay Ultra |
+//! |-------------------------------------|------|--------------|-------------------|---------------|
+//! | speedKph                            | ✓    | ✓            | TODO              | TODO          |
+//! | rpm                                 | ✓    | ✓            | ·                 | TODO          |
+//! | gear                                | ✓    | ✓            | ✓                 | TODO          |
+//! | reverse                             | ✓    | ✓ (gear)     | ✓ (gear)          | ·             |
+//! | steeringDeg                         | ✓    | ·            | ·                 | ·             |
+//! | turnSignal                          | ✓    | ✓            | ·                 | TODO          |
+//! | lights, highBeam, hazards           | ✓    | ✓            | ·                 | ·             |
+//! | parkingBrake                        | ✓    | ✓            | ·                 | ·             |
+//! | nightMode                           | ✓    | ✓            | ✓                 | ·             |
+//! | path                                | ✓    | ·            | ·                 | ·             |
+//! | volume                              | ✓    | ·            | ·                 | ·             |
+//! | fuelPct                             | ✓    | ✓            | ✓ (warning)       | TODO          |
+//! | rangeKm                             | ✓    | ✓            | ✓                 | ·             |
+//! | rangeFuelKm, rangeElectricKm        | ✓    | ·            | ✓ (hybrid)        | ·             |
+//! | fuelRateLph, consumption*           | ✓    | ·            | ·                 | TODO          |
+//! | batteryCapacityKwh, batteryLevelKwh | ✓    | ✓            | ✓ (warning), TODO | TODO          |
+//! | carType                             | ✓    | ✓            | ✓                 | ·             |
+//! | evConnectorTypes                    | ✓    | ✓            | ·                 | ·             |
+//! | coolantC                            | ✓    | ·            | ·                 | TODO          |
+//! | iatC, transmissionC                 | ✓    | ·            | ·                 | ·             |
+//! | oilC                                | ✓    | ·            | ·                 | ·             |
+//! | ambientC                            | ✓    | ✓            | ✓                 | ·             |
+//! | baroKpa                             | ✓    | ✓            | ·                 | ·             |
+//! | mapKpa, boostKpa, throttlePct       | ✓    | ·            | ·                 | ·             |
+//! | lambda, afr                         | ✓    | ·            | ·                 | ·             |
+//! | batteryV                            | ✓    | ·            | ·                 | ·             |
+//! | ambientLux                          | ✓    | ·            | ·                 | ·             |
+//! | dimmerPct                           | ✓    | ·            | ·                 | ·             |
+//! | odometerKm, odometerTripKm          | ✓    | ✓            | ·                 | ·             |
+//! | drivingStatus                       | ✓    | ✓            | ·                 | ·             |
+//! | gps                                 | ✓    | ✓            | ✓                 | ·             |
+//! | tirePressure                        | ✓    | TODO         | ·                 | TODO          |
+//! | can                                 | ✓    | ·            | ·                 | ·             |
+//! | gnss                                | ✓    | ·            | ·                 | ·             |
+//! | climate                             | ✓    | ·            | ·                 | ✓             |
 //!
 //! With `autoSwitchOnReverse` on, `gear` and `reverse` also bring the camera to the front of the
 //! main screen while the car reverses.
@@ -76,7 +85,8 @@ pub struct TelemetrySnapshot {
     /// Android Auto shows high beam whatever `lights` says.
     pub high_beam: Option<bool>,
     pub hazards: Option<bool>,
-    pub turn: Option<TurnSignal>,
+    /// Taken as `turn` too, the name it had before.
+    pub turn_signal: Option<TurnSignal>,
     pub parking_brake: Option<bool>,
     pub coolant_c: Option<f64>,
     pub oil_c: Option<f64>,
@@ -84,7 +94,7 @@ pub struct TelemetrySnapshot {
     pub transmission_c: Option<f64>,
     /// Intake air.
     pub iat_c: Option<f64>,
-    /// Outside, Android Auto also gets it on its environment channel.
+    /// Outside, Android Auto and CarPlay get it too.
     pub ambient_c: Option<f64>,
     /// The 12 V battery.
     pub battery_v: Option<f64>,
@@ -111,6 +121,8 @@ pub struct TelemetrySnapshot {
     /// Android Auto also gets it on its environment channel.
     pub baro_kpa: Option<f64>,
     pub boost_kpa: Option<f64>,
+    /// Throttle position, 0 to 100.
+    pub throttle_pct: Option<f64>,
     /// 1.0 is stoichiometric.
     pub lambda: Option<f64>,
     /// Air to fuel ratio.
@@ -123,7 +135,7 @@ pub struct TelemetrySnapshot {
     pub ambient_lux: Option<f64>,
     /// The dimmer of the panel lights, 0 to 100.
     pub dimmer_pct: Option<f64>,
-    /// Wins over the light sensor for LIVI, Android Auto and CarPlay.
+    /// Day or night for Android Auto and CarPlay, LIVI's own look follows its setting.
     pub night_mode: Option<bool>,
     /// A page such as `/media` or `/settings/devices`, LIVI's main screen opens it once each time
     /// it changes. A path that names no page is ignored.
@@ -135,6 +147,7 @@ pub struct TelemetrySnapshot {
     pub gps: Option<GpsFix>,
     /// Only LIVI's own receiver sends it, a push replaces it whole.
     pub gnss: Option<GnssInfo>,
+    pub tire_pressure: Option<TirePressure>,
     /// No receiver uses it, it is for tooling and diagnostics.
     pub can: Option<CanFrame>,
     pub climate: Option<Climate>,
@@ -147,6 +160,17 @@ pub enum TurnSignal {
     None,
     Left,
     Right,
+}
+
+/// A sensor may push one wheel at a time.
+#[derive(Debug, Clone, Default, PartialEq, Serialize, TS)]
+#[serde(rename_all = "camelCase")]
+#[ts(export_to = "contract.ts", optional_fields)]
+pub struct TirePressure {
+    pub front_left_kpa: Option<f64>,
+    pub front_right_kpa: Option<f64>,
+    pub rear_left_kpa: Option<f64>,
+    pub rear_right_kpa: Option<f64>,
 }
 
 #[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, TS)]
@@ -207,15 +231,17 @@ mod tests {
         let snapshot = TelemetrySnapshot {
             consumption_l_per100_km: Some(6.5),
             iat_c: Some(30.0),
-            turn: Some(TurnSignal::Left),
+            turn_signal: Some(TurnSignal::Left),
             can: Some(CanFrame { id: 1, data: vec![2], bus: None }),
+            tire_pressure: Some(TirePressure { rear_left_kpa: Some(230.0), ..Default::default() }),
             climate: Some(Climate { driver_target_c: Some(21.5), ..Default::default() }),
             ..Default::default()
         };
         let named = serde_json::to_value(&snapshot).unwrap();
         assert_eq!(named["consumptionLPer100Km"], 6.5);
         assert_eq!(named["iatC"], 30.0);
-        assert_eq!(named["turn"], "left");
+        assert_eq!(named["turnSignal"], "left");
+        assert_eq!(named["tirePressure"]["rearLeftKpa"], 230.0);
         assert_eq!((&named["can"]["id"], &named["can"]["data"]), (&json!(1), &json!([2])));
         assert_eq!(named["climate"]["driverTargetC"], 21.5);
         let unknown = serde_json::from_value::<Climate>(json!({ "seatCooling": 1 }));

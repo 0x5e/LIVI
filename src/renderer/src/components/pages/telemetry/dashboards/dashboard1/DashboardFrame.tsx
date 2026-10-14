@@ -78,7 +78,10 @@ export function DashboardFrame({ children, clusterFull }: DashboardFrameProps) {
   const rpm = typeof telemetry?.rpm === 'number' ? telemetry.rpm : 0
   const gear: string | number = telemetry?.gear ?? 'P'
 
-  const turn = telemetry?.turn === 'left' || telemetry?.turn === 'right' ? telemetry.turn : 'none'
+  const turn =
+    telemetry?.turnSignal === 'left' || telemetry?.turnSignal === 'right'
+      ? telemetry.turnSignal
+      : 'none'
   const hazards = telemetry?.hazards === true
   const lights = telemetry?.lights === true
   const highBeam = telemetry?.highBeam === true

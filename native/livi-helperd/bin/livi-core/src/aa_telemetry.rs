@@ -146,13 +146,13 @@ impl AaTelemetry {
             out.push(Sensor::DrivingStatus(status as i32));
         }
 
-        if ["lights", "highBeam", "hazards", "turn"].iter().any(|k| changed(k)) {
+        if ["lights", "highBeam", "hazards", "turnSignal"].iter().any(|k| changed(k)) {
             let head = if flag(next, "highBeam") == Some(true) {
                 Some(3)
             } else {
                 flag(next, "lights").map(|on| if on { 2 } else { 1 })
             };
-            let turn = match next.get("turn").and_then(Value::as_str) {
+            let turn = match next.get("turnSignal").and_then(Value::as_str) {
                 Some("left") => Some(2),
                 Some("right") => Some(3),
                 Some("none") => Some(1),
@@ -296,7 +296,7 @@ mod tests {
         let mut t = AaTelemetry::default();
         let now = Instant::now();
         let snap = map(json!({
-            "highBeam": true, "turn": "left", "hazards": false,
+            "highBeam": true, "turnSignal": "left", "hazards": false,
             "fuelPct": 8.4, "rangeKm": 120.5,
             "odometerKm": 12345.67, "odometerTripKm": 12.34,
             "ambientC": -2.5, "baroKpa": 101.3,
@@ -348,12 +348,14 @@ mod tests {
     fn plain_lights_without_high_beam() {
         let mut t = AaTelemetry::default();
         let now = Instant::now();
-        let off = t.sensors(&Map::new(), &map(json!({ "lights": false, "turn": "none" })), now);
+        let off =
+            t.sensors(&Map::new(), &map(json!({ "lights": false, "turnSignal": "none" })), now);
         assert_eq!(
             off,
             [Sensor::Light { head_light: Some(1), hazard_lights: None, turn_indicator: Some(1) }]
         );
-        let on = t.sensors(&Map::new(), &map(json!({ "lights": true, "turn": "right" })), now);
+        let on =
+            t.sensors(&Map::new(), &map(json!({ "lights": true, "turnSignal": "right" })), now);
         assert_eq!(
             on,
             [Sensor::Light { head_light: Some(2), hazard_lights: None, turn_indicator: Some(3) }]

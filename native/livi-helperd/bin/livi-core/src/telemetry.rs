@@ -1,6 +1,7 @@
 use std::sync::Arc;
 use std::time::{SystemTime, UNIX_EPOCH};
 
+use axum::http::StatusCode;
 use livi_core_proto::config::{AppearanceMode, CarType, Config, EvConnectorType};
 use livi_core_proto::state::State;
 use serde_json::{Map, Value, json};
@@ -18,6 +19,8 @@ pub type Snapshot = Map<String, Value>;
 pub const PORT: u16 = 4000;
 const UPDATE: &str = "telemetry:update";
 const PUSH: &str = "telemetry:push";
+/// The same as a push, for a shell or a program without Socket.IO.
+pub const HTTP_PUSH: &str = "/telemetry";
 pub const CLIMATE: &str = "climate";
 /// Who set the climate last.
 pub const SOURCE: &str = "source";
@@ -26,8 +29,10 @@ const FROM_OUTSIDE: &str = "external";
 const FROM_DEFAULTS: &str = "default";
 /// As the last run left it.
 const FROM_LAST_RUN: &str = "saved";
+/// The old name a producer may still send, and the field it means.
+const RENAMED: [(&str, &str); 1] = [("turn", "turnSignal")];
 /// A producer may send these in parts, they merge field by field.
-const NESTED: [&str; 3] = ["gps", "can", CLIMATE];
+const NESTED: [&str; 4] = ["gps", "can", CLIMATE, "tirePressure"];
 /// Rounding noise does not rewrite the config.
 const VOLUME_STEP: f64 = 0.005;
 
@@ -39,17 +44,22 @@ pub fn merge(snap: &mut Snapshot, patch: &Value) -> Option<Snapshot> {
     let patch = patch.as_object().filter(|p| !p.is_empty())?;
     let mut changed = Snapshot::new();
     for (key, incoming) in patch {
+        let key = match RENAMED.iter().find(|(old, _)| old == key) {
+            Some((_, new)) if patch.contains_key(*new) => continue,
+            Some((_, new)) => *new,
+            None => key.as_str(),
+        };
         let incoming = &with_source(key, incoming);
         let merged = match (incoming, snap.get(key)) {
-            (Value::Object(inc), Some(Value::Object(prev))) if NESTED.contains(&key.as_str()) => {
+            (Value::Object(inc), Some(Value::Object(prev))) if NESTED.contains(&key) => {
                 let mut block = prev.clone();
                 block.extend(inc.clone());
                 Value::Object(block)
             }
             _ => incoming.clone(),
         };
-        snap.insert(key.clone(), merged.clone());
-        changed.insert(key.clone(), merged);
+        snap.insert(key.to_string(), merged.clone());
+        changed.insert(key.to_string(), merged);
     }
     if !patch.contains_key("ts") {
         let ts = Value::from(now_ms());
@@ -228,6 +238,7 @@ pub fn socket(
 ) -> (axum::Router, SocketIo, mpsc::UnboundedReceiver<Value>) {
     let (service, io) = SocketIo::new_svc();
     let (pushes, pushed) = mpsc::unbounded_channel();
+    let over_http = pushes.clone();
     io.ns("/", move |socket: SocketRef| {
         let snap = state.borrow().telemetry.clone();
         if !snap.is_empty() {
@@ -240,8 +251,23 @@ pub fn socket(
         });
         async {}
     });
-    // A fallback service, so every endpoint shares one engine and its sessions.
-    let app = axum::Router::new().fallback_service(service).layer(CorsLayer::permissive());
+    let http_push = move |body: axum::body::Bytes| {
+        let pushes = over_http.clone();
+        async move {
+            match serde_json::from_slice::<Value>(&body) {
+                Ok(patch @ Value::Object(_)) => {
+                    let _ = pushes.send(patch);
+                    StatusCode::NO_CONTENT
+                }
+                _ => StatusCode::BAD_REQUEST,
+            }
+        }
+    };
+    // A fallback service, so every Socket.IO endpoint shares one engine and its sessions.
+    let app = axum::Router::new()
+        .route(HTTP_PUSH, axum::routing::post(http_push))
+        .fallback_service(service)
+        .layer(CorsLayer::permissive());
     (app, io, pushed)
 }
 
@@ -286,6 +312,7 @@ pub async fn run(core: Arc<Core>, mut inside: mpsc::UnboundedReceiver<Value>, sa
 #[cfg(test)]
 mod tests {
     use std::net::SocketAddr;
+    use std::process::ExitCode;
     use std::time::Duration;
 
     use livi_core_proto::state::{Front, PerScreen};
@@ -335,6 +362,15 @@ mod tests {
         );
         assert!(changed["ts"].as_u64().unwrap() > 5);
         assert_eq!(snap["ts"], changed["ts"]);
+
+        merge(&mut snap, &json!({ "turn": "left" }));
+        assert_eq!((&snap["turnSignal"], snap.get("turn")), (&json!("left"), None));
+        merge(&mut snap, &json!({ "turn": "left", "turnSignal": "none" }));
+        assert_eq!(snap["turnSignal"], "none", "the current name wins");
+
+        merge(&mut snap, &json!({ "tirePressure": { "frontLeftKpa": 230 } }));
+        merge(&mut snap, &json!({ "tirePressure": { "rearRightKpa": 210 } }));
+        assert_eq!(snap["tirePressure"], json!({ "frontLeftKpa": 230, "rearRightKpa": 210 }));
 
         let changed = merge(&mut snap, &json!({ "can": { "id": 1 }, "ts": 7 })).unwrap();
         assert_eq!((&snap["ts"], &changed["can"]), (&json!(7), &json!({ "id": 1 })));
@@ -481,6 +517,28 @@ mod tests {
             .unwrap()
             .unwrap();
         out
+    }
+
+    #[tokio::test]
+    async fn a_push_over_plain_http_arrives_like_one_over_socket_io() {
+        let (_tx, rx) = watch::channel(state(defaults(), Snapshot::new()));
+        let (app, _io, mut pushed) = socket(rx);
+        let listener = TcpListener::bind("127.0.0.1:0").await.unwrap();
+        let to = listener.local_addr().unwrap().to_string();
+        tokio::spawn(async move { axum::serve(listener, app).await });
+        let shell = |args: &'static str, to: &str| {
+            let mut words: Vec<String> = args.split_whitespace().map(str::to_string).collect();
+            words.extend(["--to".into(), to.to_string()]);
+            tokio::task::spawn_blocking(move || crate::telemetry_cli::run(&words))
+        };
+
+        assert_eq!(shell("set gear=R gps.lat=53.59", &to).await.unwrap(), ExitCode::SUCCESS);
+        assert_eq!(pushed.recv().await, Some(json!({ "gear": "R", "gps": { "lat": 53.59 } })));
+        let posted = to.clone();
+        let refused =
+            tokio::task::spawn_blocking(move || crate::telemetry_cli::post(&posted, &json!([1])));
+        assert!(refused.await.unwrap().unwrap_err().contains("400"));
+        assert!(pushed.try_recv().is_err());
     }
 
     #[tokio::test]

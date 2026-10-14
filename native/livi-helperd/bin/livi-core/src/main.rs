@@ -47,6 +47,7 @@ mod state_files;
 mod status_file;
 mod system_volume;
 mod telemetry;
+mod telemetry_cli;
 mod udev_rule;
 mod ui;
 mod update;
@@ -61,9 +62,14 @@ use server::Core;
 use services::Services;
 
 fn main() -> ExitCode {
-    if let Some(arg) = std::env::args().nth(1) {
-        eprintln!("livi-core: unknown argument {arg}, livi-core takes none");
-        return ExitCode::FAILURE;
+    let args: Vec<String> = std::env::args().skip(1).collect();
+    match args.first().map(String::as_str) {
+        None => {}
+        Some("telemetry") => return telemetry_cli::run(&args[1..]),
+        Some(arg) => {
+            eprintln!("livi-core: unknown argument {arg}, livi-core takes none or telemetry");
+            return ExitCode::FAILURE;
+        }
     }
     let runtime = match tokio::runtime::Builder::new_multi_thread().enable_all().build() {
         Ok(rt) => rt,

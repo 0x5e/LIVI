@@ -576,7 +576,11 @@ lights?: boolean,
 /**
  * Android Auto shows high beam whatever `lights` says.
  */
-highBeam?: boolean, hazards?: boolean, turn?: TurnSignal, parkingBrake?: boolean, coolantC?: number, oilC?: number, 
+highBeam?: boolean, hazards?: boolean, 
+/**
+ * Taken as `turn` too, the name it had before.
+ */
+turnSignal?: TurnSignal, parkingBrake?: boolean, coolantC?: number, oilC?: number, 
 /**
  * Automatic transmission oil.
  */
@@ -586,7 +590,7 @@ transmissionC?: number,
  */
 iatC?: number, 
 /**
- * Outside, Android Auto also gets it on its environment channel.
+ * Outside, Android Auto and CarPlay get it too.
  */
 ambientC?: number, 
 /**
@@ -630,6 +634,10 @@ mapKpa?: number,
  */
 baroKpa?: number, boostKpa?: number, 
 /**
+ * Throttle position, 0 to 100.
+ */
+throttlePct?: number, 
+/**
  * 1.0 is stoichiometric.
  */
 lambda?: number, 
@@ -650,7 +658,7 @@ drivingStatus?: number, ambientLux?: number,
  */
 dimmerPct?: number, 
 /**
- * Wins over the light sensor for LIVI, Android Auto and CarPlay.
+ * Day or night for Android Auto and CarPlay, LIVI's own look follows its setting.
  */
 nightMode?: boolean, 
 /**
@@ -670,13 +678,18 @@ gps?: GpsFix,
 /**
  * Only LIVI's own receiver sends it, a push replaces it whole.
  */
-gnss?: GnssInfo, 
+gnss?: GnssInfo, tirePressure?: TirePressure, 
 /**
  * No receiver uses it, it is for tooling and diagnostics.
  */
 can?: CanFrame, climate?: Climate, };
 
 export type TemperatureUnit = "celsius" | "fahrenheit";
+
+/**
+ * A sensor may push one wheel at a time.
+ */
+export type TirePressure = { frontLeftKpa?: number, frontRightKpa?: number, rearLeftKpa?: number, rearRightKpa?: number, };
 
 export type ToCore = { "type": "hello", protocol: number, client: string, } | { "type": "resync" } | { "type": "input", input: Input, } | { "type": "action", id: number, action: Action, } | { "type": "path", path: string, } | { "type": "spectrum", on: boolean, } | { "type": "linkSpeed", on: boolean, } | { "type": "camera", found: boolean, };
 

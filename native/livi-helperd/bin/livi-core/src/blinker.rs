@@ -142,7 +142,7 @@ impl Clicks {
 
 fn blinking(state: &State) -> bool {
     let t = &state.telemetry;
-    matches!(t.get("turn").and_then(|v| v.as_str()), Some("left" | "right"))
+    matches!(t.get("turnSignal").and_then(|v| v.as_str()), Some("left" | "right"))
         || t.get("hazards").and_then(serde_json::Value::as_bool) == Some(true)
 }
 
@@ -324,9 +324,9 @@ mod tests {
             config: crate::config_file::defaults(),
         };
         assert!(!blinking(&s));
-        s.telemetry.insert("turn".into(), json!("left"));
+        s.telemetry.insert("turnSignal".into(), json!("left"));
         assert!(blinking(&s));
-        s.telemetry.insert("turn".into(), json!("none"));
+        s.telemetry.insert("turnSignal".into(), json!("none"));
         s.telemetry.insert("hazards".into(), json!(true));
         assert!(blinking(&s));
     }

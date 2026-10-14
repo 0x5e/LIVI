@@ -145,6 +145,32 @@ curl -d '{"gear":"R"}' http://livi.local:4000/telemetry
 </p>
 
 
+## Climate
+
+LIVI describes the car's climate to CarPlay, and the phone draws the controls itself: both front
+seat temperatures in the dock, the full panel on a tap, and the Climate app.
+
+Every control works both ways. A change on the phone lands in the telemetry, a value pushed into
+the telemetry reaches the phone. Like a car, synced zones let the passenger side follow the
+driver, a manual fan level ends AUTO, and MAX A/C hands the previous settings back when it ends.
+The last state is kept in `state/climate.json` and restored on start.
+
+Covered: on/off, AUTO, A/C, MAX A/C, MAX defrost, recirculation, synced zones, temperature per
+seat, fan level and fan AUTO, vents, front and rear window heating, and two-step seat heating.
+
+```bash
+livi-core telemetry set climate.driverTargetC=22 climate.fanLevel=3
+livi-core telemetry set climate.driverSeatHeating=2
+```
+
+
+<p align="center">
+  <img src="docs/media/climate/climate_01.png" alt="Climate controls in the CarPlay dock" width="42%" align="top" />
+  &emsp;
+  <img src="docs/media/climate/climate_02.png" alt="Climate app" width="42%" align="top" />
+</p>
+
+
 ## GPS
 
 LIVI reads a GNSS receiver on a serial port. The fix is published into the telemetry
@@ -164,7 +190,7 @@ a **NEO-M9N**. Configuration (`config.json`):
 The receiver also serves as a **time source**. Its satellite clock sets the system time, ahead of the time a phone offers at CarPlay session start, and the fix position selects the system timezone, so daylight saving follows the tz database instead of a manual switch.
 
 Settings → General → GPS shows the live values under **GPS Data**, and the module identity together with antenna and interference state under **HW Info**. The same data is
-mirrored to `gpsData.json` for external tools.
+mirrored to `state/gps.json` for external tools.
 
 On a Raspberry Pi 5, `/dev/ttyAMA0` on GPIO 14/15 (PIN 8/10) does not exist until `dtoverlay=uart0` is set in `config.txt`.
 
@@ -185,12 +211,12 @@ Configure each window under Settings → Window Settings
 Settings → General → Tab Settings.
 
 <p align="center">
-  <img src="docs/media/multi-display/dash.png" alt="Dash Screen" width="70%" />
+  <img src="docs/media/multi-display/cluster.png" alt="Dash Screen" width="70%" />
 </p>
 
 <p align="center">
   <img src="docs/media/multi-display/auxilary.png" alt="Aux Screen" width="34%" align="top" />
-  <img src="docs/media/multi-display/livi.png" alt="Main Screen" width="34%" align="top" />
+  <img src="docs/media/multi-display/main.png" alt="Main Screen" width="34%" align="top" />
 </p>
 
 

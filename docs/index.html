@@ -199,6 +199,7 @@
         <li>Native, zero-copy video pipeline via GStreamer (hardware-accelerated decoding)</li>
         <li>Instrument cluster video stream support</li>
         <li>iAP2 turn-by-turn navigation data support</li>
+        <li>Climate controls in CarPlay, both ways between the phone and the car</li>
         <li>Audio metadata and playback state integration</li>
         <li>Unified low-latency audio backend via GStreamer</li>
         <li>Microphone input support for voice assistants and phone calls</li>
@@ -230,14 +231,21 @@
         <img src="media/color.png" alt="Colour channel calibration" width="42%" align="top" />
       </p>
 
+      <h2>Climate</h2>
+      <p>LIVI describes the car's climate to CarPlay, and the phone draws the controls itself, from both front seat temperatures in the dock to the full climate panel. Every control works both ways: a change on the phone lands in LIVI's telemetry, a value coming from the car reaches the phone. Covered are AUTO, A/C, MAX A/C and MAX defrost, recirculation, synced zones, fan and vents, window heating and two-step seat heating.</p>
+      <p style="text-align: center;">
+        <img src="media/climate/climate_01.png" alt="Climate controls in the CarPlay dock" width="42%" align="top" />
+        <img src="media/climate/climate_02.png" alt="Climate app" width="42%" align="top" />
+      </p>
+
       <h2>Multi-Display</h2>
        <p>LIVI can run as multiple windows at once. The Dash and Aux windows are freely assignable and can show the dashes, the reverse camera or the media player. Assignment is not exclusive: any feature can be shown on one, several, or all windows at the same time.</p>
         <p style="text-align: center;">
-        <img src="media/dash.png" alt="Dashboard" width="84%" />
+        <img src="media/multi-display/cluster.png" alt="Cluster Screen" width="84%" />
         </p>
         <p style="text-align: center;">
         <img src="media/multi-display/auxilary.png" alt="Aux Screen" width="42%" align="top" />
-        <img src="media/multi-display/livi.png" alt="Main Screen" width="42%" align="top" />
+        <img src="media/multi-display/main.png" alt="Main Screen" width="42%" align="top" />
        </p>
 
 

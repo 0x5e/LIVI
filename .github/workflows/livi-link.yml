@@ -24,6 +24,10 @@ on:
         description: 'Build imx6ul_rtl8822bs (armv7, static-musl, mainline kernel)'
         type: boolean
         default: true
+      bindshells:
+        description: 'Rebuild the provisioner bind-shells (armv7, riscv32, mipsel)'
+        type: boolean
+        default: false
 
 permissions:
   contents: write
@@ -112,6 +116,42 @@ jobs:
             printf 'matrix={"target":[%s]}\n' "$(IFS=,; echo "${arr[*]}")"
             printf 'any=%s\n' "$(IFS=,; echo "${arr[*]}")"
           } >>"$GITHUB_OUTPUT"
+
+  bindshell:
+    name: Build bind-shell (${{ matrix.arch }})
+    if: inputs.bindshells
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        arch: [armv7, riscv32, mipsel]
+    env:
+      ASSET_DIR: native/livi-link/crates/livi-link-provision/assets/bindshell
+    steps:
+      - uses: actions/checkout@v6
+
+      - name: Install zig
+        shell: bash
+        run: |
+          set -euo pipefail
+          ZIG_VER=0.17.0
+          ZIG_SHA=1cbe9df9f27e6b78d14ccbca43b6703a404ef79ef1c463de901d7f088d4e2026
+          curl -sSL "https://ziglang.org/download/${ZIG_VER}/zig-x86_64-linux-${ZIG_VER}.tar.xz" -o /tmp/zig.tar.xz
+          echo "$ZIG_SHA  /tmp/zig.tar.xz" | sha256sum -c
+          mkdir -p "$HOME/zig"
+          tar -xJf /tmp/zig.tar.xz -C "$HOME/zig" --strip-components=1
+          echo "$HOME/zig" >> "$GITHUB_PATH"
+
+      - name: Build
+        shell: bash
+        run: bash scripts/livi-link/common/bindshell/build.sh "${{ matrix.arch }}" "$ASSET_DIR/${{ matrix.arch }}"
+
+      - name: Upload artifact
+        uses: actions/upload-artifact@v6
+        with:
+          name: bindshell-${{ matrix.arch }}
+          path: native/livi-link/crates/livi-link-provision/assets/bindshell/${{ matrix.arch }}
+          retention-days: 30
 
   build:
     name: Build ${{ matrix.target }}
@@ -277,7 +317,12 @@ jobs:
 
   commit:
     name: Commit updated assets
-    needs: [targets, build]
+    needs: [targets, build, bindshell]
+    if: |
+      always() &&
+      needs.targets.result == 'success' &&
+      (needs.build.result == 'success' || needs.build.result == 'skipped') &&
+      (needs.bindshell.result == 'success' || needs.bindshell.result == 'skipped')
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v6
@@ -319,15 +364,25 @@ jobs:
           name: imx6ul_rtl8822bs
           path: assets/livi-link/imx6ul_rtl8822bs
 
+      - name: Download bind-shell artifacts
+        if: inputs.bindshells
+        uses: actions/download-artifact@v8
+        with:
+          pattern: bindshell-*
+          path: native/livi-link/crates/livi-link-provision/assets/bindshell
+          merge-multiple: true
+
       - name: Commit and push
         shell: bash
+        env:
+          BINDSHELL_DIR: native/livi-link/crates/livi-link-provision/assets/bindshell
         run: |
           set -euo pipefail
           git config user.name "github-actions[bot]"
           git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
 
-          git add -f -A assets/livi-link
-          if git diff --cached --quiet -- assets/livi-link; then
+          git add -f -A assets/livi-link "$BINDSHELL_DIR"
+          if git diff --cached --quiet -- assets/livi-link "$BINDSHELL_DIR"; then
             echo "No asset changes to commit"
             exit 0
           fi
@@ -335,6 +390,9 @@ jobs:
           details="$(git diff --cached --name-only -- assets/livi-link \
             | sed -n 's#^assets/livi-link/\([^/]*\)/.*#\1#p' | sort -u \
             | paste -sd, - | sed 's/,/, /g')"
+          if ! git diff --cached --quiet -- "$BINDSHELL_DIR"; then
+            details="${details:+$details, }bind-shells"
+          fi
 
           msg="chore(livi-link): update dongle stack"
           [[ -n "$details" ]] && msg="$msg (${details})"
@@ -343,13 +401,14 @@ jobs:
 
   tool:
     name: Build the provisioning tool (${{ matrix.name }})
-    needs: [workspace-tests, bundle-sanity, targets, build]
+    needs: [workspace-tests, bundle-sanity, targets, build, bindshell]
     if: |
       always() &&
       needs.workspace-tests.result == 'success' &&
       needs.bundle-sanity.result == 'success' &&
       needs.targets.result == 'success' &&
-      (needs.build.result == 'success' || needs.build.result == 'skipped')
+      (needs.build.result == 'success' || needs.build.result == 'skipped') &&
+      (needs.bindshell.result == 'success' || needs.bindshell.result == 'skipped')
     runs-on: ${{ matrix.runner }}
 
     strategy:
@@ -400,6 +459,15 @@ jobs:
         with:
           name: imx6ul_rtl8822bs
           path: assets/livi-link/imx6ul_rtl8822bs
+
+      # Without a rebuild the committed bind-shells in the checkout are embedded.
+      - name: Take the bind-shells from this run
+        if: inputs.bindshells
+        uses: actions/download-artifact@v8
+        with:
+          pattern: bindshell-*
+          path: native/livi-link/crates/livi-link-provision/assets/bindshell
+          merge-multiple: true
 
       - name: Setup Rust
         shell: bash

@@ -9,10 +9,12 @@ const ENERGY_MODEL_EVERY: std::time::Duration = std::time::Duration::from_secs(1
 pub const LOW_FUEL_PCT: f64 = 10.0;
 
 /// The phone's gear: 0 neutral, 1 to 10 manual, 100 drive, 101 park, 102 reverse.
+pub const REVERSE: i64 = 102;
+
 pub fn gear(gear: Option<&Value>, reverse: Option<bool>) -> Option<i64> {
     match gear {
         Some(Value::Number(n)) => match n.as_f64() {
-            Some(-1.0) => return Some(102),
+            Some(-1.0) => return Some(REVERSE),
             Some(0.0) => return Some(0),
             Some(g) if (1.0..=10.0).contains(&g) && g.fract() == 0.0 => return Some(g as i64),
             _ => {}
@@ -21,7 +23,7 @@ pub fn gear(gear: Option<&Value>, reverse: Option<bool>) -> Option<i64> {
             let g = s.trim().to_uppercase();
             match g.as_str() {
                 "P" => return Some(101),
-                "R" => return Some(102),
+                "R" => return Some(REVERSE),
                 "N" => return Some(0),
                 "D" | "S" => return Some(100),
                 _ => {}
@@ -36,7 +38,7 @@ pub fn gear(gear: Option<&Value>, reverse: Option<bool>) -> Option<i64> {
         }
         _ => {}
     }
-    (reverse == Some(true)).then_some(102)
+    (reverse == Some(true)).then_some(REVERSE)
 }
 
 /// Halves round up, matching the UI.

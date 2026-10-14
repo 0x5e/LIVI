@@ -19,8 +19,9 @@ pub struct State {
     pub system: System,
     /// Those in a session first.
     pub devices: Vec<DeviceView>,
-    /// What the car and outside producers pushed, merged into one snapshot.
-    #[ts(type = "Record<string, unknown>")]
+    /// What the car and outside producers pushed, merged into one snapshot. A producer may add
+    /// fields LIVI does not know.
+    #[ts(type = "TelemetrySnapshot & Record<string, unknown>")]
     pub telemetry: Map<String, Value>,
     pub update: Update,
     pub config: Config,

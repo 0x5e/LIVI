@@ -152,8 +152,14 @@ impl Telemetry {
     }
 
     async fn push(&mut self, patch: &Value) {
+        let path = self.snap.get("path").cloned();
         let Some(changed) = merge(&mut self.snap, patch) else { return };
         self.publish().await;
+        if let Some(page) = self.snap.get("path").filter(|p| Some(*p) != path.as_ref())
+            && let Some(page) = page.as_str()
+        {
+            let _ = self.core.open_page.send(page.to_string());
+        }
         if let Some(level) = changed.get("volume").and_then(Value::as_f64) {
             self.volume_from(level).await;
         }
@@ -390,6 +396,37 @@ mod tests {
         assert_eq!(core.hub.watch().borrow().telemetry["nightMode"], false);
         t.appearance(AppearanceMode::Auto).await;
         assert_eq!(t.snap["nightMode"], false);
+    }
+
+    #[tokio::test]
+    async fn a_new_path_opens_its_page_once() {
+        let dir = TempDir::new();
+        let core = core(&dir, defaults());
+        let mut pages = core.open_page.subscribe();
+        let (_, io, _) = socket(core.hub.watch());
+        let mut t = Telemetry::new(core.clone(), io, &Saved::default());
+        t.push(&json!({ "path": "/media" })).await;
+        t.push(&json!({ "path": "/media", "speedKph": 3 })).await;
+        t.push(&json!({ "path": 5 })).await;
+        t.push(&json!({ "path": "/settings" })).await;
+        assert_eq!(pages.try_recv(), Ok("/media".into()));
+        assert_eq!(pages.try_recv(), Ok("/settings".into()));
+        assert!(pages.try_recv().is_err());
+    }
+
+    #[test]
+    fn livis_climate_is_what_the_contract_names() {
+        let climate = Value::Object(livi_cp::vehicle_state::default_climate());
+        let named: livi_core_proto::telemetry::Climate = serde_json::from_value(climate).unwrap();
+        let back = serde_json::to_value(&named).unwrap();
+        let unsent: Vec<&String> = back
+            .as_object()
+            .unwrap()
+            .iter()
+            .filter(|(key, v)| v.is_null() && *key != SOURCE)
+            .map(|(key, _)| key)
+            .collect();
+        assert!(unsent.is_empty(), "the contract names {unsent:?}, LIVI never sends them");
     }
 
     #[tokio::test]

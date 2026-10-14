@@ -1,5 +1,4 @@
 mod clock;
-mod info;
 mod nmea;
 mod port;
 mod receiver;
@@ -11,6 +10,7 @@ use std::sync::Arc;
 use std::time::{SystemTime, UNIX_EPOCH};
 
 use livi_core_proto::config::Config;
+use livi_core_proto::gnss as info;
 use serde::Serialize;
 use serde_json::{Value, json};
 use tokio::sync::mpsc;

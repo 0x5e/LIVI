@@ -462,6 +462,30 @@ describe('store', () => {
       const without = await loadFreshStore({ core: false })
       expect(() => without.reportLinkSpeed(true)).not.toThrow()
     })
+
+    test('whether a camera is there goes to core', async () => {
+      const { reportCamera, fake } = await loadFreshStore()
+      welcome(fake, baseSettings)
+      reportCamera(true)
+      expect(fake.sent).toEqual([{ type: 'camera', found: true }])
+
+      const without = await loadFreshStore({ core: false })
+      expect(() => without.reportCamera(false)).not.toThrow()
+    })
+
+    test('a page core asks for reaches the listener until it stops', async () => {
+      const { onOpenPage, fake } = await loadFreshStore()
+      welcome(fake, baseSettings)
+      const pages: string[] = []
+      const stop = onOpenPage((path) => pages.push(path))
+      fake.onMessage?.({ type: 'openPage', path: '/media' })
+      stop()
+      fake.onMessage?.({ type: 'openPage', path: '/camera' })
+      expect(pages).toEqual(['/media'])
+
+      const without = await loadFreshStore({ core: false })
+      expect(() => without.onOpenPage(() => {})()).not.toThrow()
+    })
   })
 
   test('markRestartBaseline stores the current settings and ignores none', async () => {
@@ -480,11 +504,9 @@ describe('store', () => {
 
     useStatusStore.getState().setCameraFound(true)
     useStatusStore.getState().setStreaming(true)
-    useStatusStore.getState().setReverse(true)
-    useStatusStore.getState().setLights(true)
 
     expect(useStatusStore.getState()).toEqual(
-      expect.objectContaining({ cameraFound: true, isStreaming: true, reverse: true, lights: true })
+      expect.objectContaining({ cameraFound: true, isStreaming: true })
     )
   })
 
@@ -509,68 +531,22 @@ describe('store', () => {
         state: { ...state(baseSettings), telemetry } as unknown as State
       })
 
-    test('forwards explicit reverse and lights to the status store', async () => {
-      const { useLiviStore, useStatusStore, send } = await withTelemetry()
-      send({ reverse: true, lights: true })
-      expect(useStatusStore.getState().reverse).toBe(true)
-      expect(useStatusStore.getState().lights).toBe(true)
-      expect(useLiviStore.getState().telemetry).toEqual({ reverse: true, lights: true })
-    })
-
-    test('skips no-op writes when reverse and lights already match', async () => {
-      const { useStatusStore, send } = await withTelemetry()
-      useStatusStore.getState().setReverse(true)
-      useStatusStore.getState().setLights(true)
-      const setReverse = vi.spyOn(useStatusStore.getState(), 'setReverse')
-      const setLights = vi.spyOn(useStatusStore.getState(), 'setLights')
-
-      send({ reverse: true, lights: true })
-
-      expect(setReverse).not.toHaveBeenCalled()
-      expect(setLights).not.toHaveBeenCalled()
-    })
-
-    test('derives reverse from the gear', async () => {
-      const { useStatusStore, send } = await withTelemetry()
-      send({ gear: 'R' })
-      expect(useStatusStore.getState().reverse).toBe(true)
-      send({ gear: -1 })
-      expect(useStatusStore.getState().reverse).toBe(true)
-      send({ gear: 3 })
-      expect(useStatusStore.getState().reverse).toBe(false)
-    })
-
-    test('ignores fields it does not use', async () => {
-      const { useStatusStore, fake, send } = await withTelemetry()
-      send({ nightMode: true })
-      expect(useStatusStore.getState().reverse).toBe(false)
-      expect(useStatusStore.getState().lights).toBe(false)
+    test('the snapshot is shown as core sends it, nothing is read into it', async () => {
+      const { useLiviStore, useStatusStore, fake, send } = await withTelemetry()
+      send({ reverse: true, gear: 'R', path: '/camera' })
+      expect(useLiviStore.getState().telemetry).toEqual({
+        reverse: true,
+        gear: 'R',
+        path: '/camera'
+      })
+      expect(useStatusStore.getState()).not.toHaveProperty('reverse')
       expect(fake.sent).toEqual([])
     })
 
-    test('a path request is taken when it changes, not again from the kept snapshot', async () => {
-      const { useStatusStore, send } = await withTelemetry()
-      send({ path: '/camera' })
-      expect(useStatusStore.getState().requestedPath).toBe('/camera')
-      useStatusStore.getState().clearRequestedPath()
-      send({ path: '/camera', speedKph: 5 })
-      expect(useStatusStore.getState().requestedPath).toBeNull()
-      send({ path: '/media', speedKph: 5 })
-      expect(useStatusStore.getState().requestedPath).toBe('/media')
-    })
-
     test('the welcome brings the snapshot', async () => {
-      const { useStatusStore, fake } = await loadFreshStore()
-      welcomeWith(fake, { reverse: true, lights: true })
-      expect(useStatusStore.getState().reverse).toBe(true)
-      expect(useStatusStore.getState().lights).toBe(true)
-    })
-
-    test('an empty snapshot changes nothing', async () => {
-      const { useStatusStore, fake } = await loadFreshStore()
-      welcomeWith(fake, {})
-      expect(useStatusStore.getState().reverse).toBe(false)
-      expect(useStatusStore.getState().lights).toBe(false)
+      const { useLiviStore, fake } = await loadFreshStore()
+      welcomeWith(fake, { lights: true })
+      expect(useLiviStore.getState().telemetry).toEqual({ lights: true })
     })
   })
 

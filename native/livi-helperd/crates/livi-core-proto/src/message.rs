@@ -33,6 +33,10 @@ pub enum ToCore {
     LinkSpeed {
         on: bool,
     },
+    /// Only the browser sees the cameras, core needs one to show it while reversing.
+    Camera {
+        found: bool,
+    },
 }
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize, TS)]
@@ -63,6 +67,10 @@ pub enum FromCore {
     /// 0 to 1 per band, only to clients that asked. Never part of the state.
     Spectrum {
         bands: Vec<f32>,
+    },
+    /// The telemetry asked for a page once, never part of the state.
+    OpenPage {
+        path: String,
     },
 }
 

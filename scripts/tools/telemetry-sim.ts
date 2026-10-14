@@ -1,7 +1,7 @@
 /**
  * LIVI Telemetry CLI — push test data into the running app.
  *
- * The full API surface lives in `src/main/shared/types/Telemetry.ts`.
+ * Every field and where it goes is in `native/livi-helperd/crates/livi-core-proto/src/telemetry.rs`.
  * This script is just a thin Socket.IO client that hits `ws://127.0.0.1:4000` event `telemetry:push`.
  *
  * USAGE
@@ -255,7 +255,7 @@ Examples
   telemetry:demo                                  # one realistic all-fields push
 
 Reference
-  src/main/shared/types/Telemetry.ts              # full field list + routing
+  native/livi-helperd/crates/livi-core-proto/src/telemetry.rs  # every field and where it goes
 
 Env
   TELEMETRY_URL=${URL}

@@ -24,7 +24,7 @@ use livi_media::planes::{ClusterPlanes, Crop, MainPlane};
 use serde_json::{Map, Value};
 use tokio::sync::{Notify, broadcast, mpsc, oneshot, watch};
 
-use crate::aa_telemetry::AaTelemetry;
+use crate::aa_telemetry::{self, AaTelemetry};
 use crate::android_auto;
 use crate::carplay::night_mode;
 use crate::cp_telemetry::{CpTelemetry, FROM_CARPLAY};
@@ -306,6 +306,16 @@ fn bound(b: &KeyBindings, code: &str) -> Option<Key> {
     table.into_iter().find(|(c, _)| !c.is_empty() && c.as_str() == code).map(|(_, key)| key)
 }
 
+/// None while the car said neither.
+fn reversing(telemetry: &Map<String, Value>) -> Option<bool> {
+    match telemetry.get("reverse").and_then(Value::as_bool) {
+        Some(reverse) => Some(reverse),
+        None => telemetry
+            .get("gear")
+            .map(|g| aa_telemetry::gear(Some(g), None) == Some(aa_telemetry::REVERSE)),
+    }
+}
+
 fn shows_cluster(wants: &PerScreen<Front>) -> bool {
     [wants.main, wants.cluster, wants.aux].contains(&Front::Cluster)
 }
@@ -378,6 +388,8 @@ pub struct Projection {
     /// Telemetry reaches the state many times a second, the config rarely.
     config_seen: Config,
     telemetry_seen: Map<String, Value>,
+    reversing: bool,
+    camera_found: bool,
     cp_telemetry: CpTelemetry,
     aa_telemetry: AaTelemetry,
     bye: Option<oneshot::Sender<()>>,
@@ -393,6 +405,7 @@ pub enum UiCommand {
     ApplySettings,
     SelectDevice(String),
     ForgetDevice(String),
+    CameraFound(bool),
 }
 
 pub struct UiAsks {
@@ -499,6 +512,8 @@ impl Projection {
             attention: None,
             bindings: cfg.bindings.clone(),
             telemetry_seen: hub.watch().borrow().telemetry.clone(),
+            reversing: false,
+            camera_found: false,
             config_seen: cfg,
             cp_telemetry: CpTelemetry::new(HelperSock::default()),
             aa_telemetry: AaTelemetry::default(),
@@ -545,6 +560,7 @@ impl Projection {
                     UiCommand::ApplySettings => self.apply_settings(),
                     UiCommand::SelectDevice(id) => self.select_device(&id),
                     UiCommand::ForgetDevice(id) => self.forget_device(&id),
+                    UiCommand::CameraFound(found) => self.camera_found(found),
                 },
                 Some(input) = asks.input.recv() => self.input(input),
                 Some(done) = asks.goodbye.recv() => self.goodbye(done),
@@ -1102,6 +1118,9 @@ impl Projection {
     }
 
     fn front_main(&self) -> Front {
+        if self.reverse_camera() {
+            return Front::Camera;
+        }
         let wants = if self.attention.is_some() { Front::Projection } else { self.wants.main };
         match wants {
             Front::Projection if self.active().is_some() => Front::Projection,
@@ -1116,12 +1135,14 @@ impl Projection {
     fn asked(&mut self, asked: PerScreen<Front>) {
         let before = self.wants.main;
         let last = std::mem::replace(&mut self.asked, asked);
+        // While reversing, main follows the camera core put there, not a choice of the user.
+        let camera = self.reverse_camera();
         for screen in [Screen::Main, Screen::Cluster, Screen::Aux] {
-            if asked.get(screen) != last.get(screen) {
+            if asked.get(screen) != last.get(screen) && !(camera && screen == Screen::Main) {
                 *self.wants.get_mut(screen) = *asked.get(screen);
             }
         }
-        if asked.main != last.main && asked.main != Front::Projection {
+        if !camera && asked.main != last.main && asked.main != Front::Projection {
             self.attention = None;
         }
         let cluster_on = shows_cluster(&self.wants);
@@ -1137,6 +1158,29 @@ impl Projection {
             self.keyframe();
         }
         self.publish();
+    }
+
+    fn reverse_camera(&self) -> bool {
+        let cfg = &self.config_seen;
+        self.reversing
+            && self.camera_found
+            && cfg.auto_switch_on_reverse
+            && cfg.camera.main
+            && !cfg.camera_id.is_empty()
+    }
+
+    fn camera_found(&mut self, found: bool) {
+        let before = self.reverse_camera();
+        self.camera_found = found;
+        self.camera_follows(before);
+    }
+
+    fn camera_follows(&mut self, before: bool) {
+        let now = self.reverse_camera();
+        if now != before {
+            println!("[core] reversing camera {}", if now { "in front" } else { "gone" });
+            self.publish();
+        }
     }
 
     fn attend(&mut self, kind: Attention, active: bool) {
@@ -1297,6 +1341,7 @@ impl Projection {
     }
 
     fn on_state(&mut self, cfg: Config, telemetry: Map<String, Value>) {
+        let camera = self.reverse_camera();
         if cfg != self.config_seen {
             self.on_config(&cfg);
             let language = cfg.language != self.config_seen.language;
@@ -1309,8 +1354,12 @@ impl Projection {
         if telemetry != self.telemetry_seen {
             self.cp_telemetry.follow(&self.telemetry_seen, &telemetry, &self.cp);
             self.aa_telemetry.follow(&self.telemetry_seen, &telemetry, &self.aa);
+            if let Some(reversing) = reversing(&telemetry) {
+                self.reversing = reversing;
+            }
             self.telemetry_seen = telemetry;
         }
+        self.camera_follows(camera);
     }
 
     fn on_config(&mut self, cfg: &Config) {
@@ -2602,6 +2651,40 @@ mod tests {
             ip: String::new(),
             connected: false,
         }));
+    }
+
+    #[tokio::test]
+    async fn the_camera_comes_to_the_front_while_reversing() {
+        let mut rig = Rig::new();
+        let mut cfg = rig.p.config_seen.clone();
+        cfg.camera_id = "camera-1".into();
+        cfg.camera.main = true;
+        let car = |v: Value| v.as_object().cloned().unwrap();
+        rig.p.on_state(cfg.clone(), car(json!({ "gear": "R" })));
+        assert_eq!(rig.front(), Front::Livi, "no camera seen yet");
+        rig.p.camera_found(true);
+        assert_eq!(rig.front(), Front::Camera);
+        rig.p.on_state(cfg.clone(), car(json!({ "gear": "D" })));
+        assert_eq!(rig.front(), Front::Livi);
+
+        rig.connect(1, true);
+        rig.p.on_event(CpEvent::Call { id: 1, phase: CallPhase::Ringing });
+        assert_eq!(rig.front(), Front::Projection);
+        rig.p.on_state(cfg.clone(), car(json!({ "gear": "D", "reverse": true })));
+        assert_eq!(rig.front(), Front::Camera, "the camera goes over a call");
+        rig.want(Front::Livi);
+        rig.p.on_state(cfg.clone(), car(json!({ "gear": "D", "reverse": false })));
+        assert_eq!(
+            rig.front(),
+            Front::Projection,
+            "the call comes back, the camera page did not end it"
+        );
+
+        cfg.auto_switch_on_reverse = false;
+        rig.p.on_state(cfg.clone(), car(json!({ "gear": -1 })));
+        assert_eq!(rig.front(), Front::Projection);
+        assert_eq!(reversing(&car(json!({ "gear": "x" }))), Some(false));
+        assert_eq!(reversing(&car(json!({ "speedKph": 3 }))), None);
     }
 
     #[tokio::test]

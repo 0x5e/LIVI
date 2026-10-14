@@ -1,7 +1,6 @@
 import { render, waitFor } from '@testing-library/react'
 import { Projection } from '../Projection'
 
-const navigateMock = vi.fn()
 const reportShownMock = vi.fn()
 let mockPathname = '/'
 
@@ -15,7 +14,6 @@ const statusState: Record<string, any> = {
 const liviState: Record<string, any> = {}
 
 vi.mock('react-router', () => ({
-  useNavigate: () => navigateMock,
   useLocation: () => ({ pathname: mockPathname })
 }))
 
@@ -45,7 +43,6 @@ vi.mock('../hooks/useProjectionTouch', () => ({
 
 describe('Projection page', () => {
   beforeEach(() => {
-    navigateMock.mockReset()
     reportShownMock.mockReset()
     mockPathname = '/'
 
@@ -94,77 +91,6 @@ describe('Projection page', () => {
     const { container } = render(<Projection {...baseProps()} />)
 
     expect(container.querySelector('[role="status"]')).not.toBeNull()
-  })
-
-  test('the UI follows core bringing the projection forward and taking it back', () => {
-    mockPathname = '/settings'
-    liviState.sessions = { active: 'carplay' }
-    liviState.front = { main: 'livi' }
-    const { rerender } = render(<Projection {...baseProps()} />)
-
-    liviState.front = { main: 'projection' }
-    rerender(<Projection {...baseProps()} />)
-    expect(navigateMock).toHaveBeenCalledWith('/', { replace: true })
-
-    navigateMock.mockClear()
-    mockPathname = '/'
-    rerender(<Projection {...baseProps()} />)
-    liviState.front = { main: 'livi' }
-    rerender(<Projection {...baseProps()} />)
-    expect(navigateMock).toHaveBeenCalledWith('/settings', { replace: true })
-  })
-
-  test('the phone handing the screen back leads to the media page', () => {
-    liviState.sessions = { active: 'carplay' }
-    liviState.front = { main: 'projection' }
-    const { rerender } = render(<Projection {...baseProps()} />)
-
-    liviState.front = { main: 'livi' }
-    rerender(<Projection {...baseProps()} />)
-    expect(navigateMock).toHaveBeenCalledWith('/media', { replace: true })
-  })
-
-  test('a phone that is gone leaves the projection page to its idle look', () => {
-    liviState.front = { main: 'projection' }
-    const { rerender } = render(<Projection {...baseProps()} />)
-
-    liviState.front = { main: 'livi' }
-    rerender(<Projection {...baseProps()} />)
-    expect(navigateMock).not.toHaveBeenCalled()
-  })
-
-  test('the first state and the UI moving by itself do not navigate', () => {
-    mockPathname = '/media'
-    liviState.sessions = { active: 'carplay' }
-    const { rerender } = render(<Projection {...baseProps()} />)
-
-    liviState.front = { main: 'projection' }
-    rerender(<Projection {...baseProps()} />)
-    liviState.front = { main: 'livi' }
-    rerender(<Projection {...baseProps()} />)
-    mockPathname = '/'
-    liviState.front = { main: 'projection' }
-    rerender(<Projection {...baseProps()} />)
-
-    expect(navigateMock).not.toHaveBeenCalled()
-  })
-
-  test('leaving the projection forgets the way back', () => {
-    mockPathname = '/settings'
-    liviState.sessions = { active: 'carplay' }
-    liviState.front = { main: 'livi' }
-    const { rerender } = render(<Projection {...baseProps()} />)
-    liviState.front = { main: 'projection' }
-    rerender(<Projection {...baseProps()} />)
-
-    for (const path of ['/', '/telemetry', '/']) {
-      mockPathname = path
-      rerender(<Projection {...baseProps()} />)
-    }
-    navigateMock.mockClear()
-    liviState.front = { main: 'livi' }
-    rerender(<Projection {...baseProps()} />)
-    expect(navigateMock).toHaveBeenCalledWith('/media', { replace: true })
   })
 
   test('the video shows through only on the projection route', () => {

@@ -2,7 +2,7 @@ import CropPortraitOutlinedIcon from '@mui/icons-material/CropPortraitOutlined'
 import { Box, useTheme } from '@mui/material'
 import type { Config } from '@shared/types'
 import React, { useEffect, useLayoutEffect, useRef, useState } from 'react'
-import { useLocation, useNavigate } from 'react-router'
+import { useLocation } from 'react-router'
 import {
   reportShown,
   useLiviStore,
@@ -73,7 +73,6 @@ const CarplayComponent: React.FC<CarplayProps> = ({
   setReceivingVideo,
   settings
 }) => {
-  const navigate = useNavigate()
   const location = useLocation()
   const pathname = location.pathname
 
@@ -82,9 +81,6 @@ const CarplayComponent: React.FC<CarplayProps> = ({
   const isStreaming = useStatusStore((s) => s.isStreaming)
   const clusterDashboardActive = useStatusStore((s) => s.clusterDashboardActive)
   const isProjectionActive = useProjectionActive()
-
-  const frontMain = useLiviStore((s) => s.front?.main)
-  const phoneActive = useLiviStore((s) => s.sessions.active !== null)
 
   useEffect(() => {
     setReceivingVideo(isStreaming)
@@ -107,27 +103,6 @@ const CarplayComponent: React.FC<CarplayProps> = ({
   }, [isProjectionActive])
 
   const videoContainerRef = useRef<HTMLDivElement>(null)
-
-  // Core moves main on its own for a call, Siri or the phone handing the screen back.
-  const backPathRef = useRef<string | null>(null)
-  const prevFrontRef = useRef(frontMain)
-  useEffect(() => {
-    if (pathname !== '/') backPathRef.current = null
-  }, [pathname])
-  useEffect(() => {
-    const prev = prevFrontRef.current
-    prevFrontRef.current = frontMain
-    if (prev === undefined || prev === frontMain) return
-    if (frontMain === 'projection') {
-      if (pathname === '/') return
-      backPathRef.current = pathname
-      navigate('/', { replace: true })
-      return
-    }
-    if (prev !== 'projection' || pathname !== '/' || !phoneActive) return
-    navigate(backPathRef.current ?? '/media', { replace: true })
-    backPathRef.current = null
-  }, [frontMain, pathname, phoneActive, navigate])
 
   const [overlayX, setOverlayX] = useState(0)
   const [overlayY, setOverlayY] = useState(0)

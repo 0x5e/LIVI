@@ -10,7 +10,48 @@ export type AudioDevice = { id: string, name: string, isDefault: boolean,
  */
 offline: boolean, };
 
+export type CanFrame = { id: number, data: Array<number>, bus?: number, };
+
 export enum CarType { "Unknown" = 0, "Gasoline" = 1, "DieselWinter" = 3, "Diesel" = 4, "Biodiesel" = 5, "E85" = 6, "LPG" = 7, "CNG" = 8, "LNG" = 9, "Electric" = 10, "Hydrogen" = 11, "Other" = 12, "HybridGasoline" = 101, "HybridDiesel" = 102 }
+
+/**
+ * The car's climate as CarPlay shows it. Without a running session an outside source keeps it
+ * current, a new session starts from it.
+ */
+export type Climate = { 
+/**
+ * Who set it last: `carplay` the phone, `external` a push that names no source, `saved` the
+ * last run, `default` LIVI's start values. Anything but `carplay` reaches the phone.
+ */
+source?: string, on?: boolean, auto?: boolean, ac?: boolean, maxAc?: boolean, maxDefrost?: boolean, recirculation?: boolean, 
+/**
+ * The passenger side follows the driver's temperature.
+ */
+zonesSynced?: boolean, 
+/**
+ * 16 to 28 in steps of 0.5, the ends show as LO and HI.
+ */
+driverTargetC?: number, passengerTargetC?: number, 
+/**
+ * Measured by the car.
+ */
+driverCabinC?: number, passengerCabinC?: number, 
+/**
+ * 0 to 7, 0 is off.
+ */
+fanLevel?: number, fanAuto?: boolean, 
+/**
+ * 0 or 1.
+ */
+frontWindowHeating?: number, rearWindowHeating?: number, ventUpper?: boolean, ventMiddle?: boolean, ventLower?: boolean, 
+/**
+ * AUTO picks the vents.
+ */
+ventsAuto?: boolean, 
+/**
+ * 0 to 2.
+ */
+driverSeatHeating?: number, passengerSeatHeating?: number, };
 
 export type Config = { debugLogging: boolean, wirelessAaEnabled: boolean, wirelessCpEnabled: boolean, wifiPassword: string, btAdapter: string, wifiInterface: string, wifiDedicatedInterface: boolean, wifiType: WifiBand, wifiChannel: number, wifiChannelWidth: number, country: string, carPlaySourceVersion: string, carPlayMfiI2cBus: number, 
 /**
@@ -289,11 +330,84 @@ export type DockPosition = "auto" | "side" | "bottom";
 
 export type DongleRadios = { wifi: boolean, bt: boolean, };
 
+export const EMPTY_GNSS_INFO: GnssInfo = {
+  "connected": false,
+  "fixQuality": "none",
+  "fixMode": "none",
+  "satellitesUsed": 0,
+  "satellitesVisible": 0,
+  "satellites": [],
+  "constellations": []
+};
+
 export enum EvConnectorType { "Unknown" = 0, "J1772" = 1, "Mennekes" = 2, "Chademo" = 3, "Combo1" = 4, "Combo2" = 5, "TeslaSupercharger" = 8, "Gbt" = 9, "Other" = 101 }
 
-export type FromCore = { "type": "welcome", protocol: number, version: string, rev: number, state: State, } | { "type": "refused", reason: string, } | { "type": "patch", rev: number, ops: Array<PatchOp>, } | { "type": "reply", id: number, error?: string, } | { "type": "spectrum", bands: Array<number>, };
+export type FromCore = { "type": "welcome", protocol: number, version: string, rev: number, state: State, } | { "type": "refused", reason: string, } | { "type": "patch", rev: number, ops: Array<PatchOp>, } | { "type": "reply", id: number, error?: string, } | { "type": "spectrum", bands: Array<number>, } | { "type": "openPage", path: string, };
 
 export type Front = "livi" | "projection" | "cluster" | "camera";
+
+export type GnssAntennaPower = "off" | "on" | "unknown";
+
+export type GnssAntennaStatus = "init" | "unknown" | "ok" | "short" | "open";
+
+/**
+ * Declared in name order, lists of them are sorted by name.
+ */
+export type GnssConstellation = "beidou" | "galileo" | "glonass" | "gps" | "qzss" | "unknown";
+
+export type GnssFixMode = "none" | "2d" | "3d";
+
+/**
+ * The fix quality of a GGA sentence, numbered there 0 to 8.
+ */
+export type GnssFixQuality = "none" | "gps" | "dgps" | "pps" | "rtk" | "rtkFloat" | "estimated" | "manual" | "simulated";
+
+export type GnssInfo = { 
+/**
+ * True while bytes arrive, an open but silent port is not connected.
+ */
+connected: boolean, device?: string, baudRate?: number, fixQuality: GnssFixQuality, fixMode: GnssFixMode, satellitesUsed: number, satellitesVisible: number, satellites: Array<GnssSatellite>, constellations: Array<GnssConstellation>, version?: GnssVersion, rf?: GnssRf, error?: string, pdop?: number, hdop?: number, vdop?: number, 
+/**
+ * Unix milliseconds.
+ */
+receiverTime?: number, 
+/**
+ * Unix milliseconds of the last bytes.
+ */
+updatedAt?: number, timezone?: string, };
+
+export type GnssJamming = "unknown" | "ok" | "warning" | "critical";
+
+export type GnssRf = { jamming: GnssJamming, antennaStatus: GnssAntennaStatus, antennaPower: GnssAntennaPower, noise: number, 
+/**
+ * High gain on a weak signal means the antenna delivers too little.
+ */
+agc: number, jammingIndicator: number, };
+
+export type GnssSatellite = { id: number, constellation: GnssConstellation, used: boolean, elevation?: number, azimuth?: number, 
+/**
+ * Absent while the receiver only knows where the satellite is.
+ */
+snr?: number, };
+
+/**
+ * Only a u-blox receiver reports it.
+ */
+export type GnssVersion = { software: string, hardware: string, firmware?: string, protocol?: string, model?: string, 
+/**
+ * The constellations the firmware can track.
+ */
+supported?: Array<string>, };
+
+export type GpsFix = { lat?: number, lng?: number, alt?: number, heading?: number, speedMs?: number, 
+/**
+ * Horizontal.
+ */
+accuracyM?: number, satellites?: number, 
+/**
+ * Unix milliseconds.
+ */
+fixTs?: number, };
 
 export enum HandDriveType { "LHD" = 0, "RHD" = 1 }
 
@@ -355,7 +469,7 @@ elapsedMs: number | null, playing: boolean | null,
  */
 artwork: string | null, };
 
-export const PROTOCOL = 5;
+export const PROTOCOL = 6;
 
 export type PatchOp = { "op": "set", path: Array<string>, value: unknown, } | { "op": "remove", path: Array<string>, };
 
@@ -398,9 +512,10 @@ export type State = { front: PerScreen<Front>, sessions: Sessions, nowPlaying: N
  */
 devices: Array<DeviceView>, 
 /**
- * What the car and outside producers pushed, merged into one snapshot.
+ * What the car and outside producers pushed, merged into one snapshot. A producer may add
+ * fields LIVI does not know.
  */
-telemetry: Record<string, unknown>, update: Update, config: Config, };
+telemetry: TelemetrySnapshot & Record<string, unknown>, update: Update, config: Config, };
 
 export type System = { 
 /**
@@ -436,9 +551,136 @@ displayModes: Array<string>,
  */
 displayModeSettable: boolean, audioSinks: Array<AudioDevice>, audioSources: Array<AudioDevice>, };
 
+export type TelemetrySnapshot = { 
+/**
+ * Unix milliseconds, LIVI fills it in when a push has none.
+ */
+ts?: number, speedKph?: number, rpm?: number, 
+/**
+ * A number for a manual gearbox, -1 reverse, 0 neutral, 1 to 10. A string for an automatic,
+ * P, R, N, D, S or M1 to M10.
+ */
+gear: number | string, 
+/**
+ * Negative is left.
+ */
+steeringDeg?: number, 
+/**
+ * Wins over `gear`.
+ */
+reverse?: boolean, 
+/**
+ * Low beam.
+ */
+lights?: boolean, 
+/**
+ * Android Auto shows high beam whatever `lights` says.
+ */
+highBeam?: boolean, hazards?: boolean, turn?: TurnSignal, parkingBrake?: boolean, coolantC?: number, oilC?: number, 
+/**
+ * Automatic transmission oil.
+ */
+transmissionC?: number, 
+/**
+ * Intake air.
+ */
+iatC?: number, 
+/**
+ * Outside, Android Auto also gets it on its environment channel.
+ */
+ambientC?: number, 
+/**
+ * The 12 V battery.
+ */
+batteryV?: number, 
+/**
+ * 0 to 100, for an electric car the state of charge.
+ */
+fuelPct?: number, rangeKm?: number, 
+/**
+ * Hybrids only, the range on the tank.
+ */
+rangeFuelKm?: number, 
+/**
+ * Hybrids only, the range on the battery.
+ */
+rangeElectricKm?: number, fuelRateLph?: number, consumptionLPer100Km?: number, consumptionAvgLPer100Km?: number, 
+/**
+ * Gross capacity. Turns on electric routing in Android Auto, whatever `carType` says.
+ */
+batteryCapacityKwh?: number, 
+/**
+ * Taken from `fuelPct` and the capacity when absent.
+ */
+batteryLevelKwh?: number, 
+/**
+ * A `CarType` name such as `HybridDiesel`, written into the settings when it differs.
+ */
+carType?: string, 
+/**
+ * `EvConnectorType` names such as `Combo2`, written into the settings when they differ.
+ */
+evConnectorTypes?: Array<string>, 
+/**
+ * Manifold absolute pressure.
+ */
+mapKpa?: number, 
+/**
+ * Android Auto also gets it on its environment channel.
+ */
+baroKpa?: number, boostKpa?: number, 
+/**
+ * 1.0 is stoichiometric.
+ */
+lambda?: number, 
+/**
+ * Air to fuel ratio.
+ */
+afr?: number, 
+/**
+ * Android Auto gets it in steps of 0.1 km.
+ */
+odometerKm?: number, odometerTripKm?: number, 
+/**
+ * Android Auto's driving restrictions as they are, 0 is none.
+ */
+drivingStatus?: number, ambientLux?: number, 
+/**
+ * The dimmer of the panel lights, 0 to 100.
+ */
+dimmerPct?: number, 
+/**
+ * Wins over the light sensor for LIVI, Android Auto and CarPlay.
+ */
+nightMode?: boolean, 
+/**
+ * A page such as `/media` or `/settings/devices`, LIVI's main screen opens it once each time
+ * it changes. A path that names no page is ignored.
+ */
+path?: string, 
+/**
+ * The head unit's level, 0 to 1. It sets `huVolume`, which drives the amplifier and, while
+ * linked, the system mixer.
+ */
+volume?: number, 
+/**
+ * Send the whole fix every time or only what the sensor delivers.
+ */
+gps?: GpsFix, 
+/**
+ * Only LIVI's own receiver sends it, a push replaces it whole.
+ */
+gnss?: GnssInfo, 
+/**
+ * No receiver uses it, it is for tooling and diagnostics.
+ */
+can?: CanFrame, climate?: Climate, };
+
 export type TemperatureUnit = "celsius" | "fahrenheit";
 
-export type ToCore = { "type": "hello", protocol: number, client: string, } | { "type": "resync" } | { "type": "input", input: Input, } | { "type": "action", id: number, action: Action, } | { "type": "path", path: string, } | { "type": "spectrum", on: boolean, } | { "type": "linkSpeed", on: boolean, };
+export type ToCore = { "type": "hello", protocol: number, client: string, } | { "type": "resync" } | { "type": "input", input: Input, } | { "type": "action", id: number, action: Action, } | { "type": "path", path: string, } | { "type": "spectrum", on: boolean, } | { "type": "linkSpeed", on: boolean, } | { "type": "camera", found: boolean, };
+
+export type TurnSignal = "none" | "left" | "right";
 
 export type Update = { 
 /**

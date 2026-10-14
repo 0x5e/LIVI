@@ -135,6 +135,29 @@ describe('CoreSession', () => {
     ])
   })
 
+  test('whether a camera is there is told again after a welcome', () => {
+    const { session, sent } = setup()
+    session.receive(welcome(0, state(0.5)))
+    session.camera(true)
+    session.camera(false)
+    session.receive(welcome(0, state(0.5)))
+    expect(sent).toEqual([
+      { type: 'camera', found: true },
+      { type: 'camera', found: false },
+      { type: 'camera', found: false }
+    ])
+  })
+
+  test('a page core asks for reaches the listeners until they stop', () => {
+    const { session } = setup()
+    const pages: string[] = []
+    const stop = session.onOpenPage((path) => pages.push(path))
+    session.receive({ type: 'openPage', path: '/media' })
+    stop()
+    session.receive({ type: 'openPage', path: '/settings' })
+    expect(pages).toEqual(['/media'])
+  })
+
   test('input goes out as it is and is not kept', () => {
     const { session, sent } = setup()
     session.input({ kind: 'key', code: 'KeyN', down: true })

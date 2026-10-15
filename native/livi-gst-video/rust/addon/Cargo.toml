@@ -14,6 +14,6 @@ napi = { version = "3.14", default-features = false, features = ["napi8"] }
 napi-derive = "3.6"
 
 [build-dependencies]
-cc = "1.7"
+cc = "1.8"
 pkg-config = "0.3"
 napi-build = "2.6"

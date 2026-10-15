@@ -101,6 +101,7 @@ impl Services {
         quit: Arc<Notify>,
         asks: UiAsks,
         telemetry: mpsc::UnboundedSender<serde_json::Value>,
+        settings: mpsc::UnboundedSender<serde_json::Value>,
     ) -> Self {
         let state = hub.watch();
         let cfg = state.borrow().config.clone();
@@ -164,6 +165,7 @@ impl Services {
                 debug: helper::debug(&cfg),
                 helper_restart,
                 telemetry,
+                settings,
             };
             carplay.start(hub, &ctrl, &gst, plane.clone(), clusters.clone(), asks);
         }
@@ -213,6 +215,7 @@ struct CarPlay {
     debug: bool,
     helper_restart: Arc<Notify>,
     telemetry: mpsc::UnboundedSender<serde_json::Value>,
+    settings: mpsc::UnboundedSender<serde_json::Value>,
 }
 
 impl CarPlay {
@@ -277,6 +280,7 @@ impl CarPlay {
             phone_io,
             phone_back,
             telemetry: self.telemetry,
+            settings: self.settings,
         };
         let projection =
             Projection::new(hub, drivers, plane, clusters, self.helper_restart, devices, wants);

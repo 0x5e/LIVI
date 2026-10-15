@@ -137,6 +137,9 @@ impl Telemetry {
         if let Some(fix) = saved.gps.as_ref().and_then(last_fix) {
             patch.insert("gps".into(), fix);
         }
+        if let Some(vehicle) = &saved.vehicle {
+            patch.extend(vehicle.clone());
+        }
         if cfg.hu_volume.is_finite() {
             let level = cfg.hu_volume.clamp(0.0, 1.0);
             patch.insert("volume".into(), level.into());
@@ -408,9 +411,11 @@ mod tests {
                 json!({ "lat": 48.1, "lng": 11.5, "alt": 520.0, "speedMs": 30.0, "fixTs": 9 }),
             )
             .into(),
+            vehicle: obj(json!({ "fuelPct": 42, "odometerKm": 123456 })).into(),
         };
         let mut t = Telemetry::new(core.clone(), io, &saved);
         assert_eq!(t.snap["nightMode"], true);
+        assert_eq!((&t.snap["fuelPct"], &t.snap["odometerKm"]), (&json!(42), &json!(123456)));
         assert_eq!(t.snap["volume"], 0.5);
         assert_eq!(t.snap["gps"], json!({ "lat": 48.1, "lng": 11.5, "alt": 520.0, "fixTs": 9 }));
         let climate = &t.snap["climate"];
@@ -493,7 +498,11 @@ mod tests {
         cfg.hu_volume = f64::NAN;
         let core = core(&dir, cfg);
         let (_, io, _) = socket(core.hub.watch());
-        let saved = Saved { gps: obj(json!({ "lat": 0.0, "lng": 0.0 })).into(), climate: None };
+        let saved = Saved {
+            gps: obj(json!({ "lat": 0.0, "lng": 0.0 })).into(),
+            climate: None,
+            vehicle: None,
+        };
         let mut t = Telemetry::new(core, io, &saved);
         let keys: Vec<&str> = t.snap.keys().map(String::as_str).collect();
         assert_eq!(keys, ["climate", "ts"]);

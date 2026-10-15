@@ -294,7 +294,8 @@ async fn identification_retries_without_droppable_field() {
     let first = phone.expect(0x1D01).await;
     let status =
         IdentificationInformation::decode(&first).unwrap().vehicle_status_component.unwrap();
-    assert!(status.range_gasoline && status.range_warning_gasoline);
+    assert!(status.range && status.range_warning);
+    assert!(!status.range_gasoline && !status.range_warning_gasoline);
     assert!(!status.range_electric && !status.range_diesel && !status.range_cng);
 
     let mut reject = IdentificationRejected {
@@ -379,7 +380,7 @@ async fn location_and_vehicle_status_reach_the_phone_that_asked() {
         (status.range, status.outside_temperature, status.range_warning),
         (Some(320), Some(12), None)
     );
-    assert_eq!((status.range_gasoline, status.range_electric), (Some(320), None));
+    assert_eq!((status.range_gasoline, status.range_electric), (None, None));
 
     phone
         .send(

@@ -31,7 +31,7 @@ use crate::pairings::Pairings;
 use crate::rtsp::{self, Request, Response};
 use crate::timing::ntp64_now;
 use crate::timing_sync::TimingSync;
-use crate::vehicle_state::{self, Climate, Lane, VehicleState};
+use crate::vehicle_state::{self, Climate, Gauges, Lane, VehicleState};
 use crate::video_playback;
 use crate::video_proxy::ProxyOffer;
 
@@ -120,8 +120,9 @@ pub struct StackConfig {
     pub audio_input_device: String,
     /// The host plays a queued video itself, so the phone may hand one over.
     pub hls_video: bool,
-    /// Shown in the phone's vehicle app.
+    /// Shown in the phone's vehicle app, with the build date.
     pub app_version: String,
+    pub app_build_date: String,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq)]
@@ -150,6 +151,7 @@ pub enum StackCmd {
     StreamVolume { kind: AudioKind, level: f64, ramp_ms: u32 },
     PhoneBtMac(String),
     Climate(Climate),
+    Gauges(Gauges),
     Stop,
 }
 
@@ -187,6 +189,11 @@ pub enum StackEvent {
     SpeechActive(bool),
     DisableBluetooth(String),
     Climate(Climate),
+    /// The phone or Siri set a volume, by LIVI's name for it, 0 to 1.
+    Volume {
+        name: &'static str,
+        level: f64,
+    },
     /// Always the last event.
     Closed {
         was_active: bool,
@@ -266,6 +273,7 @@ struct Conn<M: Media> {
     /// when the phone asked for it.
     offered_vehicle_state: bool,
     climate_reported: Option<Climate>,
+    volume_reported: Option<Vec<(&'static str, f64)>>,
     vehicle_streams: Vec<(Lane, IapTunnel, mpsc::UnboundedSender<Vec<u8>>)>,
     vehicle_in: Option<mpsc::UnboundedSender<(Lane, Vec<u8>)>>,
     vehicle_out: Option<mpsc::UnboundedReceiver<(Lane, Vec<u8>)>>,
@@ -466,7 +474,10 @@ pub async fn run<M: Media>(
     let mut started = Some(ctx.media.audio_started());
     let (mut rd, mut wr) = stream.into_split();
     // Always described, the phone's own Ultra or Classic choice decides what it uses.
-    let vehicle_state = VehicleState::new(ctx.debug, &ctx.config.borrow().app_version);
+    let vehicle_state = {
+        let cfg = ctx.config.borrow();
+        VehicleState::new(ctx.debug, &cfg.app_version, &cfg.app_build_date)
+    };
     let mut conn = Conn {
         ctx,
         events,
@@ -501,6 +512,7 @@ pub async fn run<M: Media>(
         vehicle_state: Some(vehicle_state),
         offered_vehicle_state: false,
         climate_reported: None,
+        volume_reported: None,
         vehicle_streams: Vec::new(),
         vehicle_in: None,
         vehicle_out: None,
@@ -1137,6 +1149,19 @@ impl<M: Media> Conn<M> {
         let answers = state.handle(lane, message);
         self.to_vehicle_streams(answers);
         self.report_climate();
+        self.report_volume();
+    }
+
+    /// Only what the phone set goes back, LIVI's own pushes are known already.
+    fn report_volume(&mut self) {
+        let Some(levels) = self.vehicle_state.as_ref().map(VehicleState::volumes) else { return };
+        let seen = self.volume_reported.replace(levels.clone());
+        let Some(seen) = seen else { return };
+        for (name, level) in levels {
+            if !seen.contains(&(name, level)) {
+                self.emit(StackEvent::Volume { name, level });
+            }
+        }
     }
 
     /// LIVI's telemetry follows the climate the phone and the car settle on.
@@ -1928,6 +1953,12 @@ impl<M: Media> Conn<M> {
                 self.to_vehicle_streams(answers);
                 self.report_climate();
             }
+            StackCmd::Gauges(gauges) => {
+                let Some(state) = &mut self.vehicle_state else { return };
+                let answers = state.set_gauges(&gauges);
+                self.volume_reported = Some(state.volumes());
+                self.to_vehicle_streams(answers);
+            }
             StackCmd::Stop => {}
         }
     }
@@ -2182,6 +2213,7 @@ pub(crate) mod tests {
                 audio_input_device: "in".into(),
                 hls_video: video,
                 app_version: "9.5.0".into(),
+                app_build_date: String::new(),
             });
             std::mem::forget(_tx);
             let media = FakeMedia::new();

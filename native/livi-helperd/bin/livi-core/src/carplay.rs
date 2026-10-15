@@ -366,7 +366,8 @@ pub fn stack_config(
         audio_device: cfg.audio_output_device.clone().unwrap_or_default(),
         audio_input_device: cfg.audio_input_device.clone().unwrap_or_default(),
         hls_video: cfg.car_play_hls_video,
-        app_version: std::env::var("LIVI_VERSION").unwrap_or_default(),
+        app_version: option_env!("LIVI_VERSION").unwrap_or_default().into(),
+        app_build_date: option_env!("LIVI_BUILD_DATE").unwrap_or_default().into(),
     }
 }
 

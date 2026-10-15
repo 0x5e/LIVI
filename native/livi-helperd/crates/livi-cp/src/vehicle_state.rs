@@ -18,6 +18,11 @@ const ACCESSORY_VERSION: &str = "1.0";
 const HIGH_PRIORITY: i64 = 1;
 const MAX_LENGTH: i64 = 65535;
 const CELSIUS: i64 = 1082;
+const KILOMETERS: i64 = 151;
+const MILES: i64 = 164;
+const KILOPASCALS: i64 = 932;
+const PERCENT: i64 = 1205;
+const MILLILITERS_PER_100_KM: i64 = 674;
 /// The answer for a value the car does not hold, or one the phone may not write.
 const NO_VALUE: i64 = -6727;
 const WRITTEN: i64 = 0;
@@ -33,6 +38,7 @@ enum Format {
     Bool = 0,
     Uint8 = 1,
     Uint32 = 3,
+    Uint64 = 4,
     Int32 = 7,
     Float = 9,
     String = 10,
@@ -58,6 +64,8 @@ struct Characteristic {
     mutable: bool,
     range: Option<(f64, f64, f64)>,
     units: Option<i64>,
+    /// Said out loud, Siri leaves a value alone otherwise.
+    enabled: bool,
     initial: Option<Value>,
 }
 
@@ -69,8 +77,21 @@ fn characteristic(
     owner: Owner,
     initial: Option<Value>,
 ) -> Characteristic {
-    let range = (format == Format::Uint32).then_some((0.0, f64::from(u32::MAX), 1.0));
-    Characteristic { iid, kind, name, format, owner, mutable: true, range, units: None, initial }
+    // The phone ignores a count whose description carries no bounds.
+    let counts = matches!(format, Format::Uint32 | Format::Uint64);
+    let range = counts.then_some((0.0, f64::from(u32::MAX), 1.0));
+    Characteristic {
+        iid,
+        kind,
+        name,
+        format,
+        owner,
+        mutable: true,
+        range,
+        units: None,
+        enabled: false,
+        initial,
+    }
 }
 
 fn phone(iid: i64, kind: i64, name: &'static str, format: Format) -> Characteristic {
@@ -100,6 +121,10 @@ impl Characteristic {
         Self { range: Some((min, max, step)), ..self }
     }
 
+    fn enabled(self) -> Self {
+        Self { enabled: true, ..self }
+    }
+
     fn in_units(self, units: i64) -> Self {
         Self { units: Some(units), ..self }
     }
@@ -119,7 +144,9 @@ impl Characteristic {
         }
         match self.format {
             Format::Float => Some(Value::Real(n)),
-            Format::Uint8 | Format::Uint32 | Format::Int32 => Some(Value::Int(n.round() as i64)),
+            Format::Uint8 | Format::Uint32 | Format::Uint64 | Format::Int32 => {
+                Some(Value::Int(n.round() as i64))
+            }
             _ => None,
         }
     }
@@ -148,6 +175,9 @@ impl Characteristic {
         if matches!(self.format, Format::String | Format::Dict | Format::Array) {
             d.push(("maximumLength", Value::Int(MAX_LENGTH)));
         }
+        if self.enabled {
+            d.push(("disabled", Value::Bool(false)));
+        }
         if let Some(units) = self.units {
             d.push(("units", Value::Int(units)));
         }
@@ -169,6 +199,7 @@ struct Service {
 }
 
 struct Accessory {
+    name: &'static str,
     iid: i64,
     kind: i64,
     services: Vec<Service>,
@@ -178,6 +209,7 @@ struct Accessory {
 fn navigation() -> Accessory {
     use Format::*;
     Accessory {
+        name: "navigation",
         iid: 256,
         kind: 0x0E00_0002,
         services: vec![
@@ -231,6 +263,7 @@ fn navigation() -> Accessory {
 fn vehicle_resources() -> Accessory {
     use Format::*;
     Accessory {
+        name: "vehicle resources",
         iid: 768,
         kind: 0x0120_0002,
         services: vec![Service {
@@ -264,6 +297,7 @@ fn climate() -> Accessory {
         ],
     };
     Accessory {
+        name: "climate",
         iid: 512,
         kind: 0x0100_0001,
         services: vec![
@@ -377,32 +411,59 @@ fn window_heating(iid: i64, name: &'static str, key: &'static str) -> Service {
         kind: 0x1100_0005,
         characteristics: vec![
             shared(iid + 1, 0x3000_0004, name, Uint8, Value::Int(0)).up_to(1),
-            car(iid + 2, 0x3100_0014, "defrostTypes", Uint8, Value::Int(FILAMENT)).fixed(),
+            car(iid + 2, 0x3100_0014, "defrostTypes", Uint8, Value::Int(FILAMENT)).up_to(7).fixed(),
             car(iid + 3, 0x3600_0065, "vehicleLayoutKey", String, Value::str(key)).fixed(),
         ],
     }
 }
 
-/// The vehicle app's menu, so far a single line with LIVI's version.
-fn automaker_settings(app_version: &str) -> Accessory {
+const LIVI_SECTION: &str = "LIVI";
+
+/// One read only line in the LIVI section of the vehicle app's menu, seven iids from `iid` on.
+fn info_line(iid: i64, id: &str, label: &str, value: &str, symbol: &str, order: i64) -> Service {
     use Format::*;
-    let version = if app_version.is_empty() { "?" } else { app_version };
+    let value = if value.is_empty() { "?" } else { value };
+    Service {
+        iid,
+        kind: 0x1600_0015,
+        characteristics: vec![
+            car(iid + 1, 0x3000_0019, "settingIdentifier", String, Value::str(id)).fixed(),
+            car(iid + 2, 0x3000_0001, "settingLabel", String, Value::str(label)).fixed(),
+            car(iid + 3, 0x3000_0017, "settingValue", String, Value::str(value)).fixed(),
+            car(iid + 4, 0x3600_0006, "settingsCategory", Uint8, Value::Int(0)).up_to(15).fixed(),
+            car(iid + 5, 0x3000_005E, "settingSymbol", String, Value::str(symbol)).fixed(),
+            car(iid + 6, 0x3000_0003, "settingSortOrder", Uint8, Value::Int(order))
+                .up_to(100)
+                .fixed(),
+            car(iid + 7, 0x3600_0028, "settingSection", String, Value::str(LIVI_SECTION)).fixed(),
+        ],
+    }
+}
+
+/// The vehicle app's menu: a LIVI section with the version and when it was built. The phone
+/// orders the lines by their labels, so the build line's label starts with the version's.
+fn automaker_settings(app_version: &str, build_date: &str) -> Accessory {
+    use Format::*;
     Accessory {
+        name: "automaker settings",
         iid: 1280,
         kind: 0x0500_0001,
-        services: vec![Service {
-            iid: 1281,
-            kind: 0x1600_0015,
-            characteristics: vec![
-                car(1282, 0x3000_0019, "settingIdentifier", String, Value::str("LiviVersion"))
-                    .fixed(),
-                car(1283, 0x3000_0001, "settingLabel", String, Value::str("LIVI")).fixed(),
-                car(1284, 0x3000_0017, "settingValue", String, Value::str(version)).fixed(),
-                car(1285, 0x3600_0006, "settingsCategory", Uint8, Value::Int(0)).fixed(),
-                car(1286, 0x3000_005E, "settingSymbol", String, Value::str("info.circle")).fixed(),
-                car(1287, 0x3000_0003, "settingSortOrder", Uint8, Value::Int(0)).fixed(),
-            ],
-        }],
+        services: vec![
+            info_line(1281, "LiviVersion", "Version", app_version, "info.circle", 0),
+            info_line(1289, "LiviVersionBuildDate", "Version Build", build_date, "hammer", 1),
+            Service {
+                iid: 1297,
+                kind: 0x1600_0020,
+                characteristics: vec![
+                    car(1298, 0x3000_0019, "sectionIdentifier", String, Value::str(LIVI_SECTION))
+                        .fixed(),
+                    car(1299, 0x3000_0003, "sectionSortOrder", Uint8, Value::Int(0))
+                        .up_to(100)
+                        .fixed(),
+                    car(1300, 0x3600_0004, "sectionName", String, Value::str(LIVI_SECTION)).fixed(),
+                ],
+            },
+        ],
     }
 }
 
@@ -419,6 +480,7 @@ fn seats() -> Accessory {
         ],
     };
     Accessory {
+        name: "seats",
         iid: 1024,
         kind: 0x0150_0001,
         services: vec![
@@ -431,6 +493,226 @@ fn seats() -> Accessory {
         ],
     }
 }
+
+/// A distance the car shows in either unit, the miles sit one iid above the kilometres.
+#[derive(Clone, Copy)]
+struct Distance {
+    km: i64,
+    hidden: Option<i64>,
+    /// Kilometres, miles, hidden.
+    names: [&'static str; 3],
+}
+
+const FUEL_LEVEL: i64 = 1538;
+const FUEL_RANGE: Distance = Distance {
+    km: 1541,
+    hidden: Some(1543),
+    names: ["fuelRangeKm", "fuelRangeMiles", "fuelRangeHidden"],
+};
+const FUEL_EFFICIENCY: i64 = 1545;
+const AVERAGE_FUEL_EFFICIENCY: i64 = 1546;
+const REMAINING_RANGE: Distance = Distance {
+    km: 1794,
+    hidden: Some(1796),
+    names: ["remainingRangeKm", "remainingRangeMiles", "remainingRangeHidden"],
+};
+const ODOMETER: Distance =
+    Distance { km: 1798, hidden: None, names: ["odometerKm", "odometerMiles", ""] };
+const LOW_FUEL_PCT: i64 = 10;
+const KM_PER_MILE: f64 = 1.609_344;
+
+fn distance(iid: i64, kind: i64, d: Distance) -> Service {
+    use Format::*;
+    let mut characteristics = vec![
+        car(d.km, 0x3000_004A, d.names[0], Uint64, Value::Int(0)).in_units(KILOMETERS),
+        car(d.km + 1, 0x3000_004B, d.names[1], Uint64, Value::Int(0)).in_units(MILES),
+    ];
+    if let Some(hidden) = d.hidden {
+        characteristics.push(car(hidden, 0x3600_0023, d.names[2], Bool, Value::Bool(true)));
+    }
+    Service { iid, kind, characteristics }
+}
+
+/// Tank, range and consumption for the cluster and the vehicle app, all read only.
+fn fuel() -> Accessory {
+    use Format::*;
+    Accessory {
+        name: "fuel",
+        iid: 1536,
+        kind: 0x0900_0006,
+        services: vec![
+            Service {
+                iid: 1537,
+                kind: 0x1A00_0005,
+                characteristics: vec![
+                    car(FUEL_LEVEL, 0x4100_0002, "fuelLevel", Uint8, Value::Int(0))
+                        .up_to(100)
+                        .in_units(PERCENT),
+                    car(1539, 0x4100_001A, "fuelLevelMarkerLow", Uint8, Value::Int(LOW_FUEL_PCT))
+                        .up_to(100)
+                        .in_units(PERCENT)
+                        .fixed(),
+                ],
+            },
+            distance(1540, 0x1A00_0015, FUEL_RANGE),
+            Service {
+                iid: 1544,
+                kind: 0x1A00_0014,
+                characteristics: vec![
+                    car(FUEL_EFFICIENCY, 0x3500_0013, "fuelEfficiency", Uint32, Value::Int(0))
+                        .in_units(MILLILITERS_PER_100_KM),
+                    car(
+                        AVERAGE_FUEL_EFFICIENCY,
+                        0x3500_0018,
+                        "averageFuelEfficiency",
+                        Uint32,
+                        Value::Int(0),
+                    )
+                    .in_units(MILLILITERS_PER_100_KM),
+                    car(1547, 0x4100_0025, "fuelEfficiencyMax", Uint32, Value::Int(50_000))
+                        .in_units(MILLILITERS_PER_100_KM)
+                        .fixed(),
+                ],
+            },
+        ],
+    }
+}
+
+fn trip_computer() -> Accessory {
+    Accessory {
+        name: "trip computer",
+        iid: 1792,
+        kind: 0x0400_0001,
+        services: vec![
+            distance(1793, 0x1A00_000B, REMAINING_RANGE),
+            distance(1797, 0x1A00_000A, ODOMETER),
+        ],
+    }
+}
+
+/// Telemetry name and layout key of each wheel, its service sits at `TIRES + 1 + 5 * n`.
+const WHEELS: [(&str, &str); 4] = [
+    ("frontLeftKpa", "tire_front_left"),
+    ("frontRightKpa", "tire_front_right"),
+    ("rearLeftKpa", "tire_rear_left"),
+    ("rearRightKpa", "tire_rear_right"),
+];
+const TIRES: i64 = 2048;
+/// LIVI knows no target pressure, so it never judges one.
+const PRESSURE_UNDEFINED: i64 = 0;
+const SENSOR_ACTIVE: i64 = 1;
+const SENSOR_WAITING: i64 = 3;
+
+/// The wheel's pressure, followed by its layout key, pressure state and sensor state.
+fn tire_pressure_iid(wheel: usize) -> i64 {
+    TIRES + 2 + 5 * wheel as i64
+}
+
+/// One pressure in kPa per wheel with its states, read only. The sensor waits until a pressure
+/// arrives.
+fn tires() -> Accessory {
+    use Format::*;
+    let wheel = |n: usize, key: &'static str| {
+        let iid = tire_pressure_iid(n);
+        Service {
+            iid: iid - 1,
+            kind: 0x1B00_0001,
+            characteristics: vec![
+                car(iid, 0x3000_001B, "tirePressureKpa", Uint32, Value::Int(0))
+                    .between(0.0, 1000.0, 1.0)
+                    .in_units(KILOPASCALS),
+                car(iid + 1, 0x3600_0065, "vehicleLayoutKey", String, Value::str(key)).fixed(),
+                car(
+                    iid + 2,
+                    0x3000_001C,
+                    "tirePressureState",
+                    Uint8,
+                    Value::Int(PRESSURE_UNDEFINED),
+                )
+                .up_to(5),
+                car(iid + 3, 0x3000_001A, "tireSensorState", Uint8, Value::Int(SENSOR_WAITING))
+                    .up_to(4),
+            ],
+        }
+    };
+    Accessory {
+        name: "tires",
+        iid: TIRES,
+        kind: 0x0A00_0001,
+        services: WHEELS.iter().enumerate().map(|(n, (_, key))| wheel(n, key)).collect(),
+    }
+}
+
+const VOLUME: i64 = 2306;
+const MUTE: i64 = 2309;
+const NAV_VOLUME: i64 = 2311;
+const CALL_VOLUME: i64 = 2314;
+const MUSIC_VOLUME: i64 = 2317;
+const SIRI_VOLUME: i64 = 2321;
+
+/// Each volume the vehicle app shows: LIVI's name for it, its iid, and the phone's volume type.
+/// `volume` is the head unit in the telemetry, the others are settings.
+/// Media, navigation, call, speech, ringtone, navigation speech, other, vehicle notification.
+const LAST_VOLUME_TYPE: u32 = 7;
+pub const VOLUMES: [(&str, i64); 5] = [
+    ("volume", VOLUME),
+    ("navVolume", NAV_VOLUME),
+    ("callVolume", CALL_VOLUME),
+    ("audioVolume", MUSIC_VOLUME),
+    ("voiceAssistantVolume", SIRI_VOLUME),
+];
+/// The phone's volume type of each volume it lists under its own name.
+/// The phone has no type for music, "other" carries LIVI's own label.
+const VOLUME_TYPES: [(i64, i64, Option<&str>); 5] = [
+    (VOLUME, 0, Some("LIVI")),
+    (NAV_VOLUME, 1, None),
+    (CALL_VOLUME, 2, None),
+    (SIRI_VOLUME, 3, None),
+    (MUSIC_VOLUME, 6, Some("Musik")),
+];
+
+/// LIVI's volumes in percent, the phone and Siri may set them. The head unit's volume shows as
+/// media, the phone names each by its type.
+fn audio() -> Accessory {
+    use Format::*;
+    let volume = |iid: i64, kind: i64, label: Option<&str>| {
+        let mut characteristics = vec![
+            shared(iid, 0x3300_0006, "volume", Uint8, Value::Int(50)).up_to(100).enabled(),
+            car(iid + 1, 0x3300_0005, "volumeType", Uint8, Value::Int(kind))
+                .up_to(LAST_VOLUME_TYPE)
+                .fixed(),
+        ];
+        if let Some(label) = label {
+            characteristics
+                .push(car(iid + 2, 0x3000_0001, "volumeLabel", String, Value::str(label)).fixed());
+        }
+        if iid == VOLUME {
+            characteristics.push(shared(MUTE, 0x3300_0009, "mute", Bool, Value::Bool(false)));
+        }
+        Service { iid: iid - 1, kind: 0x1300_0002, characteristics }
+    };
+    Accessory {
+        name: "audio",
+        iid: 2304,
+        kind: 0x0200_0001,
+        services: VOLUME_TYPES
+            .iter()
+            .map(|(iid, kind, label)| volume(*iid, *kind, *label))
+            .collect(),
+    }
+}
+
+/// The readings in LIVI's telemetry the cluster shows, metric, by their telemetry names.
+pub type Gauges = serde_json::Map<String, serde_json::Value>;
+pub const GAUGE_KEYS: [&str; 7] = [
+    "fuelPct",
+    "rangeKm",
+    "consumptionLPer100Km",
+    "consumptionAvgLPer100Km",
+    "odometerKm",
+    "tirePressure",
+    "volume",
+];
 
 const DRIVER_TARGET_TEMPERATURE: i64 = 520;
 const PASSENGER_TARGET_TEMPERATURE: i64 = 534;
@@ -470,7 +752,7 @@ const VENTS_AUTO: &str = "ventsAuto";
 
 /// The climate LIVI starts with, AUTO at 21 °C.
 pub fn default_climate() -> Climate {
-    VehicleState::new(false, "").climate().unwrap_or_default()
+    VehicleState::new(false, "", "").climate().unwrap_or_default()
 }
 
 fn to_json(v: &Value) -> Option<serde_json::Value> {
@@ -494,13 +776,17 @@ pub struct VehicleState {
 }
 
 impl VehicleState {
-    pub fn new(debug: bool, app_version: &str) -> Self {
+    pub fn new(debug: bool, app_version: &str, build_date: &str) -> Self {
         let accessories = vec![
             navigation(),
-            automaker_settings(app_version),
+            automaker_settings(app_version, build_date),
             climate(),
             seats(),
             vehicle_resources(),
+            fuel(),
+            trip_computer(),
+            tires(),
+            audio(),
         ];
         let values = accessories
             .iter()
@@ -616,7 +902,26 @@ impl VehicleState {
                 None => missing.push((Value::Int(iid), Value::Int(NO_VALUE))),
             }
         }
-        println!("[cpVehicle] phone follows {} values, {} of them set", iids.len(), held.len());
+        let by_accessory: Vec<String> = self
+            .accessories
+            .iter()
+            .filter_map(|a| {
+                let names: Vec<&str> = a
+                    .services
+                    .iter()
+                    .flat_map(|s| &s.characteristics)
+                    .filter(|c| iids.iter().any(|i| i.as_int() == Some(c.iid)))
+                    .map(|c| c.name)
+                    .collect();
+                (!names.is_empty()).then(|| format!("{}: {}", a.name, names.join(" ")))
+            })
+            .collect();
+        println!(
+            "[cpVehicle] phone follows {} values ({}), {} of them set",
+            iids.len(),
+            by_accessory.join(", "),
+            held.len()
+        );
         let mut answer = vec![
             (Value::str("command"), Value::str("registerResponse")),
             (Value::str("transactionID"), transaction),
@@ -667,6 +972,20 @@ impl VehicleState {
         let mut out = vec![(lane, wrap(&answer))];
         out.extend(update_notify(changed));
         out
+    }
+
+    /// 0 to 1, as LIVI's telemetry counts it.
+    pub fn volume(&self) -> Option<f64> {
+        self.level(VOLUME)
+    }
+
+    /// Every volume by LIVI's name for it, 0 to 1.
+    pub fn volumes(&self) -> Vec<(&'static str, f64)> {
+        VOLUMES.iter().filter_map(|(name, iid)| Some((*name, self.level(*iid)?))).collect()
+    }
+
+    fn level(&self, iid: i64) -> Option<f64> {
+        Some(self.values.get(&iid)?.as_int()? as f64 / 100.0)
     }
 
     /// The climate as LIVI's telemetry holds it, None when the description names no climate.
@@ -728,12 +1047,90 @@ impl VehicleState {
         update_notify(changed).into_iter().collect()
     }
 
+    /// Readings from the car, the phone hears whatever it follows that changed.
+    pub fn set_gauges(&mut self, gauges: &Gauges) -> Vec<(Lane, Vec<u8>)> {
+        let num =
+            |key| gauges.get(key).and_then(serde_json::Value::as_f64).filter(|n| n.is_finite());
+        let mut given: Vec<(i64, serde_json::Value)> = Vec::new();
+        for (name, iid) in VOLUMES {
+            if let Some(level) = num(name) {
+                given.push((iid, (level.clamp(0.0, 1.0) * 100.0).into()));
+            }
+        }
+        if let Some(pct) = num("fuelPct") {
+            given.push((FUEL_LEVEL, pct.into()));
+        }
+        let ranges: [(&str, &[Distance]); 2] =
+            [("rangeKm", &[FUEL_RANGE, REMAINING_RANGE]), ("odometerKm", &[ODOMETER])];
+        for (key, distances) in ranges {
+            let Some(km) = num(key).map(|km| km.max(0.0)) else { continue };
+            for d in distances {
+                given.push((d.km, km.into()));
+                given.push((d.km + 1, (km / KM_PER_MILE).into()));
+                if let Some(hidden) = d.hidden {
+                    given.push((hidden, false.into()));
+                }
+            }
+        }
+        if let Some(tires) = gauges.get("tirePressure").and_then(serde_json::Value::as_object) {
+            for (n, (name, _)) in WHEELS.iter().enumerate() {
+                if let Some(kpa) = tires.get(*name).and_then(serde_json::Value::as_f64) {
+                    let iid = tire_pressure_iid(n);
+                    given.push((iid, kpa.max(0.0).into()));
+                    given.push((iid + 3, SENSOR_ACTIVE.into()));
+                }
+            }
+        }
+        // Millilitres per 100 km.
+        let efficiencies = [
+            ("consumptionLPer100Km", FUEL_EFFICIENCY),
+            ("consumptionAvgLPer100Km", AVERAGE_FUEL_EFFICIENCY),
+        ];
+        for (key, iid) in efficiencies {
+            if let Some(l) = num(key) {
+                given.push((iid, (l.max(0.0) * 1000.0).into()));
+            }
+        }
+        let mut changed = Vec::new();
+        for (iid, v) in given {
+            if let Some(v) = self.characteristic(iid).and_then(|c| c.take(&v)) {
+                self.car_sets(iid, v, &mut changed);
+            }
+        }
+        if self.values.get(&VOLUME).and_then(Value::as_int).is_some_and(|v| v > 0) {
+            self.car_sets(MUTE, Value::Bool(false), &mut changed);
+        }
+        update_notify(changed).into_iter().collect()
+    }
+
     /// What a car does on its own after a setting changed.
     fn settle(&mut self, written: &[(Value, Value)], changed: &mut Vec<(Value, Value)>) {
         self.keep_zones_synced(written, changed);
         self.switch_by_level(written, changed);
         self.follow_auto(written, changed);
         self.run_max_ac(written, changed);
+        self.mute_by_volume(written, changed);
+    }
+
+    /// Mute drops the volume to 0 and unmuting brings back the last level, turning the volume up
+    /// ends the mute.
+    fn mute_by_volume(&mut self, written: &[(Value, Value)], changed: &mut Vec<(Value, Value)>) {
+        let find = |iid| written.iter().find(|(k, _)| k.as_int() == Some(iid)).map(|(_, v)| v);
+        let level = self.values.get(&VOLUME).and_then(Value::as_int).unwrap_or(0);
+        match (find(MUTE), find(VOLUME)) {
+            (Some(Value::Bool(true)), _) if level > 0 => {
+                self.resume.insert(VOLUME, Value::Int(level));
+                self.car_sets(VOLUME, Value::Int(0), changed);
+            }
+            (Some(Value::Bool(false)), _) if level == 0 => {
+                let back = self.resume.get(&VOLUME).cloned().unwrap_or(Value::Int(50));
+                self.car_sets(VOLUME, back, changed);
+            }
+            (None, Some(Value::Int(v))) if *v > 0 => {
+                self.car_sets(MUTE, Value::Bool(false), changed)
+            }
+            _ => {}
+        }
     }
 
     /// Synced, the passenger side takes the driver's temperature, and setting the passenger side
@@ -935,7 +1332,7 @@ mod tests {
 
     #[test]
     fn info_describes_route_sharing_for_one_plugin() {
-        let (key, info) = VehicleState::new(false, "9.5.0").info_entry();
+        let (key, info) = VehicleState::new(false, "9.5.0", "2026-10-15 14:30").info_entry();
         assert_eq!(key, "vehicleStateProtocolInfo");
         assert_eq!(info.get("protocolVersion").and_then(bplist::Value::as_str), Some("1.0"));
         let mapping = info.get("pluginMapping").and_then(|m| m.get(PLUGIN));
@@ -980,7 +1377,7 @@ mod tests {
 
     #[test]
     fn the_phone_reads_follows_and_writes() {
-        let mut state = VehicleState::new(false, "9.5.0");
+        let mut state = VehicleState::new(false, "9.5.0", "2026-10-15 14:30");
         // A configRequest as an iPhone sends it.
         let ask =
             hex("e248706c7567696e4944084a706c7567696e44617461912ee247636f6d6d616e644d636f6e666967
@@ -1031,19 +1428,21 @@ mod tests {
     }
 
     #[test]
-    fn the_vehicle_app_shows_the_livi_version() {
-        let (_, info) = VehicleState::new(false, "9.5.0").info_entry();
-        let plugin = &info.get("pluginConfigs").and_then(bplist::Value::as_array).unwrap()[0];
-        let settings = plugin
-            .get("accessories")
-            .and_then(bplist::Value::as_array)
-            .unwrap()
-            .iter()
-            .find(|a| a.get("type").and_then(bplist::Value::as_int) == Some(0x0500_0001))
-            .unwrap();
-        let line = &settings.get("services").and_then(bplist::Value::as_array).unwrap()[0];
-        assert_eq!(line.get("type").and_then(bplist::Value::as_int), Some(0x1600_0015));
-        let initial = |kind| {
+    fn the_vehicle_app_shows_the_livi_version_and_build_date() {
+        let lines = |version: &str, built: &str| {
+            let (_, info) = VehicleState::new(false, version, built).info_entry();
+            let plugin = &info.get("pluginConfigs").and_then(bplist::Value::as_array).unwrap()[0];
+            let settings = plugin
+                .get("accessories")
+                .and_then(bplist::Value::as_array)
+                .unwrap()
+                .iter()
+                .find(|a| a.get("type").and_then(bplist::Value::as_int) == Some(0x0500_0001))
+                .unwrap()
+                .clone();
+            settings.get("services").and_then(bplist::Value::as_array).unwrap().to_vec()
+        };
+        let initial = |line: &bplist::Value, kind| {
             line.get("characteristics")
                 .and_then(bplist::Value::as_array)
                 .unwrap()
@@ -1053,17 +1452,56 @@ mod tests {
                 .cloned()
         };
         let text = |s: &str| Some(bplist::Value::String(s.into()));
-        assert_eq!(initial(0x3000_0001), text("LIVI"));
-        assert_eq!(initial(0x3000_0017), text("9.5.0"));
-        assert_eq!(initial(0x3600_0006), Some(bplist::Value::Int(0)));
 
-        let (_, info) = VehicleState::new(false, "").info_entry();
-        assert!(format!("{info:?}").contains("String(\"?\")"), "an unknown version shows as ?");
+        let kind = |l: &bplist::Value| l.get("type").and_then(bplist::Value::as_int);
+        let known = lines("9.5.0", "2026-10-15 14:30");
+        assert_eq!(
+            known.iter().map(kind).collect::<Vec<_>>(),
+            [0x1600_0015, 0x1600_0015, 0x1600_0020].map(Some)
+        );
+        let section = &known[2];
+        assert_eq!(initial(section, 0x3000_0019), text("LIVI"));
+        assert_eq!(initial(section, 0x3600_0004), text("LIVI"));
+        for line in &known[..2] {
+            assert_eq!(initial(line, 0x3600_0028), text("LIVI"), "both lines sit in the section");
+            assert_eq!(initial(line, 0x3600_0006), Some(bplist::Value::Int(0)));
+        }
+        assert_eq!(initial(&known[0], 0x3000_0001), text("Version"));
+        assert_eq!(initial(&known[0], 0x3000_0017), text("9.5.0"));
+        assert_eq!(initial(&known[1], 0x3000_0001), text("Version Build"));
+        let label = |line| match initial(line, 0x3000_0001) {
+            Some(bplist::Value::String(s)) => s,
+            other => panic!("no label: {other:?}"),
+        };
+        assert!(label(&known[0]) < label(&known[1]), "the phone puts the version line first");
+        assert_eq!(initial(&known[1], 0x3000_0017), text("2026-10-15 14:30"));
+        let sort_order = |line: &bplist::Value| {
+            line.get("characteristics")
+                .and_then(bplist::Value::as_array)
+                .unwrap()
+                .iter()
+                .find(|c| c.get("type").and_then(bplist::Value::as_int) == Some(0x3000_0003))
+                .cloned()
+                .unwrap()
+        };
+        let (version, build) = (sort_order(&known[0]), sort_order(&known[1]));
+        let number = |c: &bplist::Value, k: &str| c.get(k).and_then(bplist::Value::as_int);
+        assert_eq!(number(&version, "initialValue"), Some(0), "the version line comes first");
+        assert_eq!(number(&build, "initialValue"), Some(1));
+        assert_eq!(
+            number(&version, "maximumValue"),
+            Some(100),
+            "the phone drops a number without bounds"
+        );
+
+        let unknown = lines("", "");
+        assert_eq!(initial(&unknown[0], 0x3000_0017), text("?"), "an unknown version shows as ?");
+        assert_eq!(initial(&unknown[1], 0x3000_0017), text("?"));
     }
 
     #[test]
     fn both_front_seats_heat_in_two_steps() {
-        let (_, info) = VehicleState::new(false, "9.5.0").info_entry();
+        let (_, info) = VehicleState::new(false, "9.5.0", "2026-10-15 14:30").info_entry();
         let plugin = &info.get("pluginConfigs").and_then(bplist::Value::as_array).unwrap()[0];
         let seats = plugin
             .get("accessories")
@@ -1092,7 +1530,7 @@ mod tests {
 
     #[test]
     fn a_seat_heats_while_its_level_is_above_zero() {
-        let mut state = VehicleState::new(false, "9.5.0");
+        let mut state = VehicleState::new(false, "9.5.0", "2026-10-15 14:30");
         let [(level, on), _] = SEAT_HEATING;
         state.handle(
             Lane::High,
@@ -1116,7 +1554,7 @@ mod tests {
 
     #[test]
     fn front_and_rear_windows_heat_through_their_wires() {
-        let (_, info) = VehicleState::new(false, "9.5.0").info_entry();
+        let (_, info) = VehicleState::new(false, "9.5.0", "2026-10-15 14:30").info_entry();
         let plugin = &info.get("pluginConfigs").and_then(bplist::Value::as_array).unwrap()[0];
         let climate = plugin
             .get("accessories")
@@ -1151,7 +1589,7 @@ mod tests {
 
     #[test]
     fn each_vent_has_its_button_and_auto_takes_them_all() {
-        let mut state = VehicleState::new(false, "9.5.0");
+        let mut state = VehicleState::new(false, "9.5.0", "2026-10-15 14:30");
         let directions: Vec<_> =
             VENTS.iter().map(|vent| state.values.get(&(vent + 3)).cloned()).collect();
         let one = |d| Some(Value::Array(vec![Value::Int(d)]));
@@ -1184,7 +1622,7 @@ mod tests {
 
     #[test]
     fn max_ac_cools_with_everything_and_gives_the_settings_back() {
-        let mut state = VehicleState::new(false, "9.5.0");
+        let mut state = VehicleState::new(false, "9.5.0", "2026-10-15 14:30");
         let (level, _) = FAN;
         let iids =
             [MAX_AC, DRIVER_TARGET_TEMPERATURE, PASSENGER_TARGET_TEMPERATURE, RECIRCULATION, level];
@@ -1231,7 +1669,7 @@ mod tests {
 
     #[test]
     fn auto_runs_the_fan_until_it_is_set_by_hand() {
-        let mut state = VehicleState::new(false, "9.5.0");
+        let mut state = VehicleState::new(false, "9.5.0", "2026-10-15 14:30");
         let (level, _) = FAN;
         let iids = [AUTO_CLIMATE, FAN_AUTO, level].map(Value::Int).to_vec();
         state.handle(Lane::High, &command("registerRequest", Value::Array(iids)));
@@ -1260,7 +1698,7 @@ mod tests {
 
     #[test]
     fn the_fan_stops_at_level_zero_and_comes_back_at_its_last_level() {
-        let mut state = VehicleState::new(false, "9.5.0");
+        let mut state = VehicleState::new(false, "9.5.0", "2026-10-15 14:30");
         let (level, on) = FAN;
         let iids = vec![Value::Int(level), Value::Int(on)];
         state.handle(Lane::High, &command("registerRequest", Value::Array(iids)));
@@ -1288,7 +1726,7 @@ mod tests {
 
     #[test]
     fn synced_zones_follow_the_driver_until_the_passenger_is_set() {
-        let mut state = VehicleState::new(false, "9.5.0");
+        let mut state = VehicleState::new(false, "9.5.0", "2026-10-15 14:30");
         let iids = [DRIVER_TARGET_TEMPERATURE, PASSENGER_TARGET_TEMPERATURE, ZONES_SYNCED];
         state.handle(
             Lane::High,
@@ -1330,7 +1768,7 @@ mod tests {
 
     #[test]
     fn both_front_seats_have_their_own_temperature() {
-        let (_, info) = VehicleState::new(false, "9.5.0").info_entry();
+        let (_, info) = VehicleState::new(false, "9.5.0", "2026-10-15 14:30").info_entry();
         let plugin = &info.get("pluginConfigs").and_then(bplist::Value::as_array).unwrap()[0];
         let climate = plugin
             .get("accessories")
@@ -1355,7 +1793,7 @@ mod tests {
 
     #[test]
     fn climate_is_described_and_set_from_the_phone() {
-        let mut state = VehicleState::new(false, "9.5.0");
+        let mut state = VehicleState::new(false, "9.5.0", "2026-10-15 14:30");
         let (_, info) = state.info_entry();
         let plugin = &info.get("pluginConfigs").and_then(bplist::Value::as_array).unwrap()[0];
         let accessories = plugin.get("accessories").and_then(bplist::Value::as_array).unwrap();
@@ -1427,7 +1865,7 @@ mod tests {
 
     #[test]
     fn livi_sets_climate_and_the_phone_hears_what_changed() {
-        let mut state = VehicleState::new(false, "9.5.0");
+        let mut state = VehicleState::new(false, "9.5.0", "2026-10-15 14:30");
         let (level, on) = FAN;
         let iids = [AUTO_CLIMATE, FAN_AUTO, level, on, DRIVER_TARGET_TEMPERATURE];
         state.handle(
@@ -1483,8 +1921,198 @@ mod tests {
     }
 
     #[test]
+    fn fuel_and_trip_computer_are_read_only_with_bounded_numbers() {
+        let state = VehicleState::new(false, "9.5.0", "2026-10-15 14:30");
+        let accessories = state.accessory_list();
+        let kinds: Vec<i64> = accessories
+            .as_array()
+            .unwrap()
+            .iter()
+            .filter_map(|a| a.get("type").and_then(Value::as_int))
+            .collect();
+        assert!(kinds.contains(&0x0900_0006) && kinds.contains(&0x0400_0001));
+        let flag = |iid, key| state.characteristic(iid).unwrap().describe().get(key).cloned();
+        for iid in [FUEL_LEVEL, FUEL_RANGE.km, FUEL_RANGE.km + 1, ODOMETER.km, FUEL_EFFICIENCY] {
+            assert_eq!(flag(iid, "writable"), Some(Value::Bool(false)), "{iid} is the car's");
+            assert!(flag(iid, "minimumValue").is_some(), "{iid} carries its bounds");
+            assert!(flag(iid, "maximumValue").is_some() && flag(iid, "stepValue").is_some());
+        }
+        assert_eq!(flag(FUEL_LEVEL, "maximumValue"), Some(Value::Int(100)));
+        assert_eq!(flag(ODOMETER.km, "format"), Some(Value::Int(Format::Uint64 as i64)));
+        // Without a unit the phone cannot say the value.
+        let units = |iid| flag(iid, "units");
+        assert_eq!(units(FUEL_LEVEL), Some(Value::Int(PERCENT)));
+        assert_eq!(units(FUEL_RANGE.km), Some(Value::Int(KILOMETERS)));
+        assert_eq!(units(FUEL_RANGE.km + 1), Some(Value::Int(MILES)));
+        assert_eq!(units(FUEL_EFFICIENCY), Some(Value::Int(MILLILITERS_PER_100_KM)));
+        assert_eq!(state.values.get(&FUEL_RANGE.hidden.unwrap()), Some(&Value::Bool(true)));
+        assert_eq!(state.values.get(&REMAINING_RANGE.hidden.unwrap()), Some(&Value::Bool(true)));
+    }
+
+    #[test]
+    fn gauges_reach_the_phone_in_both_units() {
+        let mut state = VehicleState::new(false, "9.5.0", "2026-10-15 14:30");
+        let gauges = |v: serde_json::Value| v.as_object().cloned().unwrap();
+        let quiet = state.set_gauges(&gauges(serde_json::json!({ "fuelPct": 42 })));
+        assert!(quiet.is_empty(), "nothing goes out before the phone follows");
+        assert_eq!(state.values.get(&FUEL_LEVEL), Some(&Value::Int(42)));
+
+        let iids = [FUEL_LEVEL, FUEL_RANGE.km, FUEL_RANGE.km + 1, 1543, ODOMETER.km, 1546];
+        state.handle(
+            Lane::High,
+            &command("registerRequest", Value::Array(iids.map(Value::Int).to_vec())),
+        );
+        let answers = state.set_gauges(&gauges(serde_json::json!({
+            "fuelPct": 120,
+            "rangeKm": 380.4,
+            "odometerKm": 123456,
+            "consumptionAvgLPer100Km": 8.1,
+            "speedKph": 50,
+            "rangeFuelKm": "far"
+        })));
+        assert_eq!(answers.len(), 1);
+        assert_eq!(answers[0].0, Lane::High);
+        assert_eq!(
+            opened(&answers[0].1).get("values"),
+            Some(&by_iid(&[
+                (FUEL_LEVEL, Value::Int(100)),
+                (FUEL_RANGE.km, Value::Int(380)),
+                (FUEL_RANGE.km + 1, Value::Int(236)),
+                (1543, Value::Bool(false)),
+                (ODOMETER.km, Value::Int(123_456)),
+                (1546, Value::Int(8100)),
+            ]))
+        );
+        assert_eq!(state.values.get(&REMAINING_RANGE.km), Some(&Value::Int(380)));
+        assert_eq!(state.values.get(&(REMAINING_RANGE.km + 1)), Some(&Value::Int(236)));
+
+        let again = state.set_gauges(&gauges(serde_json::json!({ "rangeKm": 380 })));
+        assert!(again.is_empty(), "an unchanged reading stays home");
+        state.set_gauges(&gauges(serde_json::json!({ "rangeKm": -5, "consumptionLPer100Km": -1 })));
+        assert_eq!(state.values.get(&FUEL_RANGE.km), Some(&Value::Int(0)));
+        assert_eq!(state.values.get(&FUEL_EFFICIENCY), Some(&Value::Int(0)));
+    }
+
+    #[test]
+    fn each_wheel_has_its_pressure_and_place() {
+        let mut state = VehicleState::new(false, "9.5.0", "2026-10-15 14:30");
+        let tires = state.accessories.iter().find(|a| a.kind == 0x0A00_0001).unwrap();
+        assert_eq!(tires.services.len(), 4);
+        for (n, service) in tires.services.iter().enumerate() {
+            assert_eq!(service.kind, 0x1B00_0001);
+            let pressure = &service.characteristics[0];
+            assert_eq!((pressure.iid, pressure.kind), (tire_pressure_iid(n), 0x3000_001B));
+            assert_eq!(pressure.range, Some((0.0, 1000.0, 1.0)));
+            assert_eq!(pressure.units, Some(KILOPASCALS));
+            let place = service.characteristics[1].initial.clone();
+            assert_eq!(place, Some(Value::str(WHEELS[n].1)));
+            let (pressure_state, sensor_state) =
+                (&service.characteristics[2], &service.characteristics[3]);
+            assert_eq!((pressure_state.kind, sensor_state.kind), (0x3000_001C, 0x3000_001A));
+            assert_eq!(
+                pressure_state.range,
+                Some((0.0, 5.0, 1.0)),
+                "the phone drops a number without bounds"
+            );
+            assert_eq!(pressure_state.initial, Some(Value::Int(PRESSURE_UNDEFINED)));
+            assert_eq!(sensor_state.initial, Some(Value::Int(SENSOR_WAITING)));
+        }
+
+        let iids = (0..4).map(|n| Value::Int(tire_pressure_iid(n))).collect();
+        state.handle(Lane::High, &command("registerRequest", Value::Array(iids)));
+        let gauges = serde_json::json!({ "tirePressure": {
+            "frontLeftKpa": 240.4, "rearRightKpa": 1500, "rearLeftKpa": "flat"
+        } });
+        let answers = state.set_gauges(gauges.as_object().unwrap());
+        assert_eq!(
+            opened(&answers[0].1).get("values"),
+            Some(&by_iid(&[
+                (tire_pressure_iid(0), Value::Int(240)),
+                (tire_pressure_iid(3), Value::Int(1000))
+            ])),
+            "a wheel pushed alone goes out alone, held to the bounds"
+        );
+        let states = |n| {
+            let iid = tire_pressure_iid(n);
+            (state.values.get(&(iid + 2)).cloned(), state.values.get(&(iid + 3)).cloned())
+        };
+        let measured = (Some(Value::Int(PRESSURE_UNDEFINED)), Some(Value::Int(SENSOR_ACTIVE)));
+        assert_eq!(states(0), measured, "a measured wheel has an active sensor");
+        assert_eq!(
+            states(1),
+            (Some(Value::Int(PRESSURE_UNDEFINED)), Some(Value::Int(SENSOR_WAITING)))
+        );
+    }
+
+    #[test]
+    fn the_volume_goes_both_ways_in_percent() {
+        let mut state = VehicleState::new(false, "9.5.0", "2026-10-15 14:30");
+        let volume = state.characteristic(VOLUME).unwrap().describe();
+        assert_eq!(volume.get("writable"), Some(&Value::Bool(true)), "Siri may set it");
+        assert_eq!(volume.get("maximumValue"), Some(&Value::Int(100)));
+        assert_eq!(volume.get("disabled"), Some(&Value::Bool(false)));
+        let fan = state.characteristic(FAN.0).unwrap().describe();
+        assert!(fan.get("disabled").is_none(), "only where it is said");
+        assert_eq!(state.volume(), Some(0.5));
+
+        state.handle(
+            Lane::High,
+            &command("registerRequest", Value::Array(vec![Value::Int(VOLUME)])),
+        );
+        let answers = state.set_gauges(serde_json::json!({ "volume": 0.304 }).as_object().unwrap());
+        assert_eq!(opened(&answers[0].1).get("values"), Some(&by_iid(&[(VOLUME, Value::Int(30))])));
+        state.set_gauges(serde_json::json!({ "volume": 2.0 }).as_object().unwrap());
+        assert_eq!(state.volume(), Some(1.0), "the head unit's level is held to 0 to 1");
+
+        let written = by_iid(&[(VOLUME, Value::Int(42))]);
+        state.handle(Lane::Normal, &command("writeRequest", written));
+        assert_eq!(state.volume(), Some(0.42));
+
+        let mute = |on| by_iid(&[(MUTE, Value::Bool(on))]);
+        state.handle(Lane::Normal, &command("writeRequest", mute(true)));
+        assert_eq!(state.volume(), Some(0.0), "mute silences");
+        state.handle(Lane::Normal, &command("writeRequest", mute(false)));
+        assert_eq!(state.volume(), Some(0.42), "unmute brings the last level back");
+
+        state.handle(Lane::Normal, &command("writeRequest", mute(true)));
+        state.handle(Lane::Normal, &command("writeRequest", by_iid(&[(VOLUME, Value::Int(10))])));
+        assert_eq!(state.values.get(&MUTE), Some(&Value::Bool(false)), "turning up ends the mute");
+        state.handle(Lane::Normal, &command("writeRequest", mute(true)));
+        state.set_gauges(serde_json::json!({ "volume": 0.2 }).as_object().unwrap());
+        assert_eq!(state.values.get(&MUTE), Some(&Value::Bool(false)), "so does the head unit");
+
+        let audio = state.accessories.iter().find(|a| a.kind == 0x0200_0001).unwrap();
+        let types: Vec<_> =
+            audio.services.iter().map(|s| s.characteristics[1].initial.clone()).collect();
+        assert_eq!(
+            types,
+            [0, 1, 2, 3, 6].map(|t| Some(Value::Int(t))),
+            "media, navigation, call, other"
+        );
+        let kind = audio.services[1].characteristics[1].describe();
+        assert_eq!(kind.get("maximumValue"), Some(&Value::Int(7)), "media to vehicle notification");
+        let label = audio.services[4].characteristics[2].initial.clone();
+        assert_eq!(label, Some(Value::str("Musik")), "the other volume names itself");
+        let levels = serde_json::json!({ "navVolume": 0.3, "callVolume": 0.9 });
+        state.set_gauges(levels.as_object().unwrap());
+        let volumes = state.volumes();
+        assert_eq!(volumes[..3], [("volume", 0.2), ("navVolume", 0.3), ("callVolume", 0.9)]);
+
+        let music = state.characteristic(MUSIC_VOLUME).unwrap().describe();
+        assert_eq!(music.get("writable"), Some(&Value::Bool(true)));
+        assert_eq!(music.get("maximumValue"), Some(&Value::Int(100)));
+        state.set_gauges(serde_json::json!({ "audioVolume": 0.65 }).as_object().unwrap());
+        assert_eq!(state.volumes()[3], ("audioVolume", 0.65));
+        state.handle(
+            Lane::Normal,
+            &command("writeRequest", by_iid(&[(MUSIC_VOLUME, Value::Int(30))])),
+        );
+        assert_eq!(state.volumes()[3], ("audioVolume", 0.3), "the phone sets the music too");
+    }
+
+    #[test]
     fn what_cannot_be_read_gets_no_answer() {
-        let mut state = VehicleState::new(true, "9.5.0");
+        let mut state = VehicleState::new(true, "9.5.0", "2026-10-15 14:30");
         assert!(state.handle(Lane::High, b"\xA0").is_empty());
         let inner = opack::encode(&dict([("command", Value::str("configRequest"))]));
         let elsewhere =

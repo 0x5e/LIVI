@@ -130,7 +130,6 @@ describe('core on macOS', () => {
     expect(opts.env).toMatchObject({
       LIVI_ROOT: '/repo',
       LIVI_NO_UI: '1',
-      LIVI_VERSION: '0.0.0-test',
       LIVI_LIFELINE: '1',
       LIVI_UI_PLANES: '/run/livi/ui-planes.sock'
     })

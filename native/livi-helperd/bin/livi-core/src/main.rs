@@ -204,6 +204,15 @@ async fn run() -> Result<Exit, String> {
     tokio::spawn(gvfs_guard::start(privileged.clone()));
     tokio::spawn(wifi_ap::follow(core.clone(), privileged));
     host_output::prepare(&core.hub).await;
+    let (settings, mut patches) = tokio::sync::mpsc::unbounded_channel::<serde_json::Value>();
+    let saving = core.clone();
+    tokio::spawn(async move {
+        while let Some(patch) = patches.recv().await {
+            if let Err(e) = saving.set_config(&patch).await {
+                eprintln!("[core] setting from the phone not saved: {e}");
+            }
+        }
+    });
     let services = Services::start(
         res,
         &paths.runtime,
@@ -213,6 +222,7 @@ async fn run() -> Result<Exit, String> {
         quit.clone(),
         asks,
         inside,
+        settings,
     );
 
     tokio::select! {

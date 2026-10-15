@@ -2,7 +2,8 @@
 
 use livi_aa_proto::{
     CarLocation, CurrentGear, DrivingStatus, EngineRpm, EnvironmentConditions, FuelLevel,
-    LightStates, NightMode, Odometer, ParkingBrake, SensorBatchNotification, VehicleSpeed,
+    LightStates, NightMode, Odometer, ParkingBrake, SensorBatchNotification, TirePressures,
+    VehicleSpeed,
 };
 use prost::Message;
 
@@ -50,6 +51,8 @@ pub enum Sensor {
     },
     /// The restriction bits, 0 unrestricted.
     DrivingStatus(i32),
+    /// Kilopascal times 100, front left, front right, rear left, rear right.
+    TirePressure([i32; 4]),
     Gps(GpsFix),
     /// The phone's maps read the minimum usable capacity as the current level.
     VehicleEnergyModel {
@@ -166,6 +169,9 @@ pub fn batch(sensor: &Sensor) -> Option<Vec<u8>> {
         Sensor::DrivingStatus(restrictions) => {
             b.driving_statuses.push(DrivingStatus { restrictions })
         }
+        Sensor::TirePressure(pressures) => {
+            b.tire_pressures.push(TirePressures { pressures_e2: pressures.to_vec() })
+        }
         Sensor::Gps(fix) => b.locations.push(location(fix)?),
         Sensor::VehicleEnergyModel {
             capacity_wh,
@@ -227,5 +233,14 @@ mod tests {
             auxiliary_wh_per_km: None,
         };
         assert_eq!(batch(&energy), None);
+    }
+
+    #[test]
+    fn tire_pressures_go_out_wheel_by_wheel() {
+        let bytes = batch(&Sensor::TirePressure([24_000, 24_500, 23_000, 23_100])).unwrap();
+        assert_eq!(&bytes[..2], [0x92, 0x01], "sensor type 18");
+        let decoded = SensorBatchNotification::decode(bytes.as_slice()).unwrap();
+        assert_eq!(decoded.tire_pressures.len(), 1);
+        assert_eq!(decoded.tire_pressures[0].pressures_e2, [24_000, 24_500, 23_000, 23_100]);
     }
 }

@@ -37,6 +37,44 @@ const CLIMATE_FILE: Kind = Kind { name: "climate.json", version: 1, pace: QUICK 
 const GPS: Kind = Kind { name: "gps.json", version: 3, pace: Duration::from_secs(1) };
 const MEDIA: Kind = Kind { name: "media.json", version: 1, pace: QUICK };
 const NAVIGATION: Kind = Kind { name: "navigation.json", version: 1, pace: QUICK };
+const VEHICLE: Kind = Kind { name: "vehicle.json", version: 1, pace: Duration::from_secs(1) };
+
+/// Telemetry a parked car keeps, so the next start can hand it out before the car speaks.
+pub const KEPT_WHILE_PARKED: [&str; 10] = [
+    "fuelPct",
+    "rangeKm",
+    "rangeFuelKm",
+    "rangeElectricKm",
+    "consumptionAvgLPer100Km",
+    "odometerKm",
+    "odometerTripKm",
+    "batteryLevelKwh",
+    "batteryCapacityKwh",
+    "tirePressure",
+];
+
+/// A number, or a block of numbers such as the four tire pressures.
+fn kept_value(v: &Value) -> Option<Value> {
+    match v {
+        Value::Number(_) => Some(v.clone()),
+        Value::Object(fields) => {
+            let numbers: Map<String, Value> = fields
+                .iter()
+                .filter(|(_, n)| n.is_number())
+                .map(|(k, n)| (k.clone(), n.clone()))
+                .collect();
+            (!numbers.is_empty()).then_some(Value::Object(numbers))
+        }
+        _ => None,
+    }
+}
+
+fn kept_of(fields: &Map<String, Value>) -> Map<String, Value> {
+    KEPT_WHILE_PARKED
+        .iter()
+        .filter_map(|k| Some(((*k).to_string(), kept_value(fields.get(*k)?)?)))
+        .collect()
+}
 
 #[derive(Serialize)]
 struct File<'a, T: Serialize> {
@@ -134,6 +172,11 @@ fn gps_of(state: &State) -> Option<Value> {
     (fix.is_some() || receiver.is_some()).then(|| json!({ "fix": fix, "receiver": receiver }))
 }
 
+fn vehicle_of(state: &State) -> Option<Value> {
+    let kept = kept_of(&state.telemetry);
+    (!kept.is_empty()).then_some(Value::Object(kept))
+}
+
 fn media_of(state: &State) -> Option<Value> {
     serde_json::to_value(&state.now_playing).ok()
 }
@@ -188,9 +231,10 @@ fn tidy(user_data: &Path) {
 pub fn start(core: &Arc<Core>, activity: watch::Receiver<Activity>, user_data: &Path) {
     tidy(user_data);
     tokio::spawn(status(core.clone(), activity, Writer::new(user_data, &STATUS)));
-    let files: [(&Kind, Payload); 4] = [
+    let files: [(&Kind, Payload); 5] = [
         (&CLIMATE_FILE, climate_of),
         (&GPS, gps_of),
+        (&VEHICLE, vehicle_of),
         (&MEDIA, media_of),
         (&NAVIGATION, navigation_of),
     ];
@@ -205,6 +249,8 @@ pub struct Saved {
     pub climate: Option<Map<String, Value>>,
     /// The last fix.
     pub gps: Option<Map<String, Value>>,
+    /// Fuel, ranges and odometer as the car was left.
+    pub vehicle: Option<Map<String, Value>>,
 }
 
 /// None when the file is missing, broken or of another version.
@@ -223,7 +269,9 @@ pub fn saved(user_data: &Path) -> Saved {
         _ => None,
     };
     let gps = payload_of(user_data, &GPS).and_then(|mut p| p.get_mut("fix").map(Value::take));
-    Saved { climate: object(payload_of(user_data, &CLIMATE_FILE)), gps: object(gps) }
+    let vehicle =
+        object(payload_of(user_data, &VEHICLE)).map(|v| kept_of(&v)).filter(|v| !v.is_empty());
+    Saved { climate: object(payload_of(user_data, &CLIMATE_FILE)), gps: object(gps), vehicle }
 }
 
 #[cfg(test)]
@@ -327,6 +375,51 @@ mod tests {
         );
         write(&dir.0.join(DIR).join("climate.json"), &render(1, &json!([1]), at));
         assert_eq!(saved(&dir.0).climate, None);
+    }
+
+    #[test]
+    fn the_vehicle_file_keeps_what_a_parked_car_keeps() {
+        assert_eq!(vehicle_of(&state(json!({ "speedKph": 50 }))), None);
+        let driving = state(json!({
+            "fuelPct": 42,
+            "rangeKm": 380.5,
+            "odometerKm": 123456,
+            "speedKph": 50,
+            "consumptionLPer100Km": 7.6,
+            "batteryCapacityKwh": "77"
+        }));
+        assert_eq!(
+            vehicle_of(&driving),
+            Some(json!({ "fuelPct": 42, "rangeKm": 380.5, "odometerKm": 123456 }))
+        );
+    }
+
+    #[test]
+    fn the_next_start_reads_the_vehicle_back() {
+        let dir = TempDir::new();
+        let path = dir.0.join(DIR).join("vehicle.json");
+        let left = json!({ "fuelPct": 42, "odometerKm": 123456, "rpm": 900, "rangeKm": null });
+        write(&path, &render(1, &left, UNIX_EPOCH));
+        assert_eq!(
+            saved(&dir.0).vehicle.map(Value::Object),
+            Some(json!({ "fuelPct": 42, "odometerKm": 123456 }))
+        );
+
+        write(&path, &render(1, &json!({ "rpm": 900 }), UNIX_EPOCH));
+        assert_eq!(saved(&dir.0).vehicle, None, "nothing kept counts as none");
+        write(&path, &render(2, &left, UNIX_EPOCH));
+        assert_eq!(saved(&dir.0).vehicle, None);
+    }
+
+    #[test]
+    fn tire_pressures_are_kept_as_a_block_of_numbers() {
+        let parked = state(json!({
+            "tirePressure": { "frontLeftKpa": 240, "rearLeftKpa": "low" },
+            "climate": { "auto": true }
+        }));
+        assert_eq!(vehicle_of(&parked), Some(json!({ "tirePressure": { "frontLeftKpa": 240 } })));
+        assert_eq!(vehicle_of(&state(json!({ "tirePressure": { "rearLeftKpa": "low" } }))), None);
+        assert_eq!(vehicle_of(&state(json!({ "tirePressure": [240] }))), None);
     }
 
     #[test]

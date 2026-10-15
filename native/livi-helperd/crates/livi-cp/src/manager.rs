@@ -15,7 +15,7 @@ use crate::helper_sock::Feed;
 use crate::media::Media;
 use crate::net::{host_of, norm_host};
 use crate::stack::{self, AudioProfile, ScreenCodec, StackCmd, StackCtx, StackEvent};
-use crate::vehicle_state::Climate;
+use crate::vehicle_state::{Climate, Gauges};
 
 const RESTART_FIRST: Duration = Duration::from_millis(500);
 const RESTART_EVERY: Duration = Duration::from_millis(1000);
@@ -129,6 +129,11 @@ pub enum CpEvent {
         id: SessionId,
         climate: Climate,
     },
+    Volume {
+        id: SessionId,
+        name: &'static str,
+        level: f64,
+    },
 }
 
 #[derive(Debug, Clone, PartialEq)]
@@ -145,6 +150,8 @@ pub enum CpCmd {
     ClusterActive(bool),
     /// Climate set outside the phone, every session hears it.
     Climate(Climate),
+    /// Readings for the cluster and the vehicle app, every session hears them.
+    Gauges(Gauges),
     /// The phones reconnect.
     DropSessions,
     Close {
@@ -436,6 +443,7 @@ impl<M: Media> Manager<M> {
             StackEvent::HostUiRequested => self.emit(CpEvent::HostUiRequested { id }),
             StackEvent::SpeechActive(active) => self.emit(CpEvent::SpeechActive { id, active }),
             StackEvent::Climate(climate) => self.emit(CpEvent::Climate { id, climate }),
+            StackEvent::Volume { name, level } => self.emit(CpEvent::Volume { id, name, level }),
             StackEvent::DisableBluetooth(device) => {
                 let mac = device.trim().to_string();
                 if mac.is_empty() {
@@ -869,6 +877,11 @@ impl<M: Media> Manager<M> {
                     s.send(StackCmd::Climate(climate.clone()));
                 }
             }
+            CpCmd::Gauges(gauges) => {
+                for s in self.sessions.values() {
+                    s.send(StackCmd::Gauges(gauges.clone()));
+                }
+            }
             CpCmd::DropSessions => {
                 for id in self.sessions.keys().copied().collect::<Vec<_>>() {
                     self.close(id);
@@ -981,6 +994,7 @@ mod tests {
                 audio_input_device: String::new(),
                 hls_video: false,
                 app_version: "9.5.0".into(),
+                app_build_date: String::new(),
             });
             std::mem::forget(tx);
             let ctx = Arc::new(StackCtx {

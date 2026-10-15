@@ -7,7 +7,7 @@ use iap2_csm::messages::identification::EngineType;
 use iap2_csm::messages::location::StartLocationInformation;
 use iap2_csm::messages::vehicle_status::VehicleStatusUpdate;
 
-/// What the car runs on, which decides the ranges per fuel the phone is told about.
+/// What the car runs on, the phone hears it as the engines the car tops up.
 #[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
 pub struct Fuels {
     pub gasoline: bool,
@@ -32,10 +32,6 @@ impl Fuels {
         fuels
     }
 
-    fn hybrid(&self) -> bool {
-        self.electric && (self.gasoline || self.diesel || self.cng)
-    }
-
     /// What the car tops up from outside. None while LIVI does not know the car.
     pub fn engine_types(&self) -> Vec<EngineType> {
         [
@@ -55,11 +51,6 @@ pub struct VehicleStatus {
     pub range: Option<u16>,
     pub outside_temperature: Option<i16>,
     pub range_warning: Option<bool>,
-    /// Hybrids only, the range on the tank.
-    pub range_fuel: Option<u16>,
-    /// Hybrids only, the range on the battery.
-    pub range_electric: Option<u16>,
-    pub range_warning_electric: Option<bool>,
 }
 
 impl VehicleStatus {
@@ -70,56 +61,32 @@ impl VehicleStatus {
     /// Keys LIVI leaves out keep their last value.
     pub fn merge(&mut self, json: &str) -> Result<(), String> {
         let value: serde_json::Value = serde_json::from_str(json).map_err(|e| e.to_string())?;
-        let km = |key: &str, slot: &mut Option<u16>| {
-            if let Some(n) = value.get(key).and_then(|v| v.as_u64()) {
-                *slot = Some(n.min(u16::MAX as u64) as u16);
-            }
-        };
-        km("range", &mut self.range);
-        km("rangeFuel", &mut self.range_fuel);
-        km("rangeElectric", &mut self.range_electric);
-        let flag = |key: &str, slot: &mut Option<bool>| {
-            if let Some(b) = value.get(key).and_then(|v| v.as_bool()) {
-                *slot = Some(b);
-            }
-        };
-        flag("rangeWarning", &mut self.range_warning);
-        flag("rangeWarningElectric", &mut self.range_warning_electric);
+        if let Some(n) = value.get("range").and_then(|v| v.as_u64()) {
+            self.range = Some(n.min(u16::MAX as u64) as u16);
+        }
+        if let Some(b) = value.get("rangeWarning").and_then(|v| v.as_bool()) {
+            self.range_warning = Some(b);
+        }
         if let Some(n) = value.get("outsideTemperature").and_then(|v| v.as_i64()) {
             self.outside_temperature = Some(n.clamp(i16::MIN as i64, i16::MAX as i64) as i16);
         }
         Ok(())
     }
 
-    /// A car on one fuel has its whole range on it.
-    pub fn update(&self, fuels: Fuels) -> VehicleStatusUpdate {
-        let (fuel, electric) = if fuels.hybrid() {
-            (
-                (self.range_fuel, self.range_warning),
-                (self.range_electric, self.range_warning_electric),
-            )
-        } else {
-            ((self.range, self.range_warning), (self.range, self.range_warning))
-        };
-        let on = |runs: bool, (range, warning): (Option<u16>, Option<bool>)| {
-            if runs { (range, warning) } else { (None, None) }
-        };
-        let (range_gasoline, range_warning_gasoline) = on(fuels.gasoline, fuel);
-        let (range_diesel, range_warning_diesel) = on(fuels.diesel, fuel);
-        let (range_cng, range_warning_cng) = on(fuels.cng, fuel);
-        let (range_electric, range_warning_electric) = on(fuels.electric, electric);
+    /// One range and one warning for the whole car, whatever it runs on.
+    pub fn update(&self) -> VehicleStatusUpdate {
         VehicleStatusUpdate {
             range: self.range,
             outside_temperature: self.outside_temperature,
             range_warning: self.range_warning,
-            range_gasoline,
-            range_diesel,
-            range_electric,
-            range_cng,
-            range_warning_gasoline,
-            range_warning_diesel,
-            range_warning_electric,
-            range_warning_cng,
+            range_gasoline: None,
+            range_diesel: None,
+            range_electric: None,
+            range_cng: None,
+            range_warning_gasoline: None,
+            range_warning_diesel: None,
+            range_warning_electric: None,
+            range_warning_cng: None,
         }
     }
 }
@@ -239,8 +206,7 @@ impl Vehicle {
         Ok(())
     }
 
-    /// `vehicle-status {"range":…,"outsideTemperature":…,"rangeWarning":…}`, a hybrid adds
-    /// `rangeFuel`, `rangeElectric` and `rangeWarningElectric`.
+    /// `vehicle-status {"range":…,"outsideTemperature":…,"rangeWarning":…}`
     pub fn push_status(&self, json: &str) -> Result<(), String> {
         let mut next = self.status.borrow().clone();
         next.merge(json)?;
@@ -269,20 +235,14 @@ mod tests {
     #[test]
     fn a_status_merges_key_by_key() {
         let mut status = VehicleStatus::default();
-        status.merge(r#"{"range":250,"outsideTemperature":-3}"#).unwrap();
+        status.merge(r#"{"range":70000,"outsideTemperature":-3}"#).unwrap();
         status.merge(r#"{"rangeWarning":true}"#).unwrap();
-        status
-            .merge(r#"{"rangeFuel":70000,"rangeElectric":40,"rangeWarningElectric":false}"#)
-            .unwrap();
         assert_eq!(
             status,
             VehicleStatus {
-                range: Some(250),
+                range: Some(u16::MAX),
                 outside_temperature: Some(-3),
                 range_warning: Some(true),
-                range_fuel: Some(u16::MAX),
-                range_electric: Some(40),
-                range_warning_electric: Some(false),
             }
         );
         assert!(status.merge("nope").is_err());
@@ -307,37 +267,27 @@ mod tests {
     }
 
     #[test]
-    fn one_fuel_gets_the_whole_range_and_a_hybrid_splits_it() {
+    fn the_phone_hears_one_range_for_the_whole_car() {
         let status = VehicleStatus {
             range: Some(600),
             outside_temperature: Some(12),
             range_warning: Some(false),
-            range_fuel: Some(550),
-            range_electric: Some(50),
-            range_warning_electric: Some(true),
         };
-
-        let electric = status.update(Fuels::parse("Electric"));
-        assert_eq!((electric.range, electric.outside_temperature), (Some(600), Some(12)));
+        let update = status.update();
         assert_eq!(
-            (electric.range_electric, electric.range_warning_electric),
-            (Some(600), Some(false))
+            (update.range, update.outside_temperature, update.range_warning),
+            (Some(600), Some(12), Some(false))
         );
-        assert_eq!((electric.range_gasoline, electric.range_warning_gasoline), (None, None));
-
-        let hybrid = status.update(Fuels::parse("Diesel,Electric"));
-        assert_eq!((hybrid.range_diesel, hybrid.range_warning_diesel), (Some(550), Some(false)));
-        assert_eq!((hybrid.range_electric, hybrid.range_warning_electric), (Some(50), Some(true)));
-        assert_eq!((hybrid.range_cng, hybrid.range_gasoline), (None, None));
-
-        let unknown = status.update(Fuels::default());
-        assert_eq!(unknown.range, Some(600));
+        assert_eq!(
+            [update.range_gasoline, update.range_diesel, update.range_electric, update.range_cng],
+            [None; 4]
+        );
         assert_eq!(
             [
-                unknown.range_gasoline,
-                unknown.range_diesel,
-                unknown.range_electric,
-                unknown.range_cng
+                update.range_warning_gasoline,
+                update.range_warning_diesel,
+                update.range_warning_electric,
+                update.range_warning_cng
             ],
             [None; 4]
         );

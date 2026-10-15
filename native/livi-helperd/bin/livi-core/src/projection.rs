@@ -355,6 +355,8 @@ pub struct Drivers {
     pub phone_back: mpsc::UnboundedReceiver<Back>,
     /// Into the telemetry, like any producer inside core.
     pub telemetry: mpsc::UnboundedSender<Value>,
+    /// Config patches, saved as if set in LIVI's settings.
+    pub settings: mpsc::UnboundedSender<Value>,
 }
 
 pub struct Projection {
@@ -365,6 +367,7 @@ pub struct Projection {
     phone_io: mpsc::UnboundedSender<Io>,
     phone_back: Option<mpsc::UnboundedReceiver<Back>>,
     telemetry: mpsc::UnboundedSender<Value>,
+    settings: mpsc::UnboundedSender<Value>,
     hands_free: HandsFree,
     /// Wired and USB serial of each Android Auto session until it projects.
     aa_spawned: HashMap<AaId, (bool, Option<String>)>,
@@ -481,7 +484,7 @@ impl Projection {
         devices: Devices,
         wants: PerScreen<Front>,
     ) -> Self {
-        let Drivers { cp, aa, aa_crop, phone_io, phone_back, telemetry } = drivers;
+        let Drivers { cp, aa, aa_crop, phone_io, phone_back, telemetry, settings } = drivers;
         let cfg = hub.config();
         cp.send(CpCmd::InitialNightMode(night_mode(cfg.appearance_mode)));
         let cluster_on = shows_cluster(&wants);
@@ -494,6 +497,7 @@ impl Projection {
             phone_io,
             phone_back: Some(phone_back),
             telemetry,
+            settings,
             hands_free: HandsFree::default(),
             aa_spawned: HashMap::new(),
             plane,
@@ -735,10 +739,18 @@ impl Projection {
                 }
             }
             CpEvent::Metadata { id, event } => self.metadata(Link::Cp(id), &event),
-            CpEvent::Spawned { .. } => self.cp_telemetry.hydrate(&self.telemetry_seen, &self.cp),
+            CpEvent::Spawned { .. } => {
+                self.cp_telemetry.hydrate(&self.telemetry_seen, &self.cp);
+                self.stream_volumes_to_phone();
+            }
             CpEvent::Climate { mut climate, .. } => {
                 climate.insert(SOURCE.into(), FROM_CARPLAY.into());
                 let _ = self.telemetry.send(serde_json::json!({ CLIMATE: climate }));
+            }
+            // The head unit's volume lives in the telemetry, the stream volumes are settings.
+            CpEvent::Volume { name, level, .. } => {
+                let to = if name == "volume" { &self.telemetry } else { &self.settings };
+                let _ = to.send(serde_json::json!({ name: level }));
             }
             CpEvent::VideoCodec { .. } => {}
             CpEvent::PhoneUtcOffset { minutes } => {
@@ -1379,6 +1391,21 @@ impl Projection {
         }
         self.cp.send(CpCmd::InitialNightMode(night_mode(cfg.appearance_mode)));
         self.bindings = cfg.bindings.clone();
+        self.stream_volumes_to_phone();
+    }
+
+    /// The vehicle app shows the music, navigation and call volumes, the phone skips what did not
+    /// change.
+    fn stream_volumes_to_phone(&self) {
+        let levels = serde_json::json!({
+            "audioVolume": self.levels.music,
+            "navVolume": self.levels.nav,
+            "callVolume": self.levels.call,
+            "voiceAssistantVolume": self.levels.voice,
+        });
+        if let serde_json::Value::Object(levels) = levels {
+            self.cp.send(CpCmd::Gauges(levels));
+        }
     }
 
     fn media(&self, control: MediaControl) {
@@ -1917,6 +1944,7 @@ mod tests {
                 phone_io,
                 phone_back: mpsc::unbounded_channel().1,
                 telemetry: telemetry_tx,
+                settings: mpsc::unbounded_channel().0,
             };
             let p = Projection::new(
                 hub.clone(),
@@ -2018,6 +2046,16 @@ mod tests {
 
     fn volume(id: SessionId, kind: AudioKind, level: f64, ramp_ms: u32) -> CpCmd {
         stack(id, StackCmd::StreamVolume { kind, level, ramp_ms })
+    }
+
+    fn stream_volumes(music: f64, nav: f64, call: f64, voice: f64) -> CpCmd {
+        let levels = json!({
+            "audioVolume": music,
+            "navVolume": nav,
+            "callVolume": call,
+            "voiceAssistantVolume": voice,
+        });
+        CpCmd::Gauges(levels.as_object().cloned().unwrap())
     }
 
     fn home() -> StackCmd {
@@ -2149,6 +2187,7 @@ mod tests {
                 volume(1, AudioKind::Alert, 0.5, RAMP_DOWN_MS),
                 volume(1, AudioKind::Call, 1.0, RAMP_UP_MS),
                 CpCmd::InitialNightMode(Some(true)),
+                stream_volumes(cfg.audio_volume, 0.5, 1.0, cfg.voice_assistant_volume),
             ]
         );
         let media = AudioProfile { kind: AudioKind::Call, label: "telephony".into() };
@@ -2715,10 +2754,20 @@ mod tests {
         let mut day = cfg.clone();
         day.appearance_mode = AppearanceMode::Day;
         rig.p.on_state(day, snap(json!({ "nightMode": true, "ts": 2 })));
-        assert_eq!(rig.drain(), [CpCmd::InitialNightMode(Some(false))]);
+        let levels = stream_volumes(
+            cfg.audio_volume,
+            cfg.nav_volume,
+            cfg.call_volume,
+            cfg.voice_assistant_volume,
+        );
+        assert_eq!(rig.drain(), [CpCmd::InitialNightMode(Some(false)), levels.clone()]);
 
         rig.p.on_event(CpEvent::Spawned { id: 1 });
-        assert_eq!(rig.drain(), [CpCmd::NightMode(true)]);
+        assert_eq!(
+            rig.drain(),
+            [CpCmd::NightMode(true), levels],
+            "a new session hears the volumes"
+        );
     }
 
     fn aa(id: AaId, cmd: SessionCmd) -> AaCmd {

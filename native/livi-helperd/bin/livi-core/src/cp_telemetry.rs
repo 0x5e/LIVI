@@ -1,5 +1,6 @@
 use livi_cp::helper_sock::HelperSock;
 use livi_cp::manager::{CpCmd, CpHandle};
+use livi_cp::vehicle_state::GAUGE_KEYS;
 use serde_json::{Map, Value};
 
 use crate::aa_telemetry::{LOW_FUEL_PCT, gear};
@@ -26,15 +27,7 @@ fn num(map: &Map<String, Value>, key: &str) -> Option<f64> {
     map.get(key).and_then(Value::as_f64)
 }
 
-const VEHICLE_STATUS_KEYS: [&str; 7] = [
-    "rangeKm",
-    "ambientC",
-    "fuelPct",
-    "rangeFuelKm",
-    "rangeElectricKm",
-    "batteryLevelKwh",
-    "batteryCapacityKwh",
-];
+const VEHICLE_STATUS_KEYS: [&str; 3] = ["rangeKm", "ambientC", "fuelPct"];
 
 fn km(range: f64) -> Value {
     (range.round().clamp(0.0, 65535.0) as u32).into()
@@ -75,21 +68,21 @@ impl CpTelemetry {
                 }
             };
             put("range", num(next, "rangeKm").map(km));
-            put("rangeFuel", num(next, "rangeFuelKm").map(km));
-            put("rangeElectric", num(next, "rangeElectricKm").map(km));
             put("outsideTemperature", num(next, "ambientC").map(|c| (c.round() as i64).into()));
             put("rangeWarning", num(next, "fuelPct").map(|pct| (pct < LOW_FUEL_PCT).into()));
-            let battery_pct = match (num(next, "batteryLevelKwh"), num(next, "batteryCapacityKwh"))
-            {
-                (Some(level), Some(capacity)) if capacity > 0.0 => Some(level / capacity * 100.0),
-                _ => None,
-            };
-            put("rangeWarningElectric", battery_pct.map(|pct| (pct < LOW_FUEL_PCT).into()));
             if !status.is_empty() {
                 let helper = self.helper.clone();
                 let status = Value::Object(status);
                 tokio::spawn(async move { helper.send_vehicle_status(&status).await });
             }
+        }
+        let gauges: Map<String, Value> = GAUGE_KEYS
+            .iter()
+            .filter(|k| changed(prev, next, k))
+            .filter_map(|k| Some(((*k).to_string(), next.get(*k)?.clone())))
+            .collect();
+        if !gauges.is_empty() {
+            cp.send(CpCmd::Gauges(gauges));
         }
         if changed(prev, next, "gps")
             && let Some(gps) = next.get("gps").and_then(Value::as_object)
@@ -191,6 +184,10 @@ mod tests {
             "ts": 2
         }));
         t.follow(&first, &second, &cp);
+        assert_eq!(
+            cmds.try_recv(),
+            Ok(CpCmd::Gauges(obj(json!({ "fuelPct": 9.5, "rangeKm": 70000.4 }))))
+        );
         assert!(cmds.try_recv().is_err());
         assert_eq!(
             next(&mut lines).await,
@@ -206,22 +203,15 @@ mod tests {
 
         t.follow(&second, &obj(json!({ "fuelPct": 10 })), &cp);
         assert_eq!(next(&mut lines).await, r#"vehicle-status {"rangeWarning":false}"#);
+        assert_eq!(cmds.try_recv(), Ok(CpCmd::Gauges(obj(json!({ "fuelPct": 10 })))));
 
-        t.follow(&second, &obj(json!({ "batteryLevelKwh": 1, "batteryCapacityKwh": 0 })), &cp);
-        let hybrid = obj(json!({
-            "rangeFuelKm": 512.6,
-            "rangeElectricKm": 41.2,
-            "batteryLevelKwh": 1.5,
-            "batteryCapacityKwh": 20
-        }));
+        let hybrid = obj(json!({ "rangeFuelKm": 512.6, "rangeElectricKm": 41.2 }));
         t.follow(&second, &hybrid, &cp);
-        assert_eq!(
-            next(&mut lines).await,
-            r#"vehicle-status {"rangeElectric":41,"rangeFuel":513,"rangeWarningElectric":true}"#
-        );
+        assert!(cmds.try_recv().is_err(), "ranges per fuel stay out, the phone hears one range");
 
         t.hydrate(&second, &cp);
         assert_eq!(cmds.try_recv(), Ok(CpCmd::NightMode(true)));
+        assert!(matches!(cmds.try_recv(), Ok(CpCmd::Gauges(_))));
         assert!(next(&mut lines).await.starts_with("vehicle-status "));
 
         t.follow(&second, &obj(json!({ "gps": { "lat": 1.0 } })), &cp);

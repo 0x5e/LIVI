@@ -11,6 +11,9 @@ pub const LOW_FUEL_PCT: f64 = 10.0;
 /// The phone's gear: 0 neutral, 1 to 10 manual, 100 drive, 101 park, 102 reverse.
 pub const REVERSE: i64 = 102;
 
+const TIRE_PRESSURE: &str = "tirePressure";
+const WHEELS: [&str; 4] = ["frontLeftKpa", "frontRightKpa", "rearLeftKpa", "rearRightKpa"];
+
 pub fn gear(gear: Option<&Value>, reverse: Option<bool>) -> Option<i64> {
     match gear {
         Some(Value::Number(n)) => match n.as_f64() {
@@ -66,6 +69,7 @@ struct Sent {
     fuel: Option<(i32, Option<i32>, Option<bool>)>,
     odometer: Option<(i32, Option<i32>)>,
     environment: Option<(Option<i32>, Option<i32>)>,
+    tire_pressure: Option<[i32; 4]>,
     gps: Option<GpsFix>,
     energy_model_at: Option<Instant>,
 }
@@ -206,6 +210,19 @@ impl AaTelemetry {
             }
         }
 
+        // One value per wheel and no wheel named, so all four go out or none.
+        if changed(TIRE_PRESSURE)
+            && let Some(tires) = next.get(TIRE_PRESSURE).and_then(Value::as_object)
+            && let [Some(fl), Some(fr), Some(rl), Some(rr)] =
+                WHEELS.map(|w| num(tires, w).map(|kpa| round(kpa.max(0.0) * 100.0) as i32))
+        {
+            let pressures = [fl, fr, rl, rr];
+            if sent.tire_pressure != Some(pressures) {
+                sent.tire_pressure = Some(pressures);
+                out.push(Sensor::TirePressure(pressures));
+            }
+        }
+
         if changed("gps")
             && let Some(gps) = next.get("gps").and_then(Value::as_object)
             && let (Some(lat), Some(lng)) = (num(gps, "lat"), num(gps, "lng"))
@@ -289,6 +306,27 @@ mod tests {
         );
         let tick = map(json!({ "speedKph": 73.40001, "rpm": 2.5, "gear": "D", "nightMode": true }));
         assert!(t.sensors(&first, &tick, now).is_empty());
+    }
+
+    #[test]
+    fn tire_pressures_wait_for_all_four_wheels() {
+        let mut t = AaTelemetry::default();
+        let now = Instant::now();
+        let three = map(json!({ "tirePressure": {
+            "frontLeftKpa": 240, "frontRightKpa": 245, "rearLeftKpa": 230
+        } }));
+        assert!(t.sensors(&Map::new(), &three, now).is_empty(), "no wheel may shift its place");
+        let four = map(json!({ "tirePressure": {
+            "frontLeftKpa": 240, "frontRightKpa": 245.004, "rearLeftKpa": 230, "rearRightKpa": -1
+        } }));
+        assert_eq!(
+            t.sensors(&three, &four, now),
+            [Sensor::TirePressure([24_000, 24_500, 23_000, 0])]
+        );
+        let same = map(json!({ "tirePressure": {
+            "frontLeftKpa": 240, "frontRightKpa": 245, "rearLeftKpa": 230, "rearRightKpa": 0
+        } }));
+        assert!(t.sensors(&four, &same, now).is_empty());
     }
 
     #[test]

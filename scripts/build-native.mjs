@@ -1,7 +1,7 @@
 // Usage: node scripts/build-native.mjs [--arch=x64|arm64]
 // Linux runners are arch-native, only macOS cross-compiles (arm64 host -> x64 app).
 import { execFileSync } from 'node:child_process'
-import { copyFileSync, existsSync, mkdirSync } from 'node:fs'
+import { copyFileSync, existsSync, mkdirSync, readFileSync } from 'node:fs'
 import { dirname, join } from 'node:path'
 import { fileURLToPath } from 'node:url'
 
@@ -15,8 +15,17 @@ const triple = wantArch === 'x64' ? 'x86_64-apple-darwin' : 'aarch64-apple-darwi
 // ships its own bundle of the libraries.
 const MAC_GST_PKGCONFIG = '/Library/Frameworks/GStreamer.framework/Versions/1.0/lib/pkgconfig'
 
+const version = JSON.parse(readFileSync(join(root, 'package.json'), 'utf8')).version
+// 2026-10-15 14:30 UTC
+const buildDate = `${new Date().toISOString().slice(0, 16).replace('T', ' ')} UTC`
+
 function cargoEnv() {
-  const env = { ...process.env, PKG_CONFIG_ALLOW_CROSS: '1' }
+  const env = {
+    LIVI_VERSION: version,
+    LIVI_BUILD_DATE: buildDate,
+    ...process.env,
+    PKG_CONFIG_ALLOW_CROSS: '1'
+  }
   if (process.platform === 'darwin' && existsSync(MAC_GST_PKGCONFIG)) {
     env.PKG_CONFIG_PATH = [MAC_GST_PKGCONFIG, env.PKG_CONFIG_PATH].filter(Boolean).join(':')
   }

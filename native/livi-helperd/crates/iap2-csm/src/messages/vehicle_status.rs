@@ -1,4 +1,5 @@
 use crate::csm_message;
+use crate::messages::identification::ChargingConnectorType;
 
 csm_message! {
     pub struct StartVehicleStatusUpdates = 0xA100 {}
@@ -17,6 +18,13 @@ csm_message! {
         14 => range_warning_diesel: [opt bool],
         15 => range_warning_electric: [opt bool],
         16 => range_warning_cng: [opt bool],
+        21 => min_battery_charge_wh: [opt u32],
+        22 => current_battery_charge_wh: [opt u32],
+        23 => max_battery_charge_wh: [opt u32],
+        24 => displayed_battery_percentage_e3: [opt u32],
+        25 => is_charging: [opt bool],
+        28 => active_connector: [opt enum ChargingConnectorType],
+        30 => max_range_electric: [opt u16],
     }
 }
 

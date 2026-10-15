@@ -4,7 +4,9 @@ use std::sync::{Arc, Mutex};
 use base64::Engine;
 use base64::engine::general_purpose::STANDARD;
 use livi_aa_stack::config::{AaConfig, Addresses as AaAddresses, Codecs};
-use livi_core_proto::config::{AppearanceMode, Config, DockPosition, HandDriveType};
+use livi_core_proto::config::{
+    AppearanceMode, ClusterContent, Config, DockPosition, HandDriveType,
+};
 use livi_core_proto::state::State;
 use livi_cp::info::{DisplayConfig, Icon, InfoConfig, Insets, mm_at_dpi};
 use livi_cp::media::{AudioCodec, AudioRequest, AudioStream, Media, MicRequest, VideoStatus};
@@ -368,7 +370,24 @@ pub fn stack_config(
         hls_video: cfg.car_play_hls_video,
         app_version: option_env!("LIVI_VERSION").unwrap_or_default().into(),
         app_build_date: option_env!("LIVI_BUILD_DATE").unwrap_or_default().into(),
+        cluster_url: cluster_url(cfg),
     }
+}
+
+/// The maneuver card takes no options.
+fn cluster_url(cfg: &Config) -> String {
+    let path = match cfg.car_play_cluster_content {
+        ClusterContent::Auto => "maps:/car/instrumentcluster",
+        ClusterContent::Map => "maps:/car/instrumentcluster/map",
+        ClusterContent::Maneuver => return "maps:/car/instrumentcluster/instructioncard".into(),
+    };
+    let user = |on: bool| if on { "user" } else { "no" };
+    format!(
+        "{path}?showCompass={}&showETA={}&showSpeedLimit={}",
+        user(cfg.car_play_cluster_compass),
+        if cfg.car_play_cluster_eta { "yes" } else { "no" },
+        user(cfg.car_play_cluster_speed_limit)
+    )
 }
 
 pub fn offers_hevc(probe: &serde_json::Value) -> bool {
@@ -606,6 +625,26 @@ mod tests {
         assert!(sc.info.cluster.is_some());
         assert_eq!(sc.info.source_version, defaults().car_play_source_version);
         assert_eq!(sc.info.icons.len(), 2);
+    }
+
+    #[test]
+    fn the_cluster_page_follows_the_settings() {
+        let mut cfg = defaults();
+        assert_eq!(
+            cluster_url(&cfg),
+            "maps:/car/instrumentcluster/map?showCompass=user&showETA=yes&showSpeedLimit=user"
+        );
+        cfg.car_play_cluster_content = ClusterContent::Auto;
+        cfg.car_play_cluster_compass = false;
+        cfg.car_play_cluster_eta = false;
+        cfg.car_play_cluster_speed_limit = false;
+        assert_eq!(
+            cluster_url(&cfg),
+            "maps:/car/instrumentcluster?showCompass=no&showETA=no&showSpeedLimit=no"
+        );
+        cfg.car_play_cluster_content = ClusterContent::Maneuver;
+        let sc = stack_config(&cfg, &HashMap::new(), None, false, &addresses());
+        assert_eq!(sc.cluster_url, "maps:/car/instrumentcluster/instructioncard");
     }
 
     #[test]

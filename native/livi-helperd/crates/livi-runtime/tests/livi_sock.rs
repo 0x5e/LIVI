@@ -8,7 +8,7 @@ use livi_runtime::bringup::CpConfig;
 use livi_runtime::ident::{Identity, Transport};
 use livi_runtime::livi_sock::{Bluez, Broadcaster, LiviSockConfig, serve};
 use livi_runtime::state::HelperState;
-use livi_runtime::vehicle::Fuels;
+use livi_runtime::vehicle::{Fuels, Plugs};
 use std::sync::Arc;
 use tokio::sync::{Notify, watch};
 
@@ -35,6 +35,7 @@ fn config(path: &str) -> LiviSockConfig {
             ssid: "LIVI".into(),
             bt_mac: [0; 6],
             fuels: Fuels::default(),
+            plugs: Plugs::default(),
         },
         cp: CpConfig {
             ap_mac: None,

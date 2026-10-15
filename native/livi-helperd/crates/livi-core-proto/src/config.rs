@@ -36,6 +36,11 @@ pub struct Config {
     pub car_play_hls_video: bool,
     /// Where the phone puts its dock and status bar.
     pub car_play_dock_position: DockPosition,
+    /// What the phone draws into the cluster stream.
+    pub car_play_cluster_content: ClusterContent,
+    pub car_play_cluster_compass: bool,
+    pub car_play_cluster_eta: bool,
+    pub car_play_cluster_speed_limit: bool,
 
     pub gps_enabled: bool,
     pub gps_device: String,
@@ -85,6 +90,12 @@ pub struct Config {
     pub car_type: Option<CarType>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub ev_connector_types: Option<Vec<EvConnectorType>>,
+    /// The fastest AC charging the car takes, for its AC plugs.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub ev_max_ac_power_kw: Option<f64>,
+    /// The fastest DC charging the car takes, for its DC plugs.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub ev_max_dc_power_kw: Option<f64>,
     pub max_speed_kph: u32,
     /// Speed between two numbered marks on the dash, in the unit shown.
     pub speed_scale_step: u32,
@@ -220,6 +231,16 @@ pub enum DockPosition {
     Auto,
     Side,
     Bottom,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, TS)]
+#[serde(rename_all = "camelCase")]
+#[ts(export_to = "contract.ts")]
+pub enum ClusterContent {
+    /// The phone picks map, maneuver card or both for the size of the stream.
+    Auto,
+    Map,
+    Maneuver,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, TS)]
@@ -413,6 +434,10 @@ pub fn defaults() -> Config {
         car_play_mfi_power_gpio: -1,
         car_play_hls_video: false,
         car_play_dock_position: DockPosition::Bottom,
+        car_play_cluster_content: ClusterContent::Map,
+        car_play_cluster_compass: true,
+        car_play_cluster_eta: true,
+        car_play_cluster_speed_limit: true,
         gps_enabled: false,
         gps_device: "/dev/ttyAMA0".into(),
         gps_baud_rate: 38400,
@@ -452,6 +477,8 @@ pub fn defaults() -> Config {
         hand: HandDriveType::Lhd,
         car_type: Some(CarType::Gasoline),
         ev_connector_types: Some(Vec::new()),
+        ev_max_ac_power_kw: None,
+        ev_max_dc_power_kw: None,
         max_speed_kph: 200,
         speed_scale_step: 40,
         max_rpm: 5000,

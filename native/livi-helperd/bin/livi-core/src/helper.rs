@@ -51,6 +51,30 @@ fn cp_fuels(car: Option<CarType>) -> &'static str {
     }
 }
 
+/// `Combo2:150000,Mennekes:11000`, each plug with the power in W the car takes on it.
+fn cp_connectors(cfg: &Config) -> String {
+    use livi_core_proto::config::EvConnectorType as T;
+    let watts = |kw: Option<f64>| kw.map(|kw| format!(":{}", (kw * 1000.0).round() as u64));
+    cfg.ev_connector_types
+        .iter()
+        .flatten()
+        .filter_map(|plug| {
+            let (name, kw) = match plug {
+                T::J1772 => ("J1772", cfg.ev_max_ac_power_kw),
+                T::Mennekes => ("Mennekes", cfg.ev_max_ac_power_kw),
+                T::Chademo => ("Chademo", cfg.ev_max_dc_power_kw),
+                T::Combo1 => ("Combo1", cfg.ev_max_dc_power_kw),
+                T::Combo2 => ("Combo2", cfg.ev_max_dc_power_kw),
+                T::TeslaSupercharger => ("TeslaSupercharger", cfg.ev_max_dc_power_kw),
+                T::Gbt => ("Gbt", cfg.ev_max_dc_power_kw),
+                T::Unknown | T::Other => return None,
+            };
+            Some(format!("{name}{}", watts(kw).unwrap_or_default()))
+        })
+        .collect::<Vec<_>>()
+        .join(",")
+}
+
 fn settings_env(cfg: &Config) -> Vec<(String, String)> {
     let flag = |on: bool, off: &str| if on { "1".to_string() } else { off.to_string() };
     let debug = debug(cfg);
@@ -66,6 +90,7 @@ fn settings_env(cfg: &Config) -> Vec<(String, String)> {
         ("DEBUG".to_string(), flag(debug, "")),
         ("LIVI_CP_NAME".to_string(), car_name),
         ("LIVI_CP_FUELS".to_string(), cp_fuels(cfg.car_type).to_string()),
+        ("LIVI_CP_CONNECTORS".to_string(), cp_connectors(cfg)),
         ("LIVI_BT_ADAPTER".to_string(), cfg.bt_adapter.clone()),
         ("LIVI_WIFI_IFACE".to_string(), cfg.wifi_interface.clone()),
         ("LIVI_PASSPHRASE".to_string(), cfg.wifi_password.clone()),
@@ -297,9 +322,26 @@ mod tests {
         assert_eq!(get(&env, "LIVI_CP_PI"), Some("pi-1"));
         assert_eq!(get(&env, "LIVI_CP_NAME"), Some("LIVI"));
         assert_eq!(get(&env, "LIVI_CP_FUELS"), Some("Gasoline"));
+        assert_eq!(get(&env, "LIVI_CP_CONNECTORS"), Some(""));
         assert_eq!(get(&env, "LIVI_CHANNEL"), Some("36"));
         assert_eq!(get(&env, "LIVI_WIFI_TYPE"), Some("2.4ghz"));
         assert_eq!(get(&env, "LIVI_CP_AIRPLAY_PORT"), Some("7000"));
+        cfg.ev_connector_types = Some(vec![
+            livi_core_proto::config::EvConnectorType::Combo2,
+            livi_core_proto::config::EvConnectorType::Mennekes,
+            livi_core_proto::config::EvConnectorType::Chademo,
+            livi_core_proto::config::EvConnectorType::Other,
+        ]);
+        cfg.ev_max_dc_power_kw = Some(150.0);
+        cfg.ev_max_ac_power_kw = Some(11.0);
+        let env = helper_env(&cfg, &identity(), None);
+        assert_eq!(
+            get(&env, "LIVI_CP_CONNECTORS"),
+            Some("Combo2:150000,Mennekes:11000,Chademo:150000")
+        );
+        cfg.ev_max_dc_power_kw = None;
+        let env = helper_env(&cfg, &identity(), None);
+        assert_eq!(get(&env, "LIVI_CP_CONNECTORS"), Some("Combo2,Mennekes:11000,Chademo"));
         cfg.debug_logging = true;
         let env = helper_env(&cfg, &identity(), None);
         assert_eq!(get(&env, "LIVI_CP_AIRPLAY_PORT"), None);

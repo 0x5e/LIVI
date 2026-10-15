@@ -19,7 +19,7 @@ use livi_runtime::livi_sock::{
 use livi_runtime::mfi_async::SharedCoprocessor;
 use livi_runtime::sco::ScoSink;
 use livi_runtime::state::HelperState;
-use livi_runtime::vehicle::Fuels;
+use livi_runtime::vehicle::{Fuels, Plugs};
 use livi_wifi::Channel;
 use tokio::sync::mpsc::{UnboundedReceiver, unbounded_channel};
 
@@ -73,6 +73,7 @@ fn cp_config() -> (CpConfig, Identity) {
         ssid: name,
         bt_mac: accessory_mac(&pi),
         fuels: Fuels::parse(&env_s("LIVI_CP_FUELS", "")),
+        plugs: Plugs::parse(&env_s("LIVI_CP_CONNECTORS", "")),
     };
     (cp, identity)
 }

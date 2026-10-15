@@ -24,6 +24,7 @@ import DirectionsCarOutlinedIcon from '@mui/icons-material/DirectionsCarOutlined
 import DisplaySettingsOutlinedIcon from '@mui/icons-material/DisplaySettingsOutlined'
 import EastOutlinedIcon from '@mui/icons-material/EastOutlined'
 import EqualizerOutlinedIcon from '@mui/icons-material/EqualizerOutlined'
+import ExploreOutlinedIcon from '@mui/icons-material/ExploreOutlined'
 import FlipOutlinedIcon from '@mui/icons-material/FlipOutlined'
 import FullscreenOutlinedIcon from '@mui/icons-material/FullscreenOutlined'
 import GpsFixedOutlinedIcon from '@mui/icons-material/GpsFixedOutlined'
@@ -59,6 +60,7 @@ import RestartAltOutlinedIcon from '@mui/icons-material/RestartAltOutlined'
 import RotateRightOutlinedIcon from '@mui/icons-material/RotateRightOutlined'
 import RouterOutlinedIcon from '@mui/icons-material/RouterOutlined'
 import SatelliteAltOutlinedIcon from '@mui/icons-material/SatelliteAltOutlined'
+import ScheduleOutlinedIcon from '@mui/icons-material/ScheduleOutlined'
 import SettingsEthernetOutlinedIcon from '@mui/icons-material/SettingsEthernetOutlined'
 import SettingsInputAntennaOutlinedIcon from '@mui/icons-material/SettingsInputAntennaOutlined'
 import ShutterSpeedOutlinedIcon from '@mui/icons-material/ShutterSpeedOutlined'
@@ -181,6 +183,10 @@ const ICONS: Record<string, SvgIconComponent> = {
 
   mainVideo: MonitorOutlinedIcon,
   clusterVideo: SpeedOutlinedIcon,
+  clusterContent: NavigationOutlinedIcon,
+  compass: ExploreOutlinedIcon,
+  eta: ScheduleOutlinedIcon,
+  speedLimit: SpeedOutlinedIcon,
 
   darkMode: DarkModeOutlinedIcon,
   overlayMessages: LayersOutlinedIcon,

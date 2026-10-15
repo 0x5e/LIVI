@@ -19,7 +19,7 @@ use livi_wifi::{Channel, OnAir, Security};
 
 use crate::framing::frame_msg_id;
 use crate::ident::{DROPPABLE, Identity, Transport, build_identification};
-use crate::vehicle::{LocationTypes, VehicleFeed, VehicleStatus};
+use crate::vehicle::{Fuels, LocationTypes, VehicleFeed, VehicleStatus};
 use crate::{AsyncAuth, ControlChannel, net};
 
 /// Wireless CarPlay parameters handed to the phone: the AP and the AirPlay receiver.
@@ -471,7 +471,7 @@ pub async fn run_accessory<C: ControlChannel, A: AsyncAuth>(
                     continue;
                 }
                 let status = vehicle.status.borrow_and_update().clone();
-                if status_wanted && !send_status(&mut ch, &status).await {
+                if status_wanted && !send_status(&mut ch, &status, id.fuels).await {
                     break;
                 }
                 continue;
@@ -519,7 +519,7 @@ pub async fn run_accessory<C: ControlChannel, A: AsyncAuth>(
                 status_wanted = true;
                 println!("[cp] vehicle status: subscribed");
                 let status = vehicle.status.borrow_and_update().clone();
-                if !send_status(&mut ch, &status).await {
+                if !send_status(&mut ch, &status, id.fuels).await {
                     break;
                 }
             }
@@ -632,7 +632,7 @@ async fn send_location<C: ControlChannel>(ch: &mut C, types: &LocationTypes, nme
     true
 }
 
-async fn send_status<C: ControlChannel>(ch: &mut C, status: &VehicleStatus) -> bool {
+async fn send_status<C: ControlChannel>(ch: &mut C, status: &VehicleStatus, fuels: Fuels) -> bool {
     if status.is_empty() {
         return true;
     }
@@ -640,7 +640,7 @@ async fn send_status<C: ControlChannel>(ch: &mut C, status: &VehicleStatus) -> b
         "[cp] vehicle status → range={:?} temp={:?} warn={:?}",
         status.range, status.outside_temperature, status.range_warning
     );
-    ch.send(status.update().encode()).await.is_ok()
+    ch.send(status.update(fuels).encode()).await.is_ok()
 }
 
 #[cfg(test)]

@@ -123,6 +123,8 @@ pub struct StackConfig {
     /// Shown in the phone's vehicle app, with the build date.
     pub app_version: String,
     pub app_build_date: String,
+    /// The maps page the cluster stream shows, empty for the plain map.
+    pub cluster_url: String,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq)]
@@ -288,6 +290,8 @@ struct Conn<M: Media> {
     night_mode: Option<bool>,
     limited_ui: Option<bool>,
     cluster_want: bool,
+    /// The page the cluster stream was last asked for.
+    cluster_url: Option<String>,
     video_active: bool,
     audio_active: bool,
     call_active: bool,
@@ -526,6 +530,7 @@ pub async fn run<M: Media>(
         night_mode: None,
         limited_ui: None,
         cluster_want: false,
+        cluster_url: None,
         video_active: false,
         audio_active: false,
         call_active: false,
@@ -538,8 +543,11 @@ pub async fn run<M: Media>(
     let mut relay_buf = vec![0u8; 16 * 1024];
     let mut stopped = false;
     let mut silence = tokio::time::interval(SILENCE_CHECK);
+    let mut config = conn.ctx.config.clone();
+    config.mark_unchanged();
     loop {
         tokio::select! {
+            Ok(()) = config.changed() => conn.follow_cluster_url().await,
             read = rd.read(&mut buf) => match read {
                 Ok(0) | Err(_) => break,
                 Ok(n) => {
@@ -1820,18 +1828,38 @@ impl<M: Media> Conn<M> {
     }
 
     async fn activate_cluster_stream(&mut self) {
+        let url = self.wanted_cluster_url();
         self.send_event_command(&dict([
             ("type", Value::String("showUI".into())),
             (
                 "params",
                 dict([
                     ("uuid", Value::String(ALT_UUID.into())),
-                    ("url", Value::String(CLUSTER_MAP_URL.into())),
+                    ("url", Value::String(url.clone())),
                 ]),
             ),
         ]))
         .await;
+        self.cluster_url = Some(url);
         self.force_keyframe(ALT_UUID).await;
+    }
+
+    fn wanted_cluster_url(&self) -> String {
+        let url = &self.ctx.config.borrow().cluster_url;
+        if url.is_empty() { CLUSTER_MAP_URL.into() } else { url.clone() }
+    }
+
+    /// A shown cluster switches to new settings at once.
+    async fn follow_cluster_url(&mut self) {
+        if self.cluster_url.is_none()
+            || self.cluster_url == Some(self.wanted_cluster_url())
+            || !self.cluster_want
+            || self.event.is_none()
+            || !self.main_stream_ready
+        {
+            return;
+        }
+        self.activate_cluster_stream().await;
     }
 
     async fn on_cmd(&mut self, cmd: StackCmd) {
@@ -2214,6 +2242,7 @@ pub(crate) mod tests {
                 hls_video: video,
                 app_version: "9.5.0".into(),
                 app_build_date: String::new(),
+                cluster_url: String::new(),
             });
             std::mem::forget(_tx);
             let media = FakeMedia::new();

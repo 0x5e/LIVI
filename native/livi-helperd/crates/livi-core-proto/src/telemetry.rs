@@ -25,14 +25,18 @@
 //! | parkingBrake                        | ✓    | ✓            | ·               | ·             |
 //! | nightMode                           | ✓    | ✓            | ✓               | ✓             |
 //! | path                                | ✓    | ·            | ·               | ·             |
-//! | volume                              | ✓    | ·            | ·               | ·             |
-//! | fuelPct                             | ✓    | ✓            | ✓ (warning)     | ✓             |
+//! | volume                              | ✓    | ·            | ·               | ✓             |
+//! | fuelPct                             | ✓    | ✓            | ✓ (warning, %)  | ✓             |
 //! | rangeKm                             | ✓    | ✓            | ✓               | ✓             |
 //! | rangeFuelKm, rangeElectricKm        | ✓    | ·            | ✓ (hybrid)      | ✓ (hybrid)    |
-//! | fuelRateLph, consumption*           | ✓    | ·            | ·               | TODO          |
-//! | batteryCapacityKwh, batteryLevelKwh | ✓    | ✓            | ✓ (warning)     | ✓             |
+//! | fuelRateLph                         | ✓    | ·            | ·               | ·             |
+//! | consumption*                        | ✓    | ·            | ·               | ✓             |
+//! | batteryCapacityKwh, batteryLevelKwh | ✓    | ✓            | ✓ (electric)    | ✓ (electric)  |
+//! | charging, activeConnector           | ✓    | ·            | ✓ (electric)    | ✓ (electric)  |
+//! | rangeMaxElectricKm                  | ✓    | ·            | ✓ (electric)    | ✓ (electric)  |
 //! | carType                             | ✓    | ✓            | ✓               | ✓             |
-//! | evConnectorTypes                    | ✓    | ✓            | ·               | ·             |
+//! | evConnectorTypes                    | ✓    | ✓            | ✓               | ✓             |
+//! | evMaxAcPowerKw, evMaxDcPowerKw      | ✓    | ·            | ✓               | ✓             |
 //! | coolantC                            | ✓    | ·            | ·               | TODO          |
 //! | iatC, transmissionC                 | ✓    | ·            | ·               | ·             |
 //! | oilC                                | ✓    | ·            | ·               | ·             |
@@ -43,10 +47,11 @@
 //! | batteryV                            | ✓    | ·            | ·               | ·             |
 //! | ambientLux                          | ✓    | ·            | ·               | ·             |
 //! | dimmerPct                           | ✓    | ·            | ·               | ·             |
-//! | odometerKm, odometerTripKm          | ✓    | ✓            | ·               | ·             |
+//! | odometerKm                          | ✓    | ✓            | ·               | ✓             |
+//! | odometerTripKm                      | ✓    | ✓            | ·               | ·             |
 //! | drivingStatus                       | ✓    | ✓            | ·               | ·             |
 //! | gps                                 | ✓    | ✓            | ✓               | ✓             |
-//! | tirePressure                        | ✓    | TODO         | ·               | TODO          |
+//! | tirePressure                        | ✓    | ✓            | ·               | ✓             |
 //! | can                                 | ✓    | ·            | ·               | ·             |
 //! | gnss                                | ✓    | ·            | ·               | ·             |
 //! | climate                             | ✓    | ·            | ·               | ✓             |
@@ -111,10 +116,20 @@ pub struct TelemetrySnapshot {
     pub battery_capacity_kwh: Option<f64>,
     /// Taken from `fuelPct` and the capacity when absent.
     pub battery_level_kwh: Option<f64>,
+    /// True while the battery charges.
+    pub charging: Option<bool>,
+    /// The `EvConnectorType` name of the plug that charges, such as `Combo2`.
+    pub active_connector: Option<String>,
+    /// The range on a full battery.
+    pub range_max_electric_km: Option<f64>,
     /// A `CarType` name such as `HybridDiesel`, written into the settings when it differs.
     pub car_type: Option<String>,
     /// `EvConnectorType` names such as `Combo2`, written into the settings when they differ.
     pub ev_connector_types: Option<Vec<String>>,
+    /// The fastest AC charging the car takes, written into the settings when it differs.
+    pub ev_max_ac_power_kw: Option<f64>,
+    /// The fastest DC charging the car takes, written into the settings when it differs.
+    pub ev_max_dc_power_kw: Option<f64>,
     /// Manifold absolute pressure.
     pub map_kpa: Option<f64>,
     /// Android Auto also gets it on its environment channel.

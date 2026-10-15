@@ -1,6 +1,6 @@
 use iap2_csm::messages::identification::*;
 
-use crate::vehicle::Fuels;
+use crate::vehicle::{Fuels, Plugs};
 
 #[derive(Debug, Clone)]
 pub struct Identity {
@@ -8,6 +8,7 @@ pub struct Identity {
     pub ssid: String,
     pub bt_mac: [u8; 6],
     pub fuels: Fuels,
+    pub plugs: Plugs,
 }
 
 /// Which transport carries this session, which decides the transport components the phone
@@ -115,6 +116,16 @@ pub fn build_identification(
                 engine_types: id.fuels.engine_types(),
                 display_name: Some(id.name.clone()),
                 maps_display_name: Some(id.name.clone()),
+                supported_charging_connectors: id.plugs.types(),
+                power_ccs1_w: id.plugs.watts(ChargingConnectorType::Ccs1),
+                power_ccs2_w: id.plugs.watts(ChargingConnectorType::Ccs2),
+                power_j1772_w: id.plugs.watts(ChargingConnectorType::J1772),
+                power_chademo_w: id.plugs.watts(ChargingConnectorType::Chademo),
+                power_mennekes_w: id.plugs.watts(ChargingConnectorType::Mennekes),
+                power_gbt_dc_w: id.plugs.watts(ChargingConnectorType::GbtDc),
+                power_gbt_ac_w: id.plugs.watts(ChargingConnectorType::GbtAc),
+                power_nacs_dc_w: id.plugs.watts(ChargingConnectorType::NacsDc),
+                power_nacs_ac_w: id.plugs.watts(ChargingConnectorType::NacsAc),
             })
         },
         vehicle_status_component: if dropped("vehicle_status_component") {
@@ -126,14 +137,16 @@ pub fn build_identification(
                 range: true,
                 outside_temperature: true,
                 range_warning: true,
-                range_gasoline: false,
-                range_diesel: false,
-                range_electric: false,
-                range_cng: false,
+                range_gasoline: id.fuels.gasoline,
+                range_diesel: id.fuels.diesel,
+                range_electric: id.fuels.electric,
+                range_cng: id.fuels.cng,
                 range_warning_gasoline: false,
                 range_warning_diesel: false,
                 range_warning_electric: false,
                 range_warning_cng: false,
+                electric_charge_info: id.fuels.electric,
+                max_range_info: id.fuels.electric,
             })
         },
         location_information_component: if dropped("location_information_component") {

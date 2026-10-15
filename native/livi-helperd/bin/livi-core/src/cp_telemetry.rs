@@ -27,10 +27,39 @@ fn num(map: &Map<String, Value>, key: &str) -> Option<f64> {
     map.get(key).and_then(Value::as_f64)
 }
 
-const VEHICLE_STATUS_KEYS: [&str; 3] = ["rangeKm", "ambientC", "fuelPct"];
+const VEHICLE_STATUS_KEYS: [&str; 10] = [
+    "rangeKm",
+    "ambientC",
+    "fuelPct",
+    "rangeFuelKm",
+    "rangeElectricKm",
+    "batteryCapacityKwh",
+    "batteryLevelKwh",
+    "charging",
+    "activeConnector",
+    "rangeMaxElectricKm",
+];
 
 fn km(range: f64) -> Value {
     (range.round().clamp(0.0, 65535.0) as u32).into()
+}
+
+fn wh(kwh: f64) -> Value {
+    ((kwh * 1000.0).round().clamp(0.0, f64::from(u32::MAX)) as u32).into()
+}
+
+/// The phone's number for each `EvConnectorType`, a GB/T plug counts as DC.
+fn connector(name: &str) -> Option<u8> {
+    match name {
+        "Combo1" => Some(0),
+        "Combo2" => Some(1),
+        "J1772" => Some(2),
+        "Chademo" => Some(3),
+        "Mennekes" => Some(4),
+        "Gbt" => Some(5),
+        "TeslaSupercharger" => Some(7),
+        _ => None,
+    }
 }
 
 impl CpTelemetry {
@@ -68,8 +97,29 @@ impl CpTelemetry {
                 }
             };
             put("range", num(next, "rangeKm").map(km));
+            put("rangeFuel", num(next, "rangeFuelKm").map(km));
+            put("rangeElectric", num(next, "rangeElectricKm").map(km));
             put("outsideTemperature", num(next, "ambientC").map(|c| (c.round() as i64).into()));
             put("rangeWarning", num(next, "fuelPct").map(|pct| (pct < LOW_FUEL_PCT).into()));
+            // The helper sends the battery only for a car that charges.
+            let capacity = num(next, "batteryCapacityKwh").filter(|c| *c > 0.0);
+            let level = num(next, "batteryLevelKwh")
+                .or_else(|| Some(num(next, "fuelPct")? / 100.0 * capacity?));
+            put("batteryMinWh", capacity.map(|_| 0.into()));
+            put("batteryMaxWh", capacity.map(wh));
+            put("batteryWh", level.map(wh));
+            let thousandths =
+                |pct: f64| Value::from((pct.clamp(0.0, 100.0) * 1000.0).round() as u32);
+            put("batteryPercentE3", num(next, "fuelPct").map(thousandths));
+            put("charging", next.get("charging").filter(|v| v.is_boolean()).cloned());
+            put(
+                "activeConnector",
+                next.get("activeConnector")
+                    .and_then(Value::as_str)
+                    .and_then(connector)
+                    .map(Value::from),
+            );
+            put("rangeMaxElectric", num(next, "rangeMaxElectricKm").map(km));
             if !status.is_empty() {
                 let helper = self.helper.clone();
                 let status = Value::Object(status);
@@ -191,7 +241,7 @@ mod tests {
         assert!(cmds.try_recv().is_err());
         assert_eq!(
             next(&mut lines).await,
-            r#"vehicle-status {"outsideTemperature":-4,"range":65535,"rangeWarning":true}"#
+            r#"vehicle-status {"batteryPercentE3":9500,"outsideTemperature":-4,"range":65535,"rangeWarning":true}"#
         );
 
         let third = obj(
@@ -202,12 +252,42 @@ mod tests {
         assert!(location.starts_with("location "));
 
         t.follow(&second, &obj(json!({ "fuelPct": 10 })), &cp);
-        assert_eq!(next(&mut lines).await, r#"vehicle-status {"rangeWarning":false}"#);
+        assert_eq!(
+            next(&mut lines).await,
+            r#"vehicle-status {"batteryPercentE3":10000,"rangeWarning":false}"#
+        );
         assert_eq!(cmds.try_recv(), Ok(CpCmd::Gauges(obj(json!({ "fuelPct": 10 })))));
 
         let hybrid = obj(json!({ "rangeFuelKm": 512.6, "rangeElectricKm": 41.2 }));
         t.follow(&second, &hybrid, &cp);
-        assert!(cmds.try_recv().is_err(), "ranges per fuel stay out, the phone hears one range");
+        assert_eq!(
+            next(&mut lines).await,
+            r#"vehicle-status {"rangeElectric":41,"rangeFuel":513}"#
+        );
+        assert!(cmds.try_recv().is_err());
+
+        let ev = obj(json!({
+            "batteryCapacityKwh": 77.0,
+            "fuelPct": 50,
+            "charging": true,
+            "activeConnector": "Combo2",
+            "rangeMaxElectricKm": 520.4
+        }));
+        t.follow(&second, &ev, &cp);
+        assert_eq!(
+            next(&mut lines).await,
+            r#"vehicle-status {"activeConnector":1,"batteryMaxWh":77000,"batteryMinWh":0,"batteryPercentE3":50000,"batteryWh":38500,"charging":true,"rangeMaxElectric":520,"rangeWarning":false}"#,
+            "the level comes from fuelPct and the capacity when the car does not tell it"
+        );
+        let _ = cmds.try_recv();
+        let odd = obj(json!({ "rangeKm": 10, "activeConnector": "Other", "charging": "yes" }));
+        t.follow(&ev, &odd, &cp);
+        assert_eq!(
+            next(&mut lines).await,
+            r#"vehicle-status {"range":10}"#,
+            "no plug number, no word"
+        );
+        let _ = cmds.try_recv();
 
         t.hydrate(&second, &cp);
         assert_eq!(cmds.try_recv(), Ok(CpCmd::NightMode(true)));

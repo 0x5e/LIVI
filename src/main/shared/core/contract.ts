@@ -53,6 +53,8 @@ ventsAuto?: boolean,
  */
 driverSeatHeating?: number, passengerSeatHeating?: number, };
 
+export type ClusterContent = "auto" | "map" | "maneuver";
+
 export type Config = { debugLogging: boolean, wirelessAaEnabled: boolean, wirelessCpEnabled: boolean, wifiPassword: string, btAdapter: string, wifiInterface: string, wifiDedicatedInterface: boolean, wifiType: WifiBand, wifiChannel: number, wifiChannelWidth: number, country: string, carPlaySourceVersion: string, carPlayMfiI2cBus: number, 
 /**
  * -1 when the coprocessor has no power pin.
@@ -65,7 +67,11 @@ carPlayHlsVideo: boolean,
 /**
  * Where the phone puts its dock and status bar.
  */
-carPlayDockPosition: DockPosition, gpsEnabled: boolean, gpsDevice: string, gpsBaudRate: number, 
+carPlayDockPosition: DockPosition, 
+/**
+ * What the phone draws into the cluster stream.
+ */
+carPlayClusterContent: ClusterContent, carPlayClusterCompass: boolean, carPlayClusterEta: boolean, carPlayClusterSpeedLimit: boolean, gpsEnabled: boolean, gpsDevice: string, gpsBaudRate: number, 
 /**
  * From the last GPS fix, applied at startup.
  */
@@ -73,7 +79,15 @@ timezone: string, projectionWidth: number, projectionHeight: number, projectionF
 /**
  * The Wi-Fi AP, Bluetooth and head-unit name, at most 20 characters.
  */
-carName: string, oemName: string, hand: HandDriveType, carType?: CarType, evConnectorTypes?: Array<EvConnectorType>, maxSpeedKph: number, 
+carName: string, oemName: string, hand: HandDriveType, carType?: CarType, evConnectorTypes?: Array<EvConnectorType>, 
+/**
+ * The fastest AC charging the car takes, for its AC plugs.
+ */
+evMaxAcPowerKw?: number, 
+/**
+ * The fastest DC charging the car takes, for its DC plugs.
+ */
+evMaxDcPowerKw?: number, maxSpeedKph: number, 
 /**
  * Speed between two numbered marks on the dash, in the unit shown.
  */
@@ -108,6 +122,10 @@ export const DEFAULT_CONFIG: Config = {
   "carPlayMfiPowerGpio": -1,
   "carPlayHlsVideo": false,
   "carPlayDockPosition": "bottom",
+  "carPlayClusterContent": "map",
+  "carPlayClusterCompass": true,
+  "carPlayClusterEta": true,
+  "carPlayClusterSpeedLimit": true,
   "gpsEnabled": false,
   "gpsDevice": "/dev/ttyAMA0",
   "gpsBaudRate": 38400,
@@ -613,6 +631,18 @@ batteryCapacityKwh?: number,
  */
 batteryLevelKwh?: number, 
 /**
+ * True while the battery charges.
+ */
+charging?: boolean, 
+/**
+ * The `EvConnectorType` name of the plug that charges, such as `Combo2`.
+ */
+activeConnector?: string, 
+/**
+ * The range on a full battery.
+ */
+rangeMaxElectricKm?: number, 
+/**
  * A `CarType` name such as `HybridDiesel`, written into the settings when it differs.
  */
 carType?: string, 
@@ -620,6 +650,14 @@ carType?: string,
  * `EvConnectorType` names such as `Combo2`, written into the settings when they differ.
  */
 evConnectorTypes?: Array<string>, 
+/**
+ * The fastest AC charging the car takes, written into the settings when it differs.
+ */
+evMaxAcPowerKw?: number, 
+/**
+ * The fastest DC charging the car takes, written into the settings when it differs.
+ */
+evMaxDcPowerKw?: number, 
 /**
  * Manifold absolute pressure.
  */

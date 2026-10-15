@@ -995,6 +995,7 @@ mod tests {
                 hls_video: false,
                 app_version: "9.5.0".into(),
                 app_build_date: String::new(),
+                cluster_url: String::new(),
             });
             std::mem::forget(tx);
             let ctx = Arc::new(StackCtx {

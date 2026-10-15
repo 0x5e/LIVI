@@ -447,6 +447,44 @@ export const videoSchema: SettingsNode<Config> = {
               }
             }
           ]
+        },
+        {
+          type: 'select',
+          label: 'CarPlay Content',
+          labelKey: 'settings.clusterContent',
+          icon: 'clusterContent',
+          path: 'carPlayClusterContent',
+          displayValue: true,
+          options: [
+            { label: 'Map', labelKey: 'settings.clusterContentMap', value: 'map' },
+            { label: 'Maneuver', labelKey: 'settings.clusterContentManeuver', value: 'maneuver' },
+            { label: 'Automatic', labelKey: 'settings.clusterContentAuto', value: 'auto' }
+          ],
+          page: {
+            title: 'CarPlay Content',
+            labelTitle: 'settings.clusterContent'
+          }
+        },
+        {
+          type: 'checkbox',
+          label: 'Compass',
+          labelKey: 'settings.clusterCompass',
+          icon: 'compass',
+          path: 'carPlayClusterCompass'
+        },
+        {
+          type: 'checkbox',
+          label: 'Arrival Time',
+          labelKey: 'settings.clusterEta',
+          icon: 'eta',
+          path: 'carPlayClusterEta'
+        },
+        {
+          type: 'checkbox',
+          label: 'Speed Limit',
+          labelKey: 'settings.clusterSpeedLimit',
+          icon: 'speedLimit',
+          path: 'carPlayClusterSpeedLimit'
         }
       ]
     },

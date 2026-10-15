@@ -55,7 +55,8 @@ async fn pump(
     in_tx: mpsc::UnboundedSender<Vec<u8>>,
     art_tx: mpsc::UnboundedSender<Vec<u8>>,
 ) -> io::Result<()> {
-    let async_fd = AsyncFd::with_interest(fd, Interest::READABLE | Interest::WRITABLE)?;
+    let async_fd =
+        unsafe { AsyncFd::register_with_interest(fd, Interest::READABLE | Interest::WRITABLE)? };
     let start = Instant::now();
     let now = || start.elapsed().as_millis() as u64;
 

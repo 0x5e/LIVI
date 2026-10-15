@@ -182,6 +182,16 @@ impl Telemetry {
         if let Some(names) = changed.get("evConnectorTypes").and_then(Value::as_array) {
             self.connectors_from(names).await;
         }
+        for (key, now) in [
+            ("evMaxAcPowerKw", self.core.hub.config().ev_max_ac_power_kw),
+            ("evMaxDcPowerKw", self.core.hub.config().ev_max_dc_power_kw),
+        ] {
+            if let Some(kw) = changed.get(key).and_then(Value::as_f64).filter(|kw| *kw > 0.0)
+                && now != Some(kw)
+            {
+                self.save(json!({ key: kw })).await;
+            }
+        }
     }
 
     async fn appearance(&mut self, mode: AppearanceMode) {
@@ -489,6 +499,12 @@ mod tests {
         t.push(&json!({ "evConnectorTypes": ["Type 2"] })).await;
         t.push(&json!({ "evConnectorTypes": ["Combo2", "Mennekes"] })).await;
         assert_eq!(core.hub.config().ev_connector_types, both);
+
+        t.push(&json!({ "evMaxAcPowerKw": 11, "evMaxDcPowerKw": 0 })).await;
+        assert_eq!(core.hub.config().ev_max_ac_power_kw, Some(11.0));
+        assert_eq!(core.hub.config().ev_max_dc_power_kw, None, "zero is no power");
+        t.push(&json!({ "evMaxDcPowerKw": 150.5 })).await;
+        assert_eq!(core.hub.config().ev_max_dc_power_kw, Some(150.5));
     }
 
     #[tokio::test]

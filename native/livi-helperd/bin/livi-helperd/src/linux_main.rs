@@ -15,7 +15,7 @@ use livi_runtime::livi_sock::{
 use livi_runtime::mfi_async::SharedCoprocessor;
 use livi_runtime::reconnect;
 use livi_runtime::state::HelperState;
-use livi_runtime::vehicle::Fuels;
+use livi_runtime::vehicle::{Fuels, Plugs};
 use livi_wifi::{Band, Channel};
 
 fn env_or<T: std::str::FromStr>(key: &str, default: T) -> T {
@@ -282,7 +282,8 @@ async fn serve() -> Result<(), Box<dyn std::error::Error>> {
     let sco_sink = livi_runtime::sco::ScoSink::default();
 
     let fuels = Fuels::parse(&std::env::var("LIVI_CP_FUELS").unwrap_or_default());
-    let identity = Identity { name, ssid, bt_mac: [0; 6], fuels };
+    let plugs = Plugs::parse(&std::env::var("LIVI_CP_CONNECTORS").unwrap_or_default());
+    let identity = Identity { name, ssid, bt_mac: [0; 6], fuels, plugs };
     let (bluez, bluez_later) = tokio::sync::watch::channel(None);
     let sock_cfg = LiviSockConfig {
         path: livi_sock::SOCK_PATH.into(),

@@ -20,6 +20,20 @@ csm_enum! {
 }
 
 csm_enum! {
+    pub enum ChargingConnectorType {
+        Ccs1 = 0,
+        Ccs2 = 1,
+        J1772 = 2,
+        Chademo = 3,
+        Mennekes = 4,
+        GbtDc = 5,
+        GbtAc = 6,
+        NacsDc = 7,
+        NacsAc = 8,
+    }
+}
+
+csm_enum! {
     pub enum EngineType {
         Gas = 0,
         Diesel = 1,
@@ -123,6 +137,16 @@ csm_group! {
         2 => engine_types: [list enum EngineType],
         6 => display_name: [opt str],
         8 => maps_display_name: [opt str],
+        11 => supported_charging_connectors: [list enum ChargingConnectorType],
+        12 => power_ccs1_w: [opt u32],
+        13 => power_ccs2_w: [opt u32],
+        14 => power_j1772_w: [opt u32],
+        15 => power_chademo_w: [opt u32],
+        16 => power_mennekes_w: [opt u32],
+        17 => power_gbt_dc_w: [opt u32],
+        18 => power_gbt_ac_w: [opt u32],
+        19 => power_nacs_dc_w: [opt u32],
+        20 => power_nacs_ac_w: [opt u32],
     }
 }
 
@@ -141,6 +165,8 @@ csm_group! {
         14 => range_warning_diesel: [flag],
         15 => range_warning_electric: [flag],
         16 => range_warning_cng: [flag],
+        21 => electric_charge_info: [flag],
+        30 => max_range_info: [flag],
     }
 }
 

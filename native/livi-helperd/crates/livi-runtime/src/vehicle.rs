@@ -3,11 +3,11 @@
 use base64::Engine;
 use tokio::sync::watch;
 
-use iap2_csm::messages::identification::EngineType;
+use iap2_csm::messages::identification::{ChargingConnectorType, EngineType};
 use iap2_csm::messages::location::StartLocationInformation;
 use iap2_csm::messages::vehicle_status::VehicleStatusUpdate;
 
-/// What the car runs on, the phone hears it as the engines the car tops up.
+/// What the car runs on, which decides the engines and the ranges per fuel the phone hears.
 #[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
 pub struct Fuels {
     pub gasoline: bool,
@@ -32,6 +32,10 @@ impl Fuels {
         fuels
     }
 
+    fn hybrid(&self) -> bool {
+        self.electric && (self.gasoline || self.diesel || self.cng)
+    }
+
     /// What the car tops up from outside. None while LIVI does not know the car.
     pub fn engine_types(&self) -> Vec<EngineType> {
         [
@@ -46,11 +50,57 @@ impl Fuels {
     }
 }
 
+/// The plugs the car charges on, each with the power in W it takes there.
+#[derive(Debug, Clone, Default, PartialEq, Eq)]
+pub struct Plugs(Vec<(ChargingConnectorType, Option<u32>)>);
+
+impl Plugs {
+    /// `Combo2:150000,Mennekes:11000`, LIVI's plug names, a GB/T plug counts as DC.
+    pub fn parse(list: &str) -> Self {
+        let plugs = list.split(',').filter_map(|entry| {
+            let (name, watts) = entry.trim().split_once(':').unwrap_or((entry.trim(), ""));
+            let plug = match name {
+                "Combo1" => ChargingConnectorType::Ccs1,
+                "Combo2" => ChargingConnectorType::Ccs2,
+                "J1772" => ChargingConnectorType::J1772,
+                "Chademo" => ChargingConnectorType::Chademo,
+                "Mennekes" => ChargingConnectorType::Mennekes,
+                "Gbt" => ChargingConnectorType::GbtDc,
+                "TeslaSupercharger" => ChargingConnectorType::NacsDc,
+                _ => return None,
+            };
+            Some((plug, watts.parse().ok()))
+        });
+        Self(plugs.collect())
+    }
+
+    pub fn types(&self) -> Vec<ChargingConnectorType> {
+        self.0.iter().map(|(plug, _)| *plug).collect()
+    }
+
+    pub fn watts(&self, plug: ChargingConnectorType) -> Option<u32> {
+        self.0.iter().find(|(p, _)| *p == plug).and_then(|(_, w)| *w)
+    }
+}
+
 #[derive(Debug, Clone, Default, PartialEq, Eq)]
 pub struct VehicleStatus {
     pub range: Option<u16>,
     pub outside_temperature: Option<i16>,
     pub range_warning: Option<bool>,
+    /// Hybrids only, the range on the tank.
+    pub range_fuel: Option<u16>,
+    /// Hybrids only, the range on the battery.
+    pub range_electric: Option<u16>,
+    /// The battery at the 0 % and 100 % the car shows, and now.
+    pub battery_min_wh: Option<u32>,
+    pub battery_max_wh: Option<u32>,
+    pub battery_wh: Option<u32>,
+    /// The charge the car shows, percent times 1000.
+    pub battery_percent_e3: Option<u32>,
+    pub charging: Option<bool>,
+    pub active_connector: Option<ChargingConnectorType>,
+    pub range_max_electric: Option<u16>,
 }
 
 impl VehicleStatus {
@@ -61,8 +111,29 @@ impl VehicleStatus {
     /// Keys LIVI leaves out keep their last value.
     pub fn merge(&mut self, json: &str) -> Result<(), String> {
         let value: serde_json::Value = serde_json::from_str(json).map_err(|e| e.to_string())?;
-        if let Some(n) = value.get("range").and_then(|v| v.as_u64()) {
-            self.range = Some(n.min(u16::MAX as u64) as u16);
+        let km = |key: &str, slot: &mut Option<u16>| {
+            if let Some(n) = value.get(key).and_then(|v| v.as_u64()) {
+                *slot = Some(n.min(u16::MAX as u64) as u16);
+            }
+        };
+        km("range", &mut self.range);
+        km("rangeFuel", &mut self.range_fuel);
+        km("rangeElectric", &mut self.range_electric);
+        km("rangeMaxElectric", &mut self.range_max_electric);
+        let count = |key: &str, slot: &mut Option<u32>| {
+            if let Some(n) = value.get(key).and_then(|v| v.as_u64()) {
+                *slot = Some(n.min(u32::MAX as u64) as u32);
+            }
+        };
+        count("batteryMinWh", &mut self.battery_min_wh);
+        count("batteryMaxWh", &mut self.battery_max_wh);
+        count("batteryWh", &mut self.battery_wh);
+        count("batteryPercentE3", &mut self.battery_percent_e3);
+        if let Some(b) = value.get("charging").and_then(|v| v.as_bool()) {
+            self.charging = Some(b);
+        }
+        if let Some(n) = value.get("activeConnector").and_then(|v| v.as_u64()) {
+            self.active_connector = u8::try_from(n).ok().and_then(ChargingConnectorType::from_u8);
         }
         if let Some(b) = value.get("rangeWarning").and_then(|v| v.as_bool()) {
             self.range_warning = Some(b);
@@ -73,20 +144,35 @@ impl VehicleStatus {
         Ok(())
     }
 
-    /// One range and one warning for the whole car, whatever it runs on.
-    pub fn update(&self) -> VehicleStatusUpdate {
+    /// A car on one fuel has its whole range on it, a hybrid splits it. One warning for the
+    /// whole car. Battery and charging only for a car that charges.
+    pub fn update(&self, fuels: Fuels) -> VehicleStatusUpdate {
+        let (fuel, electric) = if fuels.hybrid() {
+            (self.range_fuel, self.range_electric)
+        } else {
+            (self.range, self.range)
+        };
+        let on = |runs: bool, range: Option<u16>| if runs { range } else { None };
+        let on32 = |v: Option<u32>| v.filter(|_| fuels.electric);
         VehicleStatusUpdate {
             range: self.range,
             outside_temperature: self.outside_temperature,
             range_warning: self.range_warning,
-            range_gasoline: None,
-            range_diesel: None,
-            range_electric: None,
-            range_cng: None,
+            range_gasoline: on(fuels.gasoline, fuel),
+            range_diesel: on(fuels.diesel, fuel),
+            range_electric: on(fuels.electric, electric),
+            range_cng: on(fuels.cng, fuel),
             range_warning_gasoline: None,
             range_warning_diesel: None,
             range_warning_electric: None,
             range_warning_cng: None,
+            min_battery_charge_wh: on32(self.battery_min_wh),
+            current_battery_charge_wh: on32(self.battery_wh),
+            max_battery_charge_wh: on32(self.battery_max_wh),
+            displayed_battery_percentage_e3: on32(self.battery_percent_e3),
+            is_charging: self.charging.filter(|_| fuels.electric),
+            active_connector: self.active_connector.filter(|_| fuels.electric),
+            max_range_electric: on(fuels.electric, self.range_max_electric),
         }
     }
 }
@@ -206,7 +292,8 @@ impl Vehicle {
         Ok(())
     }
 
-    /// `vehicle-status {"range":…,"outsideTemperature":…,"rangeWarning":…}`
+    /// `vehicle-status {"range":…,"outsideTemperature":…,"rangeWarning":…}`, a hybrid adds
+    /// `rangeFuel` and `rangeElectric`.
     pub fn push_status(&self, json: &str) -> Result<(), String> {
         let mut next = self.status.borrow().clone();
         next.merge(json)?;
@@ -237,15 +324,61 @@ mod tests {
         let mut status = VehicleStatus::default();
         status.merge(r#"{"range":70000,"outsideTemperature":-3}"#).unwrap();
         status.merge(r#"{"rangeWarning":true}"#).unwrap();
+        status.merge(r#"{"rangeFuel":512,"rangeElectric":40}"#).unwrap();
         assert_eq!(
             status,
             VehicleStatus {
                 range: Some(u16::MAX),
                 outside_temperature: Some(-3),
                 range_warning: Some(true),
+                range_fuel: Some(512),
+                range_electric: Some(40),
+                ..Default::default()
             }
         );
         assert!(status.merge("nope").is_err());
+    }
+
+    #[test]
+    fn plugs_carry_their_power() {
+        let plugs = Plugs::parse("Combo2:150000, Mennekes:11000,Gbt,Steam:5");
+        use ChargingConnectorType::*;
+        assert_eq!(plugs.types(), vec![Ccs2, Mennekes, GbtDc]);
+        assert_eq!((plugs.watts(Ccs2), plugs.watts(Mennekes)), (Some(150_000), Some(11_000)));
+        assert_eq!((plugs.watts(GbtDc), plugs.watts(J1772)), (None, None));
+        assert_eq!(Plugs::parse(""), Plugs::default());
+    }
+
+    #[test]
+    fn only_a_car_that_charges_tells_its_battery() {
+        let mut status = VehicleStatus::default();
+        status
+            .merge(
+                r#"{"range":300,"batteryMinWh":0,"batteryMaxWh":77000,"batteryWh":38500,
+                "batteryPercentE3":50000,"charging":true,"activeConnector":1,
+                "rangeMaxElectric":520}"#,
+            )
+            .unwrap();
+        let ev = status.update(Fuels::parse("Electric"));
+        assert_eq!(
+            (ev.min_battery_charge_wh, ev.current_battery_charge_wh, ev.max_battery_charge_wh),
+            (Some(0), Some(38_500), Some(77_000))
+        );
+        assert_eq!(ev.displayed_battery_percentage_e3, Some(50_000));
+        assert_eq!(
+            (ev.is_charging, ev.active_connector),
+            (Some(true), Some(ChargingConnectorType::Ccs2))
+        );
+        assert_eq!(ev.max_range_electric, Some(520));
+
+        let diesel = status.update(Fuels::parse("Diesel"));
+        assert_eq!(diesel.range, Some(300));
+        assert_eq!(
+            (diesel.current_battery_charge_wh, diesel.is_charging, diesel.max_range_electric),
+            (None, None, None)
+        );
+        status.merge(r#"{"activeConnector":42}"#).unwrap();
+        assert_eq!(status.active_connector, None, "an unknown plug names none");
     }
 
     #[test]
@@ -267,21 +400,31 @@ mod tests {
     }
 
     #[test]
-    fn the_phone_hears_one_range_for_the_whole_car() {
+    fn one_fuel_gets_the_whole_range_a_hybrid_splits_it_and_the_warning_is_shared() {
         let status = VehicleStatus {
             range: Some(600),
             outside_temperature: Some(12),
             range_warning: Some(false),
+            range_fuel: Some(550),
+            range_electric: Some(50),
+            ..Default::default()
         };
-        let update = status.update();
+        let ranges = |u: &VehicleStatusUpdate| {
+            [u.range_gasoline, u.range_diesel, u.range_electric, u.range_cng]
+        };
+
+        let diesel = status.update(Fuels::parse("Diesel"));
         assert_eq!(
-            (update.range, update.outside_temperature, update.range_warning),
+            (diesel.range, diesel.outside_temperature, diesel.range_warning),
             (Some(600), Some(12), Some(false))
         );
-        assert_eq!(
-            [update.range_gasoline, update.range_diesel, update.range_electric, update.range_cng],
-            [None; 4]
-        );
+        assert_eq!(ranges(&diesel), [None, Some(600), None, None]);
+
+        let hybrid = status.update(Fuels::parse("Gasoline,Electric"));
+        assert_eq!(ranges(&hybrid), [Some(550), None, Some(50), None]);
+        assert_eq!(ranges(&status.update(Fuels::default())), [None; 4], "an unknown car");
+
+        let update = hybrid;
         assert_eq!(
             [
                 update.range_warning_gasoline,

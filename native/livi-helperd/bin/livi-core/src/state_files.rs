@@ -5,8 +5,8 @@ use std::path::{Path, PathBuf};
 use std::sync::Arc;
 use std::time::{Duration, SystemTime, UNIX_EPOCH};
 
-use livi_core_proto::state::State;
-use serde::Serialize;
+use livi_core_proto::state::{DabStation, State};
+use serde::{Deserialize, Serialize};
 use serde_json::{Map, Value, json};
 use tokio::sync::watch;
 
@@ -38,6 +38,23 @@ const GPS: Kind = Kind { name: "gps.json", version: 3, pace: Duration::from_secs
 const MEDIA: Kind = Kind { name: "media.json", version: 1, pace: QUICK };
 const NAVIGATION: Kind = Kind { name: "navigation.json", version: 1, pace: QUICK };
 const VEHICLE: Kind = Kind { name: "vehicle.json", version: 1, pace: Duration::from_secs(1) };
+const SDR: Kind = Kind { name: "sdr.json", version: 1, pace: QUICK };
+
+/// The DAB+ stations a scan found in the listener's own order and the one played last.
+#[derive(Debug, Clone, Default, PartialEq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase", default)]
+pub struct Sdr {
+    pub stations: Vec<DabStation>,
+    pub last_station: Option<u32>,
+}
+
+pub fn load_sdr(user_data: &Path) -> Sdr {
+    payload_of(user_data, &SDR).and_then(|v| serde_json::from_value(v).ok()).unwrap_or_default()
+}
+
+pub fn save_sdr(user_data: &Path, sdr: &Sdr) {
+    write(&user_data.join(DIR).join(SDR.name), &render(SDR.version, sdr, SystemTime::now()));
+}
 
 /// Telemetry a parked car keeps, so the next start can hand it out before the car speaks.
 pub const KEPT_WHILE_PARKED: [&str; 10] = [
@@ -292,6 +309,8 @@ mod tests {
             system: Default::default(),
             devices: Default::default(),
             update: Default::default(),
+            cluster: Default::default(),
+            dab: Default::default(),
             config: defaults(),
         }
     }
@@ -432,5 +451,34 @@ mod tests {
         assert!(!dir.0.join("statusData.json").exists());
         assert!(!dir.0.join("mediaData.json").exists());
         assert!(dir.0.join("config.json").exists());
+    }
+
+    #[test]
+    fn the_station_list_lives_in_sdr_json() {
+        let dir = TempDir::new();
+        assert_eq!(load_sdr(&dir.0), Sdr::default());
+        let sdr = Sdr {
+            stations: vec![DabStation {
+                service_id: 0xd210,
+                label: "Dlf".into(),
+                short_label: "Dlf".into(),
+                ensemble: "DR Deutschland".into(),
+                channel: "5C".into(),
+                frequency_hz: 178_352_000,
+                favorite: false,
+                hidden: false,
+                logo: None,
+            }],
+            last_station: Some(0xd210),
+        };
+        save_sdr(&dir.0, &sdr);
+        let file = read(&dir, "sdr.json");
+        assert_eq!(file["version"], 1);
+        assert_eq!(file["payload"]["lastStation"], 0xd210);
+        assert_eq!(file["payload"]["stations"][0]["channel"], "5C");
+        assert_eq!(load_sdr(&dir.0), sdr);
+
+        std::fs::write(dir.0.join(DIR).join("sdr.json"), "{ broken").unwrap();
+        assert_eq!(load_sdr(&dir.0), Sdr::default());
     }
 }

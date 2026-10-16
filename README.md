@@ -24,19 +24,30 @@ It is a standalone cross-platform head unit with a native, zero-copy GStreamer v
 - **Apple CarPlay** (wired & wireless) on Linux and Mac — requires [MFi Authentication](#mfi-authentication)
 - **Android Auto** (wired & wireless) on Linux and Mac — wireless on Mac requires a [LIVI Link](LIVI-LINK.md)
 
-## Native Apple CarPlay
+## Native Apple CarPlay Ultra
 
 LIVI implements the CarPlay accessory side natively, wired and wireless, on Linux and on macOS. Wireless sessions run over LIVI's own Wi-Fi access point with Bluetooth pairing, wired sessions run directly over the USB cable (no OTG required).
 
-- main + instrument cluster video (H.264/H.265, hardware decoded, zero-copy)
-- audio playback, phone calls, microphone uplink
+- main + instrument cluster video (H.264 and H.265/HEVC, hardware decoded, zero-copy)
+- configurable cluster content: map or maneuver card, compass, ETA, speed limit
+- audio playback, phone calls, microphone uplink, Siri
+- volume in both directions between phone and LIVI
 - now-playing metadata incl. album art, turn-by-turn navigation data
-- touch, knob/D-Pad and hard-key input
-- day/night mode and GPS forwarding to the phone
+- touch, knob/d-pad and hard-key input
+- GPS forwarding and clock synchronization
+- day/night mode
+- dock position left, right or bottom, right-hand drive
 - multi-session with live switching between connected phones
-- video playback while parked (AirPlay video, Linux only for now, no FairPlay-protected content)
+- wireless sessions move to the cable when plugged in
+- video in the car (AirPlay video while parked, no FairPlay-protected content)
+- [climate control](#climate)\*
+- extended vehicle data\*
+- car maker themes\*
 
-Wireless CarPlay requires a Bluetooth adapter and a Wi-Fi interface dedicated to the access point. Both can come from a [LIVI Link](LIVI-LINK.md), which brings its own radios. Wired CarPlay works on any USB port.
+\* CarPlay Ultra only
+
+
+Wireless CarPlay requires a Bluetooth and a Wi-Fi interface. Both can come from a [LIVI Link](LIVI-LINK.md), which brings its own radios. Wired CarPlay works on any USB port.
 
 
 ## MFi Authentication
@@ -117,7 +128,9 @@ Configure under Settings → Appearance → Contrast / Gamma and Settings → Ap
 
 ## Dashboard
 
-The Dashboard is a WIP. While the IPC/socket telemetry payload already supports many signals, the UI exposes only a subset. Widgets and layouts will be extended over time.
+The Dashboard is the car's instrument cluster. It comes in layouts, built the way a car maker's CarPlay theme is: each layout decides where the gauges, the speed and the warning lights sit and whether the phone's cluster stream runs behind them. With a car maker's theme on the phone, the palette picked there colours the gauges. Step through the layouts with the page dots, a swipe or the Cluster Layout key (default T). LIVI comes back with the layout and the palette picked last.
+
+The dashboard is a WIP. While the IPC/socket telemetry payload already supports many signals, the UI exposes only a subset. Widgets and layouts will be extended over time.
 
 ### Pushing telemetry
 

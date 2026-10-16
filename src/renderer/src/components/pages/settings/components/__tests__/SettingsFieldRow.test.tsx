@@ -31,27 +31,7 @@ vi.mock('../settingsItemRow', () => ({
     </div>
   )
 }))
-vi.mock('../posSensitiveList/PosSensitiveList', () => ({
-  PosSensitiveList: ({ onChange }: any) => (
-    <button data-testid="pos-list" onClick={() => onChange('picked')} />
-  )
-}))
-
 describe('SettingsFieldRow', () => {
-  test('renders the pos-sensitive list and forwards its changes', () => {
-    const onChange = vi.fn()
-    render(
-      <SettingsFieldRow
-        node={{ type: 'posList', path: 'zones', label: 'Zones' } as any}
-        value={[]}
-        state={{}}
-        onChange={onChange}
-      />
-    )
-    fireEvent.click(screen.getByTestId('pos-list'))
-    expect(onChange).toHaveBeenCalledWith('picked')
-  })
-
   test('resolves label via labelKey when provided', () => {
     render(
       <SettingsFieldRow

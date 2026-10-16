@@ -13,7 +13,7 @@ use gstreamer_audio as gst_audio;
 use gstreamer_controller as gst_controller;
 use gstreamer_controller::prelude::*;
 
-use livi_audio_stream::{Codec, RTP_HEADER_LEN, reframe_aac, rtp_caps};
+use livi_audio_stream::{Codec, RTP_HEADER_LEN, aac_raw_caps, reframe_aac, rtp_caps};
 use std::str::FromStr;
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::{Arc, Mutex, Once};
@@ -30,6 +30,8 @@ pub struct Config {
     pub realtime: bool,
     pub device: Option<String>,
     pub label: String,
+    /// The AudioSpecificConfig of an AacRaw stream.
+    pub codec_data: Vec<u8>,
 }
 
 /// What turns the packets into raw samples. LPCM is already raw, so it goes
@@ -38,6 +40,8 @@ fn decoder_chain(codec: Codec) -> Option<&'static str> {
     match codec {
         Codec::Lpcm | Codec::PcmLe => None,
         Codec::Opus => Some("rtpjitterbuffer latency={latency} ! rtpopusdepay ! opusdec"),
+        // libav drops SBR on 960 sample frames, faad keeps it.
+        Codec::AacRaw => Some("aacparse ! faad"),
         #[cfg(target_os = "linux")]
         Codec::AacLc => Some("rtpjitterbuffer latency={latency} ! rtpmp4gdepay ! aacparse ! faad"),
         #[cfg(not(target_os = "linux"))]
@@ -74,12 +78,35 @@ pub fn pipeline_desc(cfg: &Config) -> String {
         None => String::new(),
     };
     format!(
-        "appsrc name=src is-live=true format=time do-timestamp=true ! \
+        "appsrc name=src is-live=true format=time do-timestamp={stamp} ! \
          {head}audioconvert ! clocksync sync=true ! volume name=vol ! \
          audioconvert ! audioresample ! audio/x-raw,format=S16LE,rate=48000,channels=2 ! \
          queue name=out ! {sink}",
+        stamp = cfg.codec != Codec::AacRaw,
         sink = sink_chain(cfg),
     )
+}
+
+/// Access units arrive in bursts, so they carry their own timestamps: one
+/// frame apart, starting a little ahead of the clock.
+struct UnitClock {
+    next: Option<gst::ClockTime>,
+    frame: gst::ClockTime,
+}
+
+const UNIT_HEADROOM: gst::ClockTime = gst::ClockTime::from_mseconds(250);
+
+/// Frame length from the AudioSpecificConfig: core rate and 960 or 1024.
+fn unit_duration(asc: &[u8]) -> gst::ClockTime {
+    const RATES: [u64; 13] =
+        [96000, 88200, 64000, 48000, 44100, 32000, 24000, 22050, 16000, 12000, 11025, 8000, 7350];
+    let (Some(&a), Some(&b)) = (asc.first(), asc.get(1)) else {
+        return gst::ClockTime::from_mseconds(40);
+    };
+    let index = (((a & 0x07) << 1) | (b >> 7)) as usize;
+    let rate = RATES.get(index).copied().unwrap_or(48000);
+    let samples = if b & 0x04 != 0 { 960 } else { 1024 };
+    gst::ClockTime::from_nseconds(samples * 1_000_000_000 / rate)
 }
 
 /// Pre-fader mono samples the probe mixed down, with their rate.
@@ -99,6 +126,7 @@ pub struct Player {
     visualizer: Arc<Mutex<VizAcc>>,
     codec: Codec,
     payload_type: u8,
+    units: Mutex<UnitClock>,
 }
 
 impl Player {
@@ -121,13 +149,11 @@ impl Player {
         }
 
         let appsrc = pipeline.by_name("src")?.downcast::<gst_app::AppSrc>().ok()?;
-        let caps = gst::Caps::from_str(&rtp_caps(
-            cfg.codec,
-            cfg.payload_type,
-            cfg.clock_rate,
-            cfg.channels,
-        ))
-        .ok()?;
+        let caps = match cfg.codec {
+            Codec::AacRaw => aac_raw_caps(&cfg.codec_data, cfg.clock_rate, cfg.channels),
+            _ => rtp_caps(cfg.codec, cfg.payload_type, cfg.clock_rate, cfg.channels),
+        };
+        let caps = gst::Caps::from_str(&caps).ok()?;
         appsrc.set_caps(Some(&caps));
 
         let volume = pipeline.by_name("vol")?;
@@ -212,6 +238,7 @@ impl Player {
             visualizer,
             codec: cfg.codec,
             payload_type: cfg.payload_type,
+            units: Mutex::new(UnitClock { next: None, frame: unit_duration(&cfg.codec_data) }),
         })
     }
 
@@ -245,7 +272,7 @@ impl Player {
     pub fn push_rtp(&self, rtp: &[u8]) -> bool {
         let packet = match self.codec {
             Codec::AacLc => reframe_aac(rtp, self.payload_type),
-            Codec::Opus => rtp.to_vec(),
+            Codec::Opus | Codec::AacRaw => rtp.to_vec(),
             // LPCM arrives without a header the pipeline needs
             Codec::Lpcm | Codec::PcmLe => rtp[RTP_HEADER_LEN.min(rtp.len())..].to_vec(),
         };
@@ -254,7 +281,21 @@ impl Player {
 
     /// Feeds samples the main process handed over, without an RTP header.
     pub fn push_samples(&self, samples: &[u8]) -> bool {
-        self.appsrc.push_buffer(gst::Buffer::from_slice(samples.to_vec())).is_ok()
+        let mut buffer = gst::Buffer::from_slice(samples.to_vec());
+        if self.codec == Codec::AacRaw
+            && let Ok(mut clock) = self.units.lock()
+            && let Some(b) = buffer.get_mut()
+        {
+            let now = self.pipeline.current_running_time().unwrap_or(gst::ClockTime::ZERO);
+            let pts = match clock.next {
+                Some(next) if next >= now => next,
+                _ => now + UNIT_HEADROOM,
+            };
+            b.set_pts(pts);
+            b.set_duration(clock.frame);
+            clock.next = Some(pts + clock.frame);
+        }
+        self.appsrc.push_buffer(buffer).is_ok()
     }
 
     /// Sets the level at once, or glides to it over `ms` on the pipeline clock.
@@ -332,6 +373,7 @@ mod tests {
             realtime,
             device: None,
             label: "music".into(),
+            codec_data: Vec::new(),
         }
     }
 
@@ -437,5 +479,22 @@ mod tests {
         let desc = pipeline_desc(&cfg(Codec::AacLc, false));
 
         assert_eq!(desc.matches(" ! ").count(), desc.matches('!').count());
+    }
+
+    #[test]
+    fn dab_units_go_through_faad_with_their_own_timestamps() {
+        let desc = pipeline_desc(&cfg(Codec::AacRaw, false));
+        assert!(desc.contains("do-timestamp=false"));
+        assert_eq!(&elements(&desc)[..3], ["appsrc", "aacparse", "faad"]);
+        assert!(pipeline_desc(&cfg(Codec::Opus, false)).contains("do-timestamp=true"));
+    }
+
+    #[test]
+    fn unit_duration_follows_the_core_rate_and_frame_length() {
+        // HE-AAC, 24 kHz core, 960 samples.
+        assert_eq!(unit_duration(&[0x13, 0x14, 0x56, 0xe5, 0x98]).mseconds(), 40);
+        // AAC LC 48 kHz, 960 samples.
+        assert_eq!(unit_duration(&[0x11, 0x94]).mseconds(), 20);
+        assert_eq!(unit_duration(&[]).mseconds(), 40);
     }
 }

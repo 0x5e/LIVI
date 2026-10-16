@@ -14,6 +14,7 @@ use tokio::net::{UnixListener, UnixStream};
 use tokio::sync::{Mutex, Notify, broadcast, oneshot, watch};
 
 use crate::config_file::{ConfigFile, apply_patch};
+use crate::dab::DabAsk;
 use crate::dongle::LinkSpeedViewer;
 use crate::hub::{Frame, Hub};
 use crate::projection::{UiCommand, UiSenders};
@@ -85,7 +86,22 @@ impl Core {
     }
 
     pub fn media(&self, control: MediaControl) {
-        let _ = self.asks.commands.send(UiCommand::Media(control));
+        if !self.dab_media(control) {
+            let _ = self.asks.commands.send(UiCommand::Media(control));
+        }
+    }
+
+    fn ask_dab(&self, ask: DabAsk) -> Result<(), String> {
+        self.asks.dab.send(ask).map_err(|_| "DAB+ is not available".to_string())
+    }
+
+    fn dab_media(&self, control: MediaControl) -> bool {
+        let ask = {
+            let state = self.hub.watch();
+            let s = state.borrow();
+            crate::dab::media_ask(&s.dab, s.sessions.active.is_some(), control)
+        };
+        ask.is_some_and(|ask| self.ask_dab(ask).is_ok())
     }
 
     /// Answered once every phone had its goodbye.
@@ -113,8 +129,23 @@ impl Core {
                 Ok(())
             }
             Action::Media { control } => {
-                let _ = self.asks.commands.send(UiCommand::Media(control));
+                self.media(control);
                 Ok(())
+            }
+            Action::DabScan => self.ask_dab(DabAsk::Scan),
+            Action::DabStopScan => self.ask_dab(DabAsk::StopScan),
+            Action::DabPlay { service_id } => self.ask_dab(DabAsk::Play(service_id)),
+            Action::DabResume => self.ask_dab(DabAsk::Resume),
+            Action::DabPause => self.ask_dab(DabAsk::Pause),
+            Action::DabStop => self.ask_dab(DabAsk::Stop),
+            Action::DabFavorite { service_id, favorite } => {
+                self.ask_dab(DabAsk::Favorite { service: service_id, favorite })
+            }
+            Action::DabHide { service_id, hidden } => {
+                self.ask_dab(DabAsk::Hide { service: service_id, hidden })
+            }
+            Action::DabMove { service_id, by } => {
+                self.ask_dab(DabAsk::Move { service: service_id, by })
             }
             Action::Seek { position_ms } => {
                 let _ = self.asks.commands.send(UiCommand::Seek(position_ms));
@@ -122,6 +153,22 @@ impl Core {
             }
             Action::NextDevice => {
                 let _ = self.asks.commands.send(UiCommand::NextDevice);
+                Ok(())
+            }
+            Action::SelectClusterLayout { layout } => {
+                let _ = self.asks.commands.send(UiCommand::SelectClusterLayout(layout));
+                Ok(())
+            }
+            Action::StepClusterLayout { by } => {
+                let _ = self.asks.commands.send(UiCommand::StepClusterLayout(by));
+                Ok(())
+            }
+            Action::MoveClusterLayout { layout, by } => {
+                let _ = self.asks.commands.send(UiCommand::MoveClusterLayout(layout, by));
+                Ok(())
+            }
+            Action::ShowClusterLayout { layout, on } => {
+                let _ = self.asks.commands.send(UiCommand::ShowClusterLayout(layout, on));
                 Ok(())
             }
             Action::SelectDevice { id } => {
@@ -288,6 +335,7 @@ mod tests {
 
     use super::*;
     use crate::config_file::defaults;
+
     use crate::config_file::tests::TempDir;
 
     struct Peer {
@@ -351,6 +399,8 @@ mod tests {
             system: Default::default(),
             devices: Default::default(),
             update: Default::default(),
+            cluster: Default::default(),
+            dab: Default::default(),
             config: defaults(),
         });
         let file = ConfigFile::new(dir.0.join("config.json"), dir.0.join("backup.json"));
@@ -387,6 +437,28 @@ mod tests {
         ui.send(&ToCore::Action { id: 9, action: Action::Seek { position_ms: 61000 } }).await;
         assert_eq!(ui.recv().await, Some(FromCore::Reply { id: 9, error: None }));
         assert_eq!(asks.commands.recv().await, Some(UiCommand::Seek(61000)));
+        for (id, action, ask) in [
+            (
+                10,
+                Action::SelectClusterLayout { layout: "a".into() },
+                UiCommand::SelectClusterLayout("a".into()),
+            ),
+            (11, Action::StepClusterLayout { by: -1 }, UiCommand::StepClusterLayout(-1)),
+            (
+                12,
+                Action::MoveClusterLayout { layout: "a".into(), by: 1 },
+                UiCommand::MoveClusterLayout("a".into(), 1),
+            ),
+            (
+                13,
+                Action::ShowClusterLayout { layout: "a".into(), on: false },
+                UiCommand::ShowClusterLayout("a".into(), false),
+            ),
+        ] {
+            ui.send(&ToCore::Action { id, action }).await;
+            assert_eq!(ui.recv().await, Some(FromCore::Reply { id, error: None }));
+            assert_eq!(asks.commands.recv().await, Some(ask));
+        }
         let radio = Action::SetDongleRadio { radio: livi_core_proto::message::Radio::Bt, on: true };
         ui.send(&ToCore::Action { id: 4, action: radio }).await;
         assert_eq!(ui.recv().await, Some(FromCore::Reply { id: 4, error: None }));

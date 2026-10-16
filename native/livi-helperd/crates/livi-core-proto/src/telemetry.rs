@@ -16,7 +16,7 @@
 //! | Field                               | LIVI | Android Auto | CarPlay Classic | CarPlay Ultra |
 //! |-------------------------------------|------|--------------|-----------------|---------------|
 //! | speedKph                            | ✓    | ✓            | TODO            | TODO          |
-//! | rpm                                 | ✓    | ✓            | ·               | TODO          |
+//! | rpm                                 | ✓    | ✓            | ·               | ✓             |
 //! | gear                                | ✓    | ✓            | ✓               | ✓             |
 //! | reverse                             | ✓    | ✓ (gear)     | ✓ (gear)        | ✓ (gear)      |
 //! | steeringDeg                         | ✓    | ·            | ·               | ·             |

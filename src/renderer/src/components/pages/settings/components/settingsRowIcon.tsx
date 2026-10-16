@@ -15,6 +15,7 @@ import CableOutlinedIcon from '@mui/icons-material/CableOutlined'
 import CallOutlinedIcon from '@mui/icons-material/CallOutlined'
 import CameraAltOutlinedIcon from '@mui/icons-material/CameraAltOutlined'
 import CameraOutlinedIcon from '@mui/icons-material/CameraOutlined'
+import CellTowerOutlinedIcon from '@mui/icons-material/CellTowerOutlined'
 import ContrastOutlinedIcon from '@mui/icons-material/ContrastOutlined'
 import CropFreeOutlinedIcon from '@mui/icons-material/CropFreeOutlined'
 import CropOutlinedIcon from '@mui/icons-material/CropOutlined'
@@ -26,6 +27,7 @@ import EastOutlinedIcon from '@mui/icons-material/EastOutlined'
 import EqualizerOutlinedIcon from '@mui/icons-material/EqualizerOutlined'
 import ExploreOutlinedIcon from '@mui/icons-material/ExploreOutlined'
 import FlipOutlinedIcon from '@mui/icons-material/FlipOutlined'
+import FormatListNumberedOutlinedIcon from '@mui/icons-material/FormatListNumberedOutlined'
 import FullscreenOutlinedIcon from '@mui/icons-material/FullscreenOutlined'
 import GpsFixedOutlinedIcon from '@mui/icons-material/GpsFixedOutlined'
 import GrainOutlinedIcon from '@mui/icons-material/GrainOutlined'
@@ -55,6 +57,7 @@ import PhoneIphoneOutlinedIcon from '@mui/icons-material/PhoneIphoneOutlined'
 import PlayCircleOutlinedIcon from '@mui/icons-material/PlayCircleOutlined'
 import PowerSettingsNewOutlinedIcon from '@mui/icons-material/PowerSettingsNewOutlined'
 import PublicOutlinedIcon from '@mui/icons-material/PublicOutlined'
+import RadioOutlinedIcon from '@mui/icons-material/RadioOutlined'
 import RecordVoiceOverOutlinedIcon from '@mui/icons-material/RecordVoiceOverOutlined'
 import RestartAltOutlinedIcon from '@mui/icons-material/RestartAltOutlined'
 import RotateRightOutlinedIcon from '@mui/icons-material/RotateRightOutlined'
@@ -180,6 +183,14 @@ const ICONS: Record<string, SvgIconComponent> = {
   samplingFrequency: EqualizerOutlinedIcon,
   volumeLink: LinkOutlinedIcon,
   audioOff: VolumeOffOutlinedIcon,
+
+  dab: RadioOutlinedIcon,
+  dabReceiver: SettingsInputAntennaOutlinedIcon,
+  dabStations: CellTowerOutlinedIcon,
+  dabStationList: FormatListNumberedOutlinedIcon,
+  dabGainAuto: BrightnessAutoOutlinedIcon,
+  dabGain: EqualizerOutlinedIcon,
+  dabPpm: TuneOutlinedIcon,
 
   mainVideo: MonitorOutlinedIcon,
   clusterVideo: SpeedOutlinedIcon,

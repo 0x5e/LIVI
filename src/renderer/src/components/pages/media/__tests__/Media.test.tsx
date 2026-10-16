@@ -10,6 +10,10 @@ vi.mock('../../../../store/store', async (importOriginal) => ({
   coreAction: (action: unknown) => coreActionMock(action)
 }))
 
+vi.mock('../dab/DabPlayer', () => ({
+  DabPlayer: () => <div>dab player</div>
+}))
+
 vi.mock('../components/createFFTSpectrum', () => ({
   FFTSpectrum: () => null
 }))
@@ -354,5 +358,17 @@ describe('Media component', () => {
       fireEvent.keyDown(screen.getByRole('button', { name: /Show spectrum/i }), { key: 'a' })
     })
     expect(screen.getByRole('button', { name: /Show spectrum/i })).toBeInTheDocument()
+  })
+
+  it('shows the DAB+ player while DAB+ is the chosen source', () => {
+    act(() => {
+      useLiviStore.setState({ dab: { active: true, receiver: null, stations: [] } as never })
+    })
+    render(<Media />)
+    expect(screen.getByText('dab player')).toBeInTheDocument()
+    expect(screen.queryByLabelText('Play/Pause')).toBeNull()
+    act(() => {
+      useLiviStore.setState({ dab: null })
+    })
   })
 })

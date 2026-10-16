@@ -1,18 +1,35 @@
 import { coreAction, useLiviStore } from '@store/store'
 import { Suspense, useCallback, useEffect, useMemo, useRef, useState } from 'react'
-import { Controls, ProgressBar } from './components'
+import { Controls, ProgressBar, SourceTabs } from './components'
 import { FFTSpectrum } from './components/createFFTSpectrum'
 import { MIN_TEXT_COL, OPTIMISTIC_PLAY_TIMEOUT_MS } from './constants'
-import { useElementSize, useMediaState, useOptimisticPlaying, usePressFeedback } from './hooks'
-import { MediaEventType } from './types'
+import { DabPlayer } from './dab/DabPlayer'
+import {
+  useCarMediaKeys,
+  useElementSize,
+  useMediaState,
+  useOptimisticPlaying,
+  usePressFeedback
+} from './hooks'
 import { clamp } from './utils'
-import { flash } from './utils/flash'
 import { mediaControlOps } from './utils/mediaControllOps'
 import { mediaLayoutArtworksOps } from './utils/mediaLayoutArtworksOps'
 import { mediaProjectionOps } from './utils/mediaProjectionOps'
 import { mediaScaleOps } from './utils/mediaScaleOps'
 
 export const Media = () => {
+  const dabActive = useLiviStore((s) => s.dab?.active === true)
+  return (
+    <div style={{ position: 'absolute', inset: 0, display: 'flex', flexDirection: 'column' }}>
+      <SourceTabs />
+      <div style={{ position: 'relative', flex: 1, minHeight: 0 }}>
+        {dabActive ? <DabPlayer /> : <PhonePlayer />}
+      </div>
+    </div>
+  )
+}
+
+export const PhonePlayer = () => {
   const [rootRef, { w, h }] = useElementSize<HTMLDivElement>()
   const { snap, livePlayMs, stalled } = useMediaState()
   const sessionKey = useLiviStore((s) => `${s.sessions.active}:${s.sessions.position}`)
@@ -96,42 +113,10 @@ export const Media = () => {
     setOverride
   })
 
-  useEffect(() => {
-    const handler = (e: Event) => {
-      const cmdRaw = (e as CustomEvent<{ command?: string }>).detail?.command
-      if (!cmdRaw) return
-
-      const cmd = cmdRaw.toLowerCase()
-
-      const isPlayLike =
-        cmd === MediaEventType.PLAY ||
-        cmd === MediaEventType.PAUSE ||
-        cmd === MediaEventType.STOP ||
-        cmd === MediaEventType.PLAYPAUSE
-
-      if (isPlayLike) {
-        bump(MediaEventType.PLAY)
-        flash(playBtnRef)
-        return
-      }
-
-      if (cmd === MediaEventType.NEXT) {
-        bump(MediaEventType.NEXT)
-        flash(nextBtnRef)
-        return
-      }
-
-      if (cmd === MediaEventType.PREV) {
-        bump(MediaEventType.PREV)
-        flash(prevBtnRef)
-        allowBackwardOnceRef.current = true
-        return
-      }
-    }
-
-    window.addEventListener('car-media-key', handler as EventListener)
-    return () => window.removeEventListener('car-media-key', handler as EventListener)
-  }, [bump])
+  const allowBackwardOnce = useCallback(() => {
+    allowBackwardOnceRef.current = true
+  }, [])
+  useCarMediaKeys({ bump, playBtnRef, prevBtnRef, nextBtnRef, onPrev: allowBackwardOnce })
 
   const sessionKeyRef = useRef(sessionKey)
   useEffect(() => {

@@ -1,5 +1,7 @@
 import type {
   Action,
+  Cluster,
+  Dab,
   DeviceView,
   FromCore,
   Front,
@@ -101,6 +103,10 @@ export interface CarplayStore {
 
   update: Update | null
 
+  cluster: Cluster | null
+
+  dab: Dab | null
+
   restartBaseline: Config | null
   markRestartBaseline: () => void
 
@@ -156,6 +162,8 @@ export const useLiviStore = create<CarplayStore>((set, get) => {
     devices: [],
     telemetry: null,
     update: null,
+    cluster: null,
+    dab: null,
 
     audioDevicesRevision: 0,
 
@@ -187,6 +195,8 @@ export const useLiviStore = create<CarplayStore>((set, get) => {
           if (state.devices !== prev?.devices) set({ devices: state.devices })
           if (state.update !== prev?.update) set({ update: state.update })
           if (state.telemetry !== prev?.telemetry) set({ telemetry: state.telemetry })
+          if (state.cluster !== prev?.cluster) set({ cluster: state.cluster })
+          if (state.dab !== prev?.dab) set({ dab: state.dab })
         })
         const link = bridge.connect(
           `ui:${role}`,

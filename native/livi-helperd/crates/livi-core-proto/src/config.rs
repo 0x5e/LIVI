@@ -32,7 +32,7 @@ pub struct Config {
     pub car_play_mfi_i2c_bus: u32,
     /// -1 when the coprocessor has no power pin.
     pub car_play_mfi_power_gpio: i32,
-    /// Dedicated HLS video Stream insted of embedded into CarPlay video.
+    /// Video in the car: the phone's AirPlay video while parked, in LIVI's own video plane.
     pub car_play_hls_video: bool,
     /// Where the phone puts its dock and status bar.
     pub car_play_dock_position: DockPosition,
@@ -41,6 +41,13 @@ pub struct Config {
     pub car_play_cluster_compass: bool,
     pub car_play_cluster_eta: bool,
     pub car_play_cluster_speed_limit: bool,
+    /// A car maker theme the phone loads from Apple, as `id:version:sdk`, empty for none.
+    pub car_play_theme: String,
+    /// The theme's car model (VehicleVariant), picks the car pictures, empty for none.
+    pub car_play_vehicle_model: String,
+    /// The cluster layout the car showed last, and the palette picked per layout.
+    pub cluster_layout: String,
+    pub cluster_palettes: std::collections::BTreeMap<String, String>,
 
     pub gps_enabled: bool,
     pub gps_device: String,
@@ -126,6 +133,12 @@ pub struct Config {
     pub audio_input_device_label: Option<String>,
     pub visual_audio_delay_ms: u32,
 
+    /// LIVI steers the gain by the signal level, else `dab_gain_db`.
+    pub dab_gain_auto: bool,
+    pub dab_gain_db: f64,
+    /// Crystal error of the DAB stick.
+    pub dab_ppm: i32,
+
     pub auto_conn: bool,
     pub auto_switch_on_reverse: bool,
 
@@ -150,7 +163,10 @@ pub struct Config {
     #[ts(type = "0 | 90 | 180 | 270")]
     pub camera_rotation: u16,
     pub media: PerScreen<bool>,
-    pub dashboards: Dashboards,
+    /// The screens that show the dashboard.
+    pub dashboard: PerScreen<bool>,
+    /// Which of the theme's layouts the dashboard offers and in which order.
+    pub dashboard_layouts: std::collections::BTreeMap<String, crate::theme::LayoutSlot>,
     pub custom: PerScreen<bool>,
     pub custom_url: String,
 
@@ -340,24 +356,6 @@ impl EvConnectorType {
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, TS)]
 #[ts(export_to = "contract.ts")]
-pub struct Dashboards {
-    pub dashboard1: DashboardSlot,
-    pub dashboard2: DashboardSlot,
-    pub dashboard3: DashboardSlot,
-    pub dashboard4: DashboardSlot,
-}
-
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, TS)]
-#[ts(export_to = "contract.ts")]
-pub struct DashboardSlot {
-    pub main: bool,
-    pub cluster: bool,
-    pub aux: bool,
-    pub pos: u32,
-}
-
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, TS)]
-#[ts(export_to = "contract.ts")]
 pub struct WindowBounds {
     pub x: i32,
     pub y: i32,
@@ -385,6 +383,10 @@ pub struct KeyBindings {
 
     pub home: String,
     pub cycle_session: String,
+    /// The next cluster layout, LIVI's own or a car maker theme's.
+    pub cluster_layout: String,
+    /// The next card of the phone's carousel in a car maker theme's centre zone.
+    pub cluster_content: String,
     pub play_pause: String,
     pub play: String,
     pub pause: String,
@@ -414,7 +416,6 @@ pub struct KeyBindings {
 pub fn defaults() -> Config {
     let off = PerScreen { main: false, cluster: false, aux: false };
     let main_only = PerScreen { main: true, cluster: false, aux: false };
-    let slot = |pos| DashboardSlot { main: true, cluster: false, aux: false, pos };
     let no_bounds = Some(WindowBounds { x: 0, y: 0, width: 0, height: 0 });
     let empty = || Some(String::new());
     Config {
@@ -432,12 +433,16 @@ pub fn defaults() -> Config {
         car_play_source_version: "950.7.1".into(),
         car_play_mfi_i2c_bus: 2,
         car_play_mfi_power_gpio: -1,
-        car_play_hls_video: false,
+        car_play_hls_video: true,
         car_play_dock_position: DockPosition::Bottom,
         car_play_cluster_content: ClusterContent::Map,
         car_play_cluster_compass: true,
         car_play_cluster_eta: true,
         car_play_cluster_speed_limit: true,
+        car_play_theme: String::new(),
+        car_play_vehicle_model: String::new(),
+        cluster_layout: String::new(),
+        cluster_palettes: Default::default(),
         gps_enabled: false,
         gps_device: "/dev/ttyAMA0".into(),
         gps_baud_rate: 38400,
@@ -499,6 +504,9 @@ pub fn defaults() -> Config {
         audio_input_device: empty(),
         audio_input_device_label: empty(),
         visual_audio_delay_ms: 0,
+        dab_gain_auto: true,
+        dab_gain_db: 19.7,
+        dab_ppm: 0,
         auto_conn: true,
         auto_switch_on_reverse: true,
         start_page: "/".into(),
@@ -517,12 +525,8 @@ pub fn defaults() -> Config {
         camera_mirror: false,
         camera_rotation: 0,
         media: main_only,
-        dashboards: Dashboards {
-            dashboard1: slot(1),
-            dashboard2: slot(2),
-            dashboard3: slot(3),
-            dashboard4: slot(4),
-        },
+        dashboard: main_only,
+        dashboard_layouts: Default::default(),
         custom: off,
         custom_url: String::new(),
         main_screen_bounds: no_bounds,
@@ -567,6 +571,8 @@ fn default_bindings() -> KeyBindings {
         knob_down: key(""),
         home: key("KeyH"),
         cycle_session: key("KeyS"),
+        cluster_layout: key("KeyT"),
+        cluster_content: key("KeyZ"),
         play_pause: key("KeyP"),
         play: key(""),
         pause: key(""),

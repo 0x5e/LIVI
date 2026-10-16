@@ -104,12 +104,59 @@ pub enum Action {
         id: String,
     },
     NextDevice,
+    /// One of the theme's cluster layouts, also asked of the phone while it draws in it.
+    SelectClusterLayout {
+        layout: String,
+    },
+    /// Forward or back through the cluster layouts.
+    StepClusterLayout {
+        by: i32,
+    },
+    /// Moves a layout in the dashboard's order.
+    MoveClusterLayout {
+        layout: String,
+        by: i32,
+    },
+    /// Offers a layout on the dashboard or not.
+    ShowClusterLayout {
+        layout: String,
+        on: bool,
+    },
     /// For settings that only take hold once the phones negotiate anew.
     ApplySettings,
     CheckUpdate,
     DownloadUpdate,
     InstallUpdate,
     AbortUpdate,
+    /// Searches Band III and replaces the station list.
+    DabScan,
+    DabStopScan,
+    #[serde(rename_all = "camelCase")]
+    DabPlay {
+        service_id: u32,
+    },
+    /// Makes DAB+ the player's source, the tuned or last station plays.
+    DabResume,
+    /// The station stays tuned, only its audio stops.
+    DabPause,
+    /// Leaves DAB+, the phone is the player's source again.
+    DabStop,
+    #[serde(rename_all = "camelCase")]
+    DabFavorite {
+        service_id: u32,
+        favorite: bool,
+    },
+    #[serde(rename_all = "camelCase")]
+    DabHide {
+        service_id: u32,
+        hidden: bool,
+    },
+    /// Moves a station in the own order, negative towards the top.
+    #[serde(rename_all = "camelCase")]
+    DabMove {
+        service_id: u32,
+        by: i32,
+    },
     SetDongleRadio {
         radio: Radio,
         on: bool,

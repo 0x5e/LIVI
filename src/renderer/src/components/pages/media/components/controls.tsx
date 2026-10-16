@@ -35,6 +35,52 @@ type ControlsProps = {
     prev?: boolean
   }
   iconPx: number
+  align?: 'center' | 'start'
+  children?: React.ReactNode
+}
+
+type RoundButtonProps = {
+  size: number
+  label: string
+  pressed?: boolean
+  disabled?: boolean
+  onClick: () => void
+  children: React.ReactNode
+}
+
+export const RoundButton = ({
+  size,
+  label,
+  pressed,
+  disabled,
+  onClick,
+  children
+}: RoundButtonProps) => {
+  const theme = useTheme()
+  const [focused, setFocused] = useState(false)
+  const [hovered, setHovered] = useState(false)
+  return (
+    <button
+      type="button"
+      aria-label={label}
+      aria-pressed={pressed}
+      disabled={disabled}
+      onClick={onClick}
+      onMouseUp={(e) => (e.currentTarget as HTMLButtonElement).blur()}
+      onFocus={() => setFocused(true)}
+      onBlur={() => setFocused(false)}
+      onPointerEnter={(e) => {
+        if (e.pointerType === 'mouse') setHovered(true)
+      }}
+      onPointerLeave={() => setHovered(false)}
+      style={{
+        ...circleBtnStyle(size, { focused, hovered, ringColor: theme.palette.primary.main }),
+        opacity: disabled ? 0.4 : 1
+      }}
+    >
+      {children}
+    </button>
+  )
 }
 
 export const Controls = ({
@@ -50,7 +96,9 @@ export const Controls = ({
   uiPlaying,
   press,
   focus,
-  iconPx
+  iconPx,
+  align = 'center',
+  children
 }: ControlsProps) => {
   const theme = useTheme()
   const ringColor = theme.palette.primary.main
@@ -78,7 +126,7 @@ export const Controls = ({
       style={{
         width: '100%',
         display: 'flex',
-        justifyContent: 'center'
+        justifyContent: align
       }}
     >
       <div
@@ -157,6 +205,7 @@ export const Controls = ({
         >
           <SkipNextIcon sx={{ fontSize: iconPx, display: 'block', lineHeight: 0 }} />
         </button>
+        {children}
       </div>
     </div>
   )

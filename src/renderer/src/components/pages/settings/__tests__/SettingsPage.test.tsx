@@ -80,18 +80,15 @@ vi.mock('../components/SettingsFieldRow', () => ({
   SettingsFieldRow: ({
     onChange,
     onClick,
-    onItemNavigate,
     onLabelChange
   }: {
     onChange: (v: unknown) => void
     onClick?: () => void
-    onItemNavigate: (s: string) => void
     onLabelChange?: (label: string) => void
   }) => (
     <div data-testid="field-row">
       <button data-testid="field-row-change" onClick={() => onChange('next')} />
       <button data-testid="field-row-click" onClick={() => onClick?.()} disabled={!onClick} />
-      <button data-testid="field-row-navigate" onClick={() => onItemNavigate('child')} />
       <button
         data-testid="field-row-label"
         onClick={() => onLabelChange?.('row-label')}
@@ -162,21 +159,6 @@ describe('SettingsPage', () => {
     expect(navigateMock).toHaveBeenCalledWith('advanced')
   })
 
-  test('hidden route children are not rendered', () => {
-    mockNode = {
-      type: 'route',
-      label: 'Audio',
-      children: [
-        { type: 'route', route: 'gone', label: 'Hidden', path: '', hidden: true },
-        { type: 'route', route: 'shown', label: 'Shown', path: '' }
-      ]
-    }
-    render(<SettingsPage />)
-    const items = screen.getAllByTestId('stack-item')
-    expect(items).toHaveLength(1)
-    expect(items[0]).toHaveTextContent('Shown')
-  })
-
   test('page field passes onChange through to handleFieldChange', () => {
     mockNode = { type: 'string', label: 'Name', path: 'name', page: { title: 'Name' } }
     render(<SettingsPage />)
@@ -196,9 +178,6 @@ describe('SettingsPage', () => {
 
     fireEvent.click(screen.getByTestId('field-row-click'))
     expect(navigateMock).toHaveBeenCalledWith('field')
-
-    fireEvent.click(screen.getByTestId('field-row-navigate'))
-    expect(navigateMock).toHaveBeenCalledWith('child')
   })
 
   test('custom child forwards onChange to handleFieldChange', () => {

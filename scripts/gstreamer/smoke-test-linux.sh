@@ -54,3 +54,13 @@ for el in v4l2h264dec v4l2h265dec v4l2slh264dec v4l2slh265dec vah264dec vah265de
     echo "--   $el (not present)"
   fi
 done
+
+# DAB+ and CarPlay AAC decode through faad
+for el in aacparse faad; do
+  if "$INSPECT" "$el" >/dev/null 2>&1; then
+    echo "ok   $el"
+  else
+    echo "FAIL $el" >&2
+    exit 1
+  fi
+done

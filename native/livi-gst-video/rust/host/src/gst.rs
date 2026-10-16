@@ -169,6 +169,7 @@ impl Outside for Gst {
             realtime: cfg.realtime,
             device: cfg.device.clone(),
             label: format!("{:?}", cfg.codec),
+            codec_data: cfg.codec_data.clone(),
         })?;
         player.start();
         Some(player)

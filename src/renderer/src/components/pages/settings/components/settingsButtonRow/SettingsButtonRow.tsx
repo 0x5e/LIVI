@@ -8,6 +8,7 @@ type Props = {
   disabled?: boolean
   loading?: boolean
   variant?: 'text' | 'outlined' | 'contained'
+  icon?: string
 }
 
 export const SettingsButtonRow = ({
@@ -16,10 +17,11 @@ export const SettingsButtonRow = ({
   onClick,
   disabled,
   loading,
-  variant = 'contained'
+  variant = 'contained',
+  icon
 }: Props) => {
   return (
-    <SettingsItemRow label={label}>
+    <SettingsItemRow label={label} icon={icon}>
       <Button
         variant={variant}
         onClick={onClick}

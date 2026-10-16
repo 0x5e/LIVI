@@ -159,6 +159,16 @@ jobs:
           scripts/gstreamer/build-patched-macos.sh "$RUNNER_TEMP/applemedia"
           echo "PATCHED_APPLEMEDIA=$RUNNER_TEMP/applemedia/libgstapplemedia.dylib" >> "$GITHUB_ENV"
 
+      - name: Build faad plugin (DAB+ audio) [macos-arm64]
+        if: matrix.os == 'macos' && matrix.arch == 'arm64'
+        shell: bash
+        run: |
+          set -euo pipefail
+          brew install cmake
+          chmod +x scripts/gstreamer/build-faad-macos.sh
+          scripts/gstreamer/build-faad-macos.sh "$RUNNER_TEMP/faad"
+          echo "FAAD_PLUGIN=$RUNNER_TEMP/faad/libgstfaad.dylib" >> "$GITHUB_ENV"
+
       - name: Build bundle [macos-arm64]
         if: matrix.os == 'macos' && matrix.arch == 'arm64'
         shell: bash

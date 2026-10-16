@@ -108,6 +108,16 @@ pub enum AudioCodec {
     Opus = 1,
     Pcm = 2,
     PcmLe = 3,
+    AacRaw = 4,
+}
+
+/// A fed AacRaw stream has no key, the slot carries the AudioSpecificConfig.
+pub fn aac_raw_key(asc: &[u8]) -> [u8; 32] {
+    let mut key = [0u8; 32];
+    let len = asc.len().min(31);
+    key[0] = len as u8;
+    key[1..1 + len].copy_from_slice(&asc[..len]);
+    key
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]

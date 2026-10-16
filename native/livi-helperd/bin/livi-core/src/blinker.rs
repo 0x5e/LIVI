@@ -321,6 +321,8 @@ mod tests {
             devices: Default::default(),
             telemetry: Default::default(),
             update: Default::default(),
+            cluster: Default::default(),
+            dab: Default::default(),
             config: crate::config_file::defaults(),
         };
         assert!(!blinking(&s));

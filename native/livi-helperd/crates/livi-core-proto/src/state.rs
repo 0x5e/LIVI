@@ -7,6 +7,7 @@ use serde_json::{Map, Value};
 use ts_rs::TS;
 
 use crate::config::{Config, WifiBand};
+use crate::theme::Cluster;
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize, TS)]
 #[serde(rename_all = "camelCase")]
@@ -24,7 +25,78 @@ pub struct State {
     #[ts(type = "TelemetrySnapshot & Record<string, unknown>")]
     pub telemetry: Map<String, Value>,
     pub update: Update,
+    pub cluster: Cluster,
+    pub dab: Dab,
     pub config: Config,
+}
+
+/// The DAB+ receiver, LIVI's own audio source.
+#[derive(Debug, Clone, PartialEq, Default, Serialize, Deserialize, TS)]
+#[serde(rename_all = "camelCase")]
+#[ts(export_to = "contract.ts")]
+pub struct Dab {
+    /// The stick's name while one is plugged in.
+    pub receiver: Option<String>,
+    /// The stations in the listener's own order, as state/sdr.json keeps them.
+    pub stations: Vec<DabStation>,
+    /// Service id of the station played last.
+    pub last_station: Option<u32>,
+    pub scan: Option<DabScan>,
+    /// DAB+ is the chosen source of the player, not the phone.
+    pub active: bool,
+    /// Service id of the tuned station, it stays while paused.
+    pub station: Option<u32>,
+    /// True once its audio plays.
+    pub playing: bool,
+    /// The station's scrolling text.
+    pub text: Option<String>,
+    pub signal: DabSignal,
+    pub error: Option<String>,
+    /// The gain steps the tuner offers, for the gain setting.
+    pub gains_db: Vec<f64>,
+}
+
+/// One DAB+ programme as a scan found it.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, TS)]
+#[serde(rename_all = "camelCase")]
+#[ts(export_to = "contract.ts")]
+pub struct DabStation {
+    pub service_id: u32,
+    pub label: String,
+    pub short_label: String,
+    pub ensemble: String,
+    /// Band III channel name, 5A to 13F.
+    pub channel: String,
+    pub frequency_hz: u32,
+    #[serde(default)]
+    pub favorite: bool,
+    /// Left out of the band, the steps and the phone's Radio app, the station list shows it at the end.
+    #[serde(default)]
+    pub hidden: bool,
+    /// The station's logo from the ensemble's service information, base64. Never stored in
+    /// state/sdr.json, the files live in dab/logos.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[ts(optional)]
+    pub logo: Option<String>,
+}
+
+#[derive(Debug, Clone, PartialEq, Default, Serialize, Deserialize, TS)]
+#[serde(rename_all = "camelCase")]
+#[ts(export_to = "contract.ts")]
+pub struct DabScan {
+    pub channel: String,
+    pub done: u32,
+    pub total: u32,
+    pub found: u32,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Default, Serialize, Deserialize, TS)]
+#[serde(rename_all = "camelCase")]
+#[ts(export_to = "contract.ts")]
+pub struct DabSignal {
+    pub locked: bool,
+    /// Share of the ensemble data that arrived intact, percent.
+    pub quality: u32,
 }
 
 #[derive(Debug, Clone, PartialEq, Default, Serialize, Deserialize, TS)]

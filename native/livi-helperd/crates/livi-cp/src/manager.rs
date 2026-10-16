@@ -15,7 +15,7 @@ use crate::helper_sock::Feed;
 use crate::media::Media;
 use crate::net::{host_of, norm_host};
 use crate::stack::{self, AudioProfile, ScreenCodec, StackCmd, StackCtx, StackEvent};
-use crate::vehicle_state::{Climate, Gauges};
+use crate::vehicle_state::{Climate, Gauges, Radio, RadioCommand};
 
 const RESTART_FIRST: Duration = Duration::from_millis(500);
 const RESTART_EVERY: Duration = Duration::from_millis(1000);
@@ -134,6 +134,15 @@ pub enum CpEvent {
         name: &'static str,
         level: f64,
     },
+    Cluster {
+        id: SessionId,
+        choice: crate::ui_sync::PhoneChoice,
+    },
+    /// The phone's Radio app steers LIVI's radio.
+    Radio {
+        id: SessionId,
+        command: RadioCommand,
+    },
 }
 
 #[derive(Debug, Clone, PartialEq)]
@@ -152,6 +161,8 @@ pub enum CpCmd {
     Climate(Climate),
     /// Readings for the cluster and the vehicle app, every session hears them.
     Gauges(Gauges),
+    /// LIVI's radio, every session and every later one hears it.
+    Radio(Box<Radio>),
     /// The phones reconnect.
     DropSessions,
     Close {
@@ -246,6 +257,7 @@ struct Manager<M: Media> {
     initial_night_mode: Option<bool>,
     cluster_stream_active: bool,
     video_allowed: bool,
+    radio: Option<Box<Radio>>,
 }
 
 pub fn start<M: Media>(
@@ -284,6 +296,7 @@ async fn run<M: Media>(
         initial_night_mode: None,
         cluster_stream_active: true,
         video_allowed: true,
+        radio: None,
     };
     loop {
         tokio::select! {
@@ -358,6 +371,9 @@ impl<M: Media> Manager<M> {
         }
         session.send(StackCmd::ClusterActive(self.cluster_stream_active));
         session.send(StackCmd::VideoAllowed(self.video_allowed));
+        if let Some(radio) = &self.radio {
+            session.send(StackCmd::Radio(radio.clone()));
+        }
         self.sessions.insert(id, session);
         self.emit(CpEvent::Spawned { id });
         id
@@ -444,6 +460,8 @@ impl<M: Media> Manager<M> {
             StackEvent::SpeechActive(active) => self.emit(CpEvent::SpeechActive { id, active }),
             StackEvent::Climate(climate) => self.emit(CpEvent::Climate { id, climate }),
             StackEvent::Volume { name, level } => self.emit(CpEvent::Volume { id, name, level }),
+            StackEvent::Cluster(choice) => self.emit(CpEvent::Cluster { id, choice }),
+            StackEvent::Radio(command) => self.emit(CpEvent::Radio { id, command }),
             StackEvent::DisableBluetooth(device) => {
                 let mac = device.trim().to_string();
                 if mac.is_empty() {
@@ -882,6 +900,12 @@ impl<M: Media> Manager<M> {
                     s.send(StackCmd::Gauges(gauges.clone()));
                 }
             }
+            CpCmd::Radio(radio) => {
+                for s in self.sessions.values() {
+                    s.send(StackCmd::Radio(radio.clone()));
+                }
+                self.radio = Some(radio);
+            }
             CpCmd::DropSessions => {
                 for id in self.sessions.keys().copied().collect::<Vec<_>>() {
                     self.close(id);
@@ -996,6 +1020,9 @@ mod tests {
                 app_version: "9.5.0".into(),
                 app_build_date: String::new(),
                 cluster_url: String::new(),
+                vehicle_variant: String::new(),
+                engines: Default::default(),
+                cluster_content: None,
             });
             std::mem::forget(tx);
             let ctx = Arc::new(StackCtx {

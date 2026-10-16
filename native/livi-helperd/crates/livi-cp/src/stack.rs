@@ -20,7 +20,7 @@ use crate::hls::Client;
 use crate::hls_gateway::Gateway;
 use crate::iap_tunnel::IapTunnel;
 use crate::identity::Identity;
-use crate::info::{self, ALT_UUID, InfoConfig, MAIN_UUID};
+use crate::info::{self, InfoConfig};
 use crate::keep_alive::KeepAlive;
 use crate::media::{AudioCodec, AudioRequest, Media, MicRequest};
 use crate::mfi4;
@@ -31,7 +31,8 @@ use crate::pairings::Pairings;
 use crate::rtsp::{self, Request, Response};
 use crate::timing::ntp64_now;
 use crate::timing_sync::TimingSync;
-use crate::vehicle_state::{self, Climate, Gauges, Lane, VehicleState};
+use crate::ui_sync;
+use crate::vehicle_state::{self, Climate, Gauges, Lane, Radio, RadioCommand, VehicleState};
 use crate::video_playback;
 use crate::video_proxy::ProxyOffer;
 
@@ -125,6 +126,11 @@ pub struct StackConfig {
     pub app_build_date: String,
     /// The maps page the cluster stream shows, empty for the plain map.
     pub cluster_url: String,
+    /// The car's model in the car maker's theme, empty without a theme.
+    pub vehicle_variant: String,
+    pub engines: vehicle_state::Engines,
+    /// What the car asks the theme to show in the cluster zones.
+    pub cluster_content: Option<vehicle_state::ClusterContent>,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq)]
@@ -137,8 +143,15 @@ pub struct Touch {
 
 #[derive(Debug, Clone, PartialEq)]
 pub enum StackCmd {
+    /// Turns the phone's card carousel in the theme's centre zone one step.
+    NextClusterContent,
+    /// The car shows another layout of its theme, the phone draws its part in it.
+    ClusterLayout(ui_sync::Layout),
     Touches(Vec<Touch>),
-    Knob { state: KnobState, momentary: bool },
+    Knob {
+        state: KnobState,
+        momentary: bool,
+    },
     KnobSelect(bool),
     Media(u8),
     Telephony(u8),
@@ -150,10 +163,16 @@ pub enum StackCmd {
     ClusterActive(bool),
     VideoActive(bool),
     AudioActive(bool),
-    StreamVolume { kind: AudioKind, level: f64, ramp_ms: u32 },
+    StreamVolume {
+        kind: AudioKind,
+        level: f64,
+        ramp_ms: u32,
+    },
     PhoneBtMac(String),
     Climate(Climate),
     Gauges(Gauges),
+    /// LIVI's radio for the phone's Radio app.
+    Radio(Box<Radio>),
     Stop,
 }
 
@@ -191,11 +210,15 @@ pub enum StackEvent {
     SpeechActive(bool),
     DisableBluetooth(String),
     Climate(Climate),
+    /// The Radio app steers LIVI's radio.
+    Radio(RadioCommand),
     /// The phone or Siri set a volume, by LIVI's name for it, 0 to 1.
     Volume {
         name: &'static str,
         level: f64,
     },
+    /// The phone's theme settings moved the cluster.
+    Cluster(ui_sync::PhoneChoice),
     /// Always the last event.
     Closed {
         was_active: bool,
@@ -270,6 +293,11 @@ struct Conn<M: Media> {
     video_settings_out: Option<mpsc::UnboundedReceiver<Vec<u8>>>,
     video_overlay: Option<IapTunnel>,
     video_overlay_out: Option<mpsc::UnboundedReceiver<Vec<u8>>>,
+    /// The phone's layout channel to the car's theme.
+    ui_sync_on: bool,
+    ui_sync: Option<(IapTunnel, mpsc::UnboundedSender<Vec<u8>>)>,
+    ui_sync_out: Option<mpsc::UnboundedReceiver<Vec<u8>>>,
+    ui_sync_state: ui_sync::UiSync,
     vehicle_state: Option<VehicleState>,
     /// Whether the phone offered the vehicle state protocol, so enabledFeatures only claims it back
     /// when the phone asked for it.
@@ -481,6 +509,9 @@ pub async fn run<M: Media>(
     let vehicle_state = {
         let cfg = ctx.config.borrow();
         VehicleState::new(ctx.debug, &cfg.app_version, &cfg.app_build_date)
+            .with_variant(&cfg.vehicle_variant)
+            .with_engines(cfg.engines)
+            .with_cluster_content(cfg.cluster_content.as_ref())
     };
     let mut conn = Conn {
         ctx,
@@ -513,6 +544,10 @@ pub async fn run<M: Media>(
         video_settings_out: None,
         video_overlay: None,
         video_overlay_out: None,
+        ui_sync_on: false,
+        ui_sync: None,
+        ui_sync_out: None,
+        ui_sync_state: ui_sync::UiSync::default(),
         vehicle_state: Some(vehicle_state),
         offered_vehicle_state: false,
         climate_reported: None,
@@ -599,6 +634,10 @@ pub async fn run<M: Media>(
             iap = recv_iap(&mut conn.iap_out) => match iap {
                 Some(iap) => conn.relay_iap(&iap).await,
                 None => conn.iap_out = None,
+            },
+            sync = recv_iap(&mut conn.ui_sync_out) => match sync {
+                Some(message) => conn.on_ui_sync(&message),
+                None => conn.ui_sync_out = None,
             },
             overlay = recv_iap(&mut conn.video_overlay_out) => match overlay {
                 Some(overlay) => conn.keep_side_message("overlay", &overlay),
@@ -804,8 +843,13 @@ impl<M: Media> Conn<M> {
                     entries.extend(video_playback::info_entries(features, self.video_allowed));
                 }
             }
+            if self.ui_sync_on
+                && let Value::Dict(entries) = &mut info
+            {
+                entries.push((ui_sync::INFO_KEY.to_string(), Value::Dict(Vec::new())));
+            }
             if let Some(state) = &self.vehicle_state {
-                info::add_display_panels(&mut info);
+                info::add_display_panels(&mut info, cfg.theme_displays.as_ref());
                 if let Value::Dict(entries) = &mut info {
                     entries.push(state.info_entry());
                 }
@@ -897,6 +941,8 @@ impl<M: Media> Conn<M> {
             }
         }
         self.offered_vehicle_state = offered.contains(&vehicle_state::FEATURE);
+        self.ui_sync_on = offered.contains(&ui_sync::FEATURE)
+            && self.ctx.config.borrow().info.theme_displays.is_some();
 
         let mut timing = match TimingSync::listen() {
             Ok(t) => t,
@@ -948,6 +994,9 @@ impl<M: Media> Conn<M> {
         }
         if self.offered_vehicle_state {
             features.push(Value::String(vehicle_state::FEATURE.into()));
+        }
+        if self.ui_sync_on {
+            features.push(Value::String(ui_sync::FEATURE.into()));
         }
         let mut resp = vec![
             ("timingPort".to_string(), Value::Int(u64::from(timing_port))),
@@ -1152,12 +1201,32 @@ impl<M: Media> Conn<M> {
         ]))
     }
 
+    fn on_ui_sync(&mut self, message: &[u8]) {
+        let answers = self.ui_sync_state.handle(message);
+        self.to_ui_sync(answers);
+        for choice in self.ui_sync_state.take_choices() {
+            self.emit(StackEvent::Cluster(choice));
+        }
+    }
+
+    fn to_ui_sync(&self, messages: Vec<Vec<u8>>) {
+        if let Some((_, to_phone)) = &self.ui_sync {
+            for message in messages {
+                let _ = to_phone.send(message);
+            }
+        }
+    }
+
     fn on_vehicle_message(&mut self, lane: Lane, message: &[u8]) {
         let Some(state) = &mut self.vehicle_state else { return };
         let answers = state.handle(lane, message);
+        let commands = state.take_radio_commands();
         self.to_vehicle_streams(answers);
         self.report_climate();
         self.report_volume();
+        for c in commands {
+            self.emit(StackEvent::Radio(c));
+        }
     }
 
     /// Only what the phone set goes back, LIVI's own pushes are known already.
@@ -1225,6 +1294,31 @@ impl<M: Media> Conn<M> {
             self.last_stream_id += 1;
             let id = self.last_stream_id;
             println!("[cpStack] SETUP video settings (type 130, streamID={id}, dataPort={port})");
+            return Ok(Some(dict([
+                ("type", Value::Int(STREAM_DATA)),
+                ("streamID", Value::Int(id)),
+                ("dataPort", Value::Int(u64::from(port))),
+            ])));
+        }
+        if uuid == ui_sync::DATASTREAM_UUID && self.ui_sync_on && self.ui_sync.is_none() {
+            let shared = self
+                .pair_verify
+                .shared_secret()
+                .ok_or("uiSync DataStream SETUP arrived before pair-verify")?;
+            let seed = id_text(sd.get("seed"));
+            let (tx, rx) = mpsc::unbounded_channel();
+            let deliver = Arc::new(move |message: Vec<u8>| {
+                let _ = tx.send(message);
+            });
+            let (tunnel, to_phone) = IapTunnel::listen_duplex("uiSync", &shared, &seed, deliver)
+                .map_err(|e| e.to_string())?;
+            let port = tunnel.port();
+            self.ui_sync = Some((tunnel, to_phone));
+            self.ui_sync_out = Some(rx);
+            self.ui_sync_state.reopen();
+            self.last_stream_id += 1;
+            let id = self.last_stream_id;
+            println!("[cpStack] SETUP uiSync (type 130, streamID={id}, dataPort={port})");
             return Ok(Some(dict([
                 ("type", Value::Int(STREAM_DATA)),
                 ("streamID", Value::Int(id)),
@@ -1834,14 +1928,22 @@ impl<M: Media> Conn<M> {
             (
                 "params",
                 dict([
-                    ("uuid", Value::String(ALT_UUID.into())),
+                    ("uuid", Value::String(self.alt_uuid())),
                     ("url", Value::String(url.clone())),
                 ]),
             ),
         ]))
         .await;
         self.cluster_url = Some(url);
-        self.force_keyframe(ALT_UUID).await;
+        self.force_keyframe(&self.alt_uuid()).await;
+    }
+
+    fn main_uuid(&self) -> String {
+        info::display_uuids(&self.ctx.config.borrow().info).0
+    }
+
+    fn alt_uuid(&self) -> String {
+        info::display_uuids(&self.ctx.config.borrow().info).1
     }
 
     fn wanted_cluster_url(&self) -> String {
@@ -1897,13 +1999,28 @@ impl<M: Media> Conn<M> {
                 self.send_hid(hid::TELEPHONY_HID_UID, &hid::telephony_report(index)).await;
                 self.send_hid(hid::TELEPHONY_HID_UID, &hid::telephony_report(0)).await;
             }
-            // siriAction 2 is buttonDown, 3 buttonUp.
+            StackCmd::ClusterLayout(layout) => {
+                let answers = self.ui_sync_state.select(layout);
+                self.to_ui_sync(answers);
+            }
+            StackCmd::NextClusterContent => {
+                if self.ctx.config.borrow().cluster_content.is_none() {
+                    return;
+                }
+                // The centre zone is the phone's card carousel, the car only turns it.
+                println!("[cpStack] cluster knob turns the phone's centre zone");
+                let turn = KnobState { wheel: 1.0, ..KnobState::default() };
+                self.send_hid(hid::CLUSTER_KNOB_HID_UID, &hid::knob_report(turn)).await;
+                let rest = hid::knob_report(KnobState::default());
+                self.send_hid(hid::CLUSTER_KNOB_HID_UID, &rest).await;
+            }
             StackCmd::Siri => {
                 if self.event.is_none() {
                     println!("[cpStack] invokeSiri: no active event connection, ignoring");
                     return;
                 }
                 println!("[cpStack] invokeSiri: requestSiri buttonDown+buttonUp (click)");
+                // siriAction 2 is buttonDown, 3 buttonUp.
                 for action in [2, 3] {
                     self.send_event_command(&dict([
                         ("type", Value::String("requestSiri".into())),
@@ -1926,7 +2043,7 @@ impl<M: Media> Conn<M> {
                     println!("[cpStack] forceMainKeyframe skipped (stream not ready)");
                 } else {
                     println!("[cpStack] forceKeyFrame -> main");
-                    self.force_keyframe(MAIN_UUID).await;
+                    self.force_keyframe(&self.main_uuid()).await;
                 }
                 if self.event.is_none() || !self.main_stream_ready || !self.cluster_want {
                     println!(
@@ -1936,7 +2053,7 @@ impl<M: Media> Conn<M> {
                     );
                 } else {
                     println!("[cpStack] forceKeyFrame -> cluster");
-                    self.force_keyframe(ALT_UUID).await;
+                    self.force_keyframe(&self.alt_uuid()).await;
                 }
             }
             StackCmd::ClusterActive(active) => {
@@ -1952,7 +2069,7 @@ impl<M: Media> Conn<M> {
                 } else {
                     self.send_event_command(&dict([
                         ("type", Value::String("stopUI".into())),
-                        ("params", dict([("uuid", Value::String(ALT_UUID.into()))])),
+                        ("params", dict([("uuid", Value::String(self.alt_uuid()))])),
                     ]))
                     .await;
                 }
@@ -1985,6 +2102,11 @@ impl<M: Media> Conn<M> {
                 let Some(state) = &mut self.vehicle_state else { return };
                 let answers = state.set_gauges(&gauges);
                 self.volume_reported = Some(state.volumes());
+                self.to_vehicle_streams(answers);
+            }
+            StackCmd::Radio(radio) => {
+                let Some(state) = &mut self.vehicle_state else { return };
+                let answers = state.set_radio(&radio);
                 self.to_vehicle_streams(answers);
             }
             StackCmd::Stop => {}
@@ -2243,6 +2365,9 @@ pub(crate) mod tests {
                 app_version: "9.5.0".into(),
                 app_build_date: String::new(),
                 cluster_url: String::new(),
+                vehicle_variant: String::new(),
+                engines: Default::default(),
+                cluster_content: None,
             });
             std::mem::forget(_tx);
             let media = FakeMedia::new();

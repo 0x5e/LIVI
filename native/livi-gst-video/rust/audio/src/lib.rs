@@ -84,6 +84,8 @@ pub enum Codec {
     Lpcm,
     /// Samples the main process hands over, in host order.
     PcmLe,
+    /// DAB+ access units, raw AAC described by an AudioSpecificConfig.
+    AacRaw,
 }
 
 /// MPEG-4 sampling frequency index for the AudioSpecificConfig, 3 for anything
@@ -108,6 +110,16 @@ fn aac_freq_index(clock_rate: u32) -> u16 {
 pub fn lpcm_caps(codec: Codec, clock_rate: u32, channels: u8) -> String {
     let format = if codec == Codec::PcmLe { "S16LE" } else { "S16BE" };
     format!("audio/x-raw,format={format},layout=interleaved,rate={clock_rate},channels={channels}")
+}
+
+/// The caps of raw AAC access units, the AudioSpecificConfig rides along
+/// as codec_data.
+pub fn aac_raw_caps(asc: &[u8], clock_rate: u32, channels: u8) -> String {
+    let hex: String = asc.iter().map(|b| format!("{b:02x}")).collect();
+    format!(
+        "audio/mpeg,mpegversion=(int)4,stream-format=(string)raw,framed=(boolean)true,\
+         rate=(int){clock_rate},channels=(int){channels},codec_data=(buffer){hex}"
+    )
 }
 
 /// The caps of the stream fed into the jitter buffer. The RFC 3640 fields are

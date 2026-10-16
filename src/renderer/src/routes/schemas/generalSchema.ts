@@ -8,11 +8,13 @@ import {
   MIN_WIDTH
 } from '../../components/pages/settings/constants'
 import { Camera } from '../../components/pages/settings/pages/camera'
+import { DashboardLayouts } from '../../components/pages/settings/pages/dashboard/DashboardLayouts'
 import { GpsHwInfo } from '../../components/pages/settings/pages/general/gps/GpsHwInfo'
 import { GpsInfo } from '../../components/pages/settings/pages/general/gps/GpsInfo'
 import { WifiLinkInfo } from '../../components/pages/settings/pages/general/wifi/WifiLinkInfo'
 import { coreAction, useLiviStore } from '../../store/store'
 import { SelectOption, SettingsNode } from '../types'
+import { dabSchema } from './dabSchema'
 
 const panelDefaultOption: SelectOption = {
   value: '',
@@ -473,67 +475,50 @@ export const generalSchema: SettingsNode<Config> = {
       children: [
         {
           type: 'route',
-          label: 'Dashboards',
-          labelKey: 'settings.telemetryDashboards',
+          label: 'Dashboard',
+          labelKey: 'settings.dashboard',
           icon: 'dashboards',
-          route: 'dashboards',
+          route: 'dashboard',
           path: '',
           children: [
             {
-              type: 'posList',
-              label: 'Dashboards',
-              labelKey: 'settings.telemetryDashboards',
-              path: 'dashboards',
-              items: [
-                {
-                  id: 'dashboard1',
-                  label: 'Dashboard 1',
-                  labelKey: 'settings.telemetryDashboard1'
-                },
-                {
-                  id: 'dashboard2',
-                  label: 'Dashboard 2',
-                  labelKey: 'settings.telemetryDashboard2'
-                },
-                {
-                  id: 'dashboard3',
-                  label: 'Dashboard 3',
-                  labelKey: 'settings.telemetryDashboard3'
-                },
-                { id: 'dashboard4', label: 'Dashboard 4', labelKey: 'settings.telemetryDashboard4' }
-              ]
+              type: 'checkbox',
+              label: 'Main',
+              labelKey: 'settings.mainScreen',
+              icon: 'mainScreen',
+              path: 'dashboard.main'
             },
-            ...(['dashboard1', 'dashboard2', 'dashboard3', 'dashboard4'] as const).map((id, i) => ({
-              type: 'route' as const,
-              label: `Dashboard ${i + 1}`,
-              labelKey: `settings.telemetry${id.charAt(0).toUpperCase()}${id.slice(1)}`,
-              route: id,
+            {
+              type: 'checkbox',
+              label: 'Cluster',
+              labelKey: 'settings.clusterScreen',
+              icon: 'clusterScreen',
+              path: 'dashboard.cluster'
+            },
+            {
+              type: 'checkbox',
+              label: 'Aux',
+              labelKey: 'settings.auxScreen',
+              icon: 'auxScreen',
+              path: 'dashboard.aux'
+            },
+            {
+              type: 'route',
+              label: 'Dashboards',
+              labelKey: 'settings.dashboardLayouts',
+              icon: 'dashboards',
+              route: 'layouts',
               path: '',
-              hidden: true,
               children: [
                 {
-                  type: 'checkbox' as const,
-                  label: 'Main',
-                  labelKey: 'settings.mainScreen',
-                  icon: 'mainScreen',
-                  path: `dashboards.${id}.main`
-                },
-                {
-                  type: 'checkbox' as const,
-                  label: 'Cluster',
-                  labelKey: 'settings.clusterScreen',
-                  icon: 'clusterScreen',
-                  path: `dashboards.${id}.cluster`
-                },
-                {
-                  type: 'checkbox' as const,
-                  label: 'Aux',
-                  labelKey: 'settings.auxScreen',
-                  icon: 'auxScreen',
-                  path: `dashboards.${id}.aux`
+                  type: 'custom',
+                  label: 'Dashboards',
+                  labelKey: 'settings.dashboardLayouts',
+                  path: 'dashboardLayouts',
+                  component: DashboardLayouts
                 }
               ]
-            }))
+            }
           ]
         },
         {
@@ -797,6 +782,20 @@ export const generalSchema: SettingsNode<Config> = {
           labelKey: 'settings.cycleSession',
           path: 'bindings',
           bindingKey: 'cycleSession'
+        },
+        {
+          type: 'keybinding',
+          label: 'Cluster Layout',
+          labelKey: 'settings.clusterLayout',
+          path: 'bindings',
+          bindingKey: 'clusterLayout'
+        },
+        {
+          type: 'keybinding',
+          label: 'Cluster View',
+          labelKey: 'settings.clusterView',
+          path: 'bindings',
+          bindingKey: 'clusterContent'
         },
 
         {
@@ -1074,6 +1073,7 @@ export const generalSchema: SettingsNode<Config> = {
         }
       ]
     },
+    dabSchema,
     {
       type: 'route',
       label: 'GPS',
@@ -1152,6 +1152,47 @@ export const generalSchema: SettingsNode<Config> = {
               component: GpsHwInfo
             }
           ]
+        }
+      ]
+    },
+    {
+      type: 'checkbox',
+      label: 'Video in the car',
+      labelKey: 'settings.carPlayHlsVideo',
+      icon: 'media',
+      path: 'carPlayHlsVideo'
+    },
+    {
+      type: 'route',
+      label: 'CarPlay Ultra',
+      labelKey: 'settings.carPlaySection',
+      icon: 'wirelessCp',
+      route: 'carplay',
+      path: '',
+      children: [
+        {
+          type: 'string',
+          label: 'Theme',
+          labelKey: 'settings.carPlayTheme',
+          icon: 'uiColors',
+          path: 'carPlayTheme',
+          displayValue: true,
+          page: {
+            title: 'Theme',
+            labelTitle: 'settings.carPlayTheme'
+          }
+        },
+        {
+          type: 'string',
+          label: 'Vehicle Model',
+          labelKey: 'settings.carPlayVehicleModel',
+          icon: 'car',
+          path: 'carPlayVehicleModel',
+          displayValue: true,
+          page: {
+            title: 'Vehicle Model',
+            labelTitle: 'settings.carPlayVehicleModel'
+          }
         }
       ]
     }

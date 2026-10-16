@@ -2445,14 +2445,17 @@ version = "0.1.0"
 dependencies = [
  "axum",
  "base64 0.23.1",
+ "flate2",
  "jiff",
  "libc 1.0.0-alpha.5",
  "livi-aa-stack",
  "livi-core-proto",
  "livi-cp",
+ "livi-dab",
  "livi-host-proto",
  "livi-link-host",
  "livi-media",
+ "livi-rtlsdr",
  "livi-wifi",
  "reqwest",
  "serde",
@@ -2505,6 +2508,13 @@ name = "livi-crypto-node"
 version = "0.1.0"
 dependencies = [
  "aws-lc-rs",
+]
+
+[[package]]
+name = "livi-dab"
+version = "0.1.0"
+dependencies = [
+ "rustfft",
 ]
 
 [[package]]
@@ -2596,6 +2606,13 @@ dependencies = [
 [[package]]
 name = "livi-net"
 version = "0.1.0"
+
+[[package]]
+name = "livi-rtlsdr"
+version = "0.1.0"
+dependencies = [
+ "nusb",
+]
 
 [[package]]
 name = "livi-runtime"

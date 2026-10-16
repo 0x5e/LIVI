@@ -1,7 +1,8 @@
+use std::path::PathBuf;
 use std::sync::Arc;
 use std::time::Duration;
 
-use std::collections::HashMap;
+use std::collections::{BTreeMap, HashMap};
 
 use base64::Engine;
 use base64::engine::general_purpose::STANDARD;
@@ -16,10 +17,12 @@ use livi_core_proto::message::{MediaControl, Radio};
 use livi_core_proto::state::{
     Front, Navigation, NowPlaying, PerScreen, Protocol, Screen, Sessions, State,
 };
+use livi_core_proto::theme::{AppearancePreference, Cluster, LayoutSlot, Theme, livi_theme};
 use livi_cp::helper_sock::HelperSock;
 use livi_cp::hid::{KnobState, media_button, telephony_button};
 use livi_cp::manager::{CallPhase, CpCmd, CpEvent, CpHandle, HelperPresence, Presence, SessionId};
 use livi_cp::stack::{AudioKind, StackCmd, Touch};
+use livi_cp::ui_sync::{self, Appearance, PhoneChoice};
 use livi_media::planes::{ClusterPlanes, Crop, MainPlane};
 use serde_json::{Map, Value};
 use tokio::sync::{Notify, broadcast, mpsc, oneshot, watch};
@@ -36,6 +39,7 @@ use crate::nav_text;
 use crate::spectrum;
 use crate::status_file::Activity;
 use crate::telemetry::{CLIMATE, SOURCE};
+use crate::theme_catalog::{self, ThemeId};
 use crate::update::UpdateAsk;
 
 const RAMP_DOWN_MS: u32 = 500;
@@ -235,6 +239,8 @@ enum Key {
     KnobDown,
     Home,
     CycleSession,
+    ClusterLayout,
+    ClusterContent,
     PlayPause,
     Play,
     Pause,
@@ -262,6 +268,17 @@ impl Key {
                 | Key::VoiceAssistant
         )
     }
+
+    fn media_control(self) -> Option<MediaControl> {
+        Some(match self {
+            Key::PlayPause => MediaControl::PlayPause,
+            Key::Play => MediaControl::Play,
+            Key::Pause => MediaControl::Pause,
+            Key::Next => MediaControl::Next,
+            Key::Prev => MediaControl::Prev,
+            _ => return None,
+        })
+    }
 }
 
 fn bound(b: &KeyBindings, code: &str) -> Option<Key> {
@@ -280,6 +297,8 @@ fn bound(b: &KeyBindings, code: &str) -> Option<Key> {
         (&b.knob_down, Key::KnobDown),
         (&b.home, Key::Home),
         (&b.cycle_session, Key::CycleSession),
+        (&b.cluster_layout, Key::ClusterLayout),
+        (&b.cluster_content, Key::ClusterContent),
         (&b.play_pause, Key::PlayPause),
         (&b.play, Key::Play),
         (&b.pause, Key::Pause),
@@ -357,6 +376,8 @@ pub struct Drivers {
     pub telemetry: mpsc::UnboundedSender<Value>,
     /// Config patches, saved as if set in LIVI's settings.
     pub settings: mpsc::UnboundedSender<Value>,
+    /// Where car maker themes are kept once fetched.
+    pub themes: PathBuf,
 }
 
 pub struct Projection {
@@ -398,6 +419,12 @@ pub struct Projection {
     bye: Option<oneshot::Sender<()>>,
     activity: Option<watch::Sender<Activity>>,
     apply_due: Option<tokio::time::Instant>,
+    cluster: Cluster,
+    themes: PathBuf,
+    /// The theme fetched or being fetched, asked once per id.
+    theme_asked: String,
+    theme_ready: (mpsc::UnboundedSender<Theme>, mpsc::UnboundedReceiver<Theme>),
+    dab: Option<mpsc::UnboundedSender<crate::dab::DabAsk>>,
 }
 
 #[derive(Debug, Clone, PartialEq)]
@@ -405,10 +432,18 @@ pub enum UiCommand {
     Media(MediaControl),
     Seek(u32),
     NextDevice,
+    SelectClusterLayout(String),
+    StepClusterLayout(i32),
+    MoveClusterLayout(String, i32),
+    ShowClusterLayout(String, bool),
     ApplySettings,
     SelectDevice(String),
     ForgetDevice(String),
     CameraFound(bool),
+}
+
+fn kept_cluster(cfg: &Config, theme: Theme) -> Cluster {
+    Cluster::new(theme, &cfg.cluster_layout, &cfg.cluster_palettes, &cfg.dashboard_layouts)
 }
 
 pub struct UiAsks {
@@ -418,6 +453,10 @@ pub struct UiAsks {
     pub spectrum: Arc<spectrum::Feed>,
     pub goodbye: mpsc::UnboundedReceiver<oneshot::Sender<()>>,
     pub activity: watch::Sender<Activity>,
+    /// Taken by the DAB task.
+    pub dab: Option<crate::dab::DabAsks>,
+    /// The Radio app's commands go there.
+    pub dab_from_phone: mpsc::UnboundedSender<crate::dab::DabAsk>,
 }
 
 pub struct UiSenders {
@@ -430,6 +469,7 @@ pub struct UiSenders {
     pub goodbye: mpsc::UnboundedSender<oneshot::Sender<()>>,
     pub update: mpsc::UnboundedSender<UpdateAsk>,
     pub activity: watch::Receiver<Activity>,
+    pub dab: mpsc::UnboundedSender<crate::dab::DabAsk>,
 }
 
 pub struct DongleAsks {
@@ -448,6 +488,7 @@ pub fn ui_channels(wants: PerScreen<Front>) -> (UiSenders, UiAsks, DongleAsks, U
     let (goodbye_tx, goodbye_rx) = mpsc::unbounded_channel();
     let (update_tx, update_rx) = mpsc::unbounded_channel();
     let (activity_tx, activity_rx) = watch::channel(Activity::default());
+    let (dab_tx, dab_rx) = mpsc::unbounded_channel();
     let feed = spectrum::Feed::new();
     (
         UiSenders {
@@ -460,6 +501,7 @@ pub fn ui_channels(wants: PerScreen<Front>) -> (UiSenders, UiAsks, DongleAsks, U
             goodbye: goodbye_tx,
             update: update_tx,
             activity: activity_rx,
+            dab: dab_tx.clone(),
         },
         UiAsks {
             wants: wants_rx,
@@ -468,6 +510,8 @@ pub fn ui_channels(wants: PerScreen<Front>) -> (UiSenders, UiAsks, DongleAsks, U
             spectrum: feed,
             goodbye: goodbye_rx,
             activity: activity_tx,
+            dab: Some(dab_rx),
+            dab_from_phone: dab_tx,
         },
         DongleAsks { radios: dongle_rx, link_speed_viewers: viewers_rx },
         update_rx,
@@ -484,12 +528,15 @@ impl Projection {
         devices: Devices,
         wants: PerScreen<Front>,
     ) -> Self {
-        let Drivers { cp, aa, aa_crop, phone_io, phone_back, telemetry, settings } = drivers;
+        let Drivers { cp, aa, aa_crop, phone_io, phone_back, telemetry, settings, themes } =
+            drivers;
         let cfg = hub.config();
         cp.send(CpCmd::InitialNightMode(night_mode(cfg.appearance_mode)));
         let cluster_on = shows_cluster(&wants);
         cp.send(CpCmd::ClusterActive(cluster_on));
         aa.send(AaCmd::ClusterActive(cluster_on));
+        let theme = theme_catalog::cached(&themes, &cfg.car_play_theme).unwrap_or_else(livi_theme);
+        let cluster = kept_cluster(&cfg, theme);
         Self {
             cp,
             aa,
@@ -524,6 +571,11 @@ impl Projection {
             bye: None,
             activity: None,
             apply_due: None,
+            cluster,
+            themes,
+            theme_asked: String::new(),
+            theme_ready: mpsc::unbounded_channel(),
+            dab: None,
             hub,
         }
     }
@@ -538,7 +590,10 @@ impl Projection {
         let mut created = Some(self.plane.player_created());
         let mut cluster_created = Some(self.clusters.player_created());
         let mut back = self.phone_back.take().unwrap_or_else(|| mpsc::unbounded_channel().1);
+        let mut themes = std::mem::replace(&mut self.theme_ready.1, mpsc::unbounded_channel().1);
+        self.follow_theme(&self.config_seen.clone());
         self.activity = Some(asks.activity);
+        self.dab = Some(asks.dab_from_phone);
         let mut keep = tokio::time::interval(hands_free::KEEP_EVERY);
         keep.set_missed_tick_behavior(tokio::time::MissedTickBehavior::Delay);
         loop {
@@ -549,6 +604,7 @@ impl Projection {
                 },
                 Some(ev) = aa_events.recv() => self.on_aa(ev),
                 Some(answer) = back.recv() => self.on_back(answer),
+                Some(theme) = themes.recv() => self.theme_fetched(theme),
                 _ = keep.tick() => self.keep_links(),
                 changed = asks.wants.changed() => {
                     if changed.is_err() {
@@ -561,6 +617,22 @@ impl Projection {
                     UiCommand::Media(control) => self.media(control),
                     UiCommand::Seek(ms) => self.seek(ms),
                     UiCommand::NextDevice => self.activate_next(),
+                    UiCommand::SelectClusterLayout(layout) => {
+                        if self.cluster.select(&layout, None) {
+                            self.cluster_changed();
+                        }
+                    }
+                    UiCommand::StepClusterLayout(by) => {
+                        if self.cluster.step(by) {
+                            self.cluster_changed();
+                        }
+                    }
+                    UiCommand::MoveClusterLayout(layout, by) => {
+                        self.arrange_dashboard(self.cluster.moved(&layout, by));
+                    }
+                    UiCommand::ShowClusterLayout(layout, on) => {
+                        self.arrange_dashboard(self.cluster.switched(&layout, on));
+                    }
                     UiCommand::ApplySettings => self.apply_settings(),
                     UiCommand::SelectDevice(id) => self.select_device(&id),
                     UiCommand::ForgetDevice(id) => self.forget_device(&id),
@@ -657,6 +729,9 @@ impl Projection {
                 let ids = Ids { controller_id, ..Default::default() };
                 let index = self.upsert(Link::Cp(id), transport(wired), &ids);
                 self.auto_activate(index);
+                if let Some(layout) = self.phone_layout() {
+                    self.cp.stack(id, StackCmd::ClusterLayout(layout));
+                }
             }
             CpEvent::Presence { id, wired, presence } => self.presence(id, wired, presence),
             CpEvent::Disconnected { id } => self.close_by_link(Link::Cp(id)),
@@ -751,6 +826,17 @@ impl Projection {
             CpEvent::Volume { name, level, .. } => {
                 let to = if name == "volume" { &self.telemetry } else { &self.settings };
                 let _ = to.send(serde_json::json!({ name: level }));
+            }
+            CpEvent::Cluster { id, choice } => {
+                if self.is_active(Link::Cp(id)) && self.follow_phone(choice) {
+                    self.keep_cluster();
+                    self.publish();
+                }
+            }
+            CpEvent::Radio { command, .. } => {
+                if let (Some(dab), Some(ask)) = (&self.dab, crate::cp_radio::ask(command)) {
+                    let _ = dab.send(ask);
+                }
             }
             CpEvent::VideoCodec { .. } => {}
             CpEvent::PhoneUtcOffset { minutes } => {
@@ -1324,6 +1410,7 @@ impl Projection {
             s.now_playing = now_playing;
             s.navigation = navigation;
             s.devices = list;
+            s.cluster = self.cluster.clone();
         });
     }
 
@@ -1352,13 +1439,111 @@ impl Projection {
         self.push_level(AudioKind::Media, ramp_ms);
     }
 
+    /// The layout went up on LIVI's side, the phone draws its part in it.
+    fn cluster_changed(&mut self) {
+        if let Some(Link::Cp(id)) = self.active().map(|s| s.link)
+            && let Some(layout) = self.phone_layout()
+        {
+            self.cp.stack(id, StackCmd::ClusterLayout(layout));
+        }
+        self.keep_cluster();
+        self.publish();
+    }
+
+    /// The layout as the phone gets it, only while the cluster runs the theme the phone draws.
+    fn phone_layout(&self) -> Option<ui_sync::Layout> {
+        let drawn = &self.config_seen.car_play_theme;
+        if drawn.is_empty() || *drawn != self.cluster.theme.id {
+            return None;
+        }
+        let layout = self.cluster.theme.cluster_layout(&self.cluster.layout)?;
+        Some(ui_sync::Layout {
+            id: layout.id.clone(),
+            palette: self.cluster.palette.clone(),
+            active: layout.zones.iter().map(|z| (z.id.clone(), z.component.clone())).collect(),
+        })
+    }
+
+    /// The cluster runs the configured car maker theme, fetched once when it is not kept yet.
+    fn follow_theme(&mut self, cfg: &Config) {
+        let configured = &cfg.car_play_theme;
+        let theme = theme_catalog::cached(&self.themes, configured).unwrap_or_else(livi_theme);
+        let fetch = theme.id != *configured
+            && ThemeId::parse(configured).is_some()
+            && self.theme_asked != *configured;
+        if theme.id != self.cluster.theme.id {
+            self.cluster = kept_cluster(cfg, theme);
+        }
+        if !fetch {
+            return;
+        }
+        self.theme_asked = configured.clone();
+        let (dir, id, ready) =
+            (self.themes.clone(), configured.clone(), self.theme_ready.0.clone());
+        tokio::spawn(async move {
+            match theme_catalog::fetch(&dir, &id).await {
+                Ok(theme) => {
+                    println!("[core] car maker theme {id} fetched");
+                    let _ = ready.send(theme);
+                }
+                Err(e) => eprintln!("[core] car maker theme {id} not fetched: {e}"),
+            }
+        });
+    }
+
+    fn theme_fetched(&mut self, theme: Theme) {
+        if theme.id == self.config_seen.car_play_theme {
+            self.cluster = kept_cluster(&self.config_seen, theme);
+            self.cluster_changed();
+        }
+    }
+
+    /// The user's arrangement goes into the config, the dashboard follows it from there.
+    fn arrange_dashboard(&self, slots: Option<BTreeMap<String, LayoutSlot>>) {
+        if let Some(slots) = slots {
+            let _ = self.settings.send(serde_json::json!({ "dashboardLayouts": slots }));
+        }
+    }
+
+    /// LIVI comes back with the layout and the palettes picked last.
+    fn keep_cluster(&self) {
+        let _ = self.settings.send(serde_json::json!({
+            "clusterLayout": self.cluster.layout,
+            "clusterPalettes": self.cluster.palettes,
+        }));
+    }
+
+    fn follow_phone(&mut self, choice: PhoneChoice) -> bool {
+        match choice {
+            PhoneChoice::Layout(layout) => self.cluster.follow(&layout, None),
+            PhoneChoice::Palette { layout, palette } => {
+                self.cluster.follow(&layout, Some(&palette))
+            }
+            PhoneChoice::Appearance(preference) => {
+                let appearance = match preference {
+                    Appearance::Automatic => AppearancePreference::Automatic,
+                    Appearance::Light => AppearancePreference::Light,
+                    Appearance::Dark => AppearancePreference::Dark,
+                };
+                let changed = self.cluster.appearance != appearance;
+                self.cluster.appearance = appearance;
+                changed
+            }
+        }
+    }
+
     fn on_state(&mut self, cfg: Config, telemetry: Map<String, Value>) {
         let camera = self.reverse_camera();
         if cfg != self.config_seen {
             self.on_config(&cfg);
             let language = cfg.language != self.config_seen.language;
+            let theme = cfg.car_play_theme != self.config_seen.car_play_theme;
+            if theme {
+                self.follow_theme(&cfg);
+            }
+            let arranged = self.cluster.arrange(&cfg.dashboard_layouts);
             self.config_seen = cfg;
-            if language {
+            if language || theme || arranged {
                 self.publish();
             }
             self.apply_when_idle();
@@ -1418,7 +1603,7 @@ impl Projection {
         }
     }
 
-    fn input(&self, input: Input) {
+    fn input(&mut self, input: Input) {
         match input {
             Input::Pointer { screen: Screen::Main, points } => self.pointer(&points),
             Input::Pointer { .. } => {}
@@ -1466,8 +1651,29 @@ impl Projection {
         }
     }
 
-    fn key(&self, code: &str, down: bool) {
+    fn dab_media_ask(&self, control: MediaControl) -> Option<crate::dab::DabAsk> {
+        let state = self.hub.watch();
+        let s = state.borrow();
+        crate::dab::media_ask(&s.dab, s.sessions.active.is_some(), control)
+    }
+
+    fn key(&mut self, code: &str, down: bool) {
         let Some(key) = bound(&self.bindings, code) else { return };
+        // The cluster is the car's, it switches with or without a phone in front.
+        if key == Key::ClusterLayout {
+            if down && self.cluster.step(1) {
+                self.cluster_changed();
+            }
+            return;
+        }
+        if let (Some(control), Some(dab)) = (key.media_control(), &self.dab)
+            && let Some(ask) = self.dab_media_ask(control)
+        {
+            if down {
+                let _ = dab.send(ask);
+            }
+            return;
+        }
         if self.front_main() != Front::Projection && !key.works_behind() {
             return;
         }
@@ -1501,8 +1707,9 @@ impl Projection {
             Key::RejectPhone => StackCmd::Telephony(telephony_button::DROP),
             Key::Phone(button) => StackCmd::Telephony(button),
             Key::VoiceAssistant => StackCmd::Siri,
-            // The UI's own button for it is nextDevice.
-            Key::CycleSession | Key::VoiceAssistantRelease => return,
+            Key::ClusterContent => StackCmd::NextClusterContent,
+            // The UI's own button for it is nextDevice, the cluster layout is handled above.
+            Key::CycleSession | Key::VoiceAssistantRelease | Key::ClusterLayout => return,
         };
         self.cp.stack(id, cmd);
         if key == Key::SelectDown {
@@ -1557,7 +1764,7 @@ impl Projection {
                 9 => Command::PhoneKey9,
                 _ => return,
             },
-            (Key::CycleSession, _) => return,
+            (Key::CycleSession | Key::ClusterLayout | Key::ClusterContent, _) => return,
         };
         self.aa.session(id, SessionCmd::Command(command));
         if key == Key::SelectDown {
@@ -1904,6 +2111,7 @@ mod tests {
         crop: watch::Sender<Option<Crop>>,
         io: mpsc::UnboundedReceiver<Io>,
         telemetry: mpsc::UnboundedReceiver<Value>,
+        patches: mpsc::UnboundedReceiver<Value>,
     }
 
     fn livi() -> PerScreen<Front> {
@@ -1922,6 +2130,8 @@ mod tests {
                 system: Default::default(),
                 devices: Default::default(),
                 update: Default::default(),
+                cluster: Default::default(),
+                dab: Default::default(),
                 config: defaults(),
             }));
             let (tx, cmds) = mpsc::unbounded_channel();
@@ -1937,6 +2147,7 @@ mod tests {
             );
             let (phone_io, io) = mpsc::unbounded_channel();
             let (telemetry_tx, telemetry) = mpsc::unbounded_channel();
+            let (settings, patches) = mpsc::unbounded_channel();
             let drivers = Drivers {
                 cp: CpHandle::from_sender(tx),
                 aa: AaHandle::from_sender(aa_tx),
@@ -1944,7 +2155,8 @@ mod tests {
                 phone_io,
                 phone_back: mpsc::unbounded_channel().1,
                 telemetry: telemetry_tx,
-                settings: mpsc::unbounded_channel().0,
+                settings,
+                themes: dir.0.join("themes"),
             };
             let p = Projection::new(
                 hub.clone(),
@@ -1956,7 +2168,7 @@ mod tests {
                 livi(),
             );
             assert_eq!(aa.try_recv(), Ok(AaCmd::ClusterActive(false)));
-            let mut rig = Self { dir, hub, p, cmds, aa, crop, io, telemetry };
+            let mut rig = Self { dir, hub, p, cmds, aa, crop, io, telemetry, patches };
             assert_eq!(rig.drain(), [CpCmd::InitialNightMode(None), CpCmd::ClusterActive(false)]);
             rig
         }
@@ -2248,6 +2460,28 @@ mod tests {
     }
 
     #[tokio::test]
+    async fn media_keys_go_to_the_radio_while_it_is_the_source() {
+        let mut rig = Rig::new();
+        let (tx, mut radio) = mpsc::unbounded_channel();
+        rig.p.dab = Some(tx);
+        rig.connect(1, true);
+        rig.drain();
+
+        rig.p.input(press("KeyN"));
+        assert_eq!(rig.drain(), [stack(1, StackCmd::Media(media_button::NEXT))]);
+        assert!(radio.try_recv().is_err(), "the phone keeps the keys while it is the source");
+
+        rig.hub.update(|s| s.dab.active = true);
+        rig.p.input(press("KeyP"));
+        rig.p.input(Input::Key { code: "KeyP".into(), down: false });
+        rig.p.input(press("KeyN"));
+        assert!(rig.drain().is_empty(), "nothing reaches the phone");
+        assert_eq!(radio.try_recv(), Ok(crate::dab::DabAsk::Resume));
+        assert_eq!(radio.try_recv(), Ok(crate::dab::DabAsk::Step(1)));
+        assert!(radio.try_recv().is_err(), "the release does nothing");
+    }
+
+    #[tokio::test]
     async fn keys_follow_the_bindings() {
         let mut rig = Rig::new();
         rig.p.input(press("KeyN"));
@@ -2282,10 +2516,12 @@ mod tests {
             (&mut b.select_up, "KeyE"),
             (&mut b.play, "KeyX"),
             (&mut b.pause, "KeyY"),
-            (&mut b.phone_key_star, "KeyT"),
+            (&mut b.phone_key_star, "KeyM"),
             (&mut b.phone_key_hash, "KeyG"),
             (&mut b.phone_key_hook_switch, "KeyO"),
             (&mut b.voice_assistant_release, "KeyW"),
+            (&mut b.cluster_content, "KeyZ"),
+            (&mut b.cluster_layout, "KeyC"),
         ] {
             *field = code.into();
         }
@@ -2310,16 +2546,100 @@ mod tests {
             ("KeyR", StackCmd::Telephony(telephony_button::DROP)),
             ("Digit0", StackCmd::Telephony(telephony_button::KEY0)),
             ("Digit9", StackCmd::Telephony(telephony_button::KEY0 + 9)),
-            ("KeyT", StackCmd::Telephony(telephony_button::STAR)),
+            ("KeyM", StackCmd::Telephony(telephony_button::STAR)),
             ("KeyG", StackCmd::Telephony(telephony_button::POUND)),
             ("KeyO", StackCmd::Telephony(telephony_button::HOOK_SWITCH)),
+            ("KeyZ", StackCmd::NextClusterContent),
         ] {
             rig.p.input(press(code));
             assert_eq!(rig.drain(), [stack(1, cmd)], "{code}");
         }
+        rig.p.input(press("KeyC"));
+        assert_eq!(rig.hub.watch().borrow().cluster.layout, "livi.navFull");
         rig.p.input(press("KeyS"));
         rig.p.input(press("KeyW"));
         assert!(rig.drain().is_empty());
+    }
+
+    #[tokio::test]
+    async fn the_dashboard_offers_the_layouts_as_arranged() {
+        let mut rig = Rig::new();
+        let mut cfg = rig.hub.config();
+        let off = livi_core_proto::theme::LayoutSlot { on: false, pos: 1 };
+        cfg.dashboard_layouts = [("livi.navMini".to_string(), off)].into_iter().collect();
+        rig.p.on_state(cfg, Map::new());
+        let shown = rig.hub.watch().borrow().cluster.shown.clone();
+        assert_eq!(shown, ["livi.navFull", "livi.clusterFull", "livi.clusterOnly"]);
+
+        rig.p.arrange_dashboard(rig.p.cluster.moved("livi.clusterOnly", -1));
+        let patch = rig.patches.try_recv().unwrap();
+        assert_eq!(
+            patch["dashboardLayouts"]["livi.clusterOnly"],
+            serde_json::json!({ "on": true, "pos": 3 })
+        );
+        rig.p.arrange_dashboard(rig.p.cluster.moved("livi.clusterOnly", 9));
+        assert!(rig.patches.try_recv().is_err(), "nothing to write past the end");
+    }
+
+    #[tokio::test]
+    async fn a_kept_car_maker_theme_runs_the_cluster() {
+        let mut rig = Rig::new();
+        let theme = Theme { id: "ABC:7:19.0".into(), ..livi_theme() };
+        std::fs::create_dir_all(rig.dir.0.join("themes")).unwrap();
+        let kept = serde_json::to_string(&theme).unwrap();
+        std::fs::write(rig.dir.0.join("themes/ABC-7.json"), kept).unwrap();
+        let running = |rig: &Rig| rig.hub.watch().borrow().cluster.theme.id.clone();
+
+        rig.settings(|c| c.car_play_theme = "ABC:7:19.0".into());
+        assert_eq!(running(&rig), "ABC:7:19.0");
+        rig.p.theme_fetched(Theme { id: "XYZ:1".into(), ..livi_theme() });
+        assert_eq!(running(&rig), "ABC:7:19.0", "a theme fetched for another id is dropped");
+        let palettes = vec![livi_core_proto::theme::Palette {
+            id: "default".into(),
+            accent_dark: "#ffffffff".into(),
+            accent_light: "#000000ff".into(),
+        }];
+        rig.p.theme_fetched(Theme { palettes: palettes.clone(), ..theme });
+        assert_eq!(rig.hub.watch().borrow().cluster.theme.palettes, palettes);
+
+        rig.settings(|c| c.car_play_theme = String::new());
+        assert_eq!(running(&rig), "livi");
+    }
+
+    #[tokio::test]
+    async fn the_cluster_follows_the_phone_and_tells_it_livis_own_choice() {
+        let mut rig = Rig::new();
+        rig.connect(1, true);
+        rig.drain();
+        rig.p.input(press("KeyT"));
+        assert!(rig.drain().is_empty(), "the phone draws no theme, it gets no layout");
+        rig.settings(|c| c.car_play_theme = "livi".into());
+        rig.drain();
+        let cluster = |rig: &Rig| rig.hub.watch().borrow().cluster.clone();
+        rig.p.on_event(CpEvent::Cluster {
+            id: 1,
+            choice: PhoneChoice::Layout("livi.clusterFull".into()),
+        });
+        assert_eq!(cluster(&rig).layout, "livi.clusterFull");
+        let dark = PhoneChoice::Appearance(Appearance::Dark);
+        rig.p.on_event(CpEvent::Cluster { id: 1, choice: dark });
+        assert_eq!(cluster(&rig).appearance, AppearancePreference::Dark);
+        assert!(rig.drain().is_empty(), "the phone's own choice goes nowhere");
+
+        rig.p.on_event(CpEvent::Cluster {
+            id: 9,
+            choice: PhoneChoice::Layout("livi.navMini".into()),
+        });
+        assert_eq!(cluster(&rig).layout, "livi.clusterFull", "only the session in front counts");
+
+        rig.p.input(press("KeyT"));
+        assert_eq!(cluster(&rig).layout, "livi.clusterOnly");
+        let to_phone = StackCmd::ClusterLayout(ui_sync::Layout {
+            id: "livi.clusterOnly".into(),
+            palette: "default".into(),
+            active: vec![("map".into(), "map".into())],
+        });
+        assert_eq!(rig.drain(), [stack(1, to_phone)]);
     }
 
     #[tokio::test]

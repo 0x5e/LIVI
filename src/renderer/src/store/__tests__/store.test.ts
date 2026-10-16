@@ -103,6 +103,24 @@ const state = (config: unknown, main = 'livi'): State =>
       total: 0,
       error: null
     },
+    cluster: {
+      theme: { id: 'livi', displays: [] },
+      layout: '',
+      palette: '',
+      appearance: 'automatic'
+    },
+    dab: {
+      receiver: null,
+      stations: [],
+      lastStation: null,
+      active: false,
+      scan: null,
+      station: null,
+      playing: false,
+      text: null,
+      signal: { locked: false, quality: 0 },
+      error: null
+    },
     config
   }) as unknown as State
 
@@ -305,6 +323,22 @@ describe('store', () => {
       welcome(fake, baseSettings)
       patch(fake, 1, [{ op: 'set', path: ['update', 'phase'], value: 'download' }])
       expect(useLiviStore.getState().update?.phase).toBe('download')
+    })
+
+    test('the cluster follows core', async () => {
+      const { useLiviStore, fake } = await loadFreshStore()
+      expect(useLiviStore.getState().cluster).toBeNull()
+      welcome(fake, baseSettings)
+      patch(fake, 1, [{ op: 'set', path: ['cluster', 'layout'], value: 'livi.navFull' }])
+      expect(useLiviStore.getState().cluster?.layout).toBe('livi.navFull')
+    })
+
+    test('the DAB+ receiver follows core', async () => {
+      const { useLiviStore, fake } = await loadFreshStore()
+      expect(useLiviStore.getState().dab).toBeNull()
+      welcome(fake, baseSettings)
+      patch(fake, 1, [{ op: 'set', path: ['dab', 'text'], value: 'Nachrichten' }])
+      expect(useLiviStore.getState().dab?.text).toBe('Nachrichten')
     })
 
     test('init runs once', async () => {

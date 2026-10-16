@@ -160,6 +160,14 @@ for plugin in "${plugins[@]}"; do
   copy_plugin_and_deps "$src"
 done
 
+# FAAD_PLUGIN (from build-faad-macos.sh): the only decoder here that plays DAB+ audio.
+if [[ -z "${FAAD_PLUGIN:-}" ]]; then
+  echo "FAAD_PLUGIN not set, run build-faad-macos.sh first" >&2
+  exit 1
+fi
+copy_required "$FAAD_PLUGIN" "$OUT/lib/gstreamer-1.0/libgstfaad.dylib"
+while read -r dep; do queue_dep "$dep"; done < <(scan_deps "$FAAD_PLUGIN")
+
 # Both soup plugins dlopen libsoup, so otool never names it.
 if [[ ! -e "$GST_ROOT/lib/libsoup-3.0.0.dylib" ]]; then
   echo "libsoup-3.0.0.dylib not found, souphttpsrc and hlsdemux2 would not load" >&2

@@ -557,6 +557,8 @@ mod tests {
             system: Default::default(),
             devices: Default::default(),
             update: Default::default(),
+            cluster: Default::default(),
+            dab: Default::default(),
             config,
         }
     }

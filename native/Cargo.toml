@@ -14,11 +14,13 @@ members = [
     "livi-helperd/crates/livi-aa-stack",
     "livi-helperd/crates/livi-bt-host",
     "livi-helperd/crates/livi-core-proto",
+    "livi-helperd/crates/livi-dab",
     "livi-helperd/crates/livi-cp",
     "livi-helperd/crates/livi-hfp",
     "livi-helperd/crates/livi-link-host",
     "livi-helperd/crates/livi-media",
     "livi-helperd/crates/livi-net",
+    "livi-helperd/crates/livi-rtlsdr",
     "livi-helperd/crates/livi-runtime",
     "livi-helperd/crates/livi-session-io",
     "livi-helperd/crates/livi-wifi",
@@ -81,11 +83,13 @@ livi-aa-proto = { path = "livi-helperd/crates/livi-aa-proto" }
 livi-aa-stack = { path = "livi-helperd/crates/livi-aa-stack" }
 livi-bt-host = { path = "livi-helperd/crates/livi-bt-host" }
 livi-core-proto = { path = "livi-helperd/crates/livi-core-proto" }
+livi-dab = { path = "livi-helperd/crates/livi-dab" }
 livi-cp = { path = "livi-helperd/crates/livi-cp" }
 livi-hfp = { path = "livi-helperd/crates/livi-hfp" }
 livi-link-host = { path = "livi-helperd/crates/livi-link-host" }
 livi-media = { path = "livi-helperd/crates/livi-media" }
 livi-net = { path = "livi-helperd/crates/livi-net" }
+livi-rtlsdr = { path = "livi-helperd/crates/livi-rtlsdr" }
 livi-runtime = { path = "livi-helperd/crates/livi-runtime" }
 livi-session-io = { path = "livi-helperd/crates/livi-session-io" }
 livi-wifi = { path = "livi-helperd/crates/livi-wifi" }
@@ -106,6 +110,13 @@ livi-link-provision = { path = "livi-link/crates/livi-link-provision" }
 livi-mdns = { path = "livi-link/crates/livi-mdns" }
 livi-web = { path = "livi-link/crates/livi-web" }
 livi-wifid = { path = "livi-link/crates/livi-wifid" }
+
+# The DAB+ receiver demodulates in real time, also in debug builds.
+[profile.dev.package.livi-dab]
+opt-level = 3
+
+[profile.dev.package.rustfft]
+opt-level = 3
 
 [profile.embedded]
 inherits = "release"

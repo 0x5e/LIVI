@@ -49,7 +49,7 @@ function collectLoaders(node: SettingsNode<unknown>): LoadFn[] {
 }
 
 afterEach(() => {
-  useLiviStore.setState({ system: null })
+  useLiviStore.setState({ system: null, dab: null })
   coreActionMock.mockClear()
 })
 
@@ -62,6 +62,7 @@ describe('generalSchema loadOptions', () => {
 
   test('each loader maps the system lists into value/label options', async () => {
     system(['wlan0'], ['hci0'])
+    useLiviStore.setState({ dab: { gainsDb: [19.7] } as never })
     for (const load of loaders) {
       const opts = await load()
       expect(Array.isArray(opts)).toBe(true)

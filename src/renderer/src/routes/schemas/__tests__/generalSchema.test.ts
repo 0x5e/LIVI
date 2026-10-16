@@ -9,7 +9,25 @@ describe('generalSchema', () => {
     expect(schema.label).toBe('General')
     expect(schema.labelKey).toBe('settings.general')
     expect(schema.path).toBe('')
-    expect(schema.children).toHaveLength(10)
+    expect(schema.children).toHaveLength(13)
+  })
+
+  test('CarPlay Ultra comes last with the theme and its vehicle model', () => {
+    expect(schema.children.at(-2)).toEqual(
+      expect.objectContaining({
+        type: 'checkbox',
+        label: 'Video in the car',
+        path: 'carPlayHlsVideo'
+      })
+    )
+    const ultra = schema.children.at(-1)
+    expect(ultra).toEqual(
+      expect.objectContaining({ type: 'route', route: 'carplay', label: 'CarPlay Ultra' })
+    )
+    expect(ultra.children.map((c: { path: string }) => c.path)).toEqual([
+      'carPlayTheme',
+      'carPlayVehicleModel'
+    ])
   })
 
   test('connections route contains names, wifi and auto connect', () => {
@@ -102,8 +120,8 @@ describe('generalSchema', () => {
     expect(powerPin.valueTransform?.format?.(21)).toBe('21')
   })
 
-  test('gps route sits between mfi and the usb dongle', () => {
-    const gps = schema.children[9]
+  test('gps route sits after mfi and DAB+', () => {
+    const gps = schema.children[10]
     expect(gps).toEqual(
       expect.objectContaining({ type: 'route', route: 'gps', labelKey: 'settings.gps' })
     )
@@ -162,7 +180,7 @@ describe('generalSchema', () => {
     ])
   })
 
-  test('window settings + tab settings live as siblings, tab settings hosts dashboards/media/camera/custom', () => {
+  test('window settings + tab settings live as siblings, tab settings hosts dashboard/media/camera/custom', () => {
     const windowSettings = schema.children[1]
     expect(windowSettings).toEqual(
       expect.objectContaining({
@@ -184,40 +202,19 @@ describe('generalSchema', () => {
       })
     )
     const tabRoutes = tabSettings.children.map((c) => c.route)
-    expect(tabRoutes).toEqual(['dashboards', 'media', 'camera', 'custom'])
+    expect(tabRoutes).toEqual(['dashboard', 'media', 'camera', 'custom'])
 
-    const dashboardsRoute = tabSettings.children[0]
-    expect(dashboardsRoute.children).toHaveLength(5)
-    const posList = dashboardsRoute.children[0]
-    expect(posList).toEqual(
-      expect.objectContaining({
-        type: 'posList',
-        path: 'dashboards'
-      })
-    )
-    expect(posList.items.map((it) => it.id)).toEqual([
-      'dashboard1',
-      'dashboard2',
-      'dashboard3',
-      'dashboard4'
+    const dashboardRoute = tabSettings.children[0]
+    expect(dashboardRoute.children.map((c) => (c.type === 'route' ? c.route : c.path))).toEqual([
+      'dashboard.main',
+      'dashboard.cluster',
+      'dashboard.aux',
+      'layouts'
     ])
-
-    const ids = ['dashboard1', 'dashboard2', 'dashboard3', 'dashboard4']
-    ids.forEach((id, i) => {
-      const dashRoute = dashboardsRoute.children[i + 1]
-      expect(dashRoute).toEqual(
-        expect.objectContaining({
-          type: 'route',
-          route: id,
-          hidden: true
-        })
-      )
-      expect(dashRoute.children.map((c) => c.path)).toEqual([
-        `dashboards.${id}.main`,
-        `dashboards.${id}.cluster`,
-        `dashboards.${id}.aux`
-      ])
-    })
+    const layoutsRoute = dashboardRoute.children[3]
+    expect(layoutsRoute.type === 'route' && layoutsRoute.children).toEqual([
+      expect.objectContaining({ type: 'custom', path: 'dashboardLayouts' })
+    ])
 
     const mediaRoute = tabSettings.children[1]
     expect(mediaRoute.children.map((c) => c.path)).toEqual([

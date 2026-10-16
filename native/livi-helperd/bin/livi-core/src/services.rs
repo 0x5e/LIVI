@@ -99,7 +99,7 @@ impl Services {
         hub: Arc<Hub>,
         core_socket: PathBuf,
         quit: Arc<Notify>,
-        asks: UiAsks,
+        mut asks: UiAsks,
         telemetry: mpsc::UnboundedSender<serde_json::Value>,
         settings: mpsc::UnboundedSender<serde_json::Value>,
     ) -> Self {
@@ -155,6 +155,14 @@ impl Services {
         let compositor = compositor.map(|child| watch_compositor(child, quit));
         tokio::spawn(spectrum::follow(gst.clone(), asks.spectrum.clone(), state.clone()));
         tokio::spawn(crate::blinker::run(hub.clone(), gst.clone()));
+        if let Some(dab_asks) = asks.dab.take() {
+            tokio::spawn(crate::dab::run(
+                hub.clone(),
+                gst.clone(),
+                dab_asks,
+                user_data.to_path_buf(),
+            ));
+        }
 
         if let Some(listener) = airplay {
             let carplay = CarPlay {
@@ -252,6 +260,7 @@ impl CarPlay {
         });
         let (events_tx, events) = mpsc::unbounded_channel();
         let cp = livi_cp::manager::start(self.listener, ctx, events_tx);
+        tokio::spawn(crate::cp_radio::run(hub.clone(), cp.clone()));
         let wants = *asks.wants.borrow();
         let devices = crate::devices::Devices::new(
             &self.user_data.join("devices.json"),
@@ -281,6 +290,7 @@ impl CarPlay {
             phone_back,
             telemetry: self.telemetry,
             settings: self.settings,
+            themes: self.user_data.join("themes"),
         };
         let projection =
             Projection::new(hub, drivers, plane, clusters, self.helper_restart, devices, wants);

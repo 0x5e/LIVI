@@ -1,5 +1,6 @@
 export * from './keyBindingRow'
 export * from './numberSpinner/numberSpinner'
+export * from './posSensitiveList/PosSensitiveList'
 export * from './settingsButtonRow'
 export * from './settingsDeviceRow'
 export * from './settingsItemRow'

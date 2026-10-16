@@ -14,9 +14,12 @@ livi-cp.workspace = true
 livi-link-host.workspace = true
 livi-host-proto.workspace = true
 livi-media.workspace = true
+livi-dab.workspace = true
+livi-rtlsdr.workspace = true
 livi-wifi.workspace = true
 axum = "0.8.9"
 base64.workspace = true
+flate2.workspace = true
 jiff = { version = "0.2.38", default-features = false, features = ["std", "tz-system", "tzdb-zoneinfo"] }
 libc.workspace = true
 serde = { workspace = true, features = ["derive"] }

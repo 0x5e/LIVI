@@ -9,11 +9,12 @@ type Props = {
   value: ReactNode
   /** Monospace the value. */
   mono?: boolean
+  icon?: string
 }
 
-export const SettingsValueRow = ({ label, value, mono }: Props) => {
+export const SettingsValueRow = ({ label, value, mono, icon }: Props) => {
   return (
-    <SettingsItemRow label={label} focusable>
+    <SettingsItemRow label={label} icon={icon} focusable>
       <Typography
         component="span"
         sx={{

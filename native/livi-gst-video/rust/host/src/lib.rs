@@ -84,6 +84,7 @@ pub struct AudioConfig {
     pub realtime: bool,
     pub device: Option<String>,
     pub key: [u8; 32],
+    pub codec_data: Vec<u8>,
 }
 
 pub struct UplinkConfig {
@@ -755,9 +756,10 @@ impl<O: Outside> Host<O> {
         });
     }
 
-    /// `[1B codec: 0 aac-lc, 1 opus, 2 lpcm, 3 pcm-le][1B payloadType][4B clockRate]
-    /// [1B channels][4B latencyMs][1B flags: bit0=realtime][32B key]
-    /// [device name]`. The message id names the stream.
+    /// `[1B codec: 0 aac-lc, 1 opus, 2 lpcm, 3 pcm-le, 4 aac-raw][1B payloadType]
+    /// [4B clockRate][1B channels][4B latencyMs][1B flags: bit0=realtime][32B key]
+    /// [device name]`. The message id names the stream. A fed aac-raw stream has
+    /// no key, that slot carries `[1B length][AudioSpecificConfig]` instead.
     fn open_audio(&mut self, id: u32, rest: &[u8]) {
         const FIXED: usize = 44;
         const KEY_AT: usize = 12;
@@ -770,6 +772,7 @@ impl<O: Outside> Host<O> {
                 1 => AudioCodec::Opus,
                 2 => AudioCodec::Lpcm,
                 3 => AudioCodec::PcmLe,
+                4 => AudioCodec::AacRaw,
                 _ => AudioCodec::AacLc,
             },
             payload_type: rest[1],
@@ -782,6 +785,12 @@ impl<O: Outside> Host<O> {
                 Ok(name) => Some(name.to_owned()),
             },
             key: rest[KEY_AT..KEY_AT + 32].try_into().unwrap(),
+            codec_data: if rest[0] == 4 {
+                let len = (rest[KEY_AT] as usize).min(31);
+                rest[KEY_AT + 1..KEY_AT + 1 + len].to_vec()
+            } else {
+                Vec::new()
+            },
         };
 
         let Some(speaker) = self.outside.create_speaker(&cfg) else {
@@ -1204,6 +1213,7 @@ mod tests {
         audio_cfgs: Vec<OpenedAudio>,
         audio_sinks: Vec<SharedAudioSink>,
         audio_keys: Vec<[u8; 32]>,
+        audio_codec_data: Vec<Vec<u8>>,
         refuse_plane: bool,
         uplinks: Vec<OpenedUplink>,
         uplinks_dropped: Rc<RefCell<usize>>,
@@ -1314,6 +1324,7 @@ mod tests {
                 cfg.realtime,
                 cfg.device.clone(),
             ));
+            w.audio_codec_data.push(cfg.codec_data.clone());
             w.speakers.push(speaker.clone());
             Some(speaker)
         }
@@ -2293,14 +2304,28 @@ mod tests {
 
     #[test]
     fn the_codec_byte_picks_the_pipeline() {
-        for (byte, expected) in
-            [(0u8, AudioCodec::AacLc), (1, AudioCodec::Opus), (2, AudioCodec::Lpcm)]
-        {
+        for (byte, expected) in [
+            (0u8, AudioCodec::AacLc),
+            (1, AudioCodec::Opus),
+            (2, AudioCodec::Lpcm),
+            (4, AudioCodec::AacRaw),
+        ] {
             let mut f = Fixture::new();
             f.send(OP_AUDIO_OPEN, MUSIC, &audio_body(byte, false, ""));
 
             assert_eq!(f.world.0.borrow().audio_cfgs[0].0, expected);
         }
+    }
+
+    #[test]
+    fn an_aac_raw_stream_takes_its_config_from_the_key_slot() {
+        let mut f = Fixture::new();
+        let mut body = audio_body(4, false, "");
+        body[12..17].copy_from_slice(&[4, 0x13, 0x14, 0x56, 0xe5]);
+
+        f.send(OP_AUDIO_OPEN, MUSIC, &body);
+
+        assert_eq!(f.world.0.borrow().audio_codec_data, vec![vec![0x13, 0x14, 0x56, 0xe5]]);
     }
 
     #[test]

@@ -20,7 +20,9 @@ mod car_bridge;
 mod carplay;
 mod child;
 mod config_file;
+mod cp_radio;
 mod cp_telemetry;
+mod dab;
 mod devices;
 mod dongle;
 mod gnss;
@@ -48,6 +50,7 @@ mod status_file;
 mod system_volume;
 mod telemetry;
 mod telemetry_cli;
+mod theme_catalog;
 mod udev_rule;
 mod ui;
 mod update;
@@ -166,6 +169,8 @@ async fn run() -> Result<Exit, String> {
         system: Default::default(),
         devices: Default::default(),
         update: Default::default(),
+        cluster: Default::default(),
+        dab: Default::default(),
         config,
     });
     let (asks_tx, asks, dongle_asks, update_asks) = projection::ui_channels(livi);

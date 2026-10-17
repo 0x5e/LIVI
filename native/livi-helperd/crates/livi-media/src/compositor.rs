@@ -14,11 +14,9 @@ const RECONNECT_EVERY: Duration = Duration::from_millis(500);
 
 pub fn env(cfg: &Config, ctrl: &Path) -> Vec<(String, String)> {
     let mut env = vec![
-        // Its windows belong to the installed dev.f-io.livi.desktop entry.
         ("LIVI_OUTPUT_APP_ID".to_string(), "dev.f-io.livi".to_string()),
         ("LIVI_COMPOSITOR_CTRL".to_string(), ctrl.display().to_string()),
         ("LIVI_SCREENS".to_string(), "main,cluster,aux".to_string()),
-        // A compositor crash has to be readable from the log.
         ("RUST_BACKTRACE".to_string(), "1".to_string()),
     ];
     let kiosk = cfg.kiosk.main || std::env::var("LIVI_KIOSK").is_ok_and(|v| v == "1");
@@ -102,7 +100,6 @@ impl CompositorControl {
         Self { tx, panels, ui }
     }
 
-    /// The video toplevel created next gets this tag.
     pub async fn claim(&self, tag: &str) {
         let (done, wait) = oneshot::channel();
         let _ = self.tx.send(Cmd::Claim(tag.to_string(), done));
@@ -113,7 +110,6 @@ impl CompositorControl {
         let _ = self.tx.send(Cmd::Release(tag.to_string()));
     }
 
-    /// All zero gives the plane the whole screen.
     #[allow(clippy::too_many_arguments)]
     pub fn videocfg(
         &self,
@@ -152,7 +148,12 @@ impl CompositorControl {
         let _ = self.tx.send(Cmd::State(format!("screen:{role}"), line));
     }
 
-    /// "#rrggbb"
+    pub fn aspect(&self, role: &str, size: Option<(u32, u32)>) {
+        let (w, h) = size.filter(|(w, h)| *w > 0 && *h > 0).unwrap_or((0, 0));
+        let _ =
+            self.tx.send(Cmd::State(format!("aspect:{role}"), format!("aspect {role} {w} {h}\n")));
+    }
+
     pub fn backdrop(&self, hex: &str) {
         let (r, g, b) = rgb(hex);
         let _ = self.tx.send(Cmd::State("__backdrop__".into(), format!("backdrop {r} {g} {b}\n")));
@@ -358,7 +359,6 @@ impl Actor {
     }
 }
 
-/// Sublinear (power 0.75), so one resolution step moves the phone one UI size class, not two.
 pub fn panel_physical_mm(panel: &Panel, width_px: u32, height_px: u32) -> Option<(u32, u32)> {
     if panel.width_mm == 0 || panel.height_mm == 0 || panel.width_px == 0 || panel.height_px == 0 {
         return None;
@@ -443,6 +443,18 @@ mod tests {
         assert_eq!(line(&mut rd).await, "claim cluster-cluster\n");
         ctrl.release("cluster-cluster");
         assert_eq!(line(&mut rd).await, "unclaim cluster-cluster\n");
+    }
+
+    #[tokio::test]
+    async fn the_main_shape_is_kept_and_a_missing_size_lets_it_go() {
+        let dir = TempDir::new();
+        let (comp, ctrl) = setup(&dir);
+        ctrl.aspect("main", Some((1280, 720)));
+        ctrl.aspect("main", Some((800, 480)));
+        let (mut rd, _wr) = comp.accept().await;
+        assert_eq!(line(&mut rd).await, "aspect main 800 480\n", "only the latest shape");
+        ctrl.aspect("main", Some((0, 480)));
+        assert_eq!(line(&mut rd).await, "aspect main 0 0\n");
     }
 
     #[tokio::test]

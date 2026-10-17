@@ -1,10 +1,3 @@
-//! Control socket (LIVI_COMPOSITOR_CTRL): line protocol from the host.
-//! Commands: screen <role> <0|1> [w h] | claim <tag> | unclaim <tag> |
-//! videocfg <tag> <screen> <crop...> | videoshow <tag> <0|1> |
-//! backdrop <r> <g> <b> | gamma <g> <c> <r> <g> <b> | restart
-//! Events out: "panel <role> <mm_w> <mm_h> <px_w> <px_h>" | "bound <tag>" |
-//! "ui <wayland-socket> <render-node or ->"
-
 use std::io::{Read, Write};
 use std::os::unix::net::UnixListener;
 use std::time::{Duration, Instant};
@@ -14,8 +7,6 @@ use smithay::reexports::calloop::{Interest, LoopHandle, Mode, PostAction};
 
 use crate::state::LiviState;
 
-/// Core starts the compositor with a pipe as stdin. Its end means core died,
-/// even on SIGKILL, and the compositor stops with it.
 pub fn leave_with_core(handle: &LoopHandle<'static, LiviState>) {
     if !std::env::var("LIVI_LIFELINE").is_ok_and(|v| v == "1") {
         return;
@@ -127,7 +118,6 @@ fn poll_client(state: &mut LiviState) {
     }
 }
 
-/// Nothing may be dropped, the host's claim handshake waits for the `bound` ack.
 pub fn send(state: &mut LiviState, line: &str) {
     state.ctrl_out.extend_from_slice(line.as_bytes());
     flush_out(state);
@@ -156,8 +146,6 @@ fn flush_out(state: &mut LiviState) {
     }
 }
 
-/// A video pipeline the client starts must reach our display and decode on the GPU we render
-/// with.
 fn send_ui(state: &mut LiviState) {
     let node =
         state.render_node.as_ref().map_or_else(|| "-".to_string(), |p| p.display().to_string());
@@ -279,6 +267,19 @@ fn handle_line(state: &mut LiviState, line: &str) {
             if let Some(v) = state.find_video_by_tag(&tag) {
                 state.toplevels[v].visible = onoff != 0;
                 crate::host::damage_all(state);
+            }
+        }
+        Some("aspect") => {
+            let Some(idx) = parts.next().and_then(|role| state.screen_idx_by_role(role)) else {
+                return;
+            };
+            let w = parts.next().and_then(|v| v.parse::<i32>().ok()).unwrap_or(0);
+            let h = parts.next().and_then(|v| v.parse::<i32>().ok()).unwrap_or(0);
+            let aspect = (w > 0 && h > 0).then_some((w, h));
+            if state.screens[idx].aspect != aspect {
+                log::info!("ctrl < {line}");
+                state.screens[idx].aspect = aspect;
+                crate::host::refit(state, idx);
             }
         }
         Some("backdrop") => {

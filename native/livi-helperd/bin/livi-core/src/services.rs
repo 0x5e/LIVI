@@ -57,7 +57,6 @@ fn watch_compositor(mut child: Child, quit: Arc<Notify>) -> Watched {
     Watched { stop, task }
 }
 
-/// Next to the AppImage, where the user looks for a crash report.
 fn crash_log() -> PathBuf {
     let dir = std::env::var_os("APPIMAGE")
         .and_then(|a| Path::new(&a).parent().map(Path::to_path_buf))
@@ -69,7 +68,6 @@ fn crash_log() -> PathBuf {
 fn host_launch(res: &Resources, user_data: &Path, ui: Option<&Ui>) -> Launch {
     let mut env = res.gstreamer.as_deref().map(gst_env).unwrap_or_default();
     if cfg!(target_os = "linux") {
-        // For debugging a gst-host pipeline.
         if let Ok(preload) = std::env::var("LIVI_GST_PRELOAD") {
             env.push(("LD_PRELOAD".into(), preload));
         }
@@ -106,7 +104,6 @@ impl Services {
         let state = hub.watch();
         let cfg = state.borrow().config.clone();
         let identity = livi_cp::identity::load_or_create(&user_data.join("cp/identity.json"));
-        // The phone learns the port from the helper, so the system may pick any free one.
         let airplay = carplay_listener();
         let airplay_port = airplay.as_ref().map(|l| livi_cp::net::local_port(l.local_addr()));
         let helper_restart = Arc::new(Notify::new());
@@ -125,7 +122,6 @@ impl Services {
         });
 
         let ctrl_path = runtime.join("compositor.ctrl");
-        // macOS draws the video into the UI's window, there is no compositor.
         let compositor = if cfg!(target_os = "linux") {
             let started = compositor::start(
                 &res.compositor,
@@ -186,7 +182,6 @@ impl Services {
         Self { helper: Some(helper), compositor, ui }
     }
 
-    /// The UI first, so it does not see its display vanish and count a crash.
     pub async fn stop(mut self) {
         if let Some(ui) = self.ui.take() {
             ui.stop().await;
@@ -298,7 +293,6 @@ impl CarPlay {
     }
 }
 
-/// gst-host has to land on the compositor's display and decode on its GPU.
 async fn follow_display(
     mut ui: watch::Receiver<Option<Ui>>,
     gst: GstHost,
@@ -329,6 +323,30 @@ fn apply_display(cfg: &Config, ctrl: &CompositorControl) {
     );
 }
 
+type ScreenWant = (&'static str, bool, Option<(u32, u32)>);
+
+fn secondary_screens(cfg: &Config) -> [ScreenWant; 2] {
+    let size = |w: u32, h: u32| (w > 0 && h > 0).then_some((w, h));
+    [
+        (
+            "cluster",
+            cfg.cluster_screen_active,
+            size(cfg.cluster_screen_width, cfg.cluster_screen_height),
+        ),
+        ("aux", cfg.aux_screen_active, size(cfg.aux_screen_width, cfg.aux_screen_height)),
+    ]
+}
+
+fn changed_screens(last: Option<&Config>, now: &Config) -> Vec<ScreenWant> {
+    let before = last.map(secondary_screens);
+    secondary_screens(now)
+        .into_iter()
+        .enumerate()
+        .filter(|(i, want)| before.is_none_or(|b| b[*i] != *want))
+        .map(|(_, want)| want)
+        .collect()
+}
+
 async fn follow_state(
     mut state: watch::Receiver<State>,
     ctrl: CompositorControl,
@@ -350,6 +368,13 @@ async fn follow_state(
         });
         if display_changed {
             apply_display(&now.config, &ctrl);
+        }
+        for (role, on, size) in changed_screens(last.as_ref().map(|l| &l.config), &now.config) {
+            ctrl.screen(role, on, size);
+        }
+        let stream = |c: &Config| (c.projection_width, c.projection_height);
+        if last.as_ref().is_none_or(|l| stream(&l.config) != stream(&now.config)) {
+            ctrl.aspect("main", Some(stream(&now.config)));
         }
         if last.as_ref().is_none_or(|l| l.front.main != now.front.main) {
             plane.set_visible(now.front.main == Front::Projection);
@@ -424,6 +449,42 @@ mod tests {
         cfg.projection_width = 0;
         cfg.projection_height = 0;
         assert_eq!(carplay_tier(&cfg), (1920, 1080));
+    }
+
+    #[test]
+    fn secondary_screens_follow_the_config() {
+        let mut cfg = defaults();
+        cfg.cluster_screen_active = false;
+        cfg.aux_screen_active = false;
+        cfg.cluster_screen_width = 800;
+        cfg.cluster_screen_height = 480;
+        cfg.aux_screen_width = 0;
+        cfg.aux_screen_height = 0;
+        assert_eq!(
+            changed_screens(None, &cfg),
+            vec![("cluster", false, Some((800, 480))), ("aux", false, None)],
+            "the first state tells the compositor every role"
+        );
+        assert!(changed_screens(Some(&cfg), &cfg).is_empty());
+
+        let mut on = cfg.clone();
+        on.cluster_screen_active = true;
+        assert_eq!(changed_screens(Some(&cfg), &on), vec![("cluster", true, Some((800, 480)))]);
+
+        let mut resized = on.clone();
+        resized.cluster_screen_width = 1024;
+        assert_eq!(
+            changed_screens(Some(&on), &resized),
+            vec![("cluster", true, Some((1024, 480)))]
+        );
+
+        let mut off = resized.clone();
+        off.cluster_screen_active = false;
+        off.aux_screen_active = true;
+        assert_eq!(
+            changed_screens(Some(&resized), &off),
+            vec![("cluster", false, Some((1024, 480))), ("aux", true, None)]
+        );
     }
 
     #[test]

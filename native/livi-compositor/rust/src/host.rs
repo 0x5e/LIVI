@@ -1,6 +1,3 @@
-//! Host side: one xdg-shell window of the outer session per open screen, its
-//! EGL surface, and the outer seat's pointer/touch/keyboard routed into our seat.
-
 use std::time::{Duration, Instant};
 
 use calloop_wayland_source::WaylandSource;
@@ -31,6 +28,7 @@ use smithay_client_toolkit::reexports::client::protocol::wl_seat::WlSeat as CWlS
 use smithay_client_toolkit::reexports::client::protocol::wl_surface::WlSurface as CWlSurface;
 use smithay_client_toolkit::reexports::client::protocol::wl_touch::WlTouch;
 use smithay_client_toolkit::reexports::client::{Connection, Proxy, QueueHandle};
+use smithay_client_toolkit::reexports::csd_frame::WindowState;
 use smithay_client_toolkit::registry::{ProvidesRegistryState, RegistryState};
 use smithay_client_toolkit::seat::keyboard::{
     KeyEvent, KeyboardHandler, Keysym, Modifiers, RawModifiers,
@@ -49,7 +47,9 @@ use smithay_client_toolkit::shell::xdg::window::{
 };
 use smithay_client_toolkit::shm::{Shm, ShmHandler as SctkShmHandler};
 
-use crate::state::LiviState;
+use crate::state::{LiviState, TITLEBAR_H};
+
+const MIN_SIZE: (i32, i32) = (320, 200);
 
 pub struct HostWindow {
     pub window: Window,
@@ -58,9 +58,9 @@ pub struct HostWindow {
     pub height: i32,
     pub needs_redraw: bool,
     pub frame_pending: bool,
-    /// xdg-shell: no buffer may be committed before the first configure.
     pub configured: bool,
     pub host_output: Option<WlOutput>,
+    pub floating: bool,
 }
 
 pub struct HostState {
@@ -74,15 +74,13 @@ pub struct HostState {
     pub egl_display: Option<EGLDisplay>,
     pub egl_context: Option<EGLContext>,
     pub renderer: Option<GlesRenderer>,
-    pub windows: Vec<(usize, HostWindow)>, // screen_idx -> window
-    pub pointer_pos: (f64, f64),           // layout coords
+    pub windows: Vec<(usize, HostWindow)>,
+    pub pointer_pos: (f64, f64),
     pub pointer_screen: Option<usize>,
     pub keyboard: Option<WlKeyboard>,
     pub pointer: Option<ThemedPointer>,
     pub shm: Option<Shm>,
-    /// What the inner client wants the pointer to look like, None while it hides it.
     pub cursor: Option<CursorIcon>,
-    /// Chromium asks for its default arrow before the page has loaded, the UI's first hide arms it.
     pub cursor_armed: bool,
     pub pointer_on_inner: bool,
     pub pointer_on_deco: bool,
@@ -139,11 +137,9 @@ impl HostState {
     }
 }
 
-// EGL over the host wayland connection (EGL_PLATFORM_WAYLAND).
 struct HostNativeDisplay(*mut std::ffi::c_void);
 unsafe impl Send for HostNativeDisplay {}
 
-// EGL window surface over a wl_egl_window of the host connection.
 pub struct HostEglWindow(pub wayland_egl::WlEglSurface);
 
 unsafe impl smithay::backend::egl::native::EGLNativeSurface for HostEglWindow {
@@ -188,22 +184,17 @@ impl EGLNativeDisplay for HostNativeDisplay {
     }
 }
 
-/// The DRM node the renderer runs on.
 fn render_node(display: &EGLDisplay) -> Option<std::path::PathBuf> {
     let device = EGLDevice::device_for_display(display).ok()?;
     device.render_device_path().or_else(|_| device.drm_device_path()).ok()
 }
 
-/// The render node, when it can do explicit sync. NVIDIA puts no implicit fences on dmabufs, so
-/// without explicit sync the compositor reads buffers a client is still drawing into.
 fn syncobj_device(path: &std::path::Path) -> Option<DrmDeviceFd> {
     let file = std::fs::OpenOptions::new().read(true).write(true).open(path).ok()?;
     let fd = DrmDeviceFd::new(DeviceFd::from(std::os::fd::OwnedFd::from(file)));
     supports_syncobj_eventfd(&fd).then_some(fd)
 }
 
-/// Connect to the outer session, set up EGL + the shared GLES renderer, and
-/// hook the host event queue into the loop.
 pub fn init(state: &mut LiviState, handle: &LoopHandle<'static, LiviState>) {
     let conn = Connection::connect_to_env().expect("no outer wayland session");
     let (globals, event_queue) = registry_queue_init::<LiviState>(&conn).expect("host registry");
@@ -240,8 +231,6 @@ pub fn init(state: &mut LiviState, handle: &LoopHandle<'static, LiviState>) {
 
     state.render_node = render_node(&egl_display);
 
-    // Advertise dmabuf to inner clients with the formats the renderer imports. The render node as main
-    // device makes them allocate on the GPU this compositor draws with, where there is more than one.
     let formats = renderer.dmabuf_formats();
     let feedback = state.render_node.as_deref().and_then(|node| {
         let dev = std::os::unix::fs::MetadataExt::rdev(&std::fs::metadata(node).ok()?);
@@ -279,11 +268,9 @@ pub fn init(state: &mut LiviState, handle: &LoopHandle<'static, LiviState>) {
     state.host.egl_context = Some(egl_context);
     state.host.renderer = Some(renderer);
 
-    // The nested main screen exists from the start, secondaries open on demand.
     open_screen(state, 0);
 }
 
-/// The configured numbers are the content size, the video and UI area.
 fn default_size(state: &LiviState, screen_idx: usize) -> (i32, i32) {
     let s = &state.screens[screen_idx];
     let inset = s.top_inset();
@@ -319,7 +306,7 @@ pub fn open_screen(state: &mut LiviState, screen_idx: usize) {
     let window = xdg.create_window(surface, WindowDecorations::RequestClient, qh);
     window.set_title(crate::state::role_title(&state.screens[screen_idx].role));
     window.set_app_id(state.output_app_id.clone());
-    window.set_min_size(Some((320, 200)));
+    window.set_min_size(Some((MIN_SIZE.0 as u32, MIN_SIZE.1 as u32)));
     if state.screens[screen_idx].fullscreen {
         window.set_fullscreen(None);
     }
@@ -350,6 +337,7 @@ pub fn open_screen(state: &mut LiviState, screen_idx: usize) {
             frame_pending: false,
             configured: false,
             host_output: None,
+            floating: true,
         },
     ));
     ensure_server_output(state, screen_idx);
@@ -383,7 +371,6 @@ pub fn close_screen(state: &mut LiviState, screen_idx: usize) {
     }
 }
 
-/// Advertise a wl_output for this screen to the inner clients.
 fn ensure_server_output(state: &mut LiviState, screen_idx: usize) {
     let s = &mut state.screens[screen_idx];
     if s.output.is_some() {
@@ -427,7 +414,6 @@ pub fn minimize(state: &mut LiviState, screen_idx: usize) {
     }
 }
 
-/// The seat that drives interactive host-side grabs.
 fn grab_seat(state: &LiviState) -> Option<CWlSeat> {
     state.host.host_seat.clone().or_else(|| state.host.sctk_seats.as_ref()?.seats().next())
 }
@@ -474,7 +460,6 @@ pub fn damage_all(state: &mut LiviState) {
     }
 }
 
-/// Physical millimetres of a screen's window, the share of the host output it covers.
 pub fn panel_mm(state: &LiviState, screen_idx: usize) -> Option<(i32, i32)> {
     let outputs = state.host.sctk_outputs.as_ref()?;
     let output =
@@ -484,7 +469,6 @@ pub fn panel_mm(state: &LiviState, screen_idx: usize) -> Option<(i32, i32)> {
     if w <= 0 || h <= 0 {
         return None;
     }
-    // wl_output reports the panel's unrotated mm and modes; our screen size is post-transform.
     let turned = matches!(
         info.transform,
         CTransform::_90 | CTransform::_270 | CTransform::Flipped90 | CTransform::Flipped270
@@ -503,7 +487,6 @@ pub fn panel_mm(state: &LiviState, screen_idx: usize) -> Option<(i32, i32)> {
     }
 }
 
-/// The panel's millimetres scaled to the part a window of `window` logical pixels covers.
 fn share_of_panel(mm: (i32, i32), window: (i32, i32), output: (i32, i32)) -> (i32, i32) {
     let scale =
         |mm: i32, px: i32, of: i32| ((mm as i64 * px as i64 + of as i64 / 2) / of as i64) as i32;
@@ -512,7 +495,9 @@ fn share_of_panel(mm: (i32, i32), window: (i32, i32), output: (i32, i32)) -> (i3
 
 #[cfg(test)]
 mod tests {
-    use super::{CursorIcon, HostState, cursor_requested, share_of_panel, shown_cursor};
+    use super::{
+        CursorIcon, HostState, cursor_requested, fit_aspect, share_of_panel, shown_cursor,
+    };
 
     fn over_ui() -> HostState {
         let mut host = HostState::new();
@@ -554,8 +539,22 @@ mod tests {
     }
 
     #[test]
+    fn a_floating_window_keeps_the_stream_shape_below_the_titlebar() {
+        assert_eq!(fit_aspect((1280, 752), 32, (1280, 720)), (1280, 752));
+        assert_eq!(fit_aspect((2000, 752), 32, (1280, 720)), (1280, 752));
+        assert_eq!(fit_aspect((1280, 1000), 32, (1280, 720)), (1280, 752));
+        assert_eq!(fit_aspect((1000, 512), 32, (800, 480)), (800, 512));
+        assert_eq!(fit_aspect((1920, 1200), 0, (1920, 1080)), (1920, 1080));
+    }
+
+    #[test]
+    fn the_minimum_size_wins_over_the_offer() {
+        assert_eq!(fit_aspect((100, 50), 32, (16, 9)), (320, 212));
+        assert_eq!(fit_aspect((100, 50), 32, (1, 4)), (320, 1312));
+    }
+
+    #[test]
     fn a_window_gets_the_millimetres_of_the_part_it_covers() {
-        // A 27" panel at 2560x1440 logical, LIVI in a 1280x752 window.
         assert_eq!(share_of_panel((600, 340), (1280, 752), (2560, 1440)), (300, 178));
     }
 
@@ -576,7 +575,6 @@ pub fn import_dmabuf(
     }
 }
 
-/// Render every window that needs it and has no frame callback outstanding.
 pub fn pump(state: &mut LiviState) {
     let idxs: Vec<usize> = state
         .host
@@ -589,8 +587,6 @@ pub fn pump(state: &mut LiviState) {
         crate::render::render_screen(state, i);
     }
 }
-
-// ── SCTK handler plumbing ────────────────────────────────────────────────────
 
 impl SctkCompositorHandler for LiviState {
     fn scale_factor_changed(
@@ -690,37 +686,70 @@ impl WindowHandler for LiviState {
         let h = configure.new_size.1.map(|v| v.get() as i32).unwrap_or(cur.1);
         let host_fullscreen = configure.is_fullscreen();
         let _ = configure.decoration_mode == DecorationMode::Server;
+        let floating = !(host_fullscreen
+            || configure.is_maximized()
+            || configure.state.intersects(WindowState::TILED));
 
         {
             let hw = &mut self.host.windows[pos].1;
-            if (w, h) != cur {
-                hw.egl_surface.resize(w, h, 0, 0);
-                hw.width = w;
-                hw.height = h;
-            }
             hw.configured = true;
-            hw.needs_redraw = true;
+            hw.floating = floating;
         }
-        self.screens[screen_idx].width = w;
-        self.screens[screen_idx].height = h;
         if self.screens[screen_idx].fullscreen != host_fullscreen {
             self.screens[screen_idx].fullscreen = host_fullscreen;
         }
-        // The output mode change and the video relayout each send an event the
-        // waylandsink clients crash on mid-resize, so defer them until the drag settles.
-        self.screens[screen_idx].resize_pending = Some(Instant::now() + RESIZE_SETTLE);
-        crate::layout::apply_ui_layout(self, screen_idx);
-        crate::ctrl::send_panels(self);
+        let size = match self.screens[screen_idx].aspect {
+            Some(aspect) if floating => fit_aspect((w, h), TITLEBAR_H, aspect),
+            _ => (w, h),
+        };
+        resize_host_window(self, screen_idx, size);
     }
 }
 
-/// How long the compositor waits after the last resize step before it pushes the
-/// new output mode and relayouts the video planes.
+pub fn fit_aspect(size: (i32, i32), inset: i32, aspect: (i32, i32)) -> (i32, i32) {
+    let (aw, ah) = (aspect.0.max(1) as i64, aspect.1.max(1) as i64);
+    let (mut cw, mut ch) = (size.0.max(1) as i64, (size.1 - inset).max(1) as i64);
+    if cw * ah > ch * aw {
+        cw = (ch * aw + ah / 2) / ah;
+    } else {
+        ch = (cw * ah + aw / 2) / aw;
+    }
+    let (min_w, min_h) = (MIN_SIZE.0 as i64, (MIN_SIZE.1 as i64 - inset as i64).max(1));
+    if cw < min_w || ch < min_h {
+        let grow = |v: i64, num: i64, den: i64| (v * num + den - 1) / den;
+        cw = min_w.max(grow(min_h, aw, ah));
+        ch = grow(cw, ah, aw);
+    }
+    (cw as i32, ch as i32 + inset)
+}
+
+pub fn refit(state: &mut LiviState, screen_idx: usize) {
+    let Some(aspect) = state.screens[screen_idx].aspect else { return };
+    let Some(w) = state.host.window_for_screen(screen_idx) else { return };
+    if !w.configured || !w.floating {
+        return;
+    }
+    let size = fit_aspect((w.width, w.height), TITLEBAR_H, aspect);
+    resize_host_window(state, screen_idx, size);
+}
+
+fn resize_host_window(state: &mut LiviState, screen_idx: usize, (w, h): (i32, i32)) {
+    let Some(hw) = state.host.window_for_screen(screen_idx) else { return };
+    if (w, h) != (hw.width, hw.height) {
+        hw.egl_surface.resize(w, h, 0, 0);
+        hw.width = w;
+        hw.height = h;
+    }
+    hw.needs_redraw = true;
+    state.screens[screen_idx].width = w;
+    state.screens[screen_idx].height = h;
+    state.screens[screen_idx].resize_pending = Some(Instant::now() + RESIZE_SETTLE);
+    crate::layout::apply_ui_layout(state, screen_idx);
+    crate::ctrl::send_panels(state);
+}
+
 const RESIZE_SETTLE: Duration = Duration::from_millis(150);
 
-/// Applies a settled resize. Deferred from `configure` so the waylandsink clients are
-/// touched once per drag, not per step. The output mode is published only at the first
-/// setup, never on a later resize, since that mode change crashes the waylandsink.
 pub fn apply_settled_resizes(state: &mut LiviState) {
     let now = Instant::now();
     for idx in 0..state.screens.len() {
@@ -775,8 +804,6 @@ impl SctkSeatHandler for LiviState {
         seat: CWlSeat,
         capability: Capability,
     ) {
-        // new_seat only fires for seats appearing after registry init, so the
-        // seat that exists at startup is captured here.
         self.host.host_seat = Some(seat.clone());
         let seats = self.host.sctk_seats.as_mut().unwrap();
         match capability {
@@ -813,7 +840,6 @@ impl SctkSeatHandler for LiviState {
             self.host.keyboard.is_some(),
             self.host.touch.is_some()
         );
-        // Cage puts its default arrow back on every device change without a new enter.
         apply_cursor(self);
     }
 
@@ -918,7 +944,6 @@ impl TouchHandler for LiviState {
         id: i32,
         position: (f64, f64),
     ) {
-        // Motion comes without a surface, it stays on the down surface's screen.
         crate::input::touch_motion(self, time, id, position.0, position.1);
     }
 
@@ -973,7 +998,6 @@ impl KeyboardHandler for LiviState {
         crate::input::key(self, event.time, event.raw_code, true, event.keysym);
     }
 
-    // The inner client repeats on its own, from the repeat info of our seat.
     fn repeat_key(
         &mut self,
         _: &Connection,
@@ -1022,13 +1046,11 @@ impl SctkShmHandler for LiviState {
     }
 }
 
-/// Shows on the host what the inner client asked for.
 pub fn apply_cursor(state: &LiviState) {
     let (Some(pointer), Some(conn)) = (state.host.pointer.as_ref(), state.host.conn.as_ref())
     else {
         return;
     };
-    // Refused until the pointer has entered one of our windows, the enter applies it again.
     let _ = match shown_cursor(&state.host) {
         Some(icon) => pointer.set_cursor(conn, icon),
         None => pointer.hide_cursor(),
@@ -1036,7 +1058,6 @@ pub fn apply_cursor(state: &LiviState) {
     let _ = conn.flush();
 }
 
-/// Only the UI decides, smithay's reset to the default arrow on leaving the UI would stick.
 pub fn cursor_requested(host: &mut HostState, want: Option<CursorIcon>) {
     if !host.pointer_on_inner {
         return;

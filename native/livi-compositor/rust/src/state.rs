@@ -1,5 +1,5 @@
-//! Compositor state: screens (one per role), classified toplevels, video
-//! configs, seat/input, and the wayland globals the inner clients see.
+// Compositor state: screens (one per role), classified toplevels, video
+// configs, seat/input, and the wayland globals the inner clients see.
 
 use std::collections::VecDeque;
 use std::ffi::OsString;
@@ -25,7 +25,6 @@ use smithay::wayland::viewporter::ViewporterState;
 
 use crate::host::HostState;
 
-// Each screen role gets its own non-overlapping x-slot in the scene.
 pub const SCREEN_X_SLOT: i32 = 100_000;
 pub const TITLEBAR_H: i32 = 32;
 pub const BTN_W: i32 = 32;
@@ -49,7 +48,6 @@ pub struct VideoCfg {
 
 #[derive(Clone, PartialEq)]
 pub enum Kind {
-    /// Not yet classified (before the initial commit).
     Pending,
     Ui,
     Video,
@@ -61,8 +59,6 @@ pub struct TopLevel {
     pub kind: Kind,
     pub screen_idx: usize,
     pub tag: String,
-    /// A video plane whose window arrived before its claim. The next claim
-    /// takes it.
     pub awaiting_claim: bool,
     pub visible: bool,
     pub has_crop: bool,
@@ -72,7 +68,6 @@ pub struct TopLevel {
     pub vis_h: f64,
     pub tier_w: f64,
     pub tier_h: f64,
-    /// Scene position in layout coordinates.
     pub position: Point<i32, Logical>,
 }
 
@@ -85,12 +80,12 @@ pub struct Screen {
     pub req_height: i32,
     pub fullscreen: bool,
     pub output: Option<Output>,
-    // Resize debounce: the output mode and video relayout wait until the drag settles.
     pub resize_pending: Option<Instant>,
     pub applied_width: i32,
     pub applied_height: i32,
     pub backdrop_color: [f32; 4],
     pub has_backdrop_color: bool,
+    pub aspect: Option<(i32, i32)>,
 }
 
 impl Screen {
@@ -113,16 +108,13 @@ pub struct LiviState {
 
     pub compositor_state: CompositorState,
     pub xdg_shell_state: XdgShellState,
-    // Kept alive so their globals stay advertised to inner clients.
     pub _xdg_decoration_state: XdgDecorationState,
     pub seat_state: SeatState<LiviState>,
     pub seat: Seat<LiviState>,
     pub data_device_state: DataDeviceState,
     pub shm_state: ShmState,
     pub dmabuf_state: DmabufState,
-    /// The DRM node the renderer runs on, handed to the inner UI so its video decodes on the same GPU.
     pub render_node: Option<std::path::PathBuf>,
-    /// Set by host::init when the render node supports explicit sync.
     pub syncobj_state: Option<DrmSyncobjState>,
     pub loop_handle: LoopHandle<'static, LiviState>,
     pub _viewporter_state: ViewporterState,
@@ -131,7 +123,6 @@ pub struct LiviState {
     pub output_app_id: String,
     pub screens: Vec<Screen>,
     pub toplevels: Vec<TopLevel>,
-    /// Indices into `toplevels`, bottom-to-top within the video layer.
     pub video_order: Vec<usize>,
     pub pending_video_tags: VecDeque<String>,
     pub video_cfgs: Vec<VideoCfg>,
@@ -140,9 +131,7 @@ pub struct LiviState {
     pub host: HostState,
 
     pub ctrl_client: Option<std::os::unix::net::UnixStream>,
-    /// Carries an incomplete trailing line between polls.
     pub ctrl_buf: String,
-    /// Lines waiting to reach the host, retried until written.
     pub ctrl_out: Vec<u8>,
     pub ctrl_path: Option<String>,
 
@@ -179,7 +168,6 @@ impl LiviState {
         let viewporter_state = ViewporterState::new::<Self>(&dh);
         let cursor_shape_state = CursorShapeManagerState::new::<Self>(&dh);
 
-        // Wayland server socket the inner UI + gst-host connect to.
         let source = ListeningSocketSource::new_auto().expect("wayland socket");
         let ui_socket = source.socket_name().to_string_lossy().into_owned();
         let loop_handle = event_loop.handle();
@@ -191,7 +179,6 @@ impl LiviState {
             })
             .expect("insert wayland socket");
 
-        // Dispatch inner-client requests from the display's poll fd.
         let poll_fd = display.backend().poll_fd().try_clone_to_owned().unwrap();
         loop_handle
             .insert_source(Generic::new(poll_fd, Interest::READ, Mode::Level), {
@@ -225,6 +212,7 @@ impl LiviState {
                 applied_height: 0,
                 backdrop_color: [0.0, 0.0, 0.0, 1.0],
                 has_backdrop_color: false,
+                aspect: None,
             })
             .collect();
 
@@ -284,8 +272,6 @@ impl LiviState {
         self.toplevels.iter().position(|t| t.kind == Kind::Video && t.tag == tag)
     }
 
-    /// Housekeeping after each loop turn: flush clients, drive host redraws,
-    /// check the restart deadline.
     pub fn after_dispatch(&mut self) {
         if let Some(deadline) = self.restart_deadline
             && Instant::now() >= deadline

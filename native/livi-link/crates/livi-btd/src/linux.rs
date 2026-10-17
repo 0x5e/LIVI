@@ -61,8 +61,15 @@ pub fn run() -> ExitCode {
     }
     println!("[btd] listening on :{HCI}");
     let _ = crate::hci::up(DEV);
-    for stream in livi_net::bridge::from_usb(&listener) {
+    let (arrivals, mut hosts) = crate::host::queue();
+    std::thread::spawn(move || {
+        for stream in livi_net::bridge::from_usb(&listener) {
+            arrivals.arrive(stream);
+        }
+    });
+    while let Some(stream) = hosts.next() {
         let _ = stream.set_nodelay(true);
+        notice_loss(&stream);
         tell_accessory("off");
         if let Err(e) = crate::hci::down(DEV) {
             eprintln!("[btd] {IFACE} down: {e}");
@@ -71,6 +78,10 @@ pub fn run() -> ExitCode {
             Ok(hci) => {
                 println!("[btd] {IFACE} claimed, tunnelling");
                 pump(File::from(hci), stream);
+                if hosts.waiting() {
+                    println!("[btd] a new host takes over {IFACE}");
+                    continue;
+                }
                 println!("[btd] host gone, giving {IFACE} back");
             }
             Err(e) => eprintln!("[btd] {IFACE}: {e}"),
@@ -80,6 +91,31 @@ pub fn run() -> ExitCode {
         }
     }
     ExitCode::SUCCESS
+}
+
+/// A host that went away without closing, its USB link reset under it say, ends after 3 s.
+fn notice_loss(stream: &TcpStream) {
+    for (level, name, value) in [
+        (libc::SOL_SOCKET, libc::SO_KEEPALIVE, 1),
+        (libc::IPPROTO_TCP, libc::TCP_KEEPIDLE, 1),
+        (libc::IPPROTO_TCP, libc::TCP_KEEPINTVL, 1),
+        (libc::IPPROTO_TCP, libc::TCP_KEEPCNT, 2),
+        (libc::IPPROTO_TCP, libc::TCP_USER_TIMEOUT, 3000),
+    ] {
+        let value: libc::c_int = value;
+        let rc = unsafe {
+            libc::setsockopt(
+                stream.as_raw_fd(),
+                level,
+                name,
+                (&raw const value).cast(),
+                size_of::<libc::c_int>() as libc::socklen_t,
+            )
+        };
+        if rc != 0 {
+            eprintln!("[btd] tunnel timeout: {}", std::io::Error::last_os_error());
+        }
+    }
 }
 
 fn tell_accessory(order: &str) {

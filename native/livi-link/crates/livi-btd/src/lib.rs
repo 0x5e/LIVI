@@ -3,6 +3,7 @@
 #![cfg_attr(not(target_os = "linux"), allow(dead_code))]
 
 pub mod hci;
+mod host;
 
 #[cfg(not(target_os = "linux"))]
 pub fn run() -> std::process::ExitCode {

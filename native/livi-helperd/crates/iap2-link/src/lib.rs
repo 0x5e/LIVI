@@ -284,7 +284,11 @@ impl LinkEngine {
             state: LinkState::Idle,
             lsp: LinkSynchronizationPayload {
                 max_outgoing: cfg.max_outgoing,
-                max_len: 65535,
+                // 4096 rather than the 16-bit maximum. The peer splits a file
+                // into one packet per value advertised here, and a 64 KB
+                // packet keeps its sending path busy for seconds, during which
+                // it acknowledges nothing.
+                max_len: 4096,
                 retransmission_timeout: if z { 0 } else { 4000 },
                 ack_timeout: if z { 0 } else { cfg.ack_timeout_ms },
                 max_retransmissions: if z { 0 } else { 4 },

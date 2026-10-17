@@ -47,7 +47,7 @@ fn header_pack_matches_reference() {
 #[test]
 fn lsp_pack_matches_reference() {
     let e = LinkEngine::new(LinkConfig::default());
-    assert_eq!(e.lsp.pack(), hex("011effff0fa001f404030a00010b02010c0102"));
+    assert_eq!(e.lsp.pack(), hex("011e10000fa001f404030a00010b02010c0102"));
     assert_eq!(LinkSynchronizationPayload::parse(&e.lsp.pack()), Some(e.lsp.clone()));
 }
 
@@ -56,7 +56,7 @@ fn initiator_start_emits_marker_and_syn() {
     let mut e = LinkEngine::new(LinkConfig::default());
     e.start(true, 0);
     let mut expected = IAP2_MARKER.to_vec();
-    expected.extend_from_slice(&hex("ff5a001d80630000a7011effff0fa001f404030a00010b02010c010210"));
+    expected.extend_from_slice(&hex("ff5a001d80630000a7011e10000fa001f404030a00010b02010c0102fe"));
     assert_eq!(e.take_output(), expected);
     assert_eq!(e.state(), LinkState::Negotiate);
 }

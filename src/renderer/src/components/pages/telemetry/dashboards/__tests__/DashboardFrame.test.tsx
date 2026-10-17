@@ -7,11 +7,11 @@ const useVehicleTelemetryMock = vi.fn()
 const setClusterDashboardActive = vi.fn()
 let settings: Record<string, unknown> | undefined
 
-vi.mock('../../../hooks/useVehicleTelemetry', () => ({
+vi.mock('../../hooks/useVehicleTelemetry', () => ({
   useVehicleTelemetry: () => useVehicleTelemetryMock()
 }))
 
-vi.mock('../../../components/DashboardShell', () => ({
+vi.mock('../../components/DashboardShell', () => ({
   DashboardShell: ({ children }: { children: React.ReactNode }) => <div>{children}</div>
 }))
 
@@ -21,22 +21,25 @@ vi.mock('@store/store', () => ({
     selector({ setClusterDashboardActive })
 }))
 
-vi.mock('../../../widgets', () => ({
+vi.mock('../../widgets', () => ({
   GaugeArc: ({
     value,
     shadow,
     scaleMax,
     redline,
-    labels
+    labels,
+    colorPointer
   }: {
     value: number
     shadow?: boolean
     scaleMax: number
     redline?: number
     labels: string[]
+    colorPointer?: string
   }) => (
     <div
       data-scale={`${scaleMax}:${redline}:${labels.join(',')}`}
+      data-pointer={colorPointer}
     >{`Gauge:${value}:${shadow}`}</div>
   ),
   labelOverflow: (gauge: { labels: string[] }) => (gauge.labels.length > 10 ? 12 : 0),
@@ -120,6 +123,16 @@ describe('DashboardFrame', () => {
     expect(screen.getByText('Soft:KPH:0:undefined')).toBeInTheDocument()
     expect(screen.getAllByText('Gauge:0:undefined')).toHaveLength(2)
     expect(screen.getByText('Telltale:none:false:false:false:false:undefined')).toBeInTheDocument()
+  })
+
+  test('the rings take the palette colour', () => {
+    const { container } = render(<DashboardFrame accent="#3d8eff" />)
+    expect(screen.getAllByText(/^Gauge:/)).toHaveLength(2)
+    expect(screen.getByText('Soft:KPH:0:undefined')).toBeInTheDocument()
+    const pointers = Array.from(container.querySelectorAll('[data-pointer]')).map((g) =>
+      g.getAttribute('data-pointer')
+    )
+    expect(pointers).toEqual(['#3d8eff', '#3d8eff'])
   })
 
   test('without settings the scales keep their defaults', () => {

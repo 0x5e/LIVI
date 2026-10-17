@@ -58,16 +58,10 @@ vi.mock('@store/store', () => ({
                   cluster: mockState.secondaryMedia,
                   aux: mockState.secondaryMedia
                 },
-            dashboards: {
-              dashboard1: {
-                main: mockState.telemetryOnMain,
-                cluster: mockState.secondaryTelemetry,
-                aux: mockState.secondaryTelemetry,
-                pos: 1
-              },
-              dashboard2: { main: false, cluster: false, aux: false, pos: 2 },
-              dashboard3: { main: false, cluster: false, aux: false, pos: 3 },
-              dashboard4: { main: false, cluster: false, aux: false, pos: 4 }
+            dashboard: {
+              main: mockState.telemetryOnMain,
+              cluster: mockState.secondaryTelemetry,
+              aux: mockState.secondaryTelemetry
             }
           }
     })

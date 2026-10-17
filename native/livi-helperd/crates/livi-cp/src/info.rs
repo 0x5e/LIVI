@@ -72,6 +72,15 @@ pub struct InfoConfig {
     pub oem_label: String,
     pub icons: Vec<Icon>,
     pub right_hand_drive: bool,
+    pub theme_displays: Option<ThemeDisplays>,
+}
+
+/// The display names in the car maker's theme, the phone finds its layouts and wallpapers by
+/// the panel names.
+#[derive(Debug, Clone, PartialEq)]
+pub struct ThemeDisplays {
+    pub main: String,
+    pub cluster: String,
 }
 
 fn num(v: i64) -> Value {
@@ -240,10 +249,19 @@ fn hid_axis(v: i64) -> u16 {
     (v & 0xffff) as u16
 }
 
+/// The main and cluster display ids. A car maker's theme names its displays itself.
+pub fn display_uuids(cfg: &InfoConfig) -> (String, String) {
+    match &cfg.theme_displays {
+        Some(names) => (names.main.clone(), names.cluster.clone()),
+        None => (MAIN_UUID.into(), ALT_UUID.into()),
+    }
+}
+
 pub fn build(cfg: &InfoConfig) -> Value {
-    let mut displays = vec![display(&cfg.main, STREAM_TYPE_MAIN_SCREEN, MAIN_UUID)];
+    let (main_uuid, alt_uuid) = display_uuids(cfg);
+    let mut displays = vec![display(&cfg.main, STREAM_TYPE_MAIN_SCREEN, &main_uuid)];
     if let Some(cluster) = &cfg.cluster {
-        displays.push(display(cluster, STREAM_TYPE_ALT_SCREEN, ALT_UUID));
+        displays.push(display(cluster, STREAM_TYPE_ALT_SCREEN, &alt_uuid));
     }
     let features = if cfg.disable_audio_output {
         CARPLAY_FEATURES & !CARPLAY_AUDIO_FEATURES
@@ -277,19 +295,20 @@ pub fn build(cfg: &InfoConfig) -> Value {
         ]),
     ));
     info.push(("displays".to_string(), Value::Array(displays)));
-    info.push((
-        "hidDevices".to_string(),
-        Value::Array(vec![
-            hid::touch_device(
-                hid_axis(cfg.main.width_pixels),
-                hid_axis(cfg.main.height_pixels),
-                MAIN_UUID,
-            ),
-            hid::knob_device(MAIN_UUID),
-            hid::media_device(MAIN_UUID),
-            hid::telephony_device(MAIN_UUID),
-        ]),
-    ));
+    let mut hid_devices = vec![
+        hid::touch_device(
+            hid_axis(cfg.main.width_pixels),
+            hid_axis(cfg.main.height_pixels),
+            &main_uuid,
+        ),
+        hid::knob_device(&main_uuid),
+        hid::media_device(&main_uuid),
+        hid::telephony_device(&main_uuid),
+    ];
+    if cfg.theme_displays.is_some() && cfg.cluster.is_some() {
+        hid_devices.push(hid::cluster_knob_device(&alt_uuid));
+    }
+    info.push(("hidDevices".to_string(), Value::Array(hid_devices)));
     if !cfg.icons.is_empty() {
         info.push(("oemIconVisible".to_string(), Value::Bool(true)));
         info.push(("oemIconLabel".to_string(), Value::String(cfg.oem_label.clone())));
@@ -315,11 +334,12 @@ pub fn build(cfg: &InfoConfig) -> Value {
 
 /// Climate needs Ultra, and the phone counts the car as Ultra once a panel in
 /// `displayPanels` carries a display plug-in. A screen with a plug-in gets a
-/// black stream, so the plug-in sits on an extra panel without one.
-pub fn add_display_panels(info: &mut Value) {
+/// black stream, so the plug-in sits on an extra panel without one. A theme only lays out a
+/// display that carries the plug-in itself, so with a theme it sits on the cluster.
+pub fn add_display_panels(info: &mut Value, theme_displays: Option<&ThemeDisplays>) {
     let Some(displays) = info.get("displays").and_then(Value::as_array) else { return };
     let size = |d: &Value, k: &str| d.get(k).cloned().unwrap_or(Value::Int(0));
-    let panel = |d: &Value, uid: &str, streams: Vec<&str>, instruments: bool| {
+    let panel = |d: &Value, uid: &str, streams: Vec<&str>, instruments: bool, plugin: bool| {
         let video = streams
             .iter()
             .map(|uuid| {
@@ -332,7 +352,7 @@ pub fn add_display_panels(info: &mut Value) {
             })
             .collect();
         let mut fields = vec![
-            ("uid".to_string(), Value::String(format!("{uid}-panel"))),
+            ("uid".to_string(), Value::String(uid.to_string())),
             ("widthPixels".to_string(), size(d, "widthPixels")),
             ("heightPixels".to_string(), size(d, "heightPixels")),
             ("widthPhysical".to_string(), size(d, "widthPhysical")),
@@ -347,10 +367,14 @@ pub fn add_display_panels(info: &mut Value) {
             ),
             ("initialVideoStreams".to_string(), Value::Array(video)),
         ];
-        if streams.is_empty() {
+        if plugin {
+            let composed = streams.iter().map(|uuid| Value::String((*uuid).into())).collect();
+            // The phone takes the plug-in as the display a theme names.
+            let plugin_uid =
+                if streams.is_empty() { format!("{CLUSTER_UID}-plugin") } else { uid.to_string() };
             let plugin = dict([
-                ("uid", Value::String(format!("{uid}-plugin"))),
-                ("videoStreams", Value::Array(Vec::new())),
+                ("uid", Value::String(plugin_uid)),
+                ("videoStreams", Value::Array(composed)),
             ]);
             fields.push(("displayPlugins".to_string(), Value::Array(vec![plugin])));
         }
@@ -361,11 +385,20 @@ pub fn add_display_panels(info: &mut Value) {
         .iter()
         .filter_map(|d| {
             let uuid = d.get("uuid").and_then(Value::as_str)?;
-            Some(panel(d, uuid, vec![uuid], is_alt(d)))
+            let uid = match theme_displays {
+                Some(names) if is_alt(d) => names.cluster.clone(),
+                Some(names) => names.main.clone(),
+                None => format!("{uuid}-panel"),
+            };
+            let plugin = theme_displays.is_some() && is_alt(d);
+            Some(panel(d, &uid, vec![uuid], is_alt(d), plugin))
         })
         .collect();
-    let Some(sized) = displays.iter().find(|d| is_alt(d)).or(displays.first()) else { return };
-    panels.push(panel(sized, CLUSTER_UID, Vec::new(), true));
+    let themed_cluster = theme_displays.is_some() && displays.iter().any(is_alt);
+    if !themed_cluster {
+        let Some(sized) = displays.iter().find(|d| is_alt(d)).or(displays.first()) else { return };
+        panels.push(panel(sized, &format!("{CLUSTER_UID}-panel"), Vec::new(), true, true));
+    }
     if let Value::Dict(entries) = info {
         entries.push(("displayPanels".to_string(), Value::Array(panels)));
     }
@@ -397,6 +430,7 @@ pub(crate) mod tests {
             oem_label: "App".into(),
             icons: Vec::new(),
             right_hand_drive: false,
+            theme_displays: None,
         }
     }
 
@@ -437,7 +471,7 @@ pub(crate) mod tests {
     fn main_panel_stays_without_plugin_and_a_virtual_cluster_carries_one() {
         let mut info = build(&sample());
         assert!(info.get("displayPanels").is_none());
-        add_display_panels(&mut info);
+        add_display_panels(&mut info, None);
         let panels = info.get("displayPanels").and_then(Value::as_array).unwrap();
         assert_eq!(panels.len(), 2);
         let main = &panels[0];
@@ -478,7 +512,7 @@ pub(crate) mod tests {
         cluster.width_pixels = 800;
         cfg.cluster = Some(cluster);
         let mut info = build(&cfg);
-        add_display_panels(&mut info);
+        add_display_panels(&mut info, None);
         let panels = info.get("displayPanels").and_then(Value::as_array).unwrap();
         assert_eq!(panels.len(), 3);
         assert!(panels[0].get("displayPlugins").is_none());
@@ -507,21 +541,67 @@ pub(crate) mod tests {
         assert_eq!(plugins[0].get("videoStreams"), Some(&Value::Array(Vec::new())));
     }
 
+    fn names() -> ThemeDisplays {
+        ThemeDisplays { main: "Center_Display".into(), cluster: "Cluster_Display".into() }
+    }
+
+    #[test]
+    fn a_theme_names_the_displays_too() {
+        let mut cfg = sample();
+        cfg.cluster = Some(cfg.main.clone());
+        cfg.theme_displays = Some(names());
+        let info = build(&cfg);
+        let displays = info.get("displays").and_then(Value::as_array).unwrap();
+        let uuid = |d: &Value| d.get("uuid").and_then(Value::as_str).map(str::to_string);
+        assert_eq!(uuid(&displays[0]).as_deref(), Some("Center_Display"));
+        assert_eq!(uuid(&displays[1]).as_deref(), Some("Cluster_Display"));
+        let hid = info.get("hidDevices").and_then(Value::as_array).unwrap();
+        let knob =
+            hid.iter().find(|d| d.get("name").and_then(Value::as_str) == Some("LIVI Cluster Knob"));
+        assert_eq!(
+            knob.and_then(|k| k.get("displayUUID")).and_then(Value::as_str),
+            Some("Cluster_Display")
+        );
+        let plain = build(&sample());
+        assert_eq!(plain.get("hidDevices").and_then(Value::as_array).map(|a| a.len()), Some(4));
+        assert_eq!(display_uuids(&sample()), (MAIN_UUID.to_string(), ALT_UUID.to_string()));
+    }
+
+    #[test]
+    fn a_theme_names_the_panels_after_its_displays() {
+        let mut cfg = sample();
+        cfg.cluster = Some(cfg.main.clone());
+        let mut info = build(&cfg);
+        add_display_panels(&mut info, Some(&names()));
+        let panels = info.get("displayPanels").and_then(Value::as_array).unwrap();
+        let uid = |p: &Value| p.get("uid").and_then(Value::as_str).map(str::to_string);
+        assert_eq!(panels.len(), 2, "the cluster carries the plug-in, no extra panel");
+        assert_eq!(uid(&panels[0]).as_deref(), Some("Center_Display"));
+        assert!(panels[0].get("displayPlugins").is_none());
+        assert_eq!(uid(&panels[1]).as_deref(), Some("Cluster_Display"));
+        let plugin = &panels[1].get("displayPlugins").and_then(Value::as_array).unwrap()[0];
+        assert_eq!(uid(plugin).as_deref(), Some("Cluster_Display"));
+        assert_eq!(
+            plugin.get("videoStreams"),
+            Some(&Value::Array(vec![Value::String(ALT_UUID.into())]))
+        );
+    }
+
     #[test]
     fn display_panels_need_displays() {
         let mut info = Value::Array(Vec::new());
-        add_display_panels(&mut info);
+        add_display_panels(&mut info, None);
         assert_eq!(info, Value::Array(Vec::new()));
         let mut info = dict([("displays", Value::Array(Vec::new()))]);
         let before = info.clone();
-        add_display_panels(&mut info);
+        add_display_panels(&mut info, None);
         assert_eq!(info, before);
     }
 
     #[test]
     fn a_display_without_uuid_or_sizes_still_yields_a_cluster() {
         let mut info = dict([("displays", Value::Array(vec![dict([("type", Value::Int(110))])]))]);
-        add_display_panels(&mut info);
+        add_display_panels(&mut info, None);
         let panels = info.get("displayPanels").and_then(Value::as_array).unwrap();
         assert_eq!(panels.len(), 1);
         assert_eq!(panels[0].get("widthPixels"), Some(&Value::Int(0)));

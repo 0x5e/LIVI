@@ -18,7 +18,7 @@ use iap2_csm::messages::wifi::*;
 use livi_wifi::{Channel, OnAir, Security};
 
 use crate::framing::frame_msg_id;
-use crate::ident::{DROPPABLE, Identity, Transport, build_identification};
+use crate::ident::{DROPPABLE, Identity, Theme, Transport, build_identification};
 use crate::vehicle::{Fuels, LocationTypes, VehicleFeed, VehicleStatus};
 use crate::{AsyncAuth, ControlChannel, net};
 
@@ -50,6 +50,7 @@ pub struct CpConfig {
     /// Wired only: fires when the phone should hear the start once more, over the iAP2 session it
     /// already has.
     pub start_again: Option<Arc<Notify>>,
+    pub theme: Option<Theme>,
 }
 
 pub type AskOnAir = fn() -> Option<OnAir>;
@@ -310,6 +311,8 @@ fn carplay_start_session(
                 .or_else(|| cp.av_iface.as_deref().and_then(net::wlan_mac)),
             public_key: Some(cp.public_key.clone()),
             source_version: Some(cp.source_version.clone()),
+            sdk_version: theme_sdk(cp),
+            asset: theme_asset(cp),
             supports_mutual_authentication: mutual,
         });
     }
@@ -328,8 +331,20 @@ fn carplay_start_session(
         device_identifier: accessory_id(cp),
         public_key: Some(cp.public_key.clone()),
         source_version: Some(cp.source_version.clone()),
+        sdk_version: theme_sdk(cp),
+        asset: theme_asset(cp),
         supports_mutual_authentication: mutual,
     })
+}
+
+fn theme_sdk(cp: &CpConfig) -> Option<String> {
+    cp.theme.as_ref().map(|t| t.sdk_version.clone())
+}
+
+fn theme_asset(cp: &CpConfig) -> Option<CarPlayStartSessionAsset> {
+    cp.theme
+        .as_ref()
+        .map(|t| CarPlayStartSessionAsset { identifier: t.id.clone(), version: t.version })
 }
 
 /// How long the access point is given to come back before the phone is answered anyway.
@@ -652,6 +667,46 @@ mod tests {
     }
 
     #[test]
+    fn a_theme_is_named_in_identification_and_start() {
+        let theme = Theme::parse("44C9FA31EC:985:19.0");
+        assert_eq!(
+            theme,
+            Some(Theme { id: "44C9FA31EC".into(), version: 985, sdk_version: "19.0".into() })
+        );
+        assert_eq!(Theme::parse(""), None);
+        assert_eq!(Theme::parse("44C9FA31EC:soon:19.0"), None);
+
+        let cp = CpConfig { theme: theme.clone(), ..dongle_ap(|| None) };
+        assert_eq!(theme_sdk(&cp).as_deref(), Some("19.0"));
+        assert_eq!(
+            theme_asset(&cp),
+            Some(CarPlayStartSessionAsset { identifier: "44C9FA31EC".into(), version: 985 })
+        );
+
+        let id = Identity {
+            name: "LIVI".into(),
+            ssid: "LIVI".into(),
+            bt_mac: [0; 6],
+            fuels: Default::default(),
+            plugs: Default::default(),
+            theme,
+        };
+        for transport in [Transport::Wireless, Transport::Wired] {
+            let frame = build_identification(&id, transport, &[]).encode();
+            let back = IdentificationInformation::decode(&frame).unwrap();
+            let named = back
+                .wireless_car_play_transport_component
+                .map(|c| c.theme_asset_identifier)
+                .or_else(|| {
+                    back.usb_host_transport_component
+                        .first()
+                        .map(|c| c.theme_asset_identifier.clone())
+                });
+            assert_eq!(named, Some(Some("44C9FA31EC".into())));
+        }
+    }
+
+    #[test]
     fn the_phone_is_told_the_network_on_air() {
         let cp = dongle_ap(|| None);
         let live = OnAir { security: Security::Wpa2Wpa3, ..ap("LIVI-Link", 149) };
@@ -696,6 +751,7 @@ mod tests {
             ap_on_air: Some(ask),
             on_cable: None,
             start_again: None,
+            theme: None,
         }
     }
 

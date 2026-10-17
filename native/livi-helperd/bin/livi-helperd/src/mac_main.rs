@@ -12,7 +12,7 @@ use livi_runtime::bonjour::Bonjour;
 use livi_runtime::bringup::{AskOnAir, CpConfig, run_accessory};
 use livi_runtime::driver::spawn_link_stream;
 use livi_runtime::hfp::Hfp;
-use livi_runtime::ident::{Identity, Transport};
+use livi_runtime::ident::{Identity, Theme, Transport};
 use livi_runtime::livi_sock::{
     self, Broadcaster, LiviSockConfig, SharedTag, pump_artwork, pump_events_for,
 };
@@ -67,6 +67,7 @@ fn cp_config() -> (CpConfig, Identity) {
         available_current_ma: 500,
         on_cable: None,
         start_again: None,
+        theme: Theme::parse(&env_s("LIVI_CP_THEME", "")),
     };
     let identity = Identity {
         name: name.clone(),
@@ -74,6 +75,7 @@ fn cp_config() -> (CpConfig, Identity) {
         bt_mac: accessory_mac(&pi),
         fuels: Fuels::parse(&env_s("LIVI_CP_FUELS", "")),
         plugs: Plugs::parse(&env_s("LIVI_CP_CONNECTORS", "")),
+        theme: cp.theme.clone(),
     };
     (cp, identity)
 }

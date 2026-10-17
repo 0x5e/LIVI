@@ -91,6 +91,7 @@ fn settings_env(cfg: &Config) -> Vec<(String, String)> {
         ("LIVI_CP_NAME".to_string(), car_name),
         ("LIVI_CP_FUELS".to_string(), cp_fuels(cfg.car_type).to_string()),
         ("LIVI_CP_CONNECTORS".to_string(), cp_connectors(cfg)),
+        ("LIVI_CP_THEME".to_string(), cfg.car_play_theme.clone()),
         ("LIVI_BT_ADAPTER".to_string(), cfg.bt_adapter.clone()),
         ("LIVI_WIFI_IFACE".to_string(), cfg.wifi_interface.clone()),
         ("LIVI_PASSPHRASE".to_string(), cfg.wifi_password.clone()),
@@ -323,6 +324,7 @@ mod tests {
         assert_eq!(get(&env, "LIVI_CP_NAME"), Some("LIVI"));
         assert_eq!(get(&env, "LIVI_CP_FUELS"), Some("Gasoline"));
         assert_eq!(get(&env, "LIVI_CP_CONNECTORS"), Some(""));
+        assert_eq!(get(&env, "LIVI_CP_THEME"), Some(""));
         assert_eq!(get(&env, "LIVI_CHANNEL"), Some("36"));
         assert_eq!(get(&env, "LIVI_WIFI_TYPE"), Some("2.4ghz"));
         assert_eq!(get(&env, "LIVI_CP_AIRPLAY_PORT"), Some("7000"));
@@ -342,6 +344,9 @@ mod tests {
         cfg.ev_max_dc_power_kw = None;
         let env = helper_env(&cfg, &identity(), None);
         assert_eq!(get(&env, "LIVI_CP_CONNECTORS"), Some("Combo2,Mennekes:11000,Chademo"));
+        cfg.car_play_theme = "44C9FA31EC:985:19.0".into();
+        let env = helper_env(&cfg, &identity(), None);
+        assert_eq!(get(&env, "LIVI_CP_THEME"), Some("44C9FA31EC:985:19.0"));
         cfg.debug_logging = true;
         let env = helper_env(&cfg, &identity(), None);
         assert_eq!(get(&env, "LIVI_CP_AIRPLAY_PORT"), None);

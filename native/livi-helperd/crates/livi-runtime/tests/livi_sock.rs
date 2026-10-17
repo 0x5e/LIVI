@@ -36,6 +36,7 @@ fn config(path: &str) -> LiviSockConfig {
             bt_mac: [0; 6],
             fuels: Fuels::default(),
             plugs: Plugs::default(),
+            theme: None,
         },
         cp: CpConfig {
             ap_mac: None,
@@ -53,6 +54,7 @@ fn config(path: &str) -> LiviSockConfig {
             available_current_ma: 500,
             on_cable: None,
             start_again: None,
+            theme: None,
         },
         disconnect: None,
         targets: None,

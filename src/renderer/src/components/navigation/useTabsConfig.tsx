@@ -69,11 +69,7 @@ export const useTabsConfig: (receivingVideo: boolean) => TabConfig[] = (receivin
   const mediaOnRole = useLiviStore((s) =>
     role === 'main' ? (s.settings?.media?.main ?? true) : (s.settings?.media?.[role] ?? false)
   )
-  const telemetryOnRole = useLiviStore((s) => {
-    const d = s.settings?.dashboards
-    if (!d) return false
-    return Object.values(d).some((slot) => slot?.[role] === true)
-  })
+  const telemetryOnRole = useLiviStore((s) => s.settings?.dashboard?.[role] === true)
 
   // Secondary windows only show tabs that are routed to that role
   if (role !== 'main') {

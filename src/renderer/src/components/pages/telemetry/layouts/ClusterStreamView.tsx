@@ -3,9 +3,9 @@ import { useStatusStore } from '@store/store'
 import { useEffect } from 'react'
 
 /**
- * Cluster stream only
+ * The phone's cluster stream alone.
  */
-export function Dashboard4() {
+export function ClusterStreamView() {
   const setClusterDashboardActive = useStatusStore((s) => s.setClusterDashboardActive)
   useEffect(() => {
     setClusterDashboardActive(true)

@@ -1124,6 +1124,83 @@ describe('useKeyDown', () => {
     await Promise.resolve()
   })
 
+  test('every bound key reaches core on any page, a focused switch too, but not while typing', () => {
+    mockPathname = '/telemetry'
+    mockSettings = { bindings: { clusterLayout: 'KeyT' } }
+    const isFormField = vi.fn(() => false)
+    const { result } = renderHook(() =>
+      useKeyDown({
+        receivingVideo: false,
+        inContainer: () => false,
+        focusSelectedNav: vi.fn(() => false),
+        focusFirstInMain: vi.fn(() => false),
+        moveFocusLinear: vi.fn(() => false),
+        isFormField,
+        activateControl: vi.fn(() => false)
+      })
+    )
+
+    result.current(makeEvent('KeyT'))
+    expect(mockSendInput).toHaveBeenCalledWith(key('KeyT'))
+    expect(mockBroadcastMediaKey).toHaveBeenCalledWith('clusterLayout')
+
+    mockSendInput.mockClear()
+    const box = Object.assign(document.createElement('input'), { type: 'checkbox' })
+    document.body.appendChild(box)
+    box.focus()
+    isFormField.mockReturnValue(true)
+    result.current(makeEvent('KeyT'))
+    expect(mockSendInput).toHaveBeenCalledWith(key('KeyT'))
+
+    mockSendInput.mockClear()
+    const field = document.createElement('input')
+    document.body.appendChild(field)
+    field.focus()
+    result.current(makeEvent('KeyT'))
+    expect(mockSendInput).not.toHaveBeenCalled()
+    box.remove()
+    field.remove()
+  })
+
+  test('navigation keys reach the phone only in front of it, not from the LIVI UI', () => {
+    mockSettings = { bindings: { left: 'ArrowLeft', knobLeft: 'KeyQ', clusterLayout: 'KeyT' } }
+    const { navRoot } = setupRoots()
+    const navBtn = document.createElement('button')
+    navRoot.appendChild(navBtn)
+    const props = (receivingVideo: boolean) => ({
+      receivingVideo,
+      inContainer: (root?: HTMLElement | null, el?: HTMLElement | null) =>
+        !!root && !!el && root.contains(el),
+      focusSelectedNav: vi.fn(() => false),
+      focusFirstInMain: vi.fn(() => false),
+      moveFocusLinear: vi.fn(() => false),
+      isFormField: vi.fn(() => false),
+      activateControl: vi.fn(() => false)
+    })
+
+    mockPathname = '/settings'
+    const behind = renderHook(() => useKeyDown(props(false))).result
+    behind.current(makeEvent('ArrowLeft'))
+    behind.current(makeEvent('KeyQ'))
+    expect(mockSendInput).not.toHaveBeenCalled()
+
+    mockPathname = ROUTES.HOME
+    navBtn.focus()
+    const inNav = renderHook(() => useKeyDown(props(true))).result
+    inNav.current(makeEvent('ArrowLeft'))
+    expect(mockSendInput).not.toHaveBeenCalled()
+    inNav.current(makeEvent('KeyT'))
+    expect(mockSendInput).toHaveBeenCalledWith(key('KeyT'))
+
+    mockSendInput.mockClear()
+    navBtn.blur()
+    const front = renderHook(() => useKeyDown(props(true))).result
+    const event = makeEvent('ArrowLeft')
+    front.current(event)
+    expect(mockSendInput).toHaveBeenCalledWith(key('ArrowLeft'))
+    expect(event.preventDefault).toHaveBeenCalled()
+  })
+
   test('voiceAssistant repeat in CarPlay mode is suppressed', () => {
     const { contentRoot } = setupRoots()
     const btn = document.createElement('button')

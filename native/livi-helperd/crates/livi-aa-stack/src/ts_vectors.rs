@@ -1036,6 +1036,14 @@ fn livi_config(patch: &Json) -> livi_core_proto::config::Config {
     for (k, x) in patch.as_object().unwrap() {
         v[k] = x.clone();
     }
+    // The recordings come from the four dashboards, of which only 3 and 4 put the cluster
+    // stream on a screen.
+    if let Some(slots) = patch.get("dashboards") {
+        let on = |screen: &str| {
+            ["dashboard3", "dashboard4"].iter().any(|d| slots[d][screen].as_bool() == Some(true))
+        };
+        v["dashboard"] = json!({ "main": on("main"), "cluster": on("cluster"), "aux": on("aux") });
+    }
     serde_json::from_value(v).unwrap()
 }
 

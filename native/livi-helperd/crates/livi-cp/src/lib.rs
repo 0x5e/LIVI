@@ -24,6 +24,7 @@ pub mod stack;
 pub mod timing;
 pub mod timing_sync;
 pub mod tlv8;
+pub mod ui_sync;
 pub mod vehicle_state;
 pub mod video_playback;
 pub mod video_proxy;

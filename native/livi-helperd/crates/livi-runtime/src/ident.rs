@@ -9,6 +9,26 @@ pub struct Identity {
     pub bt_mac: [u8; 6],
     pub fuels: Fuels,
     pub plugs: Plugs,
+    pub theme: Option<Theme>,
+}
+
+/// The car maker theme the phone loads from catalog.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct Theme {
+    pub id: String,
+    pub version: u32,
+    pub sdk_version: String,
+}
+
+impl Theme {
+    /// `id:version:sdk` as listed in the catalog. `44C9FA31EC:985:19.0` for example.
+    pub fn parse(s: &str) -> Option<Self> {
+        let mut parts = s.trim().split(':');
+        let id = parts.next().filter(|id| !id.is_empty())?.to_string();
+        let version = parts.next()?.parse().ok()?;
+        let sdk_version = parts.next().filter(|v| !v.is_empty())?.to_string();
+        Some(Self { id, version, sdk_version })
+    }
 }
 
 /// Which transport carries this session, which decides the transport components the phone
@@ -93,6 +113,7 @@ pub fn build_identification(
                         .unwrap_or(3),
                 ),
                 supports_car_play: true,
+                theme_asset_identifier: id.theme.as_ref().map(|t| t.id.clone()),
             }]
         } else {
             vec![]
@@ -167,6 +188,7 @@ pub fn build_identification(
                 name: id.ssid.clone(),
                 supports_iap2_connection: true,
                 supports_car_play: true,
+                theme_asset_identifier: id.theme.as_ref().map(|t| t.id.clone()),
             })
         },
         route_guidance_display_component: if dropped("route_guidance_display_component") {

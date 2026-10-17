@@ -99,6 +99,8 @@ export type KeyBindingKey =
   | 'knobDown'
   | 'home'
   | 'cycleSession'
+  | 'clusterLayout'
+  | 'clusterContent'
   | 'playPause'
   | 'play'
   | 'pause'
@@ -155,21 +157,6 @@ export type BtDeviceListNode = NodeMeta & {
   path: string
 }
 
-export type PosListItem = {
-  id: string
-  label: string
-  labelKey?: string
-  route?: string
-}
-
-export type PosListNode = NodeMeta & {
-  type: 'posList'
-  label: string
-  labelKey?: string
-  path: string
-  items: PosListItem[]
-}
-
 export type RouteNode<TStore> = NodeMeta & {
   type: 'route'
   label: string // TODO: goes away once labelKey covers every node
@@ -177,7 +164,6 @@ export type RouteNode<TStore> = NodeMeta & {
   route: string
   path: string
   children: SettingsNode<TStore>[]
-  hidden?: boolean
 }
 
 export type SettingsNode<TStore> =
@@ -192,4 +178,3 @@ export type SettingsNode<TStore> =
   | KeyBindingNode
   | SettingsCustomNode<TStore>
   | BtDeviceListNode
-  | PosListNode

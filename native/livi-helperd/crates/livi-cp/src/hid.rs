@@ -4,6 +4,7 @@ pub const TOUCH_HID_UID: u32 = 0x2a2a_2a2a;
 pub const KNOB_HID_UID: u32 = 0x2a2a_2a2b;
 pub const MEDIA_HID_UID: u32 = 0x2a2a_2a2c;
 pub const TELEPHONY_HID_UID: u32 = 0x2a2a_2a2d;
+pub const CLUSTER_KNOB_HID_UID: u32 = 0x2a2a_2a2e;
 
 /// Two contacts cover pinch and rotate.
 pub const TOUCH_CONTACTS: usize = 2;
@@ -168,6 +169,10 @@ pub fn touch_device(x_max: u16, y_max: u16, display_uuid: &str) -> Value {
 
 pub fn knob_device(display_uuid: &str) -> Value {
     device_entry(KNOB_HID_UID, "LIVI Knob", KNOB_DESCRIPTOR.to_vec(), display_uuid)
+}
+
+pub fn cluster_knob_device(display_uuid: &str) -> Value {
+    device_entry(CLUSTER_KNOB_HID_UID, "LIVI Cluster Knob", KNOB_DESCRIPTOR.to_vec(), display_uuid)
 }
 
 pub fn media_device(display_uuid: &str) -> Value {

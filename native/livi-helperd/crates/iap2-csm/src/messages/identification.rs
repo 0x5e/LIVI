@@ -98,6 +98,9 @@ macro_rules! transport_component {
                 _ => csm_field_encode!($out, 5, $self.supports_iap2_connection, flag),
             }
         }
+        $( if $pid > 5 {
+            csm_field_encode!($out, $pid, $self.$f, $($k)+);
+        } )*
     };
 }
 
@@ -120,6 +123,7 @@ transport_component! {
 transport_component! {
     WirelessCarPlayTransportComponent {
         4 => supports_car_play: [flag],
+        6 => theme_asset_identifier: [opt str],
     }
 }
 
@@ -127,6 +131,7 @@ transport_component! {
     USBHostTransportComponent {
         3 => car_play_interface_number: [opt u8],
         4 => supports_car_play: [flag],
+        6 => theme_asset_identifier: [opt str],
     }
 }
 

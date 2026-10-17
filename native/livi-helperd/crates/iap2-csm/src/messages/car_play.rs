@@ -64,6 +64,13 @@ csm_group! {
     }
 }
 
+csm_group! {
+    pub struct CarPlayStartSessionAsset {
+        0 => identifier: [str],
+        1 => version: [u32],
+    }
+}
+
 csm_message! {
     pub struct CarPlayStartSession = 0x4301 {
         0 => wired_attributes: [opt group CarPlayStartSessionWiredAttributes],
@@ -72,6 +79,8 @@ csm_message! {
         3 => device_identifier: [opt str],
         4 => public_key: [opt str],
         5 => source_version: [opt str],
+        6 => sdk_version: [opt str],
+        7 => asset: [opt group CarPlayStartSessionAsset],
         8 => supports_mutual_authentication: [opt bool],
     }
 }

@@ -2,12 +2,12 @@ import { fireEvent, render, screen } from '@testing-library/react'
 
 const state: {
   settings:
-    | (Partial<{
-        dashboards: Record<string, Partial<Record<'main' | 'cluster' | 'aux', boolean>>>
+    | Partial<{
+        dashboard: Partial<Record<'main' | 'cluster' | 'aux', boolean>>
         media: Partial<Record<'cluster' | 'aux', boolean>>
         camera: Partial<Record<'cluster' | 'aux', boolean>>
         bindings: Record<string, string>
-      }> & { dashboards?: unknown })
+      }>
     | undefined
 } = { settings: undefined }
 
@@ -15,6 +15,7 @@ let clusterDashboardActive = false
 
 vi.mock('../../../store/store', () => ({
   sendInput: (input: unknown) => sendInputMock(input),
+  coreAction: (action: unknown) => coreActionMock(action),
   reportShown: (screen: string, front: string) => reportShownMock(screen, front),
   useLiviStore: (selector: (s: { settings: unknown }) => unknown) => selector(state),
   useStatusStore: (selector: (s: { clusterDashboardActive: boolean }) => unknown) =>
@@ -45,6 +46,7 @@ vi.mock('../../layouts/AppLayout', () => ({
 }))
 
 const sendInputMock = vi.fn()
+const coreActionMock = vi.fn(() => Promise.resolve())
 const reportShownMock = vi.fn()
 const onMediaKeyMock = vi.fn()
 const press = (code: string) => ({ kind: 'key', code, down: true })
@@ -54,6 +56,7 @@ beforeEach(async () => {
   state.settings = undefined
   clusterDashboardActive = false
   sendInputMock.mockReset()
+  coreActionMock.mockClear()
   reportShownMock.mockReset()
   onMediaKeyMock.mockReset().mockReturnValue(() => {})
   ;(window as unknown as { app: unknown }).app = { onMediaKey: onMediaKeyMock }
@@ -74,26 +77,18 @@ describe('SecondaryAppShell — empty / loading states', async () => {
   })
 
   test('renders the empty-label panel when no slot is enabled for the role', async () => {
-    state.settings = { dashboards: {}, media: {}, camera: {} }
+    state.settings = { dashboard: {}, media: {}, camera: {} }
     await renderShell('cluster', 'Cluster Window')
     expect(screen.getByText('Cluster Window')).toBeInTheDocument()
   })
 })
 
 describe('SecondaryAppShell — initial route selection', () => {
-  test('a cluster dashboard (dashboard3/dashboard4) renders the cluster overlay and routes to telemetry', async () => {
-    state.settings = { dashboards: { dashboard3: { cluster: true } } }
+  test('the dashboard on this screen routes to telemetry with the cluster overlay behind it', async () => {
+    state.settings = { dashboard: { cluster: true } }
     await renderShell('cluster')
-    // Cluster dash is also a dashboard slot, so the initial route is telemetry.
     expect(screen.getByTestId('telemetry-page')).toHaveAttribute('data-role', 'cluster')
     expect(screen.getByTestId('cluster-page')).toBeInTheDocument()
-  })
-
-  test('telemetry routes when a non-cluster dashboard slot is set', async () => {
-    state.settings = { dashboards: { dashboard1: { cluster: true } } }
-    await renderShell('cluster')
-    expect(screen.getByTestId('telemetry-page')).toHaveAttribute('data-role', 'cluster')
-    expect(screen.queryByTestId('cluster-page')).toBeNull()
   })
 
   test('media routes when only media is enabled', async () => {
@@ -110,14 +105,14 @@ describe('SecondaryAppShell — initial route selection', () => {
 
   test('cluster overlay visibility follows clusterDashboardActive', async () => {
     clusterDashboardActive = true
-    state.settings = { dashboards: { dashboard4: { aux: true } } }
+    state.settings = { dashboard: { aux: true } }
     await renderShell('aux')
     expect(screen.getByTestId('cluster-page')).toHaveAttribute('data-visible', 'true')
   })
 
   test('cluster overlay is hidden while the cluster dashboard has not signalled active', async () => {
     clusterDashboardActive = false
-    state.settings = { dashboards: { dashboard4: { aux: true } } }
+    state.settings = { dashboard: { aux: true } }
     await renderShell('aux')
     expect(screen.getByTestId('cluster-page')).toHaveAttribute('data-visible', 'false')
   })
@@ -247,13 +242,58 @@ describe('SecondaryAppShell — key bindings reach core', () => {
     expect(sendInputMock).toHaveBeenCalledWith(press('Space'))
   })
 
-  test('ignores non-transport key down and up events', async () => {
-    state.settings = { media: { cluster: true }, bindings: { back: 'Backspace' } }
+  test('bound keys go to core on their press, navigation stays in the window', async () => {
+    state.settings = {
+      media: { cluster: true },
+      bindings: { back: 'Backspace', clusterLayout: 'KeyT', home: 'KeyH' }
+    }
     await renderShell()
 
+    fireEvent.keyDown(document, { code: 'KeyT' })
+    fireEvent.keyUp(document, { code: 'KeyT' })
     fireEvent.keyDown(document, { code: 'Backspace' })
-    fireEvent.keyUp(document, { code: 'Backspace' })
+    fireEvent.keyDown(document, { code: 'KeyH' })
+    expect(sendInputMock.mock.calls).toEqual([[press('KeyT')], [press('KeyH')]])
+  })
+
+  test('the session key asks core for the next phone, once per press', async () => {
+    state.settings = { media: { cluster: true }, bindings: { cycleSession: 'KeyS' } }
+    await renderShell()
+    const heard = vi.fn()
+    window.addEventListener('livi-cycle-session', heard)
+    coreActionMock.mockReturnValueOnce(Promise.reject(new Error('core gone')))
+    fireEvent.keyDown(document, { code: 'KeyS' })
+    fireEvent.keyDown(document, { code: 'KeyS', repeat: true })
+    window.removeEventListener('livi-cycle-session', heard)
+    expect(coreActionMock.mock.calls).toEqual([[{ kind: 'nextDevice' }]])
+    expect(heard).toHaveBeenCalledTimes(1)
     expect(sendInputMock).not.toHaveBeenCalled()
+  })
+
+  test('keys stay in a text field while typing', async () => {
+    state.settings = { media: { cluster: true }, bindings: { clusterLayout: 'KeyT' } }
+    await renderShell()
+
+    const editable = Object.assign(document.createElement('div'), { tabIndex: 0 })
+    editable.setAttribute('contenteditable', 'true')
+    for (const field of [
+      document.createElement('textarea'),
+      document.createElement('input'),
+      editable
+    ]) {
+      document.body.appendChild(field)
+      field.focus()
+      fireEvent.keyDown(field, { code: 'KeyT' })
+      field.remove()
+    }
+    expect(sendInputMock).not.toHaveBeenCalled()
+
+    const box = Object.assign(document.createElement('input'), { type: 'checkbox' })
+    document.body.appendChild(box)
+    box.focus()
+    fireEvent.keyDown(box, { code: 'KeyT' })
+    box.remove()
+    expect(sendInputMock).toHaveBeenCalledWith(press('KeyT'))
   })
 
   test('keeps PTT engaged while the window stays visible', async () => {

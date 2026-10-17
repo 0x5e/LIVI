@@ -1,33 +1,29 @@
 import { usePaginationDots } from '@renderer/components/pages/telemetry/hooks/usePaginationDots'
-import { clamp } from '@renderer/utils'
 import type * as React from 'react'
 import { useCallback, useRef } from 'react'
 
 type UseKeyboardNavigationProps = {
-  dashboards: ArrayLike<unknown>
-  index: number
+  count: number
   isNavbarHidden: boolean
-  onSetIndex: React.Dispatch<React.SetStateAction<number>>
+  onStep: (by: -1 | 1) => void
 }
 
+/** Keys and swipes step through the dashboard's layouts, core wraps around at the ends. */
 export const useKeyboardNavigation = ({
-  dashboards,
-  index,
+  count,
   isNavbarHidden,
-  onSetIndex
+  onStep
 }: UseKeyboardNavigationProps) => {
   const startRef = useRef<{ x: number; y: number; t: number } | null>(null)
-  const pagerStateRef = useRef({ index: 0, len: 0 })
-
   const { revealDots } = usePaginationDots(isNavbarHidden)
 
-  const handleNavigate = useCallback(
-    (dir: -1 | 1) => {
-      if (dashboards.length <= 1) return
-      onSetIndex((prev) => clamp(prev + dir, 0, dashboards.length - 1))
+  const step = useCallback(
+    (by: -1 | 1) => {
+      if (count <= 1) return
+      onStep(by)
       revealDots()
     },
-    [dashboards.length, onSetIndex, revealDots]
+    [count, onStep, revealDots]
   )
 
   const handlePointerUp = useCallback(
@@ -48,10 +44,9 @@ export const useKeyboardNavigation = ({
       if (absY > absX * 0.8) return
       if (dt > 900) return
 
-      if (dx < 0) handleNavigate(1)
-      else handleNavigate(-1)
+      step(dx < 0 ? 1 : -1)
     },
-    [handleNavigate]
+    [step]
   )
 
   const handlePointerDown = useCallback((e: React.PointerEvent) => {
@@ -59,33 +54,15 @@ export const useKeyboardNavigation = ({
     startRef.current = { x: e.clientX, y: e.clientY, t: performance.now() }
   }, [])
 
-  pagerStateRef.current = { index, len: dashboards.length }
-
-  const prev = useCallback(() => {
-    const { index: i } = pagerStateRef.current
-    if (i <= 0) return
-    handleNavigate(-1)
-  }, [handleNavigate])
-
-  const next = useCallback(() => {
-    const { index: i, len } = pagerStateRef.current
-    if (len <= 0) return
-    if (i >= len - 1) return
-    handleNavigate(1)
-  }, [handleNavigate])
-
-  const canPrev = useCallback(() => pagerStateRef.current.index > 0, [])
-  const canNext = useCallback(() => {
-    const { index: i, len } = pagerStateRef.current
-    return len > 0 && i < len - 1
-  }, [])
+  const prev = useCallback(() => step(-1), [step])
+  const next = useCallback(() => step(1), [step])
+  const canStep = useCallback(() => count > 1, [count])
 
   return {
     prev,
     next,
-    canPrev,
-    canNext,
-    onNavigate: handleNavigate,
+    canPrev: canStep,
+    canNext: canStep,
     onPointerDown: handlePointerDown,
     onPointerUp: handlePointerUp
   }

@@ -129,14 +129,17 @@ fn current_names(file: &Value) -> Value {
             rename(screens, "dash", "cluster");
         }
     }
-    if let Some(Value::Object(slots)) = top.get_mut("dashboards") {
-        for i in 1..=4 {
-            let slot = format!("dashboard{i}");
-            rename(slots, &format!("dash{i}"), &slot);
-            if let Some(Value::Object(screens)) = slots.get_mut(&slot) {
-                rename(screens, "dash", "cluster");
-            }
-        }
+    if let Some(Value::Object(slots)) = top.remove("dashboards")
+        && !top.contains_key("dashboard")
+    {
+        let on = |screen: &str| {
+            slots.values().any(|slot| {
+                let flag = |name: &str| slot.get(name).and_then(Value::as_bool) == Some(true);
+                flag(screen) || (screen == "cluster" && flag("dash"))
+            })
+        };
+        let screens = ["main", "cluster", "aux"].map(|s| (s.to_string(), Value::Bool(on(s))));
+        top.insert("dashboard".to_string(), Value::Object(screens.into_iter().collect()));
     }
     file
 }
@@ -334,16 +337,19 @@ pub mod tests {
         assert_eq!(config.cluster_screen_bounds.map(|b| b.width), Some(1211));
         assert_eq!(config.kiosk, PerScreen { main: false, cluster: true, aux: false });
         assert!(config.media.cluster);
-        assert!(config.dashboards.dashboard2.cluster && config.dashboards.dashboard3.main);
-        assert!(config.dashboards.dashboard4.aux && !config.dashboards.dashboard1.cluster);
+        assert_eq!(
+            config.dashboard,
+            PerScreen { main: true, cluster: true, aux: true },
+            "a screen keeps the dashboard when any of the four was on there"
+        );
 
         let live = written(&dir, "LIVI/config.json");
         let text = live.to_string();
-        for old in ["\"dash\":", "\"dash1\":", "\"dash3\":", "\"dashScreen"] {
+        for old in ["\"dash\":", "\"dash1\":", "\"dashboards\"", "\"dashScreen"] {
             assert!(!text.contains(old), "{old} is left: {text}");
         }
         assert_eq!(live["clusterScreenWidth"], 1024);
-        assert_eq!(live["dashboards"]["dashboard3"]["cluster"], true);
+        assert_eq!(live["dashboard"]["cluster"], true);
     }
 
     #[test]

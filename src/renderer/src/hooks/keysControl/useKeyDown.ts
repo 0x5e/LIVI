@@ -5,7 +5,8 @@ import { useLocation } from 'react-router'
 import { CYCLE_SESSION_EVENT } from '../../constants'
 import { AppContext } from '../../context'
 import { broadcastMediaKey } from '../../utils/broadcastMediaKey'
-import type { BindKey, KeyCommand, useKeyDownProps } from './types'
+import { isTextEntry, NAVIGATION_KEYS } from './keys'
+import type { BindKey, useKeyDownProps } from './types'
 
 type RefLike<T> = { current: T | null }
 
@@ -91,7 +92,7 @@ export const useKeyDown = ({
       const isEnter = code === 'Enter' || code === 'NumpadEnter'
       const isSelectDown = code === (b?.selectDown || '')
 
-      if (code === (b?.cycleSession || 'KeyS') && !event.repeat && !isFormField(active)) {
+      if (code === (b?.cycleSession || 'KeyS') && !event.repeat && !isTextEntry(active)) {
         coreAction({ kind: 'nextDevice' }).catch(() => {})
         window.dispatchEvent(new Event(CYCLE_SESSION_EVENT))
         event.preventDefault()
@@ -155,15 +156,14 @@ export const useKeyDown = ({
         return
       }
 
-      if (settings && isCarPlayActive && mappedAction && !inNav && !formFocused) {
+      const inProjection = isCarPlayActive && !inNav
+      const navigation = !!mappedAction && NAVIGATION_KEYS.has(mappedAction)
+      if (settings && mappedAction && !isTextEntry(active) && (inProjection || !navigation)) {
         // PTT release is sent on keyup in App.
-        if (mappedAction === 'voiceAssistant' && event.repeat) {
-          event.preventDefault()
-          event.stopPropagation()
-          return
+        if (mappedAction !== 'voiceAssistant' || !event.repeat) {
+          sendInput({ kind: 'key', code, down: true })
+          broadcastMediaKey(mappedAction)
         }
-        sendInput({ kind: 'key', code, down: true })
-        broadcastMediaKey(mappedAction)
         event.preventDefault()
         event.stopPropagation()
         return
@@ -466,42 +466,6 @@ export const useKeyDown = ({
           event.stopPropagation()
         }
         return
-      }
-
-      const isTransport =
-        code === b?.next ||
-        code === b?.prev ||
-        code === b?.playPause ||
-        code === b?.play ||
-        code === b?.pause ||
-        code === b?.acceptPhone ||
-        code === b?.rejectPhone ||
-        code === b?.voiceAssistant
-
-      if (settings && !isCarPlayActive && isTransport && !formFocused) {
-        const action: KeyCommand =
-          code === b?.next
-            ? 'next'
-            : code === b?.prev
-              ? 'prev'
-              : code === b?.playPause
-                ? 'playPause'
-                : code === b?.play
-                  ? 'play'
-                  : code === b?.pause
-                    ? 'pause'
-                    : code === b?.acceptPhone
-                      ? 'acceptPhone'
-                      : code === b?.rejectPhone
-                        ? 'rejectPhone'
-                        : 'voiceAssistant'
-
-        if (action === 'voiceAssistant' && event.repeat) {
-          return
-        }
-
-        sendInput({ kind: 'key', code, down: true })
-        broadcastMediaKey(action)
       }
 
       if ((isLeft || isRight || isUp || isDown) && nothing) {

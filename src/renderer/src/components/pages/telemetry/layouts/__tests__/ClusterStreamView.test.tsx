@@ -7,15 +7,15 @@ vi.mock('@store/store', () => ({
     selector({ setClusterDashboardActive })
 }))
 
-import { Dashboard4 } from '../Dashboard4'
+import { ClusterStreamView } from '../ClusterStreamView'
 
-describe('Dashboard4', () => {
+describe('ClusterStreamView', () => {
   beforeEach(() => {
     setClusterDashboardActive.mockClear()
   })
 
   test('marks the cluster dashboard active on mount and inactive on unmount', () => {
-    const { unmount } = render(<Dashboard4 />)
+    const { unmount } = render(<ClusterStreamView />)
 
     expect(setClusterDashboardActive).toHaveBeenCalledWith(true)
 
@@ -26,7 +26,7 @@ describe('Dashboard4', () => {
   })
 
   test('renders an empty cluster-only box', () => {
-    const { container } = render(<Dashboard4 />)
+    const { container } = render(<ClusterStreamView />)
 
     expect(container.textContent).toBe('')
     expect(container.querySelector('div')).not.toBeNull()

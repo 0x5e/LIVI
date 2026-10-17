@@ -8,7 +8,7 @@ use livi_runtime::bonjour::Bonjour;
 use livi_runtime::bringup::{AskOnAir, CpConfig, run_accessory};
 use livi_runtime::bt;
 use livi_runtime::driver::{spawn_link, spawn_link_stream};
-use livi_runtime::ident::{Identity, Transport};
+use livi_runtime::ident::{Identity, Theme, Transport};
 use livi_runtime::livi_sock::{
     self, Bluez, Broadcaster, LiviSockConfig, SharedTag, pump_artwork, pump_events_for,
 };
@@ -245,6 +245,7 @@ async fn serve() -> Result<(), Box<dyn std::error::Error>> {
         ap_on_air: dongle_ap.then_some(livi_link_host::ap::on_air as AskOnAir),
         on_cable: None,
         start_again: None,
+        theme: Theme::parse(&std::env::var("LIVI_CP_THEME").unwrap_or_default()),
     };
     let pk = std::env::var("LIVI_CP_PK").unwrap_or_default();
     let pi = std::env::var("LIVI_CP_PI").unwrap_or_default();
@@ -283,7 +284,7 @@ async fn serve() -> Result<(), Box<dyn std::error::Error>> {
 
     let fuels = Fuels::parse(&std::env::var("LIVI_CP_FUELS").unwrap_or_default());
     let plugs = Plugs::parse(&std::env::var("LIVI_CP_CONNECTORS").unwrap_or_default());
-    let identity = Identity { name, ssid, bt_mac: [0; 6], fuels, plugs };
+    let identity = Identity { name, ssid, bt_mac: [0; 6], fuels, plugs, theme: cp.theme.clone() };
     let (bluez, bluez_later) = tokio::sync::watch::channel(None);
     let sock_cfg = LiviSockConfig {
         path: livi_sock::SOCK_PATH.into(),

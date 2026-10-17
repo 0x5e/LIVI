@@ -6,10 +6,11 @@ import { Telemetry } from '../Telemetry'
 const useLiviStoreMock = vi.fn()
 const useNavbarHiddenMock = vi.fn()
 const useKeyboardNavigationMock = vi.fn()
-const normalizeDashboardComponentsMock = vi.fn()
+const coreActionMock = vi.fn(() => Promise.resolve())
 
 vi.mock('@store/store', () => ({
-  useLiviStore: (selector: (state: { settings: unknown }) => unknown) => useLiviStoreMock(selector)
+  useLiviStore: (selector: (state: unknown) => unknown) => useLiviStoreMock(selector),
+  coreAction: (action: unknown) => coreActionMock(action)
 }))
 
 vi.mock('@renderer/hooks/useNavbarHidden', () => ({
@@ -20,15 +21,13 @@ vi.mock('../hooks/useKeyboardNavigation', () => ({
   useKeyboardNavigation: (args: unknown) => useKeyboardNavigationMock(args)
 }))
 
-vi.mock('@renderer/components/pages/telemetry/utils', () => ({
-  normalizeDashboardComponents: (...args: unknown[]) => normalizeDashboardComponentsMock(...args)
-}))
-
-vi.mock('@renderer/components/pages/telemetry/config', () => ({
-  DashboardConfig: {
-    dashboard1: React.createElement('div', { 'data-testid': 'dashboard-1' }, 'Dashboard 1'),
-    dashboard2: React.createElement('div', { 'data-testid': 'dashboard-2' }, 'Dashboard 2')
-  }
+vi.mock('../layouts/ClusterLayoutView', () => ({
+  ClusterLayoutView: ({ layout, accent }: { layout: string; accent?: string }) =>
+    React.createElement(
+      'div',
+      { 'data-testid': 'cluster-layout', 'data-accent': String(accent) },
+      layout
+    )
 }))
 
 vi.mock('@renderer/components/pages/telemetry/components/DashboardPlaceholder', () => ({
@@ -40,222 +39,169 @@ vi.mock('@renderer/components/pages/telemetry/components/pagination/pagination',
   DashboardsPagination: ({
     activeIndex,
     dotsLength,
-    onSetIndex,
-    isNavbarHidden
+    onSetIndex
   }: {
     activeIndex: number
     dotsLength: number
     onSetIndex: (index: number) => void
-    isNavbarHidden: boolean
   }) =>
     React.createElement(
-      'button',
-      {
-        'data-testid': 'pagination',
-        'data-active-index': activeIndex,
-        'data-dots-length': dotsLength,
-        'data-navbar-hidden': String(isNavbarHidden),
-        onClick: () => onSetIndex(1)
-      },
-      'pagination'
+      React.Fragment,
+      null,
+      React.createElement(
+        'button',
+        {
+          'data-testid': 'pagination',
+          'data-active-index': activeIndex,
+          'data-dots-length': dotsLength,
+          onClick: () => onSetIndex(1)
+        },
+        'pagination'
+      ),
+      React.createElement('button', {
+        'data-testid': 'past-end',
+        onClick: () => onSetIndex(dotsLength)
+      })
     )
 }))
 
 vi.mock('@renderer/context', async () => {
   const React = await import('react')
-  return {
-    AppContext: React.createContext({})
-  }
+  return { AppContext: React.createContext({}) }
 })
 
-const renderWithContext = (ui: React.ReactElement, value: Record<string, unknown> = {}) => {
-  return render(
-    <AppContext.Provider
-      value={
-        {
-          isTouchDevice: false,
-          ...(value as object)
-        } as any
-      }
-    >
+const theme = {
+  id: 'livi',
+  displays: [
+    { id: 'Center_Display', kind: 'center', layouts: [] },
+    {
+      id: 'Cluster_Display',
+      kind: 'cluster',
+      layouts: [
+        { id: 'a', name: 'A', palettes: ['default'], zones: [] },
+        { id: 'b', name: 'B', palettes: ['blue'], zones: [] },
+        { id: 'c', name: 'C', palettes: ['default'], zones: [] }
+      ]
+    }
+  ],
+  palettes: [{ id: 'blue', accentDark: '#63d2ffff', accentLight: '#57aaffff' }]
+}
+
+const withState = (layout: string, shown = ['a', 'b'], main = true) =>
+  useLiviStoreMock.mockImplementation((selector: (state: unknown) => unknown) =>
+    selector({
+      settings: { dashboard: { main, cluster: false, aux: false } },
+      cluster: { theme, layout, palette: 'blue', palettes: {}, shown, appearance: 'automatic' }
+    })
+  )
+
+const renderWithContext = (ui: React.ReactElement, value: Record<string, unknown> = {}) =>
+  render(
+    <AppContext.Provider value={{ isTouchDevice: false, ...value } as never}>
       {ui}
     </AppContext.Provider>
   )
-}
+
+const navigation = (overrides: Record<string, unknown> = {}) => ({
+  prev: vi.fn(),
+  next: vi.fn(),
+  canPrev: false,
+  canNext: false,
+  onPointerDown: vi.fn(),
+  onPointerUp: vi.fn(),
+  ...overrides
+})
 
 describe('Telemetry', () => {
-  beforeEach(async () => {
+  beforeEach(() => {
     vi.clearAllMocks()
-
-    useLiviStoreMock.mockImplementation((selector: (state: { settings: unknown }) => unknown) =>
-      selector({
-        settings: {
-          telemetryDashboards: [{ id: 'dashboard1', enabled: true, pos: 1 }]
-        }
-      })
-    )
-
-    useNavbarHiddenMock.mockReturnValue({ isNavbarHidden: false })
-
-    normalizeDashboardComponentsMock.mockReturnValue({
-      dashboards: [{ id: 'dashboard1', pos: 1 }]
-    })
-
-    useKeyboardNavigationMock.mockReturnValue({
-      prev: vi.fn(),
-      next: vi.fn(),
-      canPrev: false,
-      canNext: false,
-      onPointerDown: vi.fn(),
-      onPointerUp: vi.fn()
-    })
+    useNavbarHiddenMock.mockReturnValue({ isNavbarHidden: false, isNavPresent: true })
+    useKeyboardNavigationMock.mockReturnValue(navigation())
+    withState('a')
   })
 
-  test('renders fallback when no dashboards are enabled', async () => {
-    normalizeDashboardComponentsMock.mockReturnValue({ dashboards: [] })
-
+  test('shows the active layout in its palette colour and steps through the shown ones', () => {
+    coreActionMock.mockReturnValueOnce(Promise.reject(new Error('core gone')))
     renderWithContext(<Telemetry />)
-
-    expect(screen.getByTestId('dashboard-placeholder')).toHaveTextContent('No dashboards enabled')
+    expect(screen.getByTestId('cluster-layout')).toHaveTextContent('a')
+    expect(screen.getByTestId('cluster-layout')).toHaveAttribute('data-accent', '#57aaffff')
+    expect(screen.getByTestId('pagination')).toHaveAttribute('data-dots-length', '2')
+    fireEvent.click(screen.getByTestId('pagination'))
+    expect(coreActionMock).toHaveBeenCalledWith({ kind: 'selectClusterLayout', layout: 'b' })
   })
 
-  test('renders configured dashboard for current index', async () => {
+  test('keys and swipes ask core for a step', () => {
+    withState('b')
     renderWithContext(<Telemetry />)
-
-    expect(screen.getByTestId('dashboard-1')).toBeInTheDocument()
+    expect(screen.getByTestId('pagination')).toHaveAttribute('data-active-index', '1')
+    const { count, onStep } = useKeyboardNavigationMock.mock.calls.at(-1)?.[0] as {
+      count: number
+      onStep: (by: -1 | 1) => void
+    }
+    expect(count).toBe(2)
+    coreActionMock.mockReturnValueOnce(Promise.reject(new Error('core gone')))
+    onStep(-1)
+    expect(coreActionMock).toHaveBeenCalledWith({ kind: 'stepClusterLayout', by: -1 })
   })
 
-  test('renders unknown fallback when dashboard id is not in config', async () => {
-    normalizeDashboardComponentsMock.mockReturnValue({
-      dashboards: [{ id: 'unknownDash', pos: 1 }]
-    })
-
+  test('a dot past the end asks nothing', () => {
     renderWithContext(<Telemetry />)
-
-    expect(screen.getByTestId('dashboard-placeholder')).toHaveTextContent('Unknown dashboard')
+    fireEvent.click(screen.getByTestId('past-end'))
+    expect(coreActionMock).not.toHaveBeenCalled()
   })
 
-  test('renders pagination only when more than one dashboard exists', async () => {
-    normalizeDashboardComponentsMock.mockReturnValue({
-      dashboards: [
-        { id: 'dashboard1', pos: 1 },
-        { id: 'dashboard2', pos: 2 }
-      ]
-    })
-
+  test('a layout the phone picked shows although it is not offered', () => {
+    withState('c')
     renderWithContext(<Telemetry />)
-
-    expect(screen.getByTestId('pagination')).toBeInTheDocument()
+    expect(screen.getByTestId('cluster-layout')).toHaveTextContent('c')
+    expect(screen.getByTestId('pagination')).toHaveAttribute('data-active-index', '-1')
   })
 
-  test('does not render pagination when only one dashboard exists', async () => {
+  test('one offered layout needs no dots', () => {
+    withState('a', ['a'])
     renderWithContext(<Telemetry />)
-
     expect(screen.queryByTestId('pagination')).toBeNull()
   })
 
-  test('switches dashboard when pagination changes index', async () => {
-    normalizeDashboardComponentsMock.mockReturnValue({
-      dashboards: [
-        { id: 'dashboard1', pos: 1 },
-        { id: 'dashboard2', pos: 2 }
-      ]
-    })
-
+  test('a screen without the dashboard says so', () => {
+    withState('a', ['a', 'b'], false)
     renderWithContext(<Telemetry />)
-
-    expect(screen.getByTestId('dashboard-1')).toBeInTheDocument()
-
-    fireEvent.click(screen.getByTestId('pagination'))
-
-    expect(screen.getByTestId('dashboard-2')).toBeInTheDocument()
+    expect(screen.getByTestId('dashboard-placeholder')).toBeInTheDocument()
+    expect(screen.queryByTestId('cluster-layout')).toBeNull()
+    expect(screen.queryByTestId('pagination')).toBeNull()
   })
 
-  test('passes telemetry pager into app context and cleans up on unmount', async () => {
+  test('nothing shows before core answers', () => {
+    useLiviStoreMock.mockImplementation((selector: (state: unknown) => unknown) =>
+      selector({ settings: null, cluster: null })
+    )
+    renderWithContext(<Telemetry />)
+    expect(screen.queryByTestId('cluster-layout')).toBeNull()
+    expect(screen.getByTestId('dashboard-placeholder')).toBeInTheDocument()
+  })
+
+  test('passes the pager into the app context and takes it back on unmount', () => {
     const prev = vi.fn()
     const next = vi.fn()
     const onSetAppContext = vi.fn()
-
-    useKeyboardNavigationMock.mockReturnValue({
-      prev,
-      next,
-      canPrev: true,
-      canNext: true,
-      onPointerDown: vi.fn(),
-      onPointerUp: vi.fn()
-    })
-
+    useKeyboardNavigationMock.mockReturnValue(
+      navigation({ prev, next, canPrev: true, canNext: true })
+    )
     const { unmount } = renderWithContext(<Telemetry />, { onSetAppContext })
-
     expect(onSetAppContext).toHaveBeenCalledWith({
       telemetryPager: { prev, next, canPrev: true, canNext: true }
     })
-
     unmount()
-
-    expect(onSetAppContext).toHaveBeenLastCalledWith({
-      telemetryPager: undefined
-    })
+    expect(onSetAppContext).toHaveBeenLastCalledWith({ telemetryPager: undefined })
   })
 
-  test('does not try to register app context when onSetAppContext is missing', async () => {
-    renderWithContext(<Telemetry />, {})
-
-    expect(screen.getByTestId('dashboard-1')).toBeInTheDocument()
-  })
-
-  test('uses fixed positioning when navbar is hidden', async () => {
-    useNavbarHiddenMock.mockReturnValue({ isNavbarHidden: true })
-
-    const { container } = renderWithContext(<Telemetry />)
-
-    expect(container.firstChild).toHaveStyle({ position: 'fixed' })
-  })
-
-  test('falls back when the active index points past the available dashboards', async () => {
-    normalizeDashboardComponentsMock.mockReturnValue({
-      dashboards: [
-        { id: 'dashboard1', pos: 1 },
-        { id: 'dashboard2', pos: 2 }
-      ]
-    })
-
-    const { rerender } = renderWithContext(<Telemetry />)
-
-    fireEvent.click(screen.getByTestId('pagination'))
-    expect(screen.getByTestId('dashboard-2')).toBeInTheDocument()
-
-    normalizeDashboardComponentsMock.mockReturnValue({
-      dashboards: [{ id: 'dashboard1', pos: 1 }]
-    })
-
-    rerender(
-      <AppContext.Provider value={{ isTouchDevice: false } as any}>
-        <Telemetry />
-      </AppContext.Provider>
-    )
-
-    expect(screen.getByTestId('dashboard-1')).toBeInTheDocument()
-  })
-
-  test('wires pointer handlers from keyboard navigation hook', async () => {
+  test('wires the pointer handlers', () => {
     const onPointerDown = vi.fn()
     const onPointerUp = vi.fn()
-
-    useKeyboardNavigationMock.mockReturnValue({
-      prev: vi.fn(),
-      next: vi.fn(),
-      canPrev: false,
-      canNext: false,
-      onPointerDown,
-      onPointerUp
-    })
-
+    useKeyboardNavigationMock.mockReturnValue(navigation({ onPointerDown, onPointerUp }))
     const { container } = renderWithContext(<Telemetry />)
-
     fireEvent.pointerDown(container.firstChild as Element)
     fireEvent.pointerUp(container.firstChild as Element)
-
     expect(onPointerDown).toHaveBeenCalled()
     expect(onPointerUp).toHaveBeenCalled()
   })

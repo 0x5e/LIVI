@@ -5,12 +5,14 @@ use base64::Engine;
 use base64::engine::general_purpose::STANDARD;
 use livi_aa_stack::config::{AaConfig, Addresses as AaAddresses, Codecs};
 use livi_core_proto::config::{
-    AppearanceMode, ClusterContent, Config, DockPosition, HandDriveType,
+    AppearanceMode, CarType, ClusterContent, Config, DockPosition, HandDriveType,
 };
 use livi_core_proto::state::State;
-use livi_cp::info::{DisplayConfig, Icon, InfoConfig, Insets, mm_at_dpi};
+use livi_core_proto::theme::{DisplayKind, Theme};
+use livi_cp::info::{DisplayConfig, Icon, InfoConfig, Insets, ThemeDisplays, mm_at_dpi};
 use livi_cp::media::{AudioCodec, AudioRequest, AudioStream, Media, MicRequest, VideoStatus};
 use livi_cp::stack::StackConfig;
+use livi_cp::vehicle_state::{Engines, Rpm};
 use livi_host_proto::{PLANE_CLUSTER_RECV, PLANE_MAIN, PLANE_VIDEO, UrlStatus};
 use livi_media::compositor::Panel;
 use livi_media::gst_host::{self, GstHost, HostEvent};
@@ -207,10 +209,10 @@ fn even(v: u32) -> u32 {
     v - v % 2
 }
 
+/// A dashboard layout can show the phone's cluster stream on any screen that has the dashboard.
 pub fn cluster_displayed(cfg: &Config) -> bool {
-    [cfg.dashboards.dashboard3, cfg.dashboards.dashboard4]
-        .iter()
-        .any(|d| d.main || d.cluster || d.aux)
+    let d = cfg.dashboard;
+    d.main || d.cluster || d.aux
 }
 
 /// Sublinear, so a resolution step moves the phone one UI size class, not two.
@@ -290,6 +292,7 @@ pub fn stack_config(
     screen: Option<Panel>,
     hevc: bool,
     addresses: &Addresses,
+    theme: &Theme,
 ) -> StackConfig {
     let or = |v: u32, d: u32| if v == 0 { d } else { v };
     let (main_w, main_h) =
@@ -330,6 +333,7 @@ pub fn stack_config(
             oem_label: if cfg.oem_name.trim().is_empty() { name } else { cfg.oem_name.clone() },
             icons: icons(cfg),
             right_hand_drive: cfg.hand == HandDriveType::Rhd,
+            theme_displays: theme_displays(cfg, theme),
             device_id: addresses.device_id.clone(),
             bt_mac: addresses.bt_mac.clone(),
             source_version: if source.is_empty() {
@@ -371,6 +375,51 @@ pub fn stack_config(
         app_version: option_env!("LIVI_VERSION").unwrap_or_default().into(),
         app_build_date: option_env!("LIVI_BUILD_DATE").unwrap_or_default().into(),
         cluster_url: cluster_url(cfg),
+        vehicle_variant: cfg.car_play_vehicle_model.clone(),
+        engines: engines(cfg),
+        // Both zones start empty, the car shows its views when there is a reason.
+        cluster_content: theme_displays(cfg, theme).map(|names| {
+            livi_cp::vehicle_state::ClusterContent {
+                panel: names.cluster,
+                zones: [String::new(), String::new()],
+            }
+        }),
+    }
+}
+
+/// The display names of the theme the cluster runs, only while the phone draws a car maker's
+/// theme.
+fn theme_displays(cfg: &Config, cluster: &Theme) -> Option<ThemeDisplays> {
+    if cfg.car_play_theme.is_empty() {
+        return None;
+    }
+    let id = |kind| cluster.displays.iter().find(|d| d.kind == kind).map(|d| d.id.clone());
+    Some(ThemeDisplays { main: id(DisplayKind::Center)?, cluster: id(DisplayKind::Cluster)? })
+}
+
+fn engines(cfg: &Config) -> Engines {
+    use CarType::*;
+    let combustion = matches!(
+        cfg.car_type,
+        Some(
+            Gasoline
+                | DieselWinter
+                | Diesel
+                | Biodiesel
+                | E85
+                | Lpg
+                | Cng
+                | Lng
+                | HybridGasoline
+                | HybridDiesel
+        )
+    );
+    let electric =
+        matches!(cfg.car_type, Some(Electric | Hydrogen | HybridGasoline | HybridDiesel));
+    Engines {
+        combustion: combustion
+            .then(|| Rpm { max: cfg.max_rpm, redline: cfg.redline_rpm.min(cfg.max_rpm) }),
+        electric,
     }
 }
 
@@ -444,9 +493,12 @@ impl ConfigSource {
             bt_mac: hwaddr::FALLBACK.into(),
             access_point: None,
         };
-        let cfg = state.borrow().config.clone();
+        let (cfg, cluster) = {
+            let s = state.borrow();
+            (s.config.clone(), s.cluster.theme.clone())
+        };
         let screen = host::screen_panel();
-        let first = stack_config(&cfg, &panels.borrow(), screen, false, &addresses);
+        let first = stack_config(&cfg, &panels.borrow(), screen, false, &addresses, &cluster);
         let (tx, rx) = watch::channel(first);
         let (aa, aa_rx) = watch::channel(aa_config(&cfg, Codecs::default(), &addresses));
         let source = Arc::new(Self {
@@ -464,7 +516,10 @@ impl ConfigSource {
 
     /// Blocks on the dongle while it is asked for its access point.
     pub fn refresh(&self) {
-        let cfg = self.state.borrow().config.clone();
+        let (cfg, cluster) = {
+            let s = self.state.borrow();
+            (s.config.clone(), s.cluster.theme.clone())
+        };
         let found = {
             let mut told = self.told.lock().unwrap_or_else(|e| e.into_inner());
             Addresses {
@@ -492,7 +547,14 @@ impl ConfigSource {
             known.clone()
         };
         let codecs = *self.codecs.lock().unwrap_or_else(|e| e.into_inner());
-        let next = stack_config(&cfg, &self.panels.borrow(), self.screen, codecs.hevc, &addresses);
+        let next = stack_config(
+            &cfg,
+            &self.panels.borrow(),
+            self.screen,
+            codecs.hevc,
+            &addresses,
+            &cluster,
+        );
         self.tx.send_if_modified(|cur| {
             let changed = *cur != next;
             *cur = next;
@@ -556,6 +618,7 @@ impl ConfigSource {
 #[cfg(test)]
 mod tests {
     use livi_core_proto::config::defaults;
+    use livi_core_proto::theme::livi_theme;
 
     use super::*;
 
@@ -584,9 +647,8 @@ mod tests {
         cfg.hand = HandDriveType::Rhd;
         cfg.sampling_frequency = 1;
         cfg.audio_output_device = Some("sink".into());
-        cfg.dashboards.dashboard3.main = false;
-        cfg.dashboards.dashboard4.main = false;
-        let sc = stack_config(&cfg, &panels(), None, true, &addresses());
+        cfg.dashboard.main = false;
+        let sc = stack_config(&cfg, &panels(), None, true, &addresses(), &livi_theme());
         assert_eq!(sc.info.main.width_pixels, 1280);
         assert_eq!(sc.info.main.height_pixels, 720);
         assert_eq!(sc.info.main.width_physical_mm, Some(300));
@@ -617,9 +679,9 @@ mod tests {
         cfg.projection_width = 0;
         cfg.projection_height = 0;
         cfg.car_play_source_version = String::new();
-        cfg.dashboards.dashboard3.cluster = true;
+        cfg.dashboard.cluster = true;
         cfg.carplay_icon120 = Some("not base64!".into());
-        let sc = stack_config(&cfg, &HashMap::new(), None, false, &addresses());
+        let sc = stack_config(&cfg, &HashMap::new(), None, false, &addresses(), &livi_theme());
         assert_eq!(sc.info.main.width_pixels, 1920);
         assert_eq!(sc.info.main.width_physical_mm, None);
         assert!(sc.info.cluster.is_some());
@@ -643,8 +705,35 @@ mod tests {
             "maps:/car/instrumentcluster?showCompass=no&showETA=no&showSpeedLimit=no"
         );
         cfg.car_play_cluster_content = ClusterContent::Maneuver;
-        let sc = stack_config(&cfg, &HashMap::new(), None, false, &addresses());
+        let sc = stack_config(&cfg, &HashMap::new(), None, false, &addresses(), &livi_theme());
         assert_eq!(sc.cluster_url, "maps:/car/instrumentcluster/instructioncard");
+        assert_eq!(sc.vehicle_variant, "");
+        cfg.car_play_theme = "44C9FA31EC:985:19.0".into();
+        cfg.car_play_vehicle_model = "DB12Coupe".into();
+        let sc = stack_config(&cfg, &HashMap::new(), None, false, &addresses(), &livi_theme());
+        assert_eq!(sc.vehicle_variant, "DB12Coupe", "the theme's car, the phone picks LHD or RHD");
+        let names = sc.info.theme_displays.unwrap();
+        assert_eq!(
+            (names.main.as_str(), names.cluster.as_str()),
+            ("Center_Display", "Cluster_Display")
+        );
+        assert!(sc.cluster_content.is_some());
+    }
+
+    #[test]
+    fn the_car_type_names_its_engines() {
+        let mut cfg = defaults();
+        cfg.car_type = Some(CarType::Diesel);
+        cfg.max_rpm = 7000;
+        cfg.redline_rpm = 9000;
+        let rpm = Some(Rpm { max: 7000, redline: 7000 });
+        assert_eq!(engines(&cfg), Engines { combustion: rpm, electric: false });
+        cfg.car_type = Some(CarType::HybridGasoline);
+        assert_eq!(engines(&cfg), Engines { combustion: rpm, electric: true });
+        cfg.car_type = Some(CarType::Electric);
+        assert_eq!(engines(&cfg), Engines { combustion: None, electric: true });
+        cfg.car_type = None;
+        assert_eq!(engines(&cfg), Engines::default());
     }
 
     #[test]
@@ -672,7 +761,7 @@ mod tests {
     fn the_dock_position_picks_the_status_bar_edge() {
         let mut cfg = livi_core_proto::config::defaults();
         let edge = |cfg: &Config| {
-            let sc = stack_config(cfg, &HashMap::new(), None, false, &addresses());
+            let sc = stack_config(cfg, &HashMap::new(), None, false, &addresses(), &livi_theme());
             sc.info.main.status_bar_edge
         };
         assert_eq!(edge(&cfg), Some(1));
@@ -700,7 +789,10 @@ mod tests {
         cfg.projection_width = 1920;
         cfg.projection_height = 1080;
         let main = |cfg: &Config, panels: &HashMap<String, Panel>| {
-            stack_config(cfg, panels, Some(screen), false, &addresses()).info.main.width_physical_mm
+            stack_config(cfg, panels, Some(screen), false, &addresses(), &livi_theme())
+                .info
+                .main
+                .width_physical_mm
         };
         assert_eq!(main(&cfg, &HashMap::new()), Some(286));
         assert_eq!(main(&cfg, &panels()), Some(407));

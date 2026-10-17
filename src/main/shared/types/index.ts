@@ -3,8 +3,6 @@ export type {
   CanFrame,
   Climate,
   Config,
-  DashboardSlot,
-  Dashboards,
   GnssAntennaPower,
   GnssAntennaStatus,
   GnssConstellation,

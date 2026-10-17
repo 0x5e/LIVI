@@ -1,28 +1,18 @@
 import { Box, Typography } from '@mui/material'
 import type { Screen } from '@shared/types'
 import { ROUTES } from '@shared/types'
-import { isClusterOnScreen } from '@shared/utils'
 import { useEffect, useRef } from 'react'
 import { MemoryRouter, Route, Routes } from 'react-router'
+import { CYCLE_SESSION_EVENT } from '../../constants'
+import { isTextEntry, NAVIGATION_KEYS } from '../../hooks/keysControl/keys'
 import type { BindKey } from '../../hooks/keysControl/types'
-import { reportShown, sendInput, useLiviStore, useStatusStore } from '../../store/store'
+import { coreAction, reportShown, sendInput, useLiviStore, useStatusStore } from '../../store/store'
 import { broadcastMediaKey } from '../../utils/broadcastMediaKey'
 import { AppLayout } from '../layouts/AppLayout'
 import { Camera } from '../pages/camera'
 import { Cluster } from '../pages/cluster/Cluster'
 import { Media } from '../pages/media'
 import { Telemetry } from '../pages/telemetry'
-
-const TRANSPORT_ACTIONS: BindKey[] = [
-  'next',
-  'prev',
-  'playPause',
-  'play',
-  'pause',
-  'acceptPhone',
-  'rejectPhone',
-  'home'
-]
 
 type Props = {
   role: Exclude<Screen, 'main'>
@@ -32,9 +22,7 @@ type Props = {
 export const SecondaryAppShell = ({ role, emptyLabel }: Props) => {
   const settings = useLiviStore((s) => s.settings)
 
-  const hasTelemetry =
-    !!settings?.dashboards &&
-    Object.values(settings.dashboards).some((slot) => slot?.[role] === true)
+  const hasTelemetry = settings?.dashboard?.[role] === true
   const hasMedia = settings?.media?.[role] === true
   const hasCamera = settings?.camera?.[role] === true
 
@@ -75,7 +63,8 @@ const SecondaryShellInner = ({ role }: InnerProps) => {
   const mainRef = useRef<HTMLDivElement | null>(null)
   const settings = useLiviStore((s) => s.settings)
   const clusterDashboardActive = useStatusStore((s) => s.clusterDashboardActive)
-  const hasClusterDashboard = isClusterOnScreen(settings, role)
+  // Any dashboard layout can put the cluster stream behind it.
+  const hasClusterDashboard = settings?.dashboard?.[role] === true
 
   // Core puts the cluster plane on this screen while a cluster dashboard shows
   useEffect(() => {
@@ -113,23 +102,20 @@ const SecondaryShellInner = ({ role }: InnerProps) => {
 
     const onKeyDown = (e: KeyboardEvent) => {
       const action = codeToAction.get(e.code)
-      if (!action) return
-
-      if (action === 'voiceAssistant') {
-        if (e.repeat) {
-          e.preventDefault()
-          return
+      if (!action || NAVIGATION_KEYS.has(action) || isTextEntry(document.activeElement)) return
+      e.preventDefault()
+      if (action === 'cycleSession') {
+        if (!e.repeat) {
+          coreAction({ kind: 'nextDevice' }).catch(() => {})
+          window.dispatchEvent(new Event(CYCLE_SESSION_EVENT))
         }
-        pttCode = e.code
-        dispatch(e.code, true, 'voiceAssistant')
-        e.preventDefault()
         return
       }
-
-      if (TRANSPORT_ACTIONS.includes(action)) {
-        dispatch(e.code, true, action)
-        e.preventDefault()
+      if (action === 'voiceAssistant') {
+        if (e.repeat) return
+        pttCode = e.code
       }
+      dispatch(e.code, true, action)
     }
 
     const onKeyUp = (e: KeyboardEvent) => {

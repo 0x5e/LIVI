@@ -3,8 +3,8 @@ import { speedIn } from '@renderer/utils/units'
 import { CarType, DEFAULT_CONFIG } from '@shared/types'
 import { useLiviStore, useStatusStore } from '@store/store'
 import { type ReactNode, useEffect, useMemo, useState } from 'react'
-import { DashboardShell } from '../../components/DashboardShell'
-import { useVehicleTelemetry } from '../../hooks/useVehicleTelemetry'
+import { DashboardShell } from '../components/DashboardShell'
+import { useVehicleTelemetry } from '../hooks/useVehicleTelemetry'
 import {
   FuelGauge,
   GaugeArc,
@@ -13,7 +13,7 @@ import {
   SoftReadout,
   TelltaleBar,
   TempGauge
-} from '../../widgets'
+} from '../widgets'
 import {
   BASE_H,
   BASE_W,
@@ -30,8 +30,8 @@ import {
   RING_H,
   RING_TOP,
   RING_W
-} from '../constants'
-import { gaugeScale, RPM_MAX_SECTIONS, RPM_STEP, SPEED_MAX_SECTIONS } from '../gaugeScale'
+} from './constants'
+import { gaugeScale, RPM_MAX_SECTIONS, RPM_STEP, SPEED_MAX_SECTIONS } from './gaugeScale'
 
 const clamp = (v: number, lo: number, hi: number): number => Math.max(lo, Math.min(hi, v))
 
@@ -56,6 +56,8 @@ export type DashboardFrameProps = {
   /** The cluster map fills the whole background and each instrument floats over it; a soft
       elliptical backdrop behind each gauge keeps the readouts legible over the map. */
   clusterFull?: boolean
+  /** The layout's palette colour for the pointers and major ticks. */
+  accent?: string
 }
 
 /**
@@ -63,8 +65,10 @@ export type DashboardFrameProps = {
  * 1280×720 stage over a dark backdrop. The centre is a slot (pass mini-nav or full nav as
  * `children`); set `clusterFull` to drop the backdrop so the cluster plane shows behind.
  */
-export function DashboardFrame({ children, clusterFull }: DashboardFrameProps) {
+export function DashboardFrame({ children, clusterFull, accent }: DashboardFrameProps) {
   const theme = useTheme()
+  const pointerColor = accent ?? theme.palette.text.primary
+  const majorColor = accent ?? theme.palette.text.secondary
   const { telemetry } = useVehicleTelemetry()
   const isClusterDashboard = clusterFull === true
   const setClusterDashboardActive = useStatusStore((s) => s.setClusterDashboardActive)
@@ -212,8 +216,8 @@ export function DashboardFrame({ children, clusterFull }: DashboardFrameProps) {
                 majorCount={speedScale.majorCount}
                 labels={speedScale.labels}
                 colorScale={theme.palette.text.disabled}
-                colorMajor={theme.palette.text.secondary}
-                colorPointer={theme.palette.text.primary}
+                colorMajor={majorColor}
+                colorPointer={pointerColor}
                 colorRedline={theme.palette.error.main}
                 shadow={clusterFull}
                 shadowColor={calShadowColor}
@@ -263,8 +267,8 @@ export function DashboardFrame({ children, clusterFull }: DashboardFrameProps) {
                 labels={rpmScale.labels}
                 mirror
                 colorScale={theme.palette.text.disabled}
-                colorMajor={theme.palette.text.secondary}
-                colorPointer={theme.palette.text.primary}
+                colorMajor={majorColor}
+                colorPointer={pointerColor}
                 colorRedline={theme.palette.error.main}
                 shadow={clusterFull}
                 shadowColor={calShadowColor}

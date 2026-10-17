@@ -1,16 +1,15 @@
 import { Box, useTheme } from '@mui/material'
 import { DashboardPlaceholder } from '@renderer/components/pages/telemetry/components/DashboardPlaceholder'
 import { DashboardsPagination } from '@renderer/components/pages/telemetry/components/pagination/pagination'
-import { DashboardConfig } from '@renderer/components/pages/telemetry/config'
-import { normalizeDashboardComponents } from '@renderer/components/pages/telemetry/utils'
 import { AppContext } from '@renderer/context'
 import { useNavbarHidden } from '@renderer/hooks/useNavbarHidden'
 import type { Screen } from '@shared/types'
-import { useLiviStore } from '@store/store'
-import { clamp } from '@utils/index'
+import { coreAction, useLiviStore } from '@store/store'
 import * as React from 'react'
-import { FC, useContext, useEffect, useState } from 'react'
+import { FC, useCallback, useContext } from 'react'
 import { useKeyboardNavigation } from './hooks/useKeyboardNavigation'
+import { ClusterLayoutView } from './layouts/ClusterLayoutView'
+import { clusterAccent, clusterLayouts, shownLayouts } from './layouts/clusterLayouts'
 
 type TelemetryProps = {
   windowRole?: Screen
@@ -19,21 +18,30 @@ type TelemetryProps = {
 export const Telemetry: FC<TelemetryProps> = ({ windowRole = 'main' }) => {
   const theme = useTheme()
   const settings = useLiviStore((s) => s.settings)
+  const cluster = useLiviStore((s) => s.cluster)
   const { onSetAppContext } = useContext(AppContext)
-  const [index, setIndex] = useState(0)
 
-  const { dashboards } = normalizeDashboardComponents(settings?.dashboards, windowRole)
+  const enabled = settings?.dashboard?.[windowRole] === true
+  const layouts = shownLayouts(cluster)
+  const active = clusterLayouts(cluster).find((l) => l.id === cluster?.layout)
+  const index = layouts.findIndex((l) => l.id === cluster?.layout)
+  const select = useCallback(
+    (i: number) => {
+      const layout = layouts[i]
+      if (layout) coreAction({ kind: 'selectClusterLayout', layout: layout.id }).catch(() => {})
+    },
+    [layouts]
+  )
+  const step = useCallback(
+    (by: -1 | 1) => coreAction({ kind: 'stepClusterLayout', by }).catch(() => {}),
+    []
+  )
   const { isNavbarHidden, isNavPresent } = useNavbarHidden()
   const { prev, next, canPrev, canNext, onPointerDown, onPointerUp } = useKeyboardNavigation({
-    dashboards,
+    count: layouts.length,
     isNavbarHidden,
-    index,
-    onSetIndex: setIndex
+    onStep: step
   })
-
-  useEffect(() => {
-    setIndex((prev) => clamp(prev, 0, Math.max(0, dashboards.length - 1)))
-  }, [dashboards.length])
 
   React.useEffect(() => {
     if (!onSetAppContext) return
@@ -51,32 +59,6 @@ export const Telemetry: FC<TelemetryProps> = ({ windowRole = 'main' }) => {
     }
   }, [onSetAppContext, prev, next, canPrev, canNext])
 
-  const DashboardFallback = ({ message }: { message?: string }) => {
-    const msg = message || 'Unknown dashboard'
-    return (
-      <Box
-        sx={{
-          position: 'absolute',
-          inset: 0,
-          backgroundColor: theme.palette.background.default,
-          display: 'grid',
-          placeItems: 'center',
-          opacity: 0.8
-        }}
-      >
-        <DashboardPlaceholder title={msg} />
-      </Box>
-    )
-  }
-
-  const renderDashboard = () => {
-    return dashboards.map((d) => ({
-      id: d.id,
-      pos: d.pos,
-      Component: DashboardConfig[d.id as keyof typeof DashboardConfig] || <DashboardFallback />
-    }))
-  }
-
   return (
     <Box
       id="telemetry-root"
@@ -91,17 +73,32 @@ export const Telemetry: FC<TelemetryProps> = ({ windowRole = 'main' }) => {
       onPointerDown={onPointerDown}
       onPointerUp={onPointerUp}
     >
-      {dashboards.length ? (
-        <>{renderDashboard()[index]?.Component || <DashboardFallback />}</>
-      ) : (
-        <DashboardFallback message="No dashboards enabled" />
+      {!enabled && (
+        <Box
+          sx={{
+            position: 'absolute',
+            inset: 0,
+            display: 'grid',
+            placeItems: 'center',
+            opacity: 0.8
+          }}
+        >
+          <DashboardPlaceholder title="No dashboard on this screen" />
+        </Box>
       )}
 
-      {dashboards.length > 1 && (
+      {enabled && active && (
+        <ClusterLayoutView
+          layout={active.id}
+          accent={clusterAccent(cluster, theme.palette.mode === 'dark')}
+        />
+      )}
+
+      {enabled && layouts.length > 1 && (
         <DashboardsPagination
           activeIndex={index}
-          dotsLength={Number(dashboards.length)}
-          onSetIndex={setIndex}
+          dotsLength={layouts.length}
+          onSetIndex={select}
           isNavbarHidden={isNavbarHidden}
           isNavPresent={isNavPresent}
         />

@@ -68,6 +68,7 @@ fn identity() -> Identity {
         bt_mac: [0xAA, 0xBB, 0xCC, 0x11, 0x22, 0x33],
         fuels: Fuels::parse("Gasoline"),
         plugs: Plugs::default(),
+        theme: None,
     }
 }
 
@@ -88,6 +89,7 @@ fn cp_config() -> CpConfig {
         available_current_ma: 500,
         on_cable: None,
         start_again: None,
+        theme: None,
     }
 }
 

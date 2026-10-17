@@ -62,6 +62,7 @@ fn info_config() -> InfoConfig {
             png: vec![0x89, 0x50, 0x4e, 0x47],
         }],
         right_hand_drive: true,
+        theme_displays: None,
     }
 }
 

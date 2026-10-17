@@ -487,13 +487,6 @@ export const videoSchema: SettingsNode<Config> = {
           path: 'carPlayClusterSpeedLimit'
         }
       ]
-    },
-    {
-      type: 'checkbox',
-      label: 'CarPlay HLS Video Playback',
-      labelKey: 'settings.carPlayHlsVideo',
-      icon: 'media',
-      path: 'carPlayHlsVideo'
     }
   ]
 }

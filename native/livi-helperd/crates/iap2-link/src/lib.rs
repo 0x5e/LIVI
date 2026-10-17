@@ -33,6 +33,56 @@ fn distance(a: u8, b: Option<u8>) -> u16 {
     }
 }
 
+/// Returns the session name used in diagnostics.
+fn session_name(id: u8) -> String {
+    match id {
+        CONTROL_SESSION_ID => format!("control session {id}"),
+        EA_SESSION_ID => format!("ea session {id}"),
+        FILE_TRANSFER_SESSION_ID => format!("file transfer session {id}"),
+        _ => format!("session {id}"),
+    }
+}
+
+/// Returns the name of the control message carried by `data`.
+///
+/// A control-session payload is a CSM frame — start word, length, message id —
+/// so the id in its header identifies the message. Payloads on the EA and
+/// file-transfer sessions are not CSM frames, and a payload that does not begin
+/// with the start word carries no id; both return `None`.
+fn message_label(session_id: u8, data: &[u8]) -> Option<String> {
+    if session_id != CONTROL_SESSION_ID {
+        return None;
+    }
+    let [h0, h1, _, _, id0, id1, ..] = data else {
+        return None;
+    };
+    if u16::from_be_bytes([*h0, *h1]) != iap2_csm::CSM_START {
+        return None;
+    }
+    let id = u16::from_be_bytes([*id0, *id1]);
+    Some(match iap2_csm::message_name(id) {
+        Some(name) => format!("{name} 0x{id:04X}"),
+        None => format!("0x{id:04X}"),
+    })
+}
+
+/// Formats the reason reported when `p` is abandoned: the session it was sent
+/// on, the message it carried, and how long it waited for an acknowledgement.
+fn gave_up_on(p: &Packet, now: u64) -> String {
+    let waited = now.saturating_sub(p.first_sent) as f64 / 1000.0;
+    let label = match message_label(p.session_id, &p.data) {
+        Some(label) => format!(", {label}"),
+        None => String::new(),
+    };
+    format!(
+        "unacknowledged psn={} ({}{label}, {} bytes) after {} resends over {waited:.1} s",
+        p.psn,
+        session_name(p.session_id),
+        p.data.len(),
+        p.counter,
+    )
+}
+
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct LinkPacketHeader {
     pub length: u16,
@@ -174,6 +224,9 @@ struct Packet {
     data: Vec<u8>,
     counter: u8,
     timeout: u64,
+    /// Time the packet was first sent, so an abandoned packet can report how
+    /// long it waited.
+    first_sent: u64,
 }
 
 #[derive(Debug)]
@@ -404,7 +457,10 @@ impl LinkEngine {
     }
 
     pub fn send(&mut self, session_id: u8, data: Vec<u8>, now: u64) {
-        self.send_packet(Packet { psn: 0, session_id, data, counter: 0, timeout: 0 }, now);
+        self.send_packet(
+            Packet { psn: 0, session_id, data, counter: 0, timeout: 0, first_sent: 0 },
+            now,
+        );
     }
 
     pub fn send_ea(&mut self, stream_id: u16, data: &[u8], now: u64) {
@@ -493,6 +549,7 @@ impl LinkEngine {
         p.counter = 0;
         p.psn = self.sent_psn;
         p.timeout = now + self.lsp.retransmission_timeout as u64;
+        p.first_sent = now;
         self.send_ack_deadline = None;
         self.send_data(p.psn, p.session_id, &p.data);
         self.last_acked_psn = Some(self.last_received_in_sequence_psn);
@@ -521,7 +578,7 @@ impl LinkEngine {
         if header.control & CONTROL_EAK != 0
             && let Some(p) = &payload
         {
-            self.handle_eak(p.clone());
+            self.handle_eak(p.clone(), now);
         }
         if header.control & !CONTROL_ACK == 0
             && let Some(data) = payload
@@ -533,6 +590,7 @@ impl LinkEngine {
                     data,
                     counter: 0,
                     timeout: 0,
+                    first_sent: 0,
                 },
                 now,
             );
@@ -600,14 +658,15 @@ impl LinkEngine {
             (p.psn, p.session_id, p.data.clone(), p.counter, p.timeout)
         };
         if counter == self.lsp.max_retransmissions {
-            self.bailout(Some(format!("unacknowledged packet psn={psn}")));
+            let reason = gave_up_on(&self.unack_packets[first], now);
+            self.bailout(Some(reason));
             return;
         }
         self.send_data(psn, session_id, &data);
         self.recv_ack_deadline = Some(second_timeout.unwrap_or(timeout));
     }
 
-    fn handle_eak(&mut self, missing: Vec<u8>) {
+    fn handle_eak(&mut self, missing: Vec<u8>, now: u64) {
         if self.state != LinkState::Normal {
             return;
         }
@@ -617,8 +676,8 @@ impl LinkEngine {
             }
             self.unack_packets[i].counter += 1;
             if self.unack_packets[i].counter == self.lsp.max_retransmissions {
-                let psn = self.unack_packets[i].psn;
-                self.bailout(Some(format!("unacknowledged packet psn={psn}")));
+                let reason = gave_up_on(&self.unack_packets[i], now);
+                self.bailout(Some(reason));
                 continue;
             }
             let (psn, session_id, data, timeout) = {
@@ -694,5 +753,25 @@ impl LinkEngine {
             FILE_TRANSFER_SESSION_ID => self.events.push_back(Event::FileTransfer(p.data)),
             _ => {}
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    /// Only a CSM frame on the control session yields a message name.
+    #[test]
+    fn non_csm_payloads_have_no_message_name() {
+        assert_eq!(message_label(CONTROL_SESSION_ID, &[7; 32]), None);
+        assert_eq!(message_label(EA_SESSION_ID, &[0x40, 0x40, 0, 6, 0x43, 0x01]), None);
+        assert_eq!(
+            message_label(CONTROL_SESSION_ID, &[0x40, 0x40, 0, 6, 0x43, 0x01]).as_deref(),
+            Some("CarPlayStartSession 0x4301")
+        );
+        assert_eq!(
+            message_label(CONTROL_SESSION_ID, &[0x40, 0x40, 0, 6, 0x99, 0x99]).as_deref(),
+            Some("0x9999")
+        );
     }
 }

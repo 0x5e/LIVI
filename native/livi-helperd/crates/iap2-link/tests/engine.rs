@@ -196,3 +196,30 @@ fn resync_skips_garbage() {
 fn hex(s: &str) -> Vec<u8> {
     (0..s.len()).step_by(2).map(|i| u8::from_str_radix(&s[i..i + 2], 16).unwrap()).collect()
 }
+
+/// An abandoned packet reports the message it carried and how long it waited.
+#[test]
+fn abandoned_packet_reports_its_message_name() {
+    let mut e = handshaken();
+    e.send(CONTROL_SESSION_ID, hex("404000064301"), 0);
+
+    let mut now = 0;
+    while e.state() != LinkState::Dead && now < 60_000 {
+        now += 1000;
+        e.advance_time(now);
+    }
+
+    let mut reason = None;
+    while let Some(ev) = e.poll_event() {
+        if let Event::Dead { reason: r } = ev {
+            reason = r;
+        }
+    }
+    assert_eq!(
+        reason.as_deref(),
+        Some(
+            "unacknowledged psn=100 (control session 10, CarPlayStartSession 0x4301, 6 bytes) \
+             after 3 resends over 3.0 s"
+        )
+    );
+}

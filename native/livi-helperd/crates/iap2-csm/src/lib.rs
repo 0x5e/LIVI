@@ -4,6 +4,61 @@ pub mod messages;
 
 pub const CSM_START: u16 = 0x4040;
 
+/// Returns the name of the message type that `id` identifies.
+///
+/// The name is the one the corresponding type in [`messages`] declares. Returns
+/// `None` for an id that this crate does not model.
+pub fn message_name(id: u16) -> Option<&'static str> {
+    Some(match id {
+        0x1D00 => "StartIdentification",
+        0x1D01 => "IdentificationInformation",
+        0x1D02 => "IdentificationAccepted",
+        0x1D03 => "IdentificationRejected",
+        0x4154 => "StartCallStateUpdates",
+        0x4155 => "CallStateUpdate",
+        0x4156 => "StopCallStateUpdates",
+        0x4157 => "StartCommunicationsUpdates",
+        0x4158 => "CommunicationsUpdate",
+        0x4159 => "StopCommunicationsUpdates",
+        0x4300 => "CarPlayAvailability",
+        0x4301 => "CarPlayStartSession",
+        0x4E0B => "DeviceTimeUpdate",
+        0x4E0D => "WirelessCarPlayUpdate",
+        0x4E0E => "DeviceTransportIdentifierNotification",
+        0x5000 => "StartNowPlayingUpdates",
+        0x5001 => "NowPlayingUpdate",
+        0x5002 => "StopNowPlayingUpdates",
+        0x5200 => "StartRouteGuidanceUpdates",
+        0x5201 => "RouteGuidanceUpdate",
+        0x5202 => "RouteGuidanceManeuverUpdate",
+        0x5203 => "StopRouteGuidanceUpdates",
+        0x5700 => "RequestWiFiInformation",
+        0x5701 => "WiFiInformation",
+        0x5702 => "RequestAccessoryWiFiConfigurationInformation",
+        0x5703 => "AccessoryWiFiConfigurationInformation",
+        0xA100 => "StartVehicleStatusUpdates",
+        0xA101 => "VehicleStatusUpdate",
+        0xA102 => "StopVehicleStatusUpdates",
+        0xAA00 => "RequestAuthenticationCertificate",
+        0xAA01 => "AuthenticationCertificate",
+        0xAA02 => "RequestAuthenticationChallengeResponse",
+        0xAA03 => "AuthenticationResponse",
+        0xAA04 => "AuthenticationFailed",
+        0xAA05 => "AuthenticationSucceeded",
+        0xAE00 => "StartPowerUpdates",
+        0xAE01 => "PowerUpdate",
+        0xAE02 => "StopPowerUpdates",
+        0xAE03 => "PowerSourceUpdate",
+        0xEA00 => "StartExternalAccessoryProtocolSession",
+        0xEA01 => "StopExternalAccessoryProtocolSession",
+        0xEA03 => "StatusExternalAccessoryProtocolSession",
+        0xFFFA => "StartLocationInformation",
+        0xFFFB => "LocationInformation",
+        0xFFFC => "StopLocationInformation",
+        _ => return None,
+    })
+}
+
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum Error {
     Header,

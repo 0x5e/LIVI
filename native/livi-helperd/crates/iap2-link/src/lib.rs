@@ -67,15 +67,24 @@ fn message_label(session_id: u8, data: &[u8]) -> Option<String> {
 }
 
 /// Formats the reason reported when `p` is abandoned: the session it was sent
-/// on, the message it carried, and how long it waited for an acknowledgement.
-fn gave_up_on(p: &Packet, now: u64) -> String {
+/// on, the message it carried, how long it waited for an acknowledgement, and
+/// when the peer last sent a frame of its own.
+///
+/// The last frame separates a peer that stopped answering from one that is
+/// still talking and never took this packet; the wait alone cannot.
+fn gave_up_on(p: &Packet, now: u64, last_rx: Option<u64>) -> String {
     let waited = now.saturating_sub(p.first_sent) as f64 / 1000.0;
     let label = match message_label(p.session_id, &p.data) {
         Some(label) => format!(", {label}"),
         None => String::new(),
     };
+    let heard = match last_rx {
+        Some(t) => format!("{:.1} s ago", now.saturating_sub(t) as f64 / 1000.0),
+        None => "never".to_string(),
+    };
     format!(
-        "unacknowledged psn={} ({}{label}, {} bytes) after {} resends over {waited:.1} s",
+        "unacknowledged psn={} ({}{label}, {} bytes) after {} resends over {waited:.1} s; \
+         last frame from the peer {heard}",
         p.psn,
         session_name(p.session_id),
         p.data.len(),
@@ -250,6 +259,7 @@ pub struct LinkEngine {
     last_acked_psn: Option<u8>,
     received_out_of_sequence: Vec<Packet>,
     cumulative_received: u32,
+    last_rx: Option<u64>,
 
     writable: bool,
     rx_state: RxState,
@@ -294,6 +304,7 @@ impl LinkEngine {
             last_acked_psn: None,
             received_out_of_sequence: Vec::new(),
             cumulative_received: 0,
+            last_rx: None,
             writable: false,
             rx_state: RxState::Marker,
             rx_buf: Vec::new(),
@@ -562,6 +573,7 @@ impl LinkEngine {
     }
 
     fn process_frame(&mut self, header: LinkPacketHeader, payload: Option<Vec<u8>>, now: u64) {
+        self.last_rx = Some(now);
         if header.control & CONTROL_RST != 0 {
             self.bailout(Some("device sent reset message".into()));
         }
@@ -658,7 +670,7 @@ impl LinkEngine {
             (p.psn, p.session_id, p.data.clone(), p.counter, p.timeout)
         };
         if counter == self.lsp.max_retransmissions {
-            let reason = gave_up_on(&self.unack_packets[first], now);
+            let reason = gave_up_on(&self.unack_packets[first], now, self.last_rx);
             self.bailout(Some(reason));
             return;
         }
@@ -676,7 +688,7 @@ impl LinkEngine {
             }
             self.unack_packets[i].counter += 1;
             if self.unack_packets[i].counter == self.lsp.max_retransmissions {
-                let reason = gave_up_on(&self.unack_packets[i], now);
+                let reason = gave_up_on(&self.unack_packets[i], now, self.last_rx);
                 self.bailout(Some(reason));
                 continue;
             }

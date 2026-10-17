@@ -197,7 +197,9 @@ fn hex(s: &str) -> Vec<u8> {
     (0..s.len()).step_by(2).map(|i| u8::from_str_radix(&s[i..i + 2], 16).unwrap()).collect()
 }
 
-/// An abandoned packet reports the message it carried and how long it waited.
+/// An abandoned packet reports the message it carried, how long it waited, and
+/// when the peer last spoke: a peer that stopped answering and one that kept
+/// talking without taking the packet need different fixes.
 #[test]
 fn abandoned_packet_reports_its_message_name() {
     let mut e = handshaken();
@@ -206,6 +208,10 @@ fn abandoned_packet_reports_its_message_name() {
     let mut now = 0;
     while e.state() != LinkState::Dead && now < 60_000 {
         now += 1000;
+        // The peer answers up to 2 s without taking this packet, then goes quiet.
+        if now <= 2000 {
+            e.feed(&frame(0x40, 0, 99, 0, None), now);
+        }
         e.advance_time(now);
     }
 
@@ -219,7 +225,7 @@ fn abandoned_packet_reports_its_message_name() {
         reason.as_deref(),
         Some(
             "unacknowledged psn=100 (control session 10, CarPlayStartSession 0x4301, 6 bytes) \
-             after 3 resends over 3.0 s"
+             after 3 resends over 3.0 s; last frame from the peer 1.0 s ago"
         )
     );
 }

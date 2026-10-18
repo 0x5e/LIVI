@@ -1,6 +1,3 @@
-//! The HCI packets this host sends and the events it reads, as they cross the tunnel: a packet
-//! type byte, then the packet.
-
 pub const COMMAND: u8 = 0x01;
 pub const ACL: u8 = 0x02;
 pub const SCO: u8 = 0x03;
@@ -30,16 +27,17 @@ pub const WRITE_SIMPLE_PAIRING_MODE: u16 = 0x0c56;
 pub const READ_BUFFER_SIZE: u16 = 0x1005;
 pub const READ_BD_ADDR: u16 = 0x1009;
 
-/// ACL packets start a PDU with this, and carry one on with CONTINUING.
 pub const START: u8 = 0x02;
 pub const CONTINUING: u8 = 0x01;
 
-/// The address as it travels, least significant byte first.
 pub type Addr = [u8; 6];
 
-/// The usual notation, most significant byte first.
 pub fn text(addr: &Addr) -> String {
-    addr.iter().rev().map(|b| format!("{b:02X}")).collect::<Vec<_>>().join(":")
+    addr.iter()
+        .rev()
+        .map(|b| format!("{b:02X}"))
+        .collect::<Vec<_>>()
+        .join(":")
 }
 
 pub fn parse_addr(text: &str) -> Option<Addr> {
@@ -78,7 +76,6 @@ pub fn sco(handle: u16, data: &[u8]) -> Vec<u8> {
     out
 }
 
-/// An ACL packet's handle, whether it starts a PDU, and its data.
 pub fn read_acl(pkt: &[u8]) -> Option<(u16, bool, &[u8])> {
     let head = u16::from_le_bytes([*pkt.get(1)?, *pkt.get(2)?]);
     let len = usize::from(u16::from_le_bytes([*pkt.get(3)?, *pkt.get(4)?]));
@@ -95,24 +92,62 @@ pub fn read_sco(pkt: &[u8]) -> Option<(u16, &[u8])> {
 
 #[derive(Debug, PartialEq)]
 pub enum Event {
-    CommandComplete { opcode: u16, credits: u8, ret: Vec<u8> },
-    CommandStatus { opcode: u16, credits: u8, status: u8 },
-    ConnectionRequest { addr: Addr, link: u8 },
-    ConnectionComplete { status: u8, handle: u16, addr: Addr, link: u8 },
-    DisconnectionComplete { status: u8, handle: u16, reason: u8 },
-    AuthenticationComplete { status: u8, handle: u16 },
-    EncryptionChange { status: u8, handle: u16, on: bool },
+    CommandComplete {
+        opcode: u16,
+        credits: u8,
+        ret: Vec<u8>,
+    },
+    CommandStatus {
+        opcode: u16,
+        credits: u8,
+        status: u8,
+    },
+    ConnectionRequest {
+        addr: Addr,
+        link: u8,
+    },
+    ConnectionComplete {
+        status: u8,
+        handle: u16,
+        addr: Addr,
+        link: u8,
+    },
+    DisconnectionComplete {
+        status: u8,
+        handle: u16,
+        reason: u8,
+    },
+    AuthenticationComplete {
+        status: u8,
+        handle: u16,
+    },
+    EncryptionChange {
+        status: u8,
+        handle: u16,
+        on: bool,
+    },
     HardwareError(u8),
     NumberOfCompletedPackets(Vec<(u16, u16)>),
     PinCodeRequest(Addr),
     LinkKeyRequest(Addr),
-    LinkKeyNotification { addr: Addr, key: [u8; 16], kind: u8 },
+    LinkKeyNotification {
+        addr: Addr,
+        key: [u8; 16],
+        kind: u8,
+    },
     DataBufferOverflow(u8),
     SyncConnectionComplete(Sync),
     IoCapabilityRequest(Addr),
-    IoCapabilityResponse { addr: Addr, io: u8, auth: u8 },
+    IoCapabilityResponse {
+        addr: Addr,
+        io: u8,
+        auth: u8,
+    },
     UserConfirmationRequest(Addr),
-    SimplePairingComplete { status: u8, addr: Addr },
+    SimplePairingComplete {
+        status: u8,
+        addr: Addr,
+    },
     Other(u8),
 }
 
@@ -122,7 +157,6 @@ pub struct Sync {
     pub handle: u16,
     pub addr: Addr,
     pub link: u8,
-    /// In slots of 625 µs.
     pub interval: u8,
     pub rx_len: u16,
     pub tx_len: u16,
@@ -141,7 +175,6 @@ fn u16_at(p: &[u8], at: usize) -> Option<u16> {
     Some(u16::from_le_bytes([*p.get(at)?, *p.get(at + 1)?]))
 }
 
-/// A whole event packet, type byte included.
 pub fn event(pkt: &[u8]) -> Option<Event> {
     if pkt.first() != Some(&EVENT) {
         return None;
@@ -156,15 +189,19 @@ pub fn event(pkt: &[u8]) -> Option<Event> {
             addr: addr_at(p, 3)?,
             link: *p.get(9)?,
         },
-        0x04 => Event::ConnectionRequest { addr: addr_at(p, 0)?, link: *p.get(9)? },
+        0x04 => Event::ConnectionRequest {
+            addr: addr_at(p, 0)?,
+            link: *p.get(9)?,
+        },
         0x05 => Event::DisconnectionComplete {
             status: *p.first()?,
             handle: u16_at(p, 1)? & 0x0fff,
             reason: *p.get(3)?,
         },
-        0x06 => {
-            Event::AuthenticationComplete { status: *p.first()?, handle: u16_at(p, 1)? & 0x0fff }
-        }
+        0x06 => Event::AuthenticationComplete {
+            status: *p.first()?,
+            handle: u16_at(p, 1)? & 0x0fff,
+        },
         0x08 => Event::EncryptionChange {
             status: *p.first()?,
             handle: u16_at(p, 1)? & 0x0fff,
@@ -175,9 +212,11 @@ pub fn event(pkt: &[u8]) -> Option<Event> {
             opcode: u16_at(p, 1)?,
             ret: p.get(3..)?.to_vec(),
         },
-        0x0f => {
-            Event::CommandStatus { status: *p.first()?, credits: *p.get(1)?, opcode: u16_at(p, 2)? }
-        }
+        0x0f => Event::CommandStatus {
+            status: *p.first()?,
+            credits: *p.get(1)?,
+            opcode: u16_at(p, 2)?,
+        },
         0x10 => Event::HardwareError(*p.first()?),
         0x13 => {
             let count = usize::from(*p.first()?);
@@ -206,16 +245,20 @@ pub fn event(pkt: &[u8]) -> Option<Event> {
             air_mode: *p.get(16)?,
         }),
         0x31 => Event::IoCapabilityRequest(addr_at(p, 0)?),
-        0x32 => {
-            Event::IoCapabilityResponse { addr: addr_at(p, 0)?, io: *p.get(6)?, auth: *p.get(8)? }
-        }
+        0x32 => Event::IoCapabilityResponse {
+            addr: addr_at(p, 0)?,
+            io: *p.get(6)?,
+            auth: *p.get(8)?,
+        },
         0x33 => Event::UserConfirmationRequest(addr_at(p, 0)?),
-        0x36 => Event::SimplePairingComplete { status: *p.first()?, addr: addr_at(p, 1)? },
+        0x36 => Event::SimplePairingComplete {
+            status: *p.first()?,
+            addr: addr_at(p, 1)?,
+        },
         other => Event::Other(other),
     })
 }
 
-/// The controller's words for the failures a phone or a pairing runs into.
 pub fn reason(status: u8) -> &'static str {
     match status {
         0x00 => "success",
@@ -260,10 +303,19 @@ mod tests {
     #[test]
     fn commands_and_data_carry_their_headers() {
         assert_eq!(command(RESET, &[]), [0x01, 0x03, 0x0c, 0x00]);
-        assert_eq!(acl(0x002a, START, &[9, 9]), [0x02, 0x2a, 0x20, 0x02, 0x00, 9, 9]);
-        assert_eq!(read_acl(&acl(0x002a, CONTINUING, &[7])), Some((0x002a, false, &[7u8][..])));
+        assert_eq!(
+            acl(0x002a, START, &[9, 9]),
+            [0x02, 0x2a, 0x20, 0x02, 0x00, 9, 9]
+        );
+        assert_eq!(
+            read_acl(&acl(0x002a, CONTINUING, &[7])),
+            Some((0x002a, false, &[7u8][..]))
+        );
         assert_eq!(sco(0x0101, &[1, 2]), [0x03, 0x01, 0x01, 0x02, 1, 2]);
-        assert_eq!(read_sco(&[0x03, 0x01, 0x31, 0x01, 5]), Some((0x0101, &[5u8][..])));
+        assert_eq!(
+            read_sco(&[0x03, 0x01, 0x31, 0x01, 5]),
+            Some((0x0101, &[5u8][..]))
+        );
     }
 
     #[test]
@@ -271,14 +323,28 @@ mod tests {
         let complete = [0x04, 0x0e, 0x04, 0x01, 0x03, 0x0c, 0x00];
         assert_eq!(
             event(&complete),
-            Some(Event::CommandComplete { opcode: RESET, credits: 1, ret: vec![0] })
+            Some(Event::CommandComplete {
+                opcode: RESET,
+                credits: 1,
+                ret: vec![0]
+            })
         );
-        let done = [0x04, 0x13, 0x09, 0x02, 0x2a, 0x00, 0x03, 0x00, 0x2b, 0x00, 0x01, 0x00];
-        assert_eq!(event(&done), Some(Event::NumberOfCompletedPackets(vec![(42, 3), (43, 1)])));
+        let done = [
+            0x04, 0x13, 0x09, 0x02, 0x2a, 0x00, 0x03, 0x00, 0x2b, 0x00, 0x01, 0x00,
+        ];
+        assert_eq!(
+            event(&done),
+            Some(Event::NumberOfCompletedPackets(vec![(42, 3), (43, 1)]))
+        );
         let mut sync = vec![0x04, 0x2c, 0x11, 0x00, 0x01, 0x01];
         sync.extend_from_slice(&[1, 2, 3, 4, 5, 6, LINK_ESCO, 12, 4, 60, 0, 60, 0, 2]);
-        let Some(Event::SyncConnectionComplete(s)) = event(&sync) else { panic!("{sync:?}") };
-        assert_eq!((s.handle, s.link, s.interval, s.rx_len, s.air_mode), (0x0101, 2, 12, 60, 2));
+        let Some(Event::SyncConnectionComplete(s)) = event(&sync) else {
+            panic!("{sync:?}")
+        };
+        assert_eq!(
+            (s.handle, s.link, s.interval, s.rx_len, s.air_mode),
+            (0x0101, 2, 12, 60, 2)
+        );
         assert_eq!(event(&[0x04, 0x13, 0x05, 0x02, 0x2a]), None);
     }
 }

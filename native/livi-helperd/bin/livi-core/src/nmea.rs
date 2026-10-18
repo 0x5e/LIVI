@@ -1,5 +1,3 @@
-//! A position as the `$GPGGA` and `$GPRMC` pair a phone takes for its maps.
-
 use std::time::{SystemTime, UNIX_EPOCH};
 
 pub struct Position {
@@ -8,7 +6,6 @@ pub struct Position {
     pub alt: Option<f64>,
     pub heading: Option<f64>,
     pub speed_ms: Option<f64>,
-    /// Unix milliseconds.
     pub fix_ms: Option<f64>,
     pub accuracy_m: Option<f64>,
 }
@@ -19,7 +16,6 @@ fn checksum(body: &str) -> String {
     format!("{:02X}", body.bytes().fold(0u8, |cs, b| cs ^ b))
 }
 
-/// Latitude as ddmm.mmmm, longitude as dddmm.mmmm, and the hemisphere.
 fn ddmm(deg: f64, lat: bool) -> (String, char) {
     let abs = deg.abs();
     let whole = abs.floor();
@@ -38,7 +34,6 @@ fn ddmm(deg: f64, lat: bool) -> (String, char) {
     (ddmm, hemi)
 }
 
-/// Year, month and day of a day count since 1970-01-01.
 fn civil(days: i64) -> (i64, u32, u32) {
     let z = days + 719_468;
     let era = z.div_euclid(146_097);
@@ -53,25 +48,43 @@ fn civil(days: i64) -> (i64, u32, u32) {
 }
 
 pub fn encode(p: &Position) -> String {
-    let ms = p.fix_ms.filter(|t| t.is_finite() && *t != 0.0).unwrap_or_else(|| {
-        SystemTime::now().duration_since(UNIX_EPOCH).map_or(0.0, |d| d.as_millis() as f64)
-    });
+    let ms = p
+        .fix_ms
+        .filter(|t| t.is_finite() && *t != 0.0)
+        .unwrap_or_else(|| {
+            SystemTime::now()
+                .duration_since(UNIX_EPOCH)
+                .map_or(0.0, |d| d.as_millis() as f64)
+        });
     let secs = (ms / 1000.0).floor() as i64;
     let (days, of_day) = (secs.div_euclid(86_400), secs.rem_euclid(86_400));
-    let time = format!("{:02}{:02}{:02}.00", of_day / 3600, of_day / 60 % 60, of_day % 60);
+    let time = format!(
+        "{:02}{:02}{:02}.00",
+        of_day / 3600,
+        of_day / 60 % 60,
+        of_day % 60
+    );
     let (year, month, day) = civil(days);
     let date = format!("{day:02}{month:02}{:02}", year.rem_euclid(100));
 
     let (lat, lat_hemi) = ddmm(p.lat, true);
     let (lng, lng_hemi) = ddmm(p.lng, false);
-    // The phone weighs our fix against its own by the HDOP, about 5 m per unit.
-    let hdop = p.accuracy_m.filter(|a| *a > 0.0).map_or(1.0, |a| (a / 5.0).clamp(0.5, 50.0));
-    let alt = p.alt.map_or_else(|| "0.0".to_string(), |a| format!("{a:.1}"));
+    let hdop = p
+        .accuracy_m
+        .filter(|a| *a > 0.0)
+        .map_or(1.0, |a| (a / 5.0).clamp(0.5, 50.0));
+    let alt = p
+        .alt
+        .map_or_else(|| "0.0".to_string(), |a| format!("{a:.1}"));
     let gga =
         format!("GPGGA,{time},{lat},{lat_hemi},{lng},{lng_hemi},1,08,{hdop:.1},{alt},M,0.0,M,,");
-    let speed =
-        p.speed_ms.map_or_else(|| "0.00".to_string(), |s| format!("{:.2}", s * KNOTS_PER_MS));
-    let course = p.heading.map_or_else(|| "0.00".to_string(), |h| format!("{h:.2}"));
+    let speed = p.speed_ms.map_or_else(
+        || "0.00".to_string(),
+        |s| format!("{:.2}", s * KNOTS_PER_MS),
+    );
+    let course = p
+        .heading
+        .map_or_else(|| "0.00".to_string(), |h| format!("{h:.2}"));
     let rmc = format!("GPRMC,{time},A,{lat},{lat_hemi},{lng},{lng_hemi},{speed},{course},{date},,");
     format!("${gga}*{}\r\n${rmc}*{}\r\n", checksum(&gga), checksum(&rmc))
 }
@@ -111,16 +124,25 @@ mod tests {
     #[test]
     fn the_south_west_and_missing_values_have_their_defaults() {
         assert_eq!(
-            encode(&Position { accuracy_m: Some(0.5), ..at(-33.8688, -151.2093) }),
+            encode(&Position {
+                accuracy_m: Some(0.5),
+                ..at(-33.8688, -151.2093)
+            }),
             "$GPGGA,120405.00,3352.1280,S,15112.5580,W,1,08,0.5,0.0,M,0.0,M,,*5E\r\n\
              $GPRMC,120405.00,A,3352.1280,S,15112.5580,W,0.00,0.00,051025,,*3F\r\n"
         );
         assert_eq!(
-            encode(&Position { accuracy_m: Some(1000.0), ..at(1.0, 1.0) }),
+            encode(&Position {
+                accuracy_m: Some(1000.0),
+                ..at(1.0, 1.0)
+            }),
             "$GPGGA,120405.00,0100.0000,N,00100.0000,E,1,08,50.0,0.0,M,0.0,M,,*63\r\n\
              $GPRMC,120405.00,A,0100.0000,N,00100.0000,E,0.00,0.00,051025,,*32\r\n"
         );
-        let now = encode(&Position { fix_ms: Some(0.0), ..at(1.0, 1.0) });
+        let now = encode(&Position {
+            fix_ms: Some(0.0),
+            ..at(1.0, 1.0)
+        });
         assert!(now.starts_with("$GPGGA,") && !now.contains("051025"));
     }
 

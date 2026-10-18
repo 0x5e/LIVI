@@ -1,5 +1,3 @@
-//! One helper announcement is one session.
-
 use std::collections::HashMap;
 use std::sync::Arc;
 use std::time::Duration;
@@ -25,7 +23,6 @@ pub type SessionId = u64;
 
 #[derive(Debug, Clone, PartialEq)]
 pub enum AaEvent {
-    /// Also sent after every reconnect.
     HelperConnected,
     Helper(Value),
     Spawned {
@@ -34,11 +31,9 @@ pub enum AaEvent {
         usb_serial: Option<String>,
         peer: String,
     },
-    /// Sent once the main video channel is set up.
     Connected {
         id: SessionId,
     },
-    /// Always the session's last event.
     Disconnected {
         id: SessionId,
     },
@@ -62,7 +57,6 @@ pub enum AaEvent {
         cluster: bool,
         codec: VideoCodec,
     },
-    /// `projected: false` only comes for the main screen.
     VideoFocus {
         id: SessionId,
         cluster: bool,
@@ -87,7 +81,6 @@ pub enum AaEvent {
         id: SessionId,
         active: bool,
     },
-    /// Only the fields one message of the phone's player carried.
     NowPlaying {
         id: SessionId,
         now_playing: NowPlaying,
@@ -107,20 +100,44 @@ impl AaEvent {
         match r {
             Report::Connected => Self::Connected { id },
             Report::Disconnected => Self::Disconnected { id },
-            Report::Device { name, model, instance_id, ip } => {
-                Self::Device { id, name, model, instance_id, ip }
-            }
+            Report::Device {
+                name,
+                model,
+                instance_id,
+                ip,
+            } => Self::Device {
+                id,
+                name,
+                model,
+                instance_id,
+                ip,
+            },
             Report::Status(status) => Self::Status { id, status },
             Report::Calls(calls) => Self::Calls { id, calls },
             Report::VideoCodec { cluster, codec } => Self::VideoCodec { id, cluster, codec },
-            Report::VideoFocus { cluster, projected } => {
-                Self::VideoFocus { id, cluster, projected }
-            }
+            Report::VideoFocus { cluster, projected } => Self::VideoFocus {
+                id,
+                cluster,
+                projected,
+            },
             Report::HostUiRequested => Self::HostUiRequested { id },
-            Report::Audio { stream, sample_rate, channels, active } => {
-                Self::Audio { id, stream, sample_rate, channels, active }
-            }
-            Report::Duck { level, duration_ms } => Self::Duck { id, level, duration_ms },
+            Report::Audio {
+                stream,
+                sample_rate,
+                channels,
+                active,
+            } => Self::Audio {
+                id,
+                stream,
+                sample_rate,
+                channels,
+                active,
+            },
+            Report::Duck { level, duration_ms } => Self::Duck {
+                id,
+                level,
+                duration_ms,
+            },
             Report::NowPlaying(now_playing) => Self::NowPlaying { id, now_playing },
             Report::Navigation(navigation) => Self::Navigation { id, navigation },
             Report::NavigationImage(image) => Self::NavigationImage { id, image },
@@ -130,21 +147,13 @@ impl AaEvent {
 
 #[derive(Debug, Clone, PartialEq)]
 pub enum AaCmd {
-    Session {
-        id: SessionId,
-        cmd: SessionCmd,
-    },
+    Session { id: SessionId, cmd: SessionCmd },
     Sensor(Sensor),
-    /// The phones stop encoding the cluster while no screen shows it.
     ClusterActive(bool),
-    /// Wired sessions stay.
     StopWireless,
-    /// No new sessions until Attach.
     Detach,
     Attach,
-    Close {
-        id: SessionId,
-    },
+    Close { id: SessionId },
 }
 
 #[derive(Clone)]
@@ -194,7 +203,6 @@ struct Manager<M: AaMedia> {
     night_mode: Option<bool>,
 }
 
-/// Sessions read `config` anew whenever they advertise or answer.
 pub fn start<M: AaMedia>(
     helper: AaHelperSock,
     media: Arc<M>,
@@ -271,11 +279,15 @@ async fn run<M: AaMedia>(
             },
         }
     }
-    // Every session says goodbye, core hears each end before the events stop.
     for entry in m.sessions.values() {
         let _ = entry.cmds.send(SessionCmd::Close);
     }
-    let Manager { events, session_events, sessions, .. } = m;
+    let Manager {
+        events,
+        session_events,
+        sessions,
+        ..
+    } = m;
     drop((session_events, sessions));
     while let Some(ev) = session_rx.recv().await {
         let _ = events.send(ev);
@@ -294,10 +306,17 @@ impl<M: AaMedia> Manager<M> {
             self.emit(AaEvent::Helper(ev));
             return;
         };
-        let peer = ev.get("peer").and_then(Value::as_str).unwrap_or("").to_string();
+        let peer = ev
+            .get("peer")
+            .and_then(Value::as_str)
+            .unwrap_or("")
+            .to_string();
         let wired = ev.get("transport").and_then(Value::as_str) == Some("usb");
-        let usb_serial =
-            ev.get("serial").and_then(Value::as_str).filter(|_| wired).map(str::to_string);
+        let usb_serial = ev
+            .get("serial")
+            .and_then(Value::as_str)
+            .filter(|_| wired)
+            .map(str::to_string);
         println!(
             "[AaManager] helper session {socket} from {peer}{}",
             if wired { " (usb)" } else { "" }
@@ -307,7 +326,13 @@ impl<M: AaMedia> Manager<M> {
         tokio::spawn(async move {
             match link::connect(&socket, &peer).await {
                 Ok((link, reader)) => {
-                    let _ = tx.send(Attached { link, reader, wired, usb_serial, peer });
+                    let _ = tx.send(Attached {
+                        link,
+                        reader,
+                        wired,
+                        usb_serial,
+                        peer,
+                    });
                 }
                 Err(e) => eprintln!("[AaManager] helper session {socket}: {e}"),
             }
@@ -315,7 +340,13 @@ impl<M: AaMedia> Manager<M> {
     }
 
     fn on_attached(&mut self, a: Attached) {
-        let Attached { mut link, reader, wired, usb_serial, peer } = a;
+        let Attached {
+            mut link,
+            reader,
+            wired,
+            usb_serial,
+            peer,
+        } = a;
         if !self.attached {
             link.destroy();
             return;
@@ -326,9 +357,20 @@ impl<M: AaMedia> Manager<M> {
         let id = self.next_id;
         self.next_id += 1;
         let (cmds, cmd_rx) = mpsc::unbounded_channel();
-        self.sessions
-            .insert(id, Entry { cmds, wired, wireless_peer: (!wired).then(|| peer.clone()) });
-        self.emit(AaEvent::Spawned { id, wired, usb_serial, peer });
+        self.sessions.insert(
+            id,
+            Entry {
+                cmds,
+                wired,
+                wireless_peer: (!wired).then(|| peer.clone()),
+            },
+        );
+        self.emit(AaEvent::Spawned {
+            id,
+            wired,
+            usb_serial,
+            peer,
+        });
         tokio::spawn(aa_session::run(
             id,
             link,
@@ -368,8 +410,6 @@ impl<M: AaMedia> Manager<M> {
         }
     }
 
-    /// A running session does not subscribe again, so each night mode change
-    /// is pushed to it.
     fn on_night_mode(&mut self, night: Option<bool>) {
         if night == self.night_mode {
             return;
@@ -462,7 +502,9 @@ mod tests {
     impl Phone {
         async fn frame(&mut self) -> Frame {
             loop {
-                match tokio::time::timeout(Duration::from_secs(5), self.from.next()).await.unwrap()
+                match tokio::time::timeout(Duration::from_secs(5), self.from.next())
+                    .await
+                    .unwrap()
                 {
                     LinkItem::Message(f) if f.ch == 0 && f.msg_id == 0x000b => {}
                     LinkItem::Message(f) => return f,
@@ -499,13 +541,23 @@ mod tests {
             let (cfg, cfg_rx) = watch::channel(AaConfig::default());
             let (ev_tx, events) = mpsc::unbounded_channel();
             let handle = start(AaHelperSock::new(&path), FakeMedia::new(), cfg_rx, ev_tx);
-            let mut rig = Self { dir, sub, handle, events, cfg, sockets: 0 };
+            let mut rig = Self {
+                dir,
+                sub,
+                handle,
+                events,
+                cfg,
+                sockets: 0,
+            };
             assert_eq!(rig.event().await, AaEvent::HelperConnected);
             rig
         }
 
         async fn event(&mut self) -> AaEvent {
-            tokio::time::timeout(Duration::from_secs(5), self.events.recv()).await.unwrap().unwrap()
+            tokio::time::timeout(Duration::from_secs(5), self.events.recv())
+                .await
+                .unwrap()
+                .unwrap()
         }
 
         async fn until(&mut self, want: impl Fn(&AaEvent) -> bool) -> AaEvent {
@@ -552,8 +604,12 @@ mod tests {
             self.push(ev).await;
             let (sock, _) = listener.accept().await.unwrap();
             let (link, from) = attach(sock, "");
-            let AaEvent::Spawned { id, wired, usb_serial, peer: got } =
-                self.until(|e| matches!(e, AaEvent::Spawned { .. })).await
+            let AaEvent::Spawned {
+                id,
+                wired,
+                usb_serial,
+                peer: got,
+            } = self.until(|e| matches!(e, AaEvent::Spawned { .. })).await
             else {
                 unreachable!()
             };
@@ -575,7 +631,8 @@ mod tests {
     #[tokio::test]
     async fn sessions_come_from_the_helper_and_hear_core() {
         let mut rig = Rig::new().await;
-        rig.push(json!({ "event": "hfp", "up": true, "mac": "aa" })).await;
+        rig.push(json!({ "event": "hfp", "up": true, "mac": "aa" }))
+            .await;
         assert_eq!(
             rig.event().await,
             AaEvent::Helper(json!({ "event": "hfp", "up": true, "mac": "aa" }))
@@ -600,13 +657,15 @@ mod tests {
 
         rig.handle.send(AaCmd::StopWireless);
         assert_eq!(
-            rig.until(|e| matches!(e, AaEvent::Disconnected { .. })).await,
+            rig.until(|e| matches!(e, AaEvent::Disconnected { .. }))
+                .await,
             AaEvent::Disconnected { id: a }
         );
         pa.until(0, 0x000f).await;
         rig.handle.send(AaCmd::Close { id: b });
         assert_eq!(
-            rig.until(|e| matches!(e, AaEvent::Disconnected { .. })).await,
+            rig.until(|e| matches!(e, AaEvent::Disconnected { .. }))
+                .await,
             AaEvent::Disconnected { id: b }
         );
         drop(pb.link);
@@ -638,7 +697,10 @@ mod tests {
         )
         .await;
         rig.push(json!({ "event": "sco", "up": false })).await;
-        assert_eq!(rig.event().await, AaEvent::Helper(json!({ "event": "sco", "up": false })));
+        assert_eq!(
+            rig.event().await,
+            AaEvent::Helper(json!({ "event": "sco", "up": false }))
+        );
         rig.handle.send(AaCmd::Detach);
         assert_eq!(rig.event().await, AaEvent::Disconnected { id: a });
         rig.handle.send(AaCmd::Attach);
@@ -657,11 +719,17 @@ mod tests {
         );
         assert_eq!(
             AaEvent::from_report(3, Report::NavigationImage(vec![1])),
-            AaEvent::NavigationImage { id: 3, image: vec![1] }
+            AaEvent::NavigationImage {
+                id: 3,
+                image: vec![1]
+            }
         );
         assert_eq!(
             AaEvent::from_report(3, Report::Calls(vec![])),
-            AaEvent::Calls { id: 3, calls: vec![] }
+            AaEvent::Calls {
+                id: 3,
+                calls: vec![]
+            }
         );
     }
 }

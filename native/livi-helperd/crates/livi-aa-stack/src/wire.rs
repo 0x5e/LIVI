@@ -3,7 +3,6 @@ pub const WIRE_FIXED64: u8 = 1;
 pub const WIRE_LEN: u8 = 2;
 pub const WIRE_FIXED32: u8 = 5;
 
-/// Negative values go out as their 64-bit two's complement.
 pub fn encode_varint(value: i64) -> Vec<u8> {
     encode_uvarint(value as u64)
 }
@@ -27,14 +26,22 @@ pub fn field_varint(field: u32, value: i64) -> Vec<u8> {
 }
 
 pub fn field_len_delim(field: u32, data: &[u8]) -> Vec<u8> {
-    [tag(field, WIRE_LEN), encode_uvarint(data.len() as u64), data.to_vec()].concat()
+    [
+        tag(field, WIRE_LEN),
+        encode_uvarint(data.len() as u64),
+        data.to_vec(),
+    ]
+    .concat()
 }
 
 pub fn field_float(field: u32, value: f64) -> Vec<u8> {
-    [tag(field, WIRE_FIXED32), (value as f32).to_le_bytes().to_vec()].concat()
+    [
+        tag(field, WIRE_FIXED32),
+        (value as f32).to_le_bytes().to_vec(),
+    ]
+    .concat()
 }
 
-/// Keeps only the low 32 bits, a varint longer than five bytes is skipped whole.
 pub fn read_varint(buf: &[u8], off: usize) -> (u32, usize) {
     let mut result: u32 = 0;
     let mut shift = 0u32;
@@ -83,7 +90,10 @@ pub fn decode_start(payload: &[u8]) -> Option<Start> {
             _ => {}
         }
     }
-    session_id.map(|session_id| Start { session_id, config_index })
+    session_id.map(|session_id| Start {
+        session_id,
+        config_index,
+    })
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -100,7 +110,11 @@ pub struct Fields<'a> {
 }
 
 pub fn decode_fields(buf: &[u8]) -> Fields<'_> {
-    Fields { buf, off: 0, done: false }
+    Fields {
+        buf,
+        off: 0,
+        done: false,
+    }
 }
 
 impl<'a> Fields<'a> {
@@ -148,7 +162,6 @@ pub fn has_field(buf: &[u8], field: u32) -> bool {
     decode_fields(buf).any(|f| f.field == field)
 }
 
-/// Rounds half towards positive infinity, negative halves included.
 pub fn round_half_up(x: f64) -> f64 {
     let floor = x.floor();
     if x - floor >= 0.5 { floor + 1.0 } else { floor }
@@ -162,7 +175,10 @@ mod tests {
     fn varints_wrap_negatives_to_ten_bytes() {
         assert_eq!(encode_varint(0), [0]);
         assert_eq!(encode_varint(300), [0xac, 0x02]);
-        assert_eq!(encode_varint(-1), [0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0x01]);
+        assert_eq!(
+            encode_varint(-1),
+            [0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0x01]
+        );
         assert_eq!(field_varint(2, 1), [0x10, 0x01]);
         assert_eq!(field_len_delim(1, &[7]), [0x0a, 0x01, 0x07]);
         assert_eq!(field_float(1, 0.36), [0x0d, 0xec, 0x51, 0xb8, 0x3e]);
@@ -182,24 +198,48 @@ mod tests {
     fn start_needs_a_session_id() {
         assert_eq!(
             decode_start(&[0x08, 0x05, 0x10, 0x01]),
-            Some(Start { session_id: 5, config_index: Some(1) })
+            Some(Start {
+                session_id: 5,
+                config_index: Some(1)
+            })
         );
-        assert_eq!(decode_start(&[0x18, 0x02, 0x08, 0x00]).map(|s| s.config_index), Some(None));
+        assert_eq!(
+            decode_start(&[0x18, 0x02, 0x08, 0x00]).map(|s| s.config_index),
+            Some(None)
+        );
         assert_eq!(decode_start(&[0x10, 0x01]), None);
-        assert_eq!(decode_start(&[0x08]), Some(Start { session_id: 0, config_index: None }));
+        assert_eq!(
+            decode_start(&[0x08]),
+            Some(Start {
+                session_id: 0,
+                config_index: None
+            })
+        );
     }
 
     #[test]
     fn fields_are_walked_and_cut_at_the_end() {
-        let msg = [0x08, 0x96, 0x01, 0x12, 0x02, b'h', b'i', 0x1d, 1, 2, 3, 4, 0x21, 1, 2];
+        let msg = [
+            0x08, 0x96, 0x01, 0x12, 0x02, b'h', b'i', 0x1d, 1, 2, 3, 4, 0x21, 1, 2,
+        ];
         let fields: Vec<_> = decode_fields(&msg).collect();
         assert_eq!(fields.len(), 4);
-        assert_eq!(fields[0], Field { field: 1, wire: 0, bytes: &[0x96, 0x01] });
+        assert_eq!(
+            fields[0],
+            Field {
+                field: 1,
+                wire: 0,
+                bytes: &[0x96, 0x01]
+            }
+        );
         assert_eq!(fields[1].bytes, b"hi");
         assert_eq!(fields[2].bytes, &[1, 2, 3, 4]);
         assert_eq!(fields[3].bytes, &[1, 2]);
         assert_eq!(decode_fields(&[0x0b, 0x08, 0x01]).count(), 0);
-        assert_eq!(decode_fields(&[0x0a, 0x7f, 0x01]).next().unwrap().bytes, &[0x01]);
+        assert_eq!(
+            decode_fields(&[0x0a, 0x7f, 0x01]).next().unwrap().bytes,
+            &[0x01]
+        );
         assert!(has_field(&msg, 3));
         assert!(!has_field(&msg, 5));
     }

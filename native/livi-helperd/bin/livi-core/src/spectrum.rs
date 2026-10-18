@@ -11,7 +11,6 @@ use tokio::time::Instant;
 
 use crate::hub::Frame;
 
-/// A client that falls behind skips frames, a spectrum has no history.
 const BUFFERED: usize = 8;
 
 pub struct Feed {
@@ -36,7 +35,6 @@ impl Viewer {
             match self.frames.recv().await {
                 Ok(frame) => return frame,
                 Err(broadcast::error::RecvError::Lagged(_)) => {}
-                // The feed outlives every viewer, so this never comes.
                 Err(broadcast::error::RecvError::Closed) => std::future::pending().await,
             }
         }
@@ -45,12 +43,18 @@ impl Viewer {
 
 impl Feed {
     pub fn new() -> Arc<Self> {
-        Arc::new(Self { frames: broadcast::channel(BUFFERED).0, viewers: watch::channel(0).0 })
+        Arc::new(Self {
+            frames: broadcast::channel(BUFFERED).0,
+            viewers: watch::channel(0).0,
+        })
     }
 
     pub fn watch(self: &Arc<Self>) -> Viewer {
         self.viewers.send_modify(|n| *n += 1);
-        Viewer { frames: self.frames.subscribe(), feed: self.clone() }
+        Viewer {
+            frames: self.frames.subscribe(),
+            feed: self.clone(),
+        }
     }
 
     #[cfg(test)]
@@ -138,7 +142,10 @@ mod tests {
         async fn connect(sock: &std::path::Path) -> Self {
             for _ in 0..200 {
                 if let Ok(stream) = UnixStream::connect(sock).await {
-                    return Self { stream, framer: Framer::new() };
+                    return Self {
+                        stream,
+                        framer: Framer::new(),
+                    };
                 }
                 tokio::time::sleep(Duration::from_millis(10)).await;
             }
@@ -165,7 +172,11 @@ mod tests {
         let mut config = defaults();
         config.visual_audio_delay_ms = delay_ms;
         State {
-            front: PerScreen { main: Front::Livi, cluster: Front::Livi, aux: Front::Livi },
+            front: PerScreen {
+                main: Front::Livi,
+                cluster: Front::Livi,
+                aux: Front::Livi,
+            },
             sessions: Default::default(),
             now_playing: Default::default(),
             telemetry: Default::default(),
@@ -203,8 +214,14 @@ mod tests {
         assert_eq!(host.next().await, (OP_VISUALIZER, vec![1]));
 
         let sent = Instant::now();
-        let bands: Vec<u8> = [0.5f32, 0.75].iter().flat_map(|b| b.to_le_bytes()).collect();
-        host.stream.write_all(&encode_reply(REPLY_VISUALIZER, 0, &bands)).await.unwrap();
+        let bands: Vec<u8> = [0.5f32, 0.75]
+            .iter()
+            .flat_map(|b| b.to_le_bytes())
+            .collect();
+        host.stream
+            .write_all(&encode_reply(REPLY_VISUALIZER, 0, &bands))
+            .await
+            .unwrap();
         assert_eq!(bands_of(&first.next().await), [0.5, 0.75]);
         assert!(sent.elapsed() >= Duration::from_millis(50));
 

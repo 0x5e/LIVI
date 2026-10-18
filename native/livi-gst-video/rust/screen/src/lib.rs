@@ -1,7 +1,3 @@
-//! Each message is a 128-byte header followed by its body. The header's first four bytes carry
-//! the body size, little endian, the fifth carries the opcode. Frame bodies are ChaCha20-Poly1305
-//! sealed with the header as associated data and a nonce counting messages from zero.
-
 use livi_crypto_node::open_impl;
 use livi_video_nal::{CpCodec, detect_codec};
 
@@ -30,7 +26,13 @@ pub struct ScreenStream {
 
 impl ScreenStream {
     pub fn new(key: [u8; 32], sink: Box<dyn ScreenSink>) -> Self {
-        Self { key, counter: 0, acc: Vec::new(), started: false, sink }
+        Self {
+            key,
+            counter: 0,
+            acc: Vec::new(),
+            started: false,
+            sink,
+        }
     }
 
     pub fn reset(&mut self) {
@@ -72,7 +74,6 @@ impl ScreenStream {
             return;
         }
 
-        // Short bodies carry no tag and travel in the clear.
         let opened;
         let frame: &[u8] = if body.len() >= TAG_LEN {
             let Some(plain) = Self::open(&self.key, self.counter, header, body) else {
@@ -158,7 +159,6 @@ mod tests {
     }
 
     fn sealed_frame(counter: u64, plain: &[u8]) -> Vec<u8> {
-        // the header is the associated data, so it carries its final body size
         let mut header = vec![0u8; HEADER_LEN];
         header[..4].copy_from_slice(&((plain.len() + TAG_LEN) as u32).to_le_bytes());
         header[4] = OP_VIDEO_FRAME;
@@ -302,7 +302,6 @@ pub mod receiver {
 
     fn listen_any_port() -> std::io::Result<TcpListener> {
         let socket = Socket::new(Domain::IPV6, Type::STREAM, Some(Protocol::TCP))?;
-        // dual stack: the phone may reach us over either family
         socket.set_only_v6(false)?;
         socket.set_reuse_address(true)?;
         socket.bind(&"[::]:0".parse::<std::net::SocketAddr>().unwrap().into())?;
@@ -372,7 +371,9 @@ pub mod receiver {
             let mut chunk = [0u8; 65536];
             let read = {
                 let mut guard = client.borrow_mut();
-                let Some(sock) = guard.as_mut() else { return glib::ControlFlow::Break };
+                let Some(sock) = guard.as_mut() else {
+                    return glib::ControlFlow::Break;
+                };
                 sock.read(&mut chunk)
             };
             match read {

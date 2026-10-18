@@ -1,7 +1,3 @@
-// Vehicle state over CarPlay. The car describes accessories made of services and their
-// characteristics, the phone reads that description, follows values and writes the ones it owns.
-// Every message is OPACK on one of two data streams, one of them for high priority values.
-
 use std::collections::{BTreeMap, BTreeSet};
 
 use crate::bplist;
@@ -123,23 +119,38 @@ impl Characteristic {
     }
 
     fn between(self, min: f64, max: f64, step: f64) -> Self {
-        Self { range: Some((min, max, step)), ..self }
+        Self {
+            range: Some((min, max, step)),
+            ..self
+        }
     }
 
     fn enabled(self) -> Self {
-        Self { enabled: true, ..self }
+        Self {
+            enabled: true,
+            ..self
+        }
     }
 
     fn in_units(self, units: i64) -> Self {
-        Self { units: Some(units), ..self }
+        Self {
+            units: Some(units),
+            ..self
+        }
     }
 
     fn fixed(self) -> Self {
-        Self { mutable: false, ..self }
+        Self {
+            mutable: false,
+            ..self
+        }
     }
 
     fn large(self) -> Self {
-        Self { large: true, ..self }
+        Self {
+            large: true,
+            ..self
+        }
     }
 
     fn take(&self, v: &serde_json::Value) -> Option<Value> {
@@ -180,7 +191,10 @@ impl Characteristic {
                 ("stepValue", number(step)),
             ]);
         }
-        if matches!(self.format, Format::String | Format::Data | Format::Dict | Format::Array) {
+        if matches!(
+            self.format,
+            Format::String | Format::Data | Format::Dict | Format::Array
+        ) {
             let length = if self.large { LARGE_LENGTH } else { MAX_LENGTH };
             d.push(("maximumLength", Value::Int(length)));
         }
@@ -234,7 +248,10 @@ impl Control {
         ];
         let described = |values: &[(&'static str, Format)]| {
             let values = values.iter().map(|(name, format)| {
-                dict([("name", Value::str(name)), ("format", Value::Int(*format as i64))])
+                dict([
+                    ("name", Value::str(name)),
+                    ("format", Value::Int(*format as i64)),
+                ])
             });
             Value::Array(values.collect())
         };
@@ -305,15 +322,51 @@ fn media() -> Accessory {
             iid: RADIO_SOURCE_SERVICE,
             kind: 0x1400_0006,
             characteristics: vec![
-                car(4098, 0x3000_0019, "mediaSourceIdentifier", String, Value::str(RADIO_SOURCE))
-                    .fixed(),
-                car(4099, 0x3200_0025, "mediaSourceSemanticType", Uint8, Value::Int(DAB_SOURCE))
-                    .fixed(),
-                car(RADIO_DISABLED, 0x3200_0011, "mediaSourceDisabled", Bool, Value::Bool(true)),
-                car(4101, 0x3000_0001, "mediaSourceLabel", String, Value::str("DAB+")),
-                car(RADIO_CURRENT_ITEM, 0x3200_0026, "currentMediaItem", String, Value::str("")),
-                car(RADIO_ITEMS, 0x3200_0012, "mediaItems", Array, Value::Array(Vec::new()))
-                    .large(),
+                car(
+                    4098,
+                    0x3000_0019,
+                    "mediaSourceIdentifier",
+                    String,
+                    Value::str(RADIO_SOURCE),
+                )
+                .fixed(),
+                car(
+                    4099,
+                    0x3200_0025,
+                    "mediaSourceSemanticType",
+                    Uint8,
+                    Value::Int(DAB_SOURCE),
+                )
+                .fixed(),
+                car(
+                    RADIO_DISABLED,
+                    0x3200_0011,
+                    "mediaSourceDisabled",
+                    Bool,
+                    Value::Bool(true),
+                ),
+                car(
+                    4101,
+                    0x3000_0001,
+                    "mediaSourceLabel",
+                    String,
+                    Value::str("DAB+"),
+                ),
+                car(
+                    RADIO_CURRENT_ITEM,
+                    0x3200_0026,
+                    "currentMediaItem",
+                    String,
+                    Value::str(""),
+                ),
+                car(
+                    RADIO_ITEMS,
+                    0x3200_0012,
+                    "mediaItems",
+                    Array,
+                    Value::Array(Vec::new()),
+                )
+                .large(),
                 car(
                     RADIO_ITEM_IMAGES,
                     0x3200_0031,
@@ -344,12 +397,42 @@ fn now_playing() -> Accessory {
                     String,
                     Value::str(RADIO_SOURCE),
                 ),
-                car(NOW_PLAYING_TITLE, 0x3200_0003, "title", String, Value::str("")),
-                car(NOW_PLAYING_ARTIST, 0x3200_0004, "artist", String, Value::str("")),
-                car(NOW_PLAYING_ALBUM, 0x3200_0005, "album", String, Value::str("")),
-                car(NOW_PLAYING_ARTWORK, 0x3200_0020, "artwork", Data, Value::Data(Vec::new()))
-                    .large(),
-                car(PLAYBACK_STATE, 0x3200_0034, "playbackState", Uint8, Value::Int(PAUSED)),
+                car(
+                    NOW_PLAYING_TITLE,
+                    0x3200_0003,
+                    "title",
+                    String,
+                    Value::str(""),
+                ),
+                car(
+                    NOW_PLAYING_ARTIST,
+                    0x3200_0004,
+                    "artist",
+                    String,
+                    Value::str(""),
+                ),
+                car(
+                    NOW_PLAYING_ALBUM,
+                    0x3200_0005,
+                    "album",
+                    String,
+                    Value::str(""),
+                ),
+                car(
+                    NOW_PLAYING_ARTWORK,
+                    0x3200_0020,
+                    "artwork",
+                    Data,
+                    Value::Data(Vec::new()),
+                )
+                .large(),
+                car(
+                    PLAYBACK_STATE,
+                    0x3200_0034,
+                    "playbackState",
+                    Uint8,
+                    Value::Int(PAUSED),
+                ),
             ],
         }],
     }
@@ -358,7 +441,16 @@ fn now_playing() -> Accessory {
 fn radio_controls() -> Vec<(i64, Control)> {
     use Format::*;
     let command = |iid, kind, name, parameters| {
-        (NOW_PLAYING_SERVICE, Control { iid, kind, name, parameters, response: Vec::new() })
+        (
+            NOW_PLAYING_SERVICE,
+            Control {
+                iid,
+                kind,
+                name,
+                parameters,
+                response: Vec::new(),
+            },
+        )
     };
     vec![
         command(4360, 0x0F00_0032, "play", Vec::new()),
@@ -377,7 +469,12 @@ fn radio_controls() -> Vec<(i64, Control)> {
             "tuneToFrequency",
             vec![("frequency", Uint32), ("sourceIdentifier", String)],
         ),
-        command(4366, 0x0F00_004D, "changeMediaSource", vec![("identifier", String)]),
+        command(
+            4366,
+            0x0F00_004D,
+            "changeMediaSource",
+            vec![("identifier", String)],
+        ),
     ]
 }
 
@@ -412,7 +509,14 @@ fn navigation() -> Accessory {
                     phone(260, 0x4500_0109, "legs", Array),
                     phone(261, 0x4500_010D, "sharingState", Uint8).up_to(4),
                     phone(262, 0x4500_0104, "userEnabled", Bool),
-                    car(263, 0x4500_010E, "userVisibleReason", String, Value::str("LIVI")).fixed(),
+                    car(
+                        263,
+                        0x4500_010E,
+                        "userVisibleReason",
+                        String,
+                        Value::str("LIVI"),
+                    )
+                    .fixed(),
                     car(264, 0x4500_0105, "vehicleEnabled", Bool, Value::Bool(true)),
                 ],
             },
@@ -441,8 +545,14 @@ fn navigation() -> Accessory {
                         Value::str("LIVI"),
                     )
                     .fixed(),
-                    car(275, 0x4500_0111, "userVisibleVehicleBrand", String, Value::str("LIVI"))
-                        .fixed(),
+                    car(
+                        275,
+                        0x4500_0111,
+                        "userVisibleVehicleBrand",
+                        String,
+                        Value::str("LIVI"),
+                    )
+                    .fixed(),
                 ],
             },
         ],
@@ -469,8 +579,14 @@ fn vehicle_resources() -> Accessory {
             iid: 769,
             kind: 0x2000_0001,
             characteristics: vec![
-                car(INTERIOR_STYLE, 0x4800_0004, "interiorStyle", String, Value::str("5Seater"))
-                    .fixed(),
+                car(
+                    INTERIOR_STYLE,
+                    0x4800_0004,
+                    "interiorStyle",
+                    String,
+                    Value::str("5Seater"),
+                )
+                .fixed(),
             ],
         }],
     }
@@ -479,8 +595,16 @@ fn vehicle_resources() -> Accessory {
 fn climate() -> Accessory {
     use Format::*;
     let on = |iid, name, initial| shared(iid, 0x3000_0002, name, Bool, Value::Bool(initial));
-    let seat =
-        |iid, key| car(iid, 0x3600_0065, "vehicleLayoutKey", String, Value::str(key)).fixed();
+    let seat = |iid, key| {
+        car(
+            iid,
+            0x3600_0065,
+            "vehicleLayoutKey",
+            String,
+            Value::str(key),
+        )
+        .fixed()
+    };
     let zone = |iid, names: [&'static str; 3], key| Service {
         iid,
         kind: 0x1100_0002,
@@ -505,14 +629,30 @@ fn climate() -> Accessory {
                 kind: 0x1100_0001,
                 characteristics: vec![
                     shared(HVAC_ON, 0x3100_0002, "hvacOn", Bool, Value::Bool(true)),
-                    shared(COMPRESSOR, 0x3100_0003, "compressorOn", Bool, Value::Bool(true)),
+                    shared(
+                        COMPRESSOR,
+                        0x3100_0003,
+                        "compressorOn",
+                        Bool,
+                        Value::Bool(true),
+                    ),
                     shared(MAX_AC, 0x3100_0022, "maxACOn", Bool, Value::Bool(false)),
-                    shared(MAX_DEFROST, 0x3100_0029, "maxDefrostOn", Bool, Value::Bool(false)),
+                    shared(
+                        MAX_DEFROST,
+                        0x3100_0029,
+                        "maxDefrostOn",
+                        Bool,
+                        Value::Bool(false),
+                    ),
                 ],
             },
             zone(
                 518,
-                ["driverTemperatureOn", "driverTargetTemperature", "driverCurrentTemperature"],
+                [
+                    "driverTemperatureOn",
+                    "driverTargetTemperature",
+                    "driverCurrentTemperature",
+                ],
                 "seat_front_left",
             ),
             zone(
@@ -530,7 +670,13 @@ fn climate() -> Accessory {
                 characteristics: vec![
                     on(524, "fanOn", true),
                     shared(525, 0x3100_0012, "fanLevel", Uint8, Value::Int(3)).up_to(7),
-                    shared(FAN_AUTO, 0x3000_005F, "fanAutoMode", Bool, Value::Bool(true)),
+                    shared(
+                        FAN_AUTO,
+                        0x3000_005F,
+                        "fanAutoMode",
+                        Bool,
+                        Value::Bool(true),
+                    ),
                     seat(531, "seat_front"),
                 ],
             },
@@ -555,7 +701,12 @@ fn climate() -> Accessory {
             window_heating(WINDOWS[0], "frontWindowHeatingLevel", "windshield_front"),
             window_heating(WINDOWS[1], "rearWindowHeatingLevel", "windshield_rear"),
             vent(VENTS[0], ["upperVentOn", "upperVentAutoMode"], UPPER, false),
-            vent(VENTS[1], ["middleVentOn", "middleVentAutoMode"], MIDDLE, true),
+            vent(
+                VENTS[1],
+                ["middleVentOn", "middleVentAutoMode"],
+                MIDDLE,
+                true,
+            ),
             vent(VENTS[2], ["lowerVentOn", "lowerVentAutoMode"], LOWER, false),
         ],
     }
@@ -577,7 +728,14 @@ fn vent(iid: i64, names: [&'static str; 2], direction: i64, on: bool) -> Service
                 Value::Array(vec![Value::Int(direction)]),
             )
             .fixed(),
-            car(iid + 4, 0x3600_0065, "vehicleLayoutKey", String, Value::str("seat_front")).fixed(),
+            car(
+                iid + 4,
+                0x3600_0065,
+                "vehicleLayoutKey",
+                String,
+                Value::str("seat_front"),
+            )
+            .fixed(),
         ],
     }
 }
@@ -605,8 +763,23 @@ fn window_heating(iid: i64, name: &'static str, key: &'static str) -> Service {
         kind: 0x1100_0005,
         characteristics: vec![
             shared(iid + 1, 0x3000_0004, name, Uint8, Value::Int(0)).up_to(1),
-            car(iid + 2, 0x3100_0014, "defrostTypes", Uint8, Value::Int(FILAMENT)).up_to(7).fixed(),
-            car(iid + 3, 0x3600_0065, "vehicleLayoutKey", String, Value::str(key)).fixed(),
+            car(
+                iid + 2,
+                0x3100_0014,
+                "defrostTypes",
+                Uint8,
+                Value::Int(FILAMENT),
+            )
+            .up_to(7)
+            .fixed(),
+            car(
+                iid + 3,
+                0x3600_0065,
+                "vehicleLayoutKey",
+                String,
+                Value::str(key),
+            )
+            .fixed(),
         ],
     }
 }
@@ -620,15 +793,64 @@ fn info_line(iid: i64, id: &str, label: &str, value: &str, symbol: &str, order: 
         iid,
         kind: 0x1600_0015,
         characteristics: vec![
-            car(iid + 1, 0x3000_0019, "settingIdentifier", String, Value::str(id)).fixed(),
-            car(iid + 2, 0x3000_0001, "settingLabel", String, Value::str(label)).fixed(),
-            car(iid + 3, 0x3000_0017, "settingValue", String, Value::str(value)).fixed(),
-            car(iid + 4, 0x3600_0006, "settingsCategory", Uint8, Value::Int(0)).up_to(15).fixed(),
-            car(iid + 5, 0x3000_005E, "settingSymbol", String, Value::str(symbol)).fixed(),
-            car(iid + 6, 0x3000_0003, "settingSortOrder", Uint8, Value::Int(order))
-                .up_to(100)
-                .fixed(),
-            car(iid + 7, 0x3600_0028, "settingSection", String, Value::str(LIVI_SECTION)).fixed(),
+            car(
+                iid + 1,
+                0x3000_0019,
+                "settingIdentifier",
+                String,
+                Value::str(id),
+            )
+            .fixed(),
+            car(
+                iid + 2,
+                0x3000_0001,
+                "settingLabel",
+                String,
+                Value::str(label),
+            )
+            .fixed(),
+            car(
+                iid + 3,
+                0x3000_0017,
+                "settingValue",
+                String,
+                Value::str(value),
+            )
+            .fixed(),
+            car(
+                iid + 4,
+                0x3600_0006,
+                "settingsCategory",
+                Uint8,
+                Value::Int(0),
+            )
+            .up_to(15)
+            .fixed(),
+            car(
+                iid + 5,
+                0x3000_005E,
+                "settingSymbol",
+                String,
+                Value::str(symbol),
+            )
+            .fixed(),
+            car(
+                iid + 6,
+                0x3000_0003,
+                "settingSortOrder",
+                Uint8,
+                Value::Int(order),
+            )
+            .up_to(100)
+            .fixed(),
+            car(
+                iid + 7,
+                0x3600_0028,
+                "settingSection",
+                String,
+                Value::str(LIVI_SECTION),
+            )
+            .fixed(),
         ],
     }
 }
@@ -640,18 +862,45 @@ fn automaker_settings(app_version: &str, build_date: &str) -> Accessory {
         iid: 1280,
         kind: 0x0500_0001,
         services: vec![
-            info_line(VERSION_LINE, "LiviVersion", "Version", app_version, "info.circle", 0),
-            info_line(1289, "LiviVersionBuildDate", "Version Build", build_date, "hammer", 1),
+            info_line(
+                VERSION_LINE,
+                "LiviVersion",
+                "Version",
+                app_version,
+                "info.circle",
+                0,
+            ),
+            info_line(
+                1289,
+                "LiviVersionBuildDate",
+                "Version Build",
+                build_date,
+                "hammer",
+                1,
+            ),
             Service {
                 iid: 1297,
                 kind: 0x1600_0020,
                 characteristics: vec![
-                    car(1298, 0x3000_0019, "sectionIdentifier", String, Value::str(LIVI_SECTION))
-                        .fixed(),
+                    car(
+                        1298,
+                        0x3000_0019,
+                        "sectionIdentifier",
+                        String,
+                        Value::str(LIVI_SECTION),
+                    )
+                    .fixed(),
                     car(1299, 0x3000_0003, "sectionSortOrder", Uint8, Value::Int(0))
                         .up_to(100)
                         .fixed(),
-                    car(1300, 0x3600_0004, "sectionName", String, Value::str(LIVI_SECTION)).fixed(),
+                    car(
+                        1300,
+                        0x3600_0004,
+                        "sectionName",
+                        String,
+                        Value::str(LIVI_SECTION),
+                    )
+                    .fixed(),
                 ],
             },
         ],
@@ -666,7 +915,14 @@ fn seats() -> Accessory {
         characteristics: vec![
             shared(iid + 1, 0x3100_0021, names[0], Int32, Value::Int(0)).up_to(2),
             shared(iid + 2, 0x3000_0002, names[1], Bool, Value::Bool(false)),
-            car(iid + 3, 0x3600_0065, "vehicleLayoutKey", String, Value::str(key)).fixed(),
+            car(
+                iid + 3,
+                0x3600_0065,
+                "vehicleLayoutKey",
+                String,
+                Value::str(key),
+            )
+            .fixed(),
         ],
     };
     Accessory {
@@ -674,7 +930,11 @@ fn seats() -> Accessory {
         iid: 1024,
         kind: 0x0150_0001,
         services: vec![
-            heating(1025, ["driverSeatHeatingLevel", "driverSeatHeatingOn"], "seat_front_left"),
+            heating(
+                1025,
+                ["driverSeatHeatingLevel", "driverSeatHeatingOn"],
+                "seat_front_left",
+            ),
             heating(
                 1029,
                 ["passengerSeatHeatingLevel", "passengerSeatHeatingOn"],
@@ -702,10 +962,17 @@ const AVERAGE_FUEL_EFFICIENCY: i64 = 1546;
 const REMAINING_RANGE: Distance = Distance {
     km: 1794,
     hidden: Some(1796),
-    names: ["remainingRangeKm", "remainingRangeMiles", "remainingRangeHidden"],
+    names: [
+        "remainingRangeKm",
+        "remainingRangeMiles",
+        "remainingRangeHidden",
+    ],
 };
-const ODOMETER: Distance =
-    Distance { km: 1798, hidden: None, names: ["odometerKm", "odometerMiles", ""] };
+const ODOMETER: Distance = Distance {
+    km: 1798,
+    hidden: None,
+    names: ["odometerKm", "odometerMiles", ""],
+};
 const LOW_FUEL_PCT: i64 = 10;
 const KM_PER_MILE: f64 = 1.609_344;
 
@@ -716,9 +983,19 @@ fn distance(iid: i64, kind: i64, d: Distance) -> Service {
         car(d.km + 1, 0x3000_004B, d.names[1], Uint64, Value::Int(0)).in_units(MILES),
     ];
     if let Some(hidden) = d.hidden {
-        characteristics.push(car(hidden, 0x3600_0023, d.names[2], Bool, Value::Bool(true)));
+        characteristics.push(car(
+            hidden,
+            0x3600_0023,
+            d.names[2],
+            Bool,
+            Value::Bool(true),
+        ));
     }
-    Service { iid, kind, characteristics }
+    Service {
+        iid,
+        kind,
+        characteristics,
+    }
 }
 
 fn fuel() -> Accessory {
@@ -735,10 +1012,16 @@ fn fuel() -> Accessory {
                     car(FUEL_LEVEL, 0x4100_0002, "fuelLevel", Uint8, Value::Int(0))
                         .up_to(100)
                         .in_units(PERCENT),
-                    car(1539, 0x4100_001A, "fuelLevelMarkerLow", Uint8, Value::Int(LOW_FUEL_PCT))
-                        .up_to(100)
-                        .in_units(PERCENT)
-                        .fixed(),
+                    car(
+                        1539,
+                        0x4100_001A,
+                        "fuelLevelMarkerLow",
+                        Uint8,
+                        Value::Int(LOW_FUEL_PCT),
+                    )
+                    .up_to(100)
+                    .in_units(PERCENT)
+                    .fixed(),
                 ],
             },
             distance(1540, 0x1A00_0015, FUEL_RANGE),
@@ -746,8 +1029,14 @@ fn fuel() -> Accessory {
                 iid: 1544,
                 kind: 0x1A00_0014,
                 characteristics: vec![
-                    car(FUEL_EFFICIENCY, 0x3500_0013, "fuelEfficiency", Uint32, Value::Int(0))
-                        .in_units(MILLILITERS_PER_100_KM),
+                    car(
+                        FUEL_EFFICIENCY,
+                        0x3500_0013,
+                        "fuelEfficiency",
+                        Uint32,
+                        Value::Int(0),
+                    )
+                    .in_units(MILLILITERS_PER_100_KM),
                     car(
                         AVERAGE_FUEL_EFFICIENCY,
                         0x3500_0018,
@@ -756,9 +1045,15 @@ fn fuel() -> Accessory {
                         Value::Int(0),
                     )
                     .in_units(MILLILITERS_PER_100_KM),
-                    car(1547, 0x4100_0025, "fuelEfficiencyMax", Uint32, Value::Int(50_000))
-                        .in_units(MILLILITERS_PER_100_KM)
-                        .fixed(),
+                    car(
+                        1547,
+                        0x4100_0025,
+                        "fuelEfficiencyMax",
+                        Uint32,
+                        Value::Int(50_000),
+                    )
+                    .in_units(MILLILITERS_PER_100_KM)
+                    .fixed(),
                 ],
             },
         ],
@@ -803,7 +1098,14 @@ fn tires() -> Accessory {
                 car(iid, 0x3000_001B, "tirePressureKpa", Uint32, Value::Int(0))
                     .between(0.0, 1000.0, 1.0)
                     .in_units(KILOPASCALS),
-                car(iid + 1, 0x3600_0065, "vehicleLayoutKey", String, Value::str(key)).fixed(),
+                car(
+                    iid + 1,
+                    0x3600_0065,
+                    "vehicleLayoutKey",
+                    String,
+                    Value::str(key),
+                )
+                .fixed(),
                 car(
                     iid + 2,
                     0x3000_001C,
@@ -812,8 +1114,14 @@ fn tires() -> Accessory {
                     Value::Int(PRESSURE_UNDEFINED),
                 )
                 .up_to(5),
-                car(iid + 3, 0x3000_001A, "tireSensorState", Uint8, Value::Int(SENSOR_WAITING))
-                    .up_to(4),
+                car(
+                    iid + 3,
+                    0x3000_001A,
+                    "tireSensorState",
+                    Uint8,
+                    Value::Int(SENSOR_WAITING),
+                )
+                .up_to(4),
             ],
         }
     };
@@ -821,7 +1129,11 @@ fn tires() -> Accessory {
         name: "tires",
         iid: TIRES,
         kind: 0x0A00_0001,
-        services: WHEELS.iter().enumerate().map(|(n, (_, key))| wheel(n, key)).collect(),
+        services: WHEELS
+            .iter()
+            .enumerate()
+            .map(|(n, (_, key))| wheel(n, key))
+            .collect(),
     }
 }
 
@@ -881,7 +1193,13 @@ fn combustion_engine(rpm: Rpm) -> Accessory {
             characteristics: vec![
                 speed(ENGINE_RPM, 0x3000_0024, "rotationalSpeed", 0),
                 speed(2563, 0x3000_004E, "rotationalSpeedMax", max).fixed(),
-                speed(2564, 0x3000_004F, "rotationalSpeedMarkerRedline", rpm.redline).fixed(),
+                speed(
+                    2564,
+                    0x3000_004F,
+                    "rotationalSpeedMarkerRedline",
+                    rpm.redline,
+                )
+                .fixed(),
             ],
         }],
     }
@@ -949,7 +1267,12 @@ fn notification_history() -> Accessory {
             }
         })
         .collect();
-    Accessory { name: "notification history", iid: HISTORY, kind: 0x0140_0001, services }
+    Accessory {
+        name: "notification history",
+        iid: HISTORY,
+        kind: 0x0140_0001,
+        services,
+    }
 }
 
 fn fetched_archives() -> std::sync::MutexGuard<'static, BTreeSet<String>> {
@@ -995,15 +1318,41 @@ fn zone_service(
         next += 1;
     }
     if kind != REQUEST_TEMPORARY_CONTENT {
-        characteristics
-            .push(car(next, 0x3600_0063, "userDismissible", Bool, Value::Bool(true)).fixed());
+        characteristics.push(
+            car(
+                next,
+                0x3600_0063,
+                "userDismissible",
+                Bool,
+                Value::Bool(true),
+            )
+            .fixed(),
+        );
         next += 1;
     }
     characteristics.extend([
-        car(next, 0x3700_0007, "displayPanelIdentifier", String, Value::str(panel)).fixed(),
-        car(next + 1, 0x3700_000B, "displayZoneIdentifier", String, Value::str(zone)).fixed(),
+        car(
+            next,
+            0x3700_0007,
+            "displayPanelIdentifier",
+            String,
+            Value::str(panel),
+        )
+        .fixed(),
+        car(
+            next + 1,
+            0x3700_000B,
+            "displayZoneIdentifier",
+            String,
+            Value::str(zone),
+        )
+        .fixed(),
     ]);
-    Service { iid, kind, characteristics }
+    Service {
+        iid,
+        kind,
+        characteristics,
+    }
 }
 
 fn notice_service(panel: &str) -> Service {
@@ -1017,10 +1366,22 @@ fn notice_service(panel: &str) -> Service {
             open(NOTICE + 2, 0x3000_0005, "userVisibleDescription", String),
             open(NOTICE + 3, 0x3000_0019, "identifier", String),
             open(NOTICE + 4, 0x3700_0008, "symbolNameAndColor", Dict),
-            car(NOTICE + 5, 0x3700_0007, "displayPanelIdentifier", String, Value::str(panel))
-                .fixed(),
-            car(NOTICE + 6, 0x3700_000B, "displayZoneIdentifier", String, Value::str(ZONES[0]))
-                .fixed(),
+            car(
+                NOTICE + 5,
+                0x3700_0007,
+                "displayPanelIdentifier",
+                String,
+                Value::str(panel),
+            )
+            .fixed(),
+            car(
+                NOTICE + 6,
+                0x3700_000B,
+                "displayZoneIdentifier",
+                String,
+                Value::str(ZONES[0]),
+            )
+            .fixed(),
             open(NOTICE + 7, 0x3700_000C, "trailingButton", Dict),
             characteristic(
                 NOTICE + 8,
@@ -1074,12 +1435,25 @@ fn cluster_content(content: &ClusterContent) -> [Accessory; 2] {
         .enumerate()
         .map(|(n, zone)| {
             let base = 3329 + 6 * n as i64;
-            zone_service(base, DYNAMIC_CONTENT_ELEMENT, 0x3700_0013, "", None, panel, zone)
+            zone_service(
+                base,
+                DYNAMIC_CONTENT_ELEMENT,
+                0x3700_0013,
+                "",
+                None,
+                panel,
+                zone,
+            )
         })
         .collect();
     elements.push(notice_service(panel));
     [
-        Accessory { name: "cluster content", iid: 3072, kind: 0x0120_0001, services: requests },
+        Accessory {
+            name: "cluster content",
+            iid: 3072,
+            kind: 0x0120_0001,
+            services: requests,
+        },
         Accessory {
             name: "cluster notifications",
             iid: 3328,
@@ -1093,19 +1467,33 @@ fn audio() -> Accessory {
     use Format::*;
     let volume = |iid: i64, kind: i64, label: Option<&str>| {
         let mut characteristics = vec![
-            shared(iid, 0x3300_0006, "volume", Uint8, Value::Int(50)).up_to(100).enabled(),
+            shared(iid, 0x3300_0006, "volume", Uint8, Value::Int(50))
+                .up_to(100)
+                .enabled(),
             car(iid + 1, 0x3300_0005, "volumeType", Uint8, Value::Int(kind))
                 .up_to(LAST_VOLUME_TYPE)
                 .fixed(),
         ];
         if let Some(label) = label {
-            characteristics
-                .push(car(iid + 2, 0x3000_0001, "volumeLabel", String, Value::str(label)).fixed());
+            characteristics.push(
+                car(
+                    iid + 2,
+                    0x3000_0001,
+                    "volumeLabel",
+                    String,
+                    Value::str(label),
+                )
+                .fixed(),
+            );
         }
         if iid == VOLUME {
             characteristics.push(shared(MUTE, 0x3300_0009, "mute", Bool, Value::Bool(false)));
         }
-        Service { iid: iid - 1, kind: 0x1300_0002, characteristics }
+        Service {
+            iid: iid - 1,
+            kind: 0x1300_0002,
+            characteristics,
+        }
     };
     Accessory {
         name: "audio",
@@ -1163,7 +1551,9 @@ const CLIMATE_KEYS: [(&str, i64); 20] = [
 const VENTS_AUTO: &str = "ventsAuto";
 
 pub fn default_climate() -> Climate {
-    VehicleState::new(false, "", "").climate().unwrap_or_default()
+    VehicleState::new(false, "", "")
+        .climate()
+        .unwrap_or_default()
 }
 
 fn to_json(v: &Value) -> Option<serde_json::Value> {
@@ -1285,11 +1675,14 @@ impl VehicleState {
 
     fn archive_version(&self) -> Option<&str> {
         self.image_archive.as_ref()?;
-        self.values.get(&(IMAGE_ARCHIVE_SERVICE + 1)).and_then(Value::as_str)
+        self.values
+            .get(&(IMAGE_ARCHIVE_SERVICE + 1))
+            .and_then(Value::as_str)
     }
 
     fn archive_fetched(&self) -> bool {
-        self.archive_version().is_some_and(|v| fetched_archives().contains(v))
+        self.archive_version()
+            .is_some_and(|v| fetched_archives().contains(v))
     }
 
     fn symbol_name(&self, name: &str) -> String {
@@ -1306,7 +1699,9 @@ impl VehicleState {
         }
         println!("[cpVehicle] car sets the version line's logo");
         let symbol = Value::String(self.symbol_name(LOGO));
-        self.group(vec![(VERSION_LINE + 5, symbol)]).into_iter().collect()
+        self.group(vec![(VERSION_LINE + 5, symbol)])
+            .into_iter()
+            .collect()
     }
 
     pub fn set_history(&mut self, entries: Vec<HistoryEntry>) -> Vec<(Lane, Vec<u8>)> {
@@ -1360,7 +1755,10 @@ impl VehicleState {
         println!("[cpVehicle] car shows the notification {:?}", notice.title);
         let name = self.symbol_name(&notice.symbol);
         let symbol = dict([("name", Value::String(name)), ("color", Value::Int(0))]);
-        let button = dict([("contentURLAction", Value::str("")), ("type", Value::Int(1))]);
+        let button = dict([
+            ("contentURLAction", Value::str("")),
+            ("type", Value::Int(1)),
+        ]);
         let identifier = std::time::SystemTime::now()
             .duration_since(std::time::UNIX_EPOCH)
             .map_or(0, |d| d.as_millis());
@@ -1431,7 +1829,11 @@ impl VehicleState {
     pub fn with_cluster_content(mut self, content: Option<&ClusterContent>) -> Self {
         let Some(content) = content else { return self };
         let added = cluster_content(content);
-        for c in added.iter().flat_map(|a| &a.services).flat_map(|s| &s.characteristics) {
+        for c in added
+            .iter()
+            .flat_map(|a| &a.services)
+            .flat_map(|s| &s.characteristics)
+        {
             if let Some(v) = &c.initial {
                 self.values.insert(c.iid, v.clone());
             }
@@ -1458,7 +1860,11 @@ impl VehicleState {
             .into_iter()
             .chain(engines.electric.then(electric_engine))
             .collect();
-        for c in added.iter().flat_map(|a| &a.services).flat_map(|s| &s.characteristics) {
+        for c in added
+            .iter()
+            .flat_map(|a| &a.services)
+            .flat_map(|s| &s.characteristics)
+        {
             if let Some(v) = &c.initial {
                 self.values.insert(c.iid, v.clone());
             }
@@ -1522,7 +1928,10 @@ impl VehicleState {
         let info = dict([
             ("protocolVersion", Value::str(PROTOCOL_VERSION)),
             ("pluginCount", Value::Int(1)),
-            ("pluginMapping", Value::Dict(vec![(Value::str(PLUGIN), Value::Int(PLUGIN_ID))])),
+            (
+                "pluginMapping",
+                Value::Dict(vec![(Value::str(PLUGIN), Value::Int(PLUGIN_ID))]),
+            ),
             ("pluginConfigs", Value::Array(vec![plugin])),
         ]);
         ("vehicleStateProtocolInfo".into(), to_plist(&info))
@@ -1534,7 +1943,10 @@ impl VehicleState {
             return Vec::new();
         };
         let plugin = outer.get("pluginID").and_then(Value::as_int);
-        let request = outer.get("pluginData").and_then(Value::as_data).and_then(opack::decode);
+        let request = outer
+            .get("pluginData")
+            .and_then(Value::as_data)
+            .and_then(opack::decode);
         let Some(request) = request.filter(|_| plugin == Some(PLUGIN_ID)) else {
             println!("[cpVehicle] message for plugin {plugin:?} without readable data, dropped");
             return Vec::new();
@@ -1574,7 +1986,9 @@ impl VehicleState {
             }
             "controlRequest" => {
                 let commands = values.and_then(Value::as_dict).unwrap_or(&[]);
-                let fetched = commands.iter().any(|(k, _)| k.as_int() == Some(GET_IMAGE_ARCHIVE));
+                let fetched = commands
+                    .iter()
+                    .any(|(k, _)| k.as_int() == Some(GET_IMAGE_ARCHIVE));
                 let mut out = vec![(lane, wrap(&self.control(commands, transaction)))];
                 if fetched && self.image_archive.is_some() {
                     if let Some(version) = self.archive_version() {
@@ -1603,13 +2017,19 @@ impl VehicleState {
                 .and_then(|iid| self.controls.iter().find(|(_, c)| c.iid == iid))
                 .map(|(_, c)| c.name);
             let Some(name) = name else {
-                println!("[cpVehicle] phone sent command {}, the car has none such", shown(key));
+                println!(
+                    "[cpVehicle] phone sent command {}, the car has none such",
+                    shown(key)
+                );
                 refused.push((key.clone(), Value::Int(NO_SUCH_COMMAND)));
                 continue;
             };
             if name == "getImageArchive" {
                 let zip = self.image_archive.clone().unwrap_or_default();
-                println!("[cpVehicle] phone fetched the image archive, {} B", zip.len());
+                println!(
+                    "[cpVehicle] phone fetched the image archive, {} B",
+                    zip.len()
+                );
                 answered.push((key.clone(), dict([("imageArchive", Value::Data(zip))])));
                 continue;
             }
@@ -1675,7 +2095,11 @@ impl VehicleState {
         self.car_sets(NOW_PLAYING_TITLE, Value::str(&radio.title), &mut changed);
         self.car_sets(NOW_PLAYING_ARTIST, Value::str(&radio.artist), &mut changed);
         self.car_sets(NOW_PLAYING_ALBUM, Value::str(&radio.album), &mut changed);
-        self.car_sets(NOW_PLAYING_ARTWORK, Value::Data(radio.artwork.clone()), &mut changed);
+        self.car_sets(
+            NOW_PLAYING_ARTWORK,
+            Value::Data(radio.artwork.clone()),
+            &mut changed,
+        );
         self.car_sets(PLAYBACK_STATE, Value::Int(state), &mut changed);
         update_notify(changed).into_iter().collect()
     }
@@ -1773,7 +2197,10 @@ impl VehicleState {
     }
 
     pub fn volumes(&self) -> Vec<(&'static str, f64)> {
-        VOLUMES.iter().filter_map(|(name, iid)| Some((*name, self.level(*iid)?))).collect()
+        VOLUMES
+            .iter()
+            .filter_map(|(name, iid)| Some((*name, self.level(*iid)?)))
+            .collect()
     }
 
     fn level(&self, iid: i64) -> Option<f64> {
@@ -1786,8 +2213,9 @@ impl VehicleState {
             .iter()
             .filter_map(|(key, iid)| Some(((*key).to_string(), to_json(self.values.get(iid)?)?)))
             .collect();
-        let auto =
-            VENTS.iter().all(|vent| self.values.get(&(vent + 2)) == Some(&Value::Bool(true)));
+        let auto = VENTS
+            .iter()
+            .all(|vent| self.values.get(&(vent + 2)) == Some(&Value::Bool(true)));
         block.insert(VENTS_AUTO.into(), auto.into());
         Some(block)
     }
@@ -1810,7 +2238,10 @@ impl VehicleState {
                 given.push((*iid, v));
             }
         }
-        let new: Vec<_> = given.iter().filter(|(iid, v)| self.values.get(iid) != Some(v)).collect();
+        let new: Vec<_> = given
+            .iter()
+            .filter(|(iid, v)| self.values.get(iid) != Some(v))
+            .collect();
         if new.is_empty() {
             return Vec::new();
         }
@@ -1821,7 +2252,10 @@ impl VehicleState {
             }
             self.values.insert(*iid, v.clone());
         }
-        let written: Vec<_> = new.iter().map(|(iid, v)| (Value::Int(*iid), v.clone())).collect();
+        let written: Vec<_> = new
+            .iter()
+            .map(|(iid, v)| (Value::Int(*iid), v.clone()))
+            .collect();
         self.settle(&written, &mut Vec::new());
         for (iid, v) in given {
             self.values.insert(iid, v);
@@ -1837,8 +2271,12 @@ impl VehicleState {
     }
 
     pub fn set_gauges(&mut self, gauges: &Gauges) -> Vec<(Lane, Vec<u8>)> {
-        let num =
-            |key| gauges.get(key).and_then(serde_json::Value::as_f64).filter(|n| n.is_finite());
+        let num = |key| {
+            gauges
+                .get(key)
+                .and_then(serde_json::Value::as_f64)
+                .filter(|n| n.is_finite())
+        };
         let mut given: Vec<(i64, serde_json::Value)> = Vec::new();
         for (name, iid) in VOLUMES {
             if let Some(level) = num(name) {
@@ -1851,10 +2289,14 @@ impl VehicleState {
         if let Some(rpm) = num("rpm") {
             given.push((ENGINE_RPM, rpm.into()));
         }
-        let ranges: [(&str, &[Distance]); 2] =
-            [("rangeKm", &[FUEL_RANGE, REMAINING_RANGE]), ("odometerKm", &[ODOMETER])];
+        let ranges: [(&str, &[Distance]); 2] = [
+            ("rangeKm", &[FUEL_RANGE, REMAINING_RANGE]),
+            ("odometerKm", &[ODOMETER]),
+        ];
         for (key, distances) in ranges {
-            let Some(km) = num(key).map(|km| km.max(0.0)) else { continue };
+            let Some(km) = num(key).map(|km| km.max(0.0)) else {
+                continue;
+            };
             for d in distances {
                 given.push((d.km, km.into()));
                 given.push((d.km + 1, (km / KM_PER_MILE).into()));
@@ -1863,7 +2305,10 @@ impl VehicleState {
                 }
             }
         }
-        if let Some(tires) = gauges.get("tirePressure").and_then(serde_json::Value::as_object) {
+        if let Some(tires) = gauges
+            .get("tirePressure")
+            .and_then(serde_json::Value::as_object)
+        {
             for (n, (name, _)) in WHEELS.iter().enumerate() {
                 if let Some(kpa) = tires.get(*name).and_then(serde_json::Value::as_f64) {
                     let iid = tire_pressure_iid(n);
@@ -1887,7 +2332,12 @@ impl VehicleState {
                 self.car_sets(iid, v, &mut changed);
             }
         }
-        if self.values.get(&VOLUME).and_then(Value::as_int).is_some_and(|v| v > 0) {
+        if self
+            .values
+            .get(&VOLUME)
+            .and_then(Value::as_int)
+            .is_some_and(|v| v > 0)
+        {
             self.car_sets(MUTE, Value::Bool(false), &mut changed);
         }
         update_notify(changed).into_iter().collect()
@@ -1902,8 +2352,17 @@ impl VehicleState {
     }
 
     fn mute_by_volume(&mut self, written: &[(Value, Value)], changed: &mut Vec<(Value, Value)>) {
-        let find = |iid| written.iter().find(|(k, _)| k.as_int() == Some(iid)).map(|(_, v)| v);
-        let level = self.values.get(&VOLUME).and_then(Value::as_int).unwrap_or(0);
+        let find = |iid| {
+            written
+                .iter()
+                .find(|(k, _)| k.as_int() == Some(iid))
+                .map(|(_, v)| v)
+        };
+        let level = self
+            .values
+            .get(&VOLUME)
+            .and_then(Value::as_int)
+            .unwrap_or(0);
         match (find(MUTE), find(VOLUME)) {
             (Some(Value::Bool(true)), _) if level > 0 => {
                 self.resume.insert(VOLUME, Value::Int(level));
@@ -1933,7 +2392,12 @@ impl VehicleState {
     }
 
     fn switch_by_level(&mut self, written: &[(Value, Value)], changed: &mut Vec<(Value, Value)>) {
-        let find = |iid| written.iter().find(|(k, _)| k.as_int() == Some(iid)).map(|(_, v)| v);
+        let find = |iid| {
+            written
+                .iter()
+                .find(|(k, _)| k.as_int() == Some(iid))
+                .map(|(_, v)| v)
+        };
         for (level_iid, on_iid) in LEVELLED {
             if let Some(Value::Int(level)) = find(level_iid) {
                 self.car_sets(on_iid, Value::Bool(*level > 0), changed);
@@ -1945,7 +2409,11 @@ impl VehicleState {
                     }
                     self.car_sets(level_iid, Value::Int(0), changed);
                 } else if *on && level == Some(Value::Int(0)) {
-                    let back = self.resume.get(&level_iid).cloned().unwrap_or(Value::Int(1));
+                    let back = self
+                        .resume
+                        .get(&level_iid)
+                        .cloned()
+                        .unwrap_or(Value::Int(1));
                     self.car_sets(level_iid, back, changed);
                 }
             }
@@ -1953,7 +2421,12 @@ impl VehicleState {
     }
 
     fn follow_auto(&mut self, written: &[(Value, Value)], changed: &mut Vec<(Value, Value)>) {
-        let find = |iid| written.iter().find(|(k, _)| k.as_int() == Some(iid)).map(|(_, v)| v);
+        let find = |iid| {
+            written
+                .iter()
+                .find(|(k, _)| k.as_int() == Some(iid))
+                .map(|(_, v)| v)
+        };
         let vents_auto = VENTS.map(|vent| vent + 2);
         if let Some(Value::Bool(auto)) = find(AUTO_CLIMATE) {
             for iid in std::iter::once(FAN_AUTO).chain(vents_auto) {
@@ -1990,11 +2463,17 @@ impl VehicleState {
             (FAN_AUTO, Value::Bool(false)),
             (AUTO_CLIMATE, Value::Bool(false)),
         ];
-        let find = |iid| written.iter().find(|(k, _)| k.as_int() == Some(iid)).map(|(_, v)| v);
+        let find = |iid| {
+            written
+                .iter()
+                .find(|(k, _)| k.as_int() == Some(iid))
+                .map(|(_, v)| v)
+        };
         match find(MAX_AC) {
             Some(Value::Bool(true)) if self.before_max_ac.is_none() => {
-                let before =
-                    takes.iter().filter_map(|(iid, _)| Some((*iid, self.values.get(iid)?.clone())));
+                let before = takes
+                    .iter()
+                    .filter_map(|(iid, _)| Some((*iid, self.values.get(iid)?.clone())));
                 self.before_max_ac = Some(before.collect());
                 for (iid, v) in takes {
                     self.car_sets(iid, v, changed);
@@ -2043,8 +2522,10 @@ fn shown(v: &Value) -> std::string::String {
 
 fn update_notify(changed: Vec<(Value, Value)>) -> Option<(Lane, Vec<u8>)> {
     (!changed.is_empty()).then(|| {
-        let update =
-            dict([("command", Value::str("updateNotify")), ("values", Value::Dict(changed))]);
+        let update = dict([
+            ("command", Value::str("updateNotify")),
+            ("values", Value::Dict(changed)),
+        ]);
         (Lane::High, wrap(&update))
     })
 }
@@ -2088,17 +2569,28 @@ mod tests {
 
     fn hex(s: &str) -> Vec<u8> {
         let s: std::string::String = s.split_whitespace().collect();
-        (0..s.len()).step_by(2).map(|i| u8::from_str_radix(&s[i..i + 2], 16).unwrap()).collect()
+        (0..s.len())
+            .step_by(2)
+            .map(|i| u8::from_str_radix(&s[i..i + 2], 16).unwrap())
+            .collect()
     }
 
     fn opened(answer: &[u8]) -> Value {
         let outer = opack::decode(answer).unwrap();
-        assert_eq!(outer.get("pluginID").and_then(Value::as_int), Some(PLUGIN_ID));
+        assert_eq!(
+            outer.get("pluginID").and_then(Value::as_int),
+            Some(PLUGIN_ID)
+        );
         opack::decode(outer.get("pluginData").and_then(Value::as_data).unwrap()).unwrap()
     }
 
     fn by_iid(entries: &[(i64, Value)]) -> Value {
-        Value::Dict(entries.iter().map(|(k, v)| (Value::Int(*k), v.clone())).collect())
+        Value::Dict(
+            entries
+                .iter()
+                .map(|(k, v)| (Value::Int(*k), v.clone()))
+                .collect(),
+        )
     }
 
     fn command(name: &str, values: Value) -> Vec<u8> {
@@ -2113,16 +2605,35 @@ mod tests {
     fn info_describes_route_sharing_for_one_plugin() {
         let (key, info) = VehicleState::new(false, "9.5.0", "2026-10-15 14:30").info_entry();
         assert_eq!(key, "vehicleStateProtocolInfo");
-        assert_eq!(info.get("protocolVersion").and_then(bplist::Value::as_str), Some("1.0"));
+        assert_eq!(
+            info.get("protocolVersion").and_then(bplist::Value::as_str),
+            Some("1.0")
+        );
         let mapping = info.get("pluginMapping").and_then(|m| m.get(PLUGIN));
         assert_eq!(mapping.and_then(bplist::Value::as_int), Some(0));
-        let plugin = &info.get("pluginConfigs").and_then(bplist::Value::as_array).unwrap()[0];
-        let accessory = &plugin.get("accessories").and_then(bplist::Value::as_array).unwrap()[0];
-        assert_eq!(accessory.get("type").and_then(bplist::Value::as_int), Some(0x0E00_0002));
-        let services = accessory.get("services").and_then(bplist::Value::as_array).unwrap();
+        let plugin = &info
+            .get("pluginConfigs")
+            .and_then(bplist::Value::as_array)
+            .unwrap()[0];
+        let accessory = &plugin
+            .get("accessories")
+            .and_then(bplist::Value::as_array)
+            .unwrap()[0];
+        assert_eq!(
+            accessory.get("type").and_then(bplist::Value::as_int),
+            Some(0x0E00_0002)
+        );
+        let services = accessory
+            .get("services")
+            .and_then(bplist::Value::as_array)
+            .unwrap();
         let characteristics: Vec<&bplist::Value> = services
             .iter()
-            .flat_map(|s| s.get("characteristics").and_then(bplist::Value::as_array).unwrap())
+            .flat_map(|s| {
+                s.get("characteristics")
+                    .and_then(bplist::Value::as_array)
+                    .unwrap()
+            })
             .collect();
         assert_eq!(characteristics.len(), 16);
         let find = |iid: u64| {
@@ -2151,20 +2662,27 @@ mod tests {
         assert_eq!(flag(brand, "writable"), Some(false));
         assert_eq!(flag(brand, "oemWritable"), Some(true));
         assert_eq!(flag(brand, "mutable"), Some(false));
-        assert_eq!(brand.get("initialValue").and_then(bplist::Value::as_str), Some("LIVI"));
+        assert_eq!(
+            brand.get("initialValue").and_then(bplist::Value::as_str),
+            Some("LIVI")
+        );
     }
 
     #[test]
     fn the_phone_reads_follows_and_writes() {
         let mut state = VehicleState::new(false, "9.5.0", "2026-10-15 14:30");
-        let ask =
-            hex("e248706c7567696e4944084a706c7567696e44617461912ee247636f6d6d616e644d636f6e666967
-             526571756573744d7472616e73616374696f6e494433b960c362b52ed4f2");
+        let ask = hex(
+            "e248706c7567696e4944084a706c7567696e44617461912ee247636f6d6d616e644d636f6e666967
+             526571756573744d7472616e73616374696f6e494433b960c362b52ed4f2",
+        );
         let answers = state.handle(Lane::High, &ask);
         assert_eq!(answers.len(), 1);
         assert_eq!(answers[0].0, Lane::High);
         let description = opened(&answers[0].1);
-        assert_eq!(description.get("command").and_then(Value::as_str), Some("configResponse"));
+        assert_eq!(
+            description.get("command").and_then(Value::as_str),
+            Some("configResponse")
+        );
         assert_eq!(
             description.get("transactionID").and_then(Value::as_int),
             Some(-949_082_264_887_402_311)
@@ -2173,11 +2691,17 @@ mod tests {
         assert_eq!(accessories, Some(&state.accessory_list()));
 
         let iids = [262, 264, 273, 999].map(Value::Int).to_vec();
-        let answers = state.handle(Lane::Normal, &command("registerRequest", Value::Array(iids)));
+        let answers = state.handle(
+            Lane::Normal,
+            &command("registerRequest", Value::Array(iids)),
+        );
         assert_eq!(answers.len(), 1);
         assert_eq!(answers[0].0, Lane::Normal);
         let followed = opened(&answers[0].1);
-        assert_eq!(followed.get("command").and_then(Value::as_str), Some("registerResponse"));
+        assert_eq!(
+            followed.get("command").and_then(Value::as_str),
+            Some("registerResponse")
+        );
         let held = by_iid(&[(264, Value::Bool(true)), (273, Value::Int(0))]);
         assert_eq!(followed.get("values"), Some(&held));
         let missing = by_iid(&[(262, Value::Int(NO_VALUE)), (999, Value::Int(NO_VALUE))]);
@@ -2188,20 +2712,47 @@ mod tests {
         assert_eq!(answers.len(), 2);
         assert_eq!(answers[0].0, Lane::Normal);
         let response = opened(&answers[0].1);
-        assert_eq!(response.get("command").and_then(Value::as_str), Some("writeResponse"));
+        assert_eq!(
+            response.get("command").and_then(Value::as_str),
+            Some("writeResponse")
+        );
         let results = by_iid(&[(262, Value::Int(WRITTEN)), (264, Value::Int(NO_VALUE))]);
         assert_eq!(response.get("errors"), Some(&results));
-        assert_eq!(answers[1].0, Lane::High, "updates ride the high priority stream");
+        assert_eq!(
+            answers[1].0,
+            Lane::High,
+            "updates ride the high priority stream"
+        );
         let update = opened(&answers[1].1);
-        assert_eq!(update.get("command").and_then(Value::as_str), Some("updateNotify"));
-        assert_eq!(update.get("values"), Some(&by_iid(&[(262, Value::Bool(true))])));
+        assert_eq!(
+            update.get("command").and_then(Value::as_str),
+            Some("updateNotify")
+        );
+        assert_eq!(
+            update.get("values"),
+            Some(&by_iid(&[(262, Value::Bool(true))]))
+        );
         assert!(update.get("transactionID").is_none());
-        assert_eq!(state.values.get(&264), Some(&Value::Bool(true)), "the car keeps its own value");
+        assert_eq!(
+            state.values.get(&264),
+            Some(&Value::Bool(true)),
+            "the car keeps its own value"
+        );
 
         let same = by_iid(&[(262, Value::Bool(true))]);
-        assert_eq!(state.handle(Lane::High, &command("writeRequest", same)).len(), 1);
+        assert_eq!(
+            state
+                .handle(Lane::High, &command("writeRequest", same))
+                .len(),
+            1
+        );
         let unfollowed = by_iid(&[(266, Value::Dict(Vec::new()))]);
-        assert_eq!(state.handle(Lane::High, &command("writeRequest", unfollowed)).len(), 1);
+        assert_eq!(
+            state
+                .handle(Lane::High, &command("writeRequest", unfollowed))
+                .len(),
+            1
+        );
         assert_eq!(state.values.get(&266), Some(&Value::Dict(Vec::new())));
     }
 
@@ -2209,7 +2760,10 @@ mod tests {
     fn the_vehicle_app_shows_the_livi_version_and_build_date() {
         let lines = |version: &str, built: &str| {
             let (_, info) = VehicleState::new(false, version, built).info_entry();
-            let plugin = &info.get("pluginConfigs").and_then(bplist::Value::as_array).unwrap()[0];
+            let plugin = &info
+                .get("pluginConfigs")
+                .and_then(bplist::Value::as_array)
+                .unwrap()[0];
             let settings = plugin
                 .get("accessories")
                 .and_then(bplist::Value::as_array)
@@ -2218,7 +2772,11 @@ mod tests {
                 .find(|a| a.get("type").and_then(bplist::Value::as_int) == Some(0x0500_0001))
                 .unwrap()
                 .clone();
-            settings.get("services").and_then(bplist::Value::as_array).unwrap().to_vec()
+            settings
+                .get("services")
+                .and_then(bplist::Value::as_array)
+                .unwrap()
+                .to_vec()
         };
         let initial = |line: &bplist::Value, kind| {
             line.get("characteristics")
@@ -2241,7 +2799,11 @@ mod tests {
         assert_eq!(initial(section, 0x3000_0019), text("LIVI"));
         assert_eq!(initial(section, 0x3600_0004), text("LIVI"));
         for line in &known[..2] {
-            assert_eq!(initial(line, 0x3600_0028), text("LIVI"), "both lines sit in the section");
+            assert_eq!(
+                initial(line, 0x3600_0028),
+                text("LIVI"),
+                "both lines sit in the section"
+            );
             assert_eq!(initial(line, 0x3600_0006), Some(bplist::Value::Int(0)));
         }
         assert_eq!(initial(&known[0], 0x3000_0001), text("Version"));
@@ -2251,7 +2813,10 @@ mod tests {
             Some(bplist::Value::String(s)) => s,
             other => panic!("no label: {other:?}"),
         };
-        assert!(label(&known[0]) < label(&known[1]), "the phone puts the version line first");
+        assert!(
+            label(&known[0]) < label(&known[1]),
+            "the phone puts the version line first"
+        );
         assert_eq!(initial(&known[1], 0x3000_0017), text("2026-10-15 14:30"));
         let sort_order = |line: &bplist::Value| {
             line.get("characteristics")
@@ -2264,7 +2829,11 @@ mod tests {
         };
         let (version, build) = (sort_order(&known[0]), sort_order(&known[1]));
         let number = |c: &bplist::Value, k: &str| c.get(k).and_then(bplist::Value::as_int);
-        assert_eq!(number(&version, "initialValue"), Some(0), "the version line comes first");
+        assert_eq!(
+            number(&version, "initialValue"),
+            Some(0),
+            "the version line comes first"
+        );
         assert_eq!(number(&build, "initialValue"), Some(1));
         assert_eq!(
             number(&version, "maximumValue"),
@@ -2273,14 +2842,21 @@ mod tests {
         );
 
         let unknown = lines("", "");
-        assert_eq!(initial(&unknown[0], 0x3000_0017), text("?"), "an unknown version shows as ?");
+        assert_eq!(
+            initial(&unknown[0], 0x3000_0017),
+            text("?"),
+            "an unknown version shows as ?"
+        );
         assert_eq!(initial(&unknown[1], 0x3000_0017), text("?"));
     }
 
     #[test]
     fn both_front_seats_heat_in_two_steps() {
         let (_, info) = VehicleState::new(false, "9.5.0", "2026-10-15 14:30").info_entry();
-        let plugin = &info.get("pluginConfigs").and_then(bplist::Value::as_array).unwrap()[0];
+        let plugin = &info
+            .get("pluginConfigs")
+            .and_then(bplist::Value::as_array)
+            .unwrap()[0];
         let seats = plugin
             .get("accessories")
             .and_then(bplist::Value::as_array)
@@ -2288,10 +2864,16 @@ mod tests {
             .iter()
             .find(|a| a.get("type").and_then(bplist::Value::as_int) == Some(0x0150_0001))
             .unwrap();
-        let services = seats.get("services").and_then(bplist::Value::as_array).unwrap();
+        let services = seats
+            .get("services")
+            .and_then(bplist::Value::as_array)
+            .unwrap();
         assert_eq!(services.len(), 2);
         for service in services {
-            assert_eq!(service.get("type").and_then(bplist::Value::as_int), Some(0x2200_0001));
+            assert_eq!(
+                service.get("type").and_then(bplist::Value::as_int),
+                Some(0x2200_0001)
+            );
             let level = service
                 .get("characteristics")
                 .and_then(bplist::Value::as_array)
@@ -2300,9 +2882,18 @@ mod tests {
                 .find(|c| c.get("type").and_then(bplist::Value::as_int) == Some(0x3100_0021))
                 .unwrap();
             assert_eq!(level.get("format").and_then(bplist::Value::as_int), Some(7));
-            assert_eq!(level.get("minimumValue").and_then(bplist::Value::as_int), Some(0));
-            assert_eq!(level.get("maximumValue").and_then(bplist::Value::as_int), Some(2));
-            assert_eq!(level.get("writable").and_then(bplist::Value::as_bool), Some(true));
+            assert_eq!(
+                level.get("minimumValue").and_then(bplist::Value::as_int),
+                Some(0)
+            );
+            assert_eq!(
+                level.get("maximumValue").and_then(bplist::Value::as_int),
+                Some(2)
+            );
+            assert_eq!(
+                level.get("writable").and_then(bplist::Value::as_bool),
+                Some(true)
+            );
         }
     }
 
@@ -2312,18 +2903,26 @@ mod tests {
         let [(level, on), _] = SEAT_HEATING;
         state.handle(
             Lane::High,
-            &command("registerRequest", Value::Array(vec![Value::Int(level), Value::Int(on)])),
+            &command(
+                "registerRequest",
+                Value::Array(vec![Value::Int(level), Value::Int(on)]),
+            ),
         );
         let update = |state: &mut VehicleState, to: i64| {
-            let answers = state
-                .handle(Lane::High, &command("writeRequest", by_iid(&[(level, Value::Int(to))])));
+            let answers = state.handle(
+                Lane::High,
+                &command("writeRequest", by_iid(&[(level, Value::Int(to))])),
+            );
             opened(&answers[1].1).get("values").cloned()
         };
         assert_eq!(
             update(&mut state, 2),
             Some(by_iid(&[(level, Value::Int(2)), (on, Value::Bool(true))]))
         );
-        assert_eq!(update(&mut state, 1), Some(by_iid(&[(level, Value::Int(1))])));
+        assert_eq!(
+            update(&mut state, 1),
+            Some(by_iid(&[(level, Value::Int(1))]))
+        );
         assert_eq!(
             update(&mut state, 0),
             Some(by_iid(&[(level, Value::Int(0)), (on, Value::Bool(false))]))
@@ -2333,7 +2932,10 @@ mod tests {
     #[test]
     fn front_and_rear_windows_heat_through_their_wires() {
         let (_, info) = VehicleState::new(false, "9.5.0", "2026-10-15 14:30").info_entry();
-        let plugin = &info.get("pluginConfigs").and_then(bplist::Value::as_array).unwrap()[0];
+        let plugin = &info
+            .get("pluginConfigs")
+            .and_then(bplist::Value::as_array)
+            .unwrap()[0];
         let climate = plugin
             .get("accessories")
             .and_then(bplist::Value::as_array)
@@ -2348,35 +2950,49 @@ mod tests {
             .iter()
             .filter(|s| s.get("type").and_then(bplist::Value::as_int) == Some(0x1100_0005))
             .map(|s| {
-                let chars = s.get("characteristics").and_then(bplist::Value::as_array).unwrap();
+                let chars = s
+                    .get("characteristics")
+                    .and_then(bplist::Value::as_array)
+                    .unwrap();
                 let of = |kind| {
                     chars
                         .iter()
                         .find(|c| c.get("type").and_then(bplist::Value::as_int) == Some(kind))
                         .and_then(|c| c.get("initialValue"))
                 };
-                let key = of(0x3600_0065).and_then(bplist::Value::as_str).unwrap().to_string();
+                let key = of(0x3600_0065)
+                    .and_then(bplist::Value::as_str)
+                    .unwrap()
+                    .to_string();
                 (key, of(0x3100_0014).and_then(bplist::Value::as_int))
             })
             .collect();
         assert_eq!(
             windows,
-            [("windshield_front".to_string(), Some(2)), ("windshield_rear".to_string(), Some(2))]
+            [
+                ("windshield_front".to_string(), Some(2)),
+                ("windshield_rear".to_string(), Some(2))
+            ]
         );
     }
 
     #[test]
     fn each_vent_has_its_button_and_auto_takes_them_all() {
         let mut state = VehicleState::new(false, "9.5.0", "2026-10-15 14:30");
-        let directions: Vec<_> =
-            VENTS.iter().map(|vent| state.values.get(&(vent + 3)).cloned()).collect();
+        let directions: Vec<_> = VENTS
+            .iter()
+            .map(|vent| state.values.get(&(vent + 3)).cloned())
+            .collect();
         let one = |d| Some(Value::Array(vec![Value::Int(d)]));
         assert_eq!(directions, [one(UPPER), one(MIDDLE), one(LOWER)]);
         let [_, middle, lower] = VENTS;
-        let automatic =
-            VENTS.iter().all(|v| state.values.get(&(v + 2)) == Some(&Value::Bool(true)));
+        let automatic = VENTS
+            .iter()
+            .all(|v| state.values.get(&(v + 2)) == Some(&Value::Bool(true)));
         assert!(automatic, "the vents start in automatic, as AUTO does");
-        let iids = [middle + 1, middle + 2, lower + 1, lower + 2].map(Value::Int).to_vec();
+        let iids = [middle + 1, middle + 2, lower + 1, lower + 2]
+            .map(Value::Int)
+            .to_vec();
         state.handle(Lane::High, &command("registerRequest", Value::Array(iids)));
         let update = |state: &mut VehicleState, written: (i64, Value)| {
             let answers = state.handle(Lane::High, &command("writeRequest", by_iid(&[written])));
@@ -2393,7 +3009,10 @@ mod tests {
         );
         assert_eq!(
             update(&mut state, (AUTO_CLIMATE, Value::Bool(true))),
-            Some(by_iid(&[(middle + 2, Value::Bool(true)), (lower + 2, Value::Bool(true))]))
+            Some(by_iid(&[
+                (middle + 2, Value::Bool(true)),
+                (lower + 2, Value::Bool(true))
+            ]))
         );
         assert_eq!(state.values.get(&(middle + 1)), Some(&Value::Bool(true)));
     }
@@ -2402,11 +3021,19 @@ mod tests {
     fn max_ac_cools_with_everything_and_gives_the_settings_back() {
         let mut state = VehicleState::new(false, "9.5.0", "2026-10-15 14:30");
         let (level, _) = FAN;
-        let iids =
-            [MAX_AC, DRIVER_TARGET_TEMPERATURE, PASSENGER_TARGET_TEMPERATURE, RECIRCULATION, level];
+        let iids = [
+            MAX_AC,
+            DRIVER_TARGET_TEMPERATURE,
+            PASSENGER_TARGET_TEMPERATURE,
+            RECIRCULATION,
+            level,
+        ];
         state.handle(
             Lane::High,
-            &command("registerRequest", Value::Array(iids.map(Value::Int).to_vec())),
+            &command(
+                "registerRequest",
+                Value::Array(iids.map(Value::Int).to_vec()),
+            ),
         );
         let update = |state: &mut VehicleState, written: (i64, Value)| {
             let answers = state.handle(Lane::High, &command("writeRequest", by_iid(&[written])));
@@ -2439,7 +3066,10 @@ mod tests {
         update(&mut state, (MAX_AC, Value::Bool(true)));
         assert_eq!(
             update(&mut state, (level, Value::Int(4))),
-            Some(by_iid(&[(level, Value::Int(4)), (MAX_AC, Value::Bool(false))])),
+            Some(by_iid(&[
+                (level, Value::Int(4)),
+                (MAX_AC, Value::Bool(false))
+            ])),
             "set by hand, Max AC ends and keeps the rest"
         );
         assert_eq!(state.values.get(&DRIVER_TARGET_TEMPERATURE), Some(&lo));
@@ -2470,7 +3100,10 @@ mod tests {
         );
         assert_eq!(
             update(&mut state, (AUTO_CLIMATE, Value::Bool(true))),
-            Some(by_iid(&[(AUTO_CLIMATE, Value::Bool(true)), (FAN_AUTO, Value::Bool(true))]))
+            Some(by_iid(&[
+                (AUTO_CLIMATE, Value::Bool(true)),
+                (FAN_AUTO, Value::Bool(true))
+            ]))
         );
     }
 
@@ -2505,10 +3138,17 @@ mod tests {
     #[test]
     fn synced_zones_follow_the_driver_until_the_passenger_is_set() {
         let mut state = VehicleState::new(false, "9.5.0", "2026-10-15 14:30");
-        let iids = [DRIVER_TARGET_TEMPERATURE, PASSENGER_TARGET_TEMPERATURE, ZONES_SYNCED];
+        let iids = [
+            DRIVER_TARGET_TEMPERATURE,
+            PASSENGER_TARGET_TEMPERATURE,
+            ZONES_SYNCED,
+        ];
         state.handle(
             Lane::High,
-            &command("registerRequest", Value::Array(iids.map(Value::Int).to_vec())),
+            &command(
+                "registerRequest",
+                Value::Array(iids.map(Value::Int).to_vec()),
+            ),
         );
         let update = |state: &mut VehicleState, written: &[(i64, Value)]| {
             let answers = state.handle(Lane::High, &command("writeRequest", by_iid(written)));
@@ -2516,7 +3156,10 @@ mod tests {
         };
 
         assert_eq!(
-            update(&mut state, &[(DRIVER_TARGET_TEMPERATURE, Value::Real(23.0))]),
+            update(
+                &mut state,
+                &[(DRIVER_TARGET_TEMPERATURE, Value::Real(23.0))]
+            ),
             Some(by_iid(&[(DRIVER_TARGET_TEMPERATURE, Value::Real(23.0))])),
             "not synced, the passenger side stays"
         );
@@ -2528,26 +3171,38 @@ mod tests {
             ]))
         );
         assert_eq!(
-            update(&mut state, &[(DRIVER_TARGET_TEMPERATURE, Value::Real(24.5))]),
+            update(
+                &mut state,
+                &[(DRIVER_TARGET_TEMPERATURE, Value::Real(24.5))]
+            ),
             Some(by_iid(&[
                 (DRIVER_TARGET_TEMPERATURE, Value::Real(24.5)),
                 (PASSENGER_TARGET_TEMPERATURE, Value::Real(24.5))
             ]))
         );
         assert_eq!(
-            update(&mut state, &[(PASSENGER_TARGET_TEMPERATURE, Value::Real(20.0))]),
+            update(
+                &mut state,
+                &[(PASSENGER_TARGET_TEMPERATURE, Value::Real(20.0))]
+            ),
             Some(by_iid(&[
                 (PASSENGER_TARGET_TEMPERATURE, Value::Real(20.0)),
                 (ZONES_SYNCED, Value::Bool(false))
             ]))
         );
-        assert_eq!(state.values.get(&DRIVER_TARGET_TEMPERATURE), Some(&Value::Real(24.5)));
+        assert_eq!(
+            state.values.get(&DRIVER_TARGET_TEMPERATURE),
+            Some(&Value::Real(24.5))
+        );
     }
 
     #[test]
     fn both_front_seats_have_their_own_temperature() {
         let (_, info) = VehicleState::new(false, "9.5.0", "2026-10-15 14:30").info_entry();
-        let plugin = &info.get("pluginConfigs").and_then(bplist::Value::as_array).unwrap()[0];
+        let plugin = &info
+            .get("pluginConfigs")
+            .and_then(bplist::Value::as_array)
+            .unwrap()[0];
         let climate = plugin
             .get("accessories")
             .and_then(bplist::Value::as_array)
@@ -2561,7 +3216,11 @@ mod tests {
             .unwrap()
             .iter()
             .filter(|s| s.get("type").and_then(bplist::Value::as_int) == Some(0x1100_0002))
-            .flat_map(|s| s.get("characteristics").and_then(bplist::Value::as_array).unwrap())
+            .flat_map(|s| {
+                s.get("characteristics")
+                    .and_then(bplist::Value::as_array)
+                    .unwrap()
+            })
             .filter(|c| c.get("type").and_then(bplist::Value::as_int) == Some(0x3600_0065))
             .filter_map(|c| c.get("initialValue").and_then(bplist::Value::as_str))
             .map(str::to_string)
@@ -2573,15 +3232,24 @@ mod tests {
     fn climate_is_described_and_set_from_the_phone() {
         let mut state = VehicleState::new(false, "9.5.0", "2026-10-15 14:30");
         let (_, info) = state.info_entry();
-        let plugin = &info.get("pluginConfigs").and_then(bplist::Value::as_array).unwrap()[0];
-        let accessories = plugin.get("accessories").and_then(bplist::Value::as_array).unwrap();
+        let plugin = &info
+            .get("pluginConfigs")
+            .and_then(bplist::Value::as_array)
+            .unwrap()[0];
+        let accessories = plugin
+            .get("accessories")
+            .and_then(bplist::Value::as_array)
+            .unwrap();
         fn of_type(list: &[bplist::Value], kind: u64) -> &bplist::Value {
             list.iter()
                 .find(|x| x.get("type").and_then(bplist::Value::as_int) == Some(kind))
                 .unwrap()
         }
         let climate = of_type(accessories, 0x0100_0001);
-        let services = climate.get("services").and_then(bplist::Value::as_array).unwrap();
+        let services = climate
+            .get("services")
+            .and_then(bplist::Value::as_array)
+            .unwrap();
         let characteristics = |kind| {
             of_type(services, kind)
                 .get("characteristics")
@@ -2589,24 +3257,48 @@ mod tests {
                 .unwrap()
         };
         let target = of_type(characteristics(0x1100_0002), 0x3100_0017);
-        assert_eq!(target.get("format").and_then(bplist::Value::as_int), Some(9));
-        assert_eq!(target.get("units").and_then(bplist::Value::as_int), Some(1082));
-        assert_eq!(target.get("writable").and_then(bplist::Value::as_bool), Some(true));
-        assert_eq!(target.get("oemWritable").and_then(bplist::Value::as_bool), Some(true));
+        assert_eq!(
+            target.get("format").and_then(bplist::Value::as_int),
+            Some(9)
+        );
+        assert_eq!(
+            target.get("units").and_then(bplist::Value::as_int),
+            Some(1082)
+        );
+        assert_eq!(
+            target.get("writable").and_then(bplist::Value::as_bool),
+            Some(true)
+        );
+        assert_eq!(
+            target.get("oemWritable").and_then(bplist::Value::as_bool),
+            Some(true)
+        );
         assert_eq!(target.get("minimumValue"), Some(&bplist::Value::Real(16.0)));
         assert_eq!(target.get("initialValue"), Some(&bplist::Value::Real(21.0)));
         let level = of_type(characteristics(0x1100_0007), 0x3100_0012);
-        assert_eq!(level.get("maximumValue").and_then(bplist::Value::as_int), Some(7));
+        assert_eq!(
+            level.get("maximumValue").and_then(bplist::Value::as_int),
+            Some(7)
+        );
         let resources = of_type(accessories, 0x0120_0002);
         let variant = of_type(
-            resources.get("services").and_then(bplist::Value::as_array).unwrap(),
+            resources
+                .get("services")
+                .and_then(bplist::Value::as_array)
+                .unwrap(),
             0x2000_0001,
         );
         let style = of_type(
-            variant.get("characteristics").and_then(bplist::Value::as_array).unwrap(),
+            variant
+                .get("characteristics")
+                .and_then(bplist::Value::as_array)
+                .unwrap(),
             0x4800_0004,
         );
-        assert_eq!(style.get("initialValue"), Some(&bplist::Value::String("5Seater".into())));
+        assert_eq!(
+            style.get("initialValue"),
+            Some(&bplist::Value::String("5Seater".into()))
+        );
         let themed = VehicleState::new(false, "", "").with_variant("DB12Coupe");
         for iid in [EXTERIOR_STYLE, INTERIOR_STYLE, VEHICLE_LAYOUT] {
             let named = themed.characteristic(iid).and_then(|c| c.initial.clone());
@@ -2614,19 +3306,37 @@ mod tests {
             assert_eq!(themed.values.get(&iid), Some(&Value::str("DB12Coupe")));
         }
         let plain = VehicleState::new(false, "", "").with_variant("");
-        assert_eq!(plain.values.get(&INTERIOR_STYLE), Some(&Value::str("5Seater")));
-        assert!(plain.characteristic(EXTERIOR_STYLE).is_none(), "no theme, no model");
+        assert_eq!(
+            plain.values.get(&INTERIOR_STYLE),
+            Some(&Value::str("5Seater"))
+        );
+        assert!(
+            plain.characteristic(EXTERIOR_STYLE).is_none(),
+            "no theme, no model"
+        );
 
-        assert!(plain.characteristic(ENGINE_RPM).is_none(), "no car type, no engine");
-        let rpm = Rpm { max: 6000, redline: 5500 };
-        let mut hybrid = VehicleState::new(false, "", "")
-            .with_engines(Engines { combustion: Some(rpm), electric: true });
+        assert!(
+            plain.characteristic(ENGINE_RPM).is_none(),
+            "no car type, no engine"
+        );
+        let rpm = Rpm {
+            max: 6000,
+            redline: 5500,
+        };
+        let mut hybrid = VehicleState::new(false, "", "").with_engines(Engines {
+            combustion: Some(rpm),
+            electric: true,
+        });
         assert_eq!(hybrid.values.get(&2564), Some(&Value::Int(5500)));
         assert_eq!(hybrid.values.get(&ENGINE_POWER), Some(&Value::Real(0.0)));
         hybrid.set_gauges(&serde_json::from_str(r#"{"rpm":2512.4}"#).unwrap());
         assert_eq!(hybrid.values.get(&ENGINE_RPM), Some(&Value::Int(2512)));
         hybrid.set_gauges(&serde_json::from_str(r#"{"rpm":9000}"#).unwrap());
-        assert_eq!(hybrid.values.get(&ENGINE_RPM), Some(&Value::Int(6000)), "held at the max");
+        assert_eq!(
+            hybrid.values.get(&ENGINE_RPM),
+            Some(&Value::Int(6000)),
+            "held at the max"
+        );
 
         let content = ClusterContent {
             panel: "Cluster_Display".into(),
@@ -2638,7 +3348,11 @@ mod tests {
             Some(&Value::str("widget://?identifier=com.apple.tires"))
         );
         assert_eq!(shown.values.get(&3075), Some(&Value::Bool(true)));
-        assert_eq!(shown.values.get(&3081), Some(&Value::Bool(false)), "an empty zone is off");
+        assert_eq!(
+            shown.values.get(&3081),
+            Some(&Value::Bool(false)),
+            "an empty zone is off"
+        );
         assert_eq!(shown.values.get(&3084), Some(&Value::str("zone2")));
         assert_eq!(
             shown.characteristic(3333).and_then(|c| c.initial.clone()),
@@ -2658,7 +3372,10 @@ mod tests {
         let results = by_iid(&[(520, Value::Int(WRITTEN)), (521, Value::Int(NO_VALUE))]);
         assert_eq!(opened(&answers[0].1).get("errors"), Some(&results));
         let update = opened(&answers[1].1);
-        assert_eq!(update.get("values"), Some(&by_iid(&[(520, Value::Real(22.5))])));
+        assert_eq!(
+            update.get("values"),
+            Some(&by_iid(&[(520, Value::Real(22.5))]))
+        );
         assert_eq!(
             state.values.get(&521),
             Some(&Value::Real(21.0)),
@@ -2691,7 +3408,10 @@ mod tests {
         let iids = [AUTO_CLIMATE, FAN_AUTO, level, on, DRIVER_TARGET_TEMPERATURE];
         state.handle(
             Lane::High,
-            &command("registerRequest", Value::Array(iids.map(Value::Int).to_vec())),
+            &command(
+                "registerRequest",
+                Value::Array(iids.map(Value::Int).to_vec()),
+            ),
         );
         let set = |state: &mut VehicleState, climate: serde_json::Value| {
             let answers = state.set_climate(climate.as_object().unwrap());
@@ -2713,12 +3433,18 @@ mod tests {
         );
         assert_eq!(set(&mut state, serde_json::json!({ "fanLevel": 5 })), None);
         assert_eq!(
-            set(&mut state, serde_json::json!({ "auto": true, "fanAuto": false })),
+            set(
+                &mut state,
+                serde_json::json!({ "auto": true, "fanAuto": false })
+            ),
             Some(by_iid(&[(AUTO_CLIMATE, Value::Bool(true))])),
             "what was named stands against the rules"
         );
         assert_eq!(
-            set(&mut state, serde_json::json!({ "driverTargetC": 21.3, "fanLevel": 0 })),
+            set(
+                &mut state,
+                serde_json::json!({ "driverTargetC": 21.3, "fanLevel": 0 })
+            ),
             Some(by_iid(&[
                 (DRIVER_TARGET_TEMPERATURE, Value::Real(21.5)),
                 (on, Value::Bool(false)),
@@ -2738,7 +3464,11 @@ mod tests {
         assert_eq!(climate["driverSeatHeating"], 2);
         assert_eq!(climate["fanLevel"], 0);
         assert_eq!(climate["ventsAuto"], false);
-        assert!(VENTS.iter().all(|v| state.values.get(&(v + 2)) == Some(&Value::Bool(false))));
+        assert!(
+            VENTS
+                .iter()
+                .all(|v| state.values.get(&(v + 2)) == Some(&Value::Bool(false)))
+        );
     }
 
     #[test]
@@ -2752,21 +3482,53 @@ mod tests {
             .filter_map(|a| a.get("type").and_then(Value::as_int))
             .collect();
         assert!(kinds.contains(&0x0900_0006) && kinds.contains(&0x0400_0001));
-        let flag = |iid, key| state.characteristic(iid).unwrap().describe().get(key).cloned();
-        for iid in [FUEL_LEVEL, FUEL_RANGE.km, FUEL_RANGE.km + 1, ODOMETER.km, FUEL_EFFICIENCY] {
-            assert_eq!(flag(iid, "writable"), Some(Value::Bool(false)), "{iid} is the car's");
-            assert!(flag(iid, "minimumValue").is_some(), "{iid} carries its bounds");
+        let flag = |iid, key| {
+            state
+                .characteristic(iid)
+                .unwrap()
+                .describe()
+                .get(key)
+                .cloned()
+        };
+        for iid in [
+            FUEL_LEVEL,
+            FUEL_RANGE.km,
+            FUEL_RANGE.km + 1,
+            ODOMETER.km,
+            FUEL_EFFICIENCY,
+        ] {
+            assert_eq!(
+                flag(iid, "writable"),
+                Some(Value::Bool(false)),
+                "{iid} is the car's"
+            );
+            assert!(
+                flag(iid, "minimumValue").is_some(),
+                "{iid} carries its bounds"
+            );
             assert!(flag(iid, "maximumValue").is_some() && flag(iid, "stepValue").is_some());
         }
         assert_eq!(flag(FUEL_LEVEL, "maximumValue"), Some(Value::Int(100)));
-        assert_eq!(flag(ODOMETER.km, "format"), Some(Value::Int(Format::Uint64 as i64)));
+        assert_eq!(
+            flag(ODOMETER.km, "format"),
+            Some(Value::Int(Format::Uint64 as i64))
+        );
         let units = |iid| flag(iid, "units");
         assert_eq!(units(FUEL_LEVEL), Some(Value::Int(PERCENT)));
         assert_eq!(units(FUEL_RANGE.km), Some(Value::Int(KILOMETERS)));
         assert_eq!(units(FUEL_RANGE.km + 1), Some(Value::Int(MILES)));
-        assert_eq!(units(FUEL_EFFICIENCY), Some(Value::Int(MILLILITERS_PER_100_KM)));
-        assert_eq!(state.values.get(&FUEL_RANGE.hidden.unwrap()), Some(&Value::Bool(true)));
-        assert_eq!(state.values.get(&REMAINING_RANGE.hidden.unwrap()), Some(&Value::Bool(true)));
+        assert_eq!(
+            units(FUEL_EFFICIENCY),
+            Some(Value::Int(MILLILITERS_PER_100_KM))
+        );
+        assert_eq!(
+            state.values.get(&FUEL_RANGE.hidden.unwrap()),
+            Some(&Value::Bool(true))
+        );
+        assert_eq!(
+            state.values.get(&REMAINING_RANGE.hidden.unwrap()),
+            Some(&Value::Bool(true))
+        );
     }
 
     #[test]
@@ -2774,13 +3536,26 @@ mod tests {
         let mut state = VehicleState::new(false, "9.5.0", "2026-10-15 14:30");
         let gauges = |v: serde_json::Value| v.as_object().cloned().unwrap();
         let quiet = state.set_gauges(&gauges(serde_json::json!({ "fuelPct": 42 })));
-        assert!(quiet.is_empty(), "nothing goes out before the phone follows");
+        assert!(
+            quiet.is_empty(),
+            "nothing goes out before the phone follows"
+        );
         assert_eq!(state.values.get(&FUEL_LEVEL), Some(&Value::Int(42)));
 
-        let iids = [FUEL_LEVEL, FUEL_RANGE.km, FUEL_RANGE.km + 1, 1543, ODOMETER.km, 1546];
+        let iids = [
+            FUEL_LEVEL,
+            FUEL_RANGE.km,
+            FUEL_RANGE.km + 1,
+            1543,
+            ODOMETER.km,
+            1546,
+        ];
         state.handle(
             Lane::High,
-            &command("registerRequest", Value::Array(iids.map(Value::Int).to_vec())),
+            &command(
+                "registerRequest",
+                Value::Array(iids.map(Value::Int).to_vec()),
+            ),
         );
         let answers = state.set_gauges(&gauges(serde_json::json!({
             "fuelPct": 120,
@@ -2803,12 +3578,20 @@ mod tests {
                 (1546, Value::Int(8100)),
             ]))
         );
-        assert_eq!(state.values.get(&REMAINING_RANGE.km), Some(&Value::Int(380)));
-        assert_eq!(state.values.get(&(REMAINING_RANGE.km + 1)), Some(&Value::Int(236)));
+        assert_eq!(
+            state.values.get(&REMAINING_RANGE.km),
+            Some(&Value::Int(380))
+        );
+        assert_eq!(
+            state.values.get(&(REMAINING_RANGE.km + 1)),
+            Some(&Value::Int(236))
+        );
 
         let again = state.set_gauges(&gauges(serde_json::json!({ "rangeKm": 380 })));
         assert!(again.is_empty(), "an unchanged reading stays home");
-        state.set_gauges(&gauges(serde_json::json!({ "rangeKm": -5, "consumptionLPer100Km": -1 })));
+        state.set_gauges(&gauges(
+            serde_json::json!({ "rangeKm": -5, "consumptionLPer100Km": -1 }),
+        ));
         assert_eq!(state.values.get(&FUEL_RANGE.km), Some(&Value::Int(0)));
         assert_eq!(state.values.get(&FUEL_EFFICIENCY), Some(&Value::Int(0)));
     }
@@ -2816,19 +3599,29 @@ mod tests {
     #[test]
     fn each_wheel_has_its_pressure_and_place() {
         let mut state = VehicleState::new(false, "9.5.0", "2026-10-15 14:30");
-        let tires = state.accessories.iter().find(|a| a.kind == 0x0A00_0001).unwrap();
+        let tires = state
+            .accessories
+            .iter()
+            .find(|a| a.kind == 0x0A00_0001)
+            .unwrap();
         assert_eq!(tires.services.len(), 4);
         for (n, service) in tires.services.iter().enumerate() {
             assert_eq!(service.kind, 0x1B00_0001);
             let pressure = &service.characteristics[0];
-            assert_eq!((pressure.iid, pressure.kind), (tire_pressure_iid(n), 0x3000_001B));
+            assert_eq!(
+                (pressure.iid, pressure.kind),
+                (tire_pressure_iid(n), 0x3000_001B)
+            );
             assert_eq!(pressure.range, Some((0.0, 1000.0, 1.0)));
             assert_eq!(pressure.units, Some(KILOPASCALS));
             let place = service.characteristics[1].initial.clone();
             assert_eq!(place, Some(Value::str(WHEELS[n].1)));
             let (pressure_state, sensor_state) =
                 (&service.characteristics[2], &service.characteristics[3]);
-            assert_eq!((pressure_state.kind, sensor_state.kind), (0x3000_001C, 0x3000_001A));
+            assert_eq!(
+                (pressure_state.kind, sensor_state.kind),
+                (0x3000_001C, 0x3000_001A)
+            );
             assert_eq!(
                 pressure_state.range,
                 Some((0.0, 5.0, 1.0)),
@@ -2854,13 +3647,22 @@ mod tests {
         );
         let states = |n| {
             let iid = tire_pressure_iid(n);
-            (state.values.get(&(iid + 2)).cloned(), state.values.get(&(iid + 3)).cloned())
+            (
+                state.values.get(&(iid + 2)).cloned(),
+                state.values.get(&(iid + 3)).cloned(),
+            )
         };
-        let measured = (Some(Value::Int(PRESSURE_UNDEFINED)), Some(Value::Int(SENSOR_ACTIVE)));
+        let measured = (
+            Some(Value::Int(PRESSURE_UNDEFINED)),
+            Some(Value::Int(SENSOR_ACTIVE)),
+        );
         assert_eq!(states(0), measured, "a measured wheel has an active sensor");
         assert_eq!(
             states(1),
-            (Some(Value::Int(PRESSURE_UNDEFINED)), Some(Value::Int(SENSOR_WAITING)))
+            (
+                Some(Value::Int(PRESSURE_UNDEFINED)),
+                Some(Value::Int(SENSOR_WAITING))
+            )
         );
     }
 
@@ -2868,7 +3670,11 @@ mod tests {
     fn the_volume_goes_both_ways_in_percent() {
         let mut state = VehicleState::new(false, "9.5.0", "2026-10-15 14:30");
         let volume = state.characteristic(VOLUME).unwrap().describe();
-        assert_eq!(volume.get("writable"), Some(&Value::Bool(true)), "Siri may set it");
+        assert_eq!(
+            volume.get("writable"),
+            Some(&Value::Bool(true)),
+            "Siri may set it"
+        );
         assert_eq!(volume.get("maximumValue"), Some(&Value::Int(100)));
         assert_eq!(volume.get("disabled"), Some(&Value::Bool(false)));
         let fan = state.characteristic(FAN.0).unwrap().describe();
@@ -2880,9 +3686,16 @@ mod tests {
             &command("registerRequest", Value::Array(vec![Value::Int(VOLUME)])),
         );
         let answers = state.set_gauges(serde_json::json!({ "volume": 0.304 }).as_object().unwrap());
-        assert_eq!(opened(&answers[0].1).get("values"), Some(&by_iid(&[(VOLUME, Value::Int(30))])));
+        assert_eq!(
+            opened(&answers[0].1).get("values"),
+            Some(&by_iid(&[(VOLUME, Value::Int(30))]))
+        );
         state.set_gauges(serde_json::json!({ "volume": 2.0 }).as_object().unwrap());
-        assert_eq!(state.volume(), Some(1.0), "the head unit's level is held to 0 to 1");
+        assert_eq!(
+            state.volume(),
+            Some(1.0),
+            "the head unit's level is held to 0 to 1"
+        );
 
         let written = by_iid(&[(VOLUME, Value::Int(42))]);
         state.handle(Lane::Normal, &command("writeRequest", written));
@@ -2892,42 +3705,83 @@ mod tests {
         state.handle(Lane::Normal, &command("writeRequest", mute(true)));
         assert_eq!(state.volume(), Some(0.0), "mute silences");
         state.handle(Lane::Normal, &command("writeRequest", mute(false)));
-        assert_eq!(state.volume(), Some(0.42), "unmute brings the last level back");
+        assert_eq!(
+            state.volume(),
+            Some(0.42),
+            "unmute brings the last level back"
+        );
 
         state.handle(Lane::Normal, &command("writeRequest", mute(true)));
-        state.handle(Lane::Normal, &command("writeRequest", by_iid(&[(VOLUME, Value::Int(10))])));
-        assert_eq!(state.values.get(&MUTE), Some(&Value::Bool(false)), "turning up ends the mute");
+        state.handle(
+            Lane::Normal,
+            &command("writeRequest", by_iid(&[(VOLUME, Value::Int(10))])),
+        );
+        assert_eq!(
+            state.values.get(&MUTE),
+            Some(&Value::Bool(false)),
+            "turning up ends the mute"
+        );
         state.handle(Lane::Normal, &command("writeRequest", mute(true)));
         state.set_gauges(serde_json::json!({ "volume": 0.2 }).as_object().unwrap());
-        assert_eq!(state.values.get(&MUTE), Some(&Value::Bool(false)), "so does the head unit");
+        assert_eq!(
+            state.values.get(&MUTE),
+            Some(&Value::Bool(false)),
+            "so does the head unit"
+        );
 
-        let audio = state.accessories.iter().find(|a| a.kind == 0x0200_0001).unwrap();
-        let types: Vec<_> =
-            audio.services.iter().map(|s| s.characteristics[1].initial.clone()).collect();
+        let audio = state
+            .accessories
+            .iter()
+            .find(|a| a.kind == 0x0200_0001)
+            .unwrap();
+        let types: Vec<_> = audio
+            .services
+            .iter()
+            .map(|s| s.characteristics[1].initial.clone())
+            .collect();
         assert_eq!(
             types,
             [0, 1, 2, 3, 6].map(|t| Some(Value::Int(t))),
             "media, navigation, call, other"
         );
         let kind = audio.services[1].characteristics[1].describe();
-        assert_eq!(kind.get("maximumValue"), Some(&Value::Int(7)), "media to vehicle notification");
+        assert_eq!(
+            kind.get("maximumValue"),
+            Some(&Value::Int(7)),
+            "media to vehicle notification"
+        );
         let label = audio.services[4].characteristics[2].initial.clone();
-        assert_eq!(label, Some(Value::str("Musik")), "the other volume names itself");
+        assert_eq!(
+            label,
+            Some(Value::str("Musik")),
+            "the other volume names itself"
+        );
         let levels = serde_json::json!({ "navVolume": 0.3, "callVolume": 0.9 });
         state.set_gauges(levels.as_object().unwrap());
         let volumes = state.volumes();
-        assert_eq!(volumes[..3], [("volume", 0.2), ("navVolume", 0.3), ("callVolume", 0.9)]);
+        assert_eq!(
+            volumes[..3],
+            [("volume", 0.2), ("navVolume", 0.3), ("callVolume", 0.9)]
+        );
 
         let music = state.characteristic(MUSIC_VOLUME).unwrap().describe();
         assert_eq!(music.get("writable"), Some(&Value::Bool(true)));
         assert_eq!(music.get("maximumValue"), Some(&Value::Int(100)));
-        state.set_gauges(serde_json::json!({ "audioVolume": 0.65 }).as_object().unwrap());
+        state.set_gauges(
+            serde_json::json!({ "audioVolume": 0.65 })
+                .as_object()
+                .unwrap(),
+        );
         assert_eq!(state.volumes()[3], ("audioVolume", 0.65));
         state.handle(
             Lane::Normal,
             &command("writeRequest", by_iid(&[(MUSIC_VOLUME, Value::Int(30))])),
         );
-        assert_eq!(state.volumes()[3], ("audioVolume", 0.3), "the phone sets the music too");
+        assert_eq!(
+            state.volumes()[3],
+            ("audioVolume", 0.3),
+            "the phone sets the music too"
+        );
     }
 
     #[test]
@@ -2935,12 +3789,23 @@ mod tests {
         let mut state = VehicleState::new(true, "9.5.0", "2026-10-15 14:30");
         assert!(state.handle(Lane::High, b"\xA0").is_empty());
         let inner = opack::encode(&dict([("command", Value::str("configRequest"))]));
-        let elsewhere =
-            opack::encode(&dict([("pluginID", Value::Int(3)), ("pluginData", Value::Data(inner))]));
+        let elsewhere = opack::encode(&dict([
+            ("pluginID", Value::Int(3)),
+            ("pluginData", Value::Data(inner)),
+        ]));
         assert!(state.handle(Lane::High, &elsewhere).is_empty());
-        assert!(state.handle(Lane::High, &command("unregisterRequest", Value::Null)).is_empty());
+        assert!(
+            state
+                .handle(Lane::High, &command("unregisterRequest", Value::Null))
+                .is_empty()
+        );
         let written = by_iid(&[(270, Value::Int(2))]);
-        assert_eq!(state.handle(Lane::High, &command("writeRequest", written)).len(), 1);
+        assert_eq!(
+            state
+                .handle(Lane::High, &command("writeRequest", written))
+                .len(),
+            1
+        );
     }
 
     fn service_of(state: &VehicleState, iid: i64) -> Value {
@@ -2959,16 +3824,28 @@ mod tests {
     fn the_radio_app_finds_one_dab_source_and_its_commands() {
         let state = VehicleState::new(false, "9.5.0", "2026-10-15 14:30");
         let source = service_of(&state, RADIO_SOURCE_SERVICE);
-        assert_eq!(source.get("type").and_then(Value::as_int), Some(0x1400_0006));
+        assert_eq!(
+            source.get("type").and_then(Value::as_int),
+            Some(0x1400_0006)
+        );
         assert!(source.get("controls").is_none());
         assert_eq!(state.values.get(&4098), Some(&Value::str("DAB")));
         assert_eq!(state.values.get(&4099), Some(&Value::Int(DAB_SOURCE)));
         assert_eq!(state.values.get(&RADIO_DISABLED), Some(&Value::Bool(true)));
         let items = state.characteristic(RADIO_ITEMS).unwrap().describe();
         assert_eq!(items.get("largePayload"), Some(&Value::Bool(true)));
-        assert_eq!(items.get("maximumLength").and_then(Value::as_int), Some(LARGE_LENGTH));
-        let artwork = state.characteristic(NOW_PLAYING_ARTWORK).unwrap().describe();
-        assert_eq!(artwork.get("format").and_then(Value::as_int), Some(Format::Data as i64));
+        assert_eq!(
+            items.get("maximumLength").and_then(Value::as_int),
+            Some(LARGE_LENGTH)
+        );
+        let artwork = state
+            .characteristic(NOW_PLAYING_ARTWORK)
+            .unwrap()
+            .describe();
+        assert_eq!(
+            artwork.get("format").and_then(Value::as_int),
+            Some(Format::Data as i64)
+        );
 
         let playing = service_of(&state, NOW_PLAYING_SERVICE);
         let controls = playing.get("controls").and_then(Value::as_array).unwrap();
@@ -2977,7 +3854,10 @@ mod tests {
             .iter()
             .find(|c| c.get("type").and_then(Value::as_int) == Some(0x0F00_004B))
             .unwrap();
-        assert_eq!(tune.get("sender").and_then(Value::as_int), Some(SENT_BY_PHONE));
+        assert_eq!(
+            tune.get("sender").and_then(Value::as_int),
+            Some(SENT_BY_PHONE)
+        );
         assert_eq!(tune.get("hasResponse"), Some(&Value::Bool(true)));
         let names: Vec<&str> = tune
             .get("requestParameters")
@@ -2987,7 +3867,9 @@ mod tests {
             .filter_map(|p| p.get("name").and_then(Value::as_str))
             .collect();
         assert_eq!(names, ["identifier", "sourceIdentifier"]);
-        let play = controls.iter().find(|c| c.get("iid").and_then(Value::as_int) == Some(4360));
+        let play = controls
+            .iter()
+            .find(|c| c.get("iid").and_then(Value::as_int) == Some(4360));
         assert!(play.unwrap().get("requestParameters").is_none());
     }
 
@@ -3003,30 +3885,50 @@ mod tests {
         let field = state.characteristic(NOTICE + 1).unwrap();
         assert!(field.initial.is_none(), "the fields come only by update");
         assert!(!state.take_zone_ready());
-        let iids = [TEMPORARY_ZONE + 1, TEMPORARY_ZONE + 2].map(Value::Int).to_vec();
-        state.handle(Lane::Normal, &command("registerRequest", Value::Array(iids)));
+        let iids = [TEMPORARY_ZONE + 1, TEMPORARY_ZONE + 2]
+            .map(Value::Int)
+            .to_vec();
+        state.handle(
+            Lane::Normal,
+            &command("registerRequest", Value::Array(iids)),
+        );
         assert!(state.take_zone_ready());
         assert!(!state.take_zone_ready(), "once per subscription");
-        assert_eq!(state.symbol_name("livi"), "livi", "no picture before the phone fetched");
+        assert_eq!(
+            state.symbol_name("livi"),
+            "livi",
+            "no picture before the phone fetched"
+        );
         let asked = by_iid(&[(GET_IMAGE_ARCHIVE, Value::Null)]);
         state.handle(Lane::Normal, &command("controlRequest", asked));
 
-        let notice =
-            Notice {
-                title: "Frost".into(), text: "Glätte möglich".into(), symbol: "livi".into()
-            };
+        let notice = Notice {
+            title: "Frost".into(),
+            text: "Glätte möglich".into(),
+            symbol: "livi".into(),
+        };
         let out = state.show_notice(&notice);
         assert_eq!(out.len(), 2);
         let fields = opened(&out[0].1);
-        let values = fields.get("values").and_then(Value::as_dict).unwrap().to_vec();
+        let values = fields
+            .get("values")
+            .and_then(Value::as_dict)
+            .unwrap()
+            .to_vec();
         assert_eq!(values.len(), 6, "every field in one update");
         let get = |values: &[(Value, Value)], iid| {
-            values.iter().find(|(k, _)| k.as_int() == Some(iid)).map(|(_, v)| v.clone())
+            values
+                .iter()
+                .find(|(k, _)| k.as_int() == Some(iid))
+                .map(|(_, v)| v.clone())
         };
         assert_eq!(get(&values, NOTICE + 1), Some(Value::str("Frost")));
         assert_eq!(get(&values, NOTICE + 2), Some(Value::str("Glätte möglich")));
         let symbol = get(&values, NOTICE + 4).unwrap();
-        assert_eq!(symbol.get("name"), Some(&Value::str("imageArchive://?identifier=livi")));
+        assert_eq!(
+            symbol.get("name"),
+            Some(&Value::str("imageArchive://?identifier=livi"))
+        );
         let zone = opened(&out[1].1);
         let opens = by_iid(&[
             (TEMPORARY_ZONE + 1, Value::str(NOTICE_URL)),
@@ -3036,12 +3938,27 @@ mod tests {
         assert!(state.notice_open());
 
         std::thread::sleep(std::time::Duration::from_millis(2));
-        let frost = Notice { symbol: "snowflake".into(), ..notice.clone() };
+        let frost = Notice {
+            symbol: "snowflake".into(),
+            ..notice.clone()
+        };
         let again = opened(&state.show_notice(&frost)[0].1);
-        let again = again.get("values").and_then(Value::as_dict).unwrap().to_vec();
+        let again = again
+            .get("values")
+            .and_then(Value::as_dict)
+            .unwrap()
+            .to_vec();
         let name = get(&again, NOTICE + 4).and_then(|s| s.get("name").cloned());
-        assert_eq!(name, Some(Value::str("snowflake")), "an SF Symbol passes as it is");
-        assert_ne!(get(&again, NOTICE + 3), get(&values, NOTICE + 3), "each notice is a new one");
+        assert_eq!(
+            name,
+            Some(Value::str("snowflake")),
+            "an SF Symbol passes as it is"
+        );
+        assert_ne!(
+            get(&again, NOTICE + 3),
+            get(&values, NOTICE + 3),
+            "each notice is a new one"
+        );
 
         assert_eq!(state.hide_notice().len(), 1);
         assert!(!state.notice_open());
@@ -3052,56 +3969,109 @@ mod tests {
         assert!(!state.notice_open(), "the phone closes it too");
 
         let mut plain = VehicleState::new(false, "", "");
-        assert!(plain.show_notice(&notice).is_empty(), "no cluster content, no notice");
+        assert!(
+            plain.show_notice(&notice).is_empty(),
+            "no cluster content, no notice"
+        );
     }
 
     #[test]
     fn the_image_archive_is_described_and_handed_out() {
         let plain = VehicleState::new(false, "9.5.0", "");
         assert!(plain.characteristic(IMAGE_ARCHIVE_SERVICE + 1).is_none());
-        let symbol = plain.characteristic(VERSION_LINE + 5).unwrap().initial.clone();
+        let symbol = plain
+            .characteristic(VERSION_LINE + 5)
+            .unwrap()
+            .initial
+            .clone();
         assert_eq!(symbol, Some(Value::str("info.circle")));
 
-        let images = [("livi".into(), b"png".to_vec()), ("frost".into(), b"ice".to_vec())];
+        let images = [
+            ("livi".into(), b"png".to_vec()),
+            ("frost".into(), b"ice".to_vec()),
+        ];
         let mut state = VehicleState::new(false, "9.5.0", "").with_images(&images);
         let archive = image_archive::build(&images);
-        let version = format!("{:08x}{:08x}", image_archive::crc32(&archive), archive_started());
-        assert_eq!(state.values.get(&(IMAGE_ARCHIVE_SERVICE + 1)), Some(&Value::String(version)));
-        assert_eq!(state.values.get(&(VERSION_LINE + 5)), Some(&Value::str("info.circle")));
+        let version = format!(
+            "{:08x}{:08x}",
+            image_archive::crc32(&archive),
+            archive_started()
+        );
+        assert_eq!(
+            state.values.get(&(IMAGE_ARCHIVE_SERVICE + 1)),
+            Some(&Value::String(version))
+        );
+        assert_eq!(
+            state.values.get(&(VERSION_LINE + 5)),
+            Some(&Value::str("info.circle"))
+        );
         assert!(state.characteristic(VERSION_LINE + 5).unwrap().mutable);
         let line = Value::Array(vec![Value::Int(VERSION_LINE + 5)]);
         let out = state.handle(Lane::Normal, &command("registerRequest", line.clone()));
-        assert_eq!(out.len(), 1, "the (i) stays until the phone fetched the archive");
+        assert_eq!(
+            out.len(),
+            1,
+            "the (i) stays until the phone fetched the archive"
+        );
         let service = service_of(&state, IMAGE_ARCHIVE_SERVICE);
         let control = &service.get("controls").and_then(Value::as_array).unwrap()[0];
-        assert_eq!(control.get("iid").and_then(Value::as_int), Some(GET_IMAGE_ARCHIVE));
-        let answer = &control.get("responseParameters").and_then(Value::as_array).unwrap()[0];
-        assert_eq!(answer.get("name").and_then(Value::as_str), Some("imageArchive"));
-        assert_eq!(answer.get("format").and_then(Value::as_int), Some(Format::Data as i64));
+        assert_eq!(
+            control.get("iid").and_then(Value::as_int),
+            Some(GET_IMAGE_ARCHIVE)
+        );
+        let answer = &control
+            .get("responseParameters")
+            .and_then(Value::as_array)
+            .unwrap()[0];
+        assert_eq!(
+            answer.get("name").and_then(Value::as_str),
+            Some("imageArchive")
+        );
+        assert_eq!(
+            answer.get("format").and_then(Value::as_int),
+            Some(Format::Data as i64)
+        );
         assert!(control.get("requestParameters").is_none());
 
         let asked = by_iid(&[(GET_IMAGE_ARCHIVE, Value::Null)]);
         let answers = state.handle(Lane::Normal, &command("controlRequest", asked));
         let answer = opened(&answers[0].1);
-        let fetched =
-            by_iid(&[(GET_IMAGE_ARCHIVE, dict([("imageArchive", Value::Data(archive))]))]);
+        let fetched = by_iid(&[(
+            GET_IMAGE_ARCHIVE,
+            dict([("imageArchive", Value::Data(archive))]),
+        )]);
         assert_eq!(answer.get("values"), Some(&fetched));
         let logo = opened(&answers[1].1);
-        let set = by_iid(&[(VERSION_LINE + 5, Value::str("imageArchive://?identifier=livi"))]);
+        let set = by_iid(&[(
+            VERSION_LINE + 5,
+            Value::str("imageArchive://?identifier=livi"),
+        )]);
         assert_eq!(logo.get("values"), Some(&set));
         let out = state.handle(Lane::Normal, &command("registerRequest", line));
         assert_eq!(out.len(), 2, "a later subscription hears the logo");
         let mut next = VehicleState::new(false, "9.5.0", "").with_images(&images);
         let line = Value::Array(vec![Value::Int(VERSION_LINE + 5)]);
         let out = next.handle(Lane::Normal, &command("registerRequest", line));
-        assert_eq!(out.len(), 2, "the next session knows the phone has the archive");
+        assert_eq!(
+            out.len(),
+            2,
+            "the next session knows the phone has the archive"
+        );
         assert!(state.take_radio_commands().is_empty());
-        assert!(VehicleState::new(false, "", "").with_images(&[]).image_archive.is_none());
+        assert!(
+            VehicleState::new(false, "", "")
+                .with_images(&[])
+                .image_archive
+                .is_none()
+        );
         let mut own = VehicleState::new(false, "9.5.0", "").with_images(&images[1..]);
         let asked = by_iid(&[(GET_IMAGE_ARCHIVE, Value::Null)]);
         own.handle(Lane::Normal, &command("controlRequest", asked));
         assert!(own.image_archive.is_some());
-        assert_eq!(own.values.get(&(VERSION_LINE + 5)), Some(&Value::str("info.circle")));
+        assert_eq!(
+            own.values.get(&(VERSION_LINE + 5)),
+            Some(&Value::str("info.circle"))
+        );
         assert!(own.logo_symbol_update().is_empty());
     }
 
@@ -3111,51 +4081,93 @@ mod tests {
             VehicleState::new(false, "", "").with_images(&[("livi".into(), b"history".to_vec())]);
         let entry = HistoryEntry {
             id: 7,
-            notice: Notice { title: "Frost".into(), text: "Glätte".into(), symbol: "livi".into() },
+            notice: Notice {
+                title: "Frost".into(),
+                text: "Glätte".into(),
+                symbol: "livi".into(),
+            },
             at_secs: 1_760_000_000,
             hidden: false,
         };
-        assert!(state.set_history(vec![entry.clone()]).is_empty(), "nobody listens yet");
+        assert!(
+            state.set_history(vec![entry.clone()]).is_empty(),
+            "nobody listens yet"
+        );
         let first = Value::Array(vec![Value::Int(history_slot(0) + 1)]);
         let out = state.handle(Lane::Normal, &command("registerRequest", first));
         assert_eq!(out.len(), 1 + HISTORY_SLOTS, "one update per slot");
         let slot = |out: &[(Lane, Vec<u8>)], n: usize| {
-            opened(&out[n].1).get("values").and_then(Value::as_dict).unwrap().to_vec()
+            opened(&out[n].1)
+                .get("values")
+                .and_then(Value::as_dict)
+                .unwrap()
+                .to_vec()
         };
         let get = |values: &[(Value, Value)], iid| {
-            values.iter().find(|(k, _)| k.as_int() == Some(iid)).map(|(_, v)| v.clone())
+            values
+                .iter()
+                .find(|(k, _)| k.as_int() == Some(iid))
+                .map(|(_, v)| v.clone())
         };
         let filled = slot(&out, 1);
         assert_eq!(get(&filled, history_slot(0) + 1), Some(Value::str("Frost")));
-        assert_eq!(get(&filled, history_slot(0) + 3), Some(Value::Int(1_760_000_000)));
+        assert_eq!(
+            get(&filled, history_slot(0) + 3),
+            Some(Value::Int(1_760_000_000))
+        );
         assert_eq!(get(&filled, history_slot(0) + 4), Some(Value::str("livi")));
         assert_eq!(get(&filled, history_slot(0) + 7), Some(Value::Bool(false)));
-        assert_eq!(get(&slot(&out, 2), history_slot(1) + 7), Some(Value::Bool(true)));
+        assert_eq!(
+            get(&slot(&out, 2), history_slot(1) + 7),
+            Some(Value::Bool(true))
+        );
         let unit = state.characteristic(history_slot(0) + 3).unwrap();
-        assert_eq!(unit.units, Some(SECONDS), "the app reads the time as a measurement");
+        assert_eq!(
+            unit.units,
+            Some(SECONDS),
+            "the app reads the time as a measurement"
+        );
 
         let asked = by_iid(&[(GET_IMAGE_ARCHIVE, Value::Null)]);
         let out = state.handle(Lane::Normal, &command("controlRequest", asked));
-        assert_eq!(out.len(), 2 + HISTORY_SLOTS, "answer, logo, then every slot");
+        assert_eq!(
+            out.len(),
+            2 + HISTORY_SLOTS,
+            "answer, logo, then every slot"
+        );
         let refreshed = slot(&out, 2);
         let picture = Value::str("imageArchive://?identifier=livi");
-        assert_eq!(get(&refreshed, history_slot(0) + 4), Some(picture), "fetched, so the picture");
+        assert_eq!(
+            get(&refreshed, history_slot(0) + 4),
+            Some(picture),
+            "fetched, so the picture"
+        );
 
         let hide = by_iid(&[(history_slot(0) + 7, Value::Bool(true))]);
         state.handle(Lane::Normal, &command("writeRequest", hide));
         assert_eq!(state.take_hidden_by_phone(), [7]);
         assert!(state.take_hidden_by_phone().is_empty());
-        let out = state.set_history(vec![HistoryEntry { hidden: true, ..entry }]);
-        assert_eq!(get(&slot(&out, 0), history_slot(0) + 7), Some(Value::Bool(true)));
+        let out = state.set_history(vec![HistoryEntry {
+            hidden: true,
+            ..entry
+        }]);
+        assert_eq!(
+            get(&slot(&out, 0), history_slot(0) + 7),
+            Some(Value::Bool(true))
+        );
     }
 
     #[test]
     fn radio_app_commands_are_answered_and_handed_on() {
         let mut state = VehicleState::new(false, "9.5.0", "2026-10-15 14:30");
-        let tune =
-            dict([("identifier", Value::str("d220")), ("sourceIdentifier", Value::str("DAB"))]);
-        let elsewhere =
-            dict([("identifier", Value::str("x")), ("sourceIdentifier", Value::str("FM"))]);
+        let tune = dict([
+            ("identifier", Value::str("d220")),
+            ("sourceIdentifier", Value::str("DAB")),
+        ]);
+        let elsewhere = dict([
+            ("identifier", Value::str("x")),
+            ("sourceIdentifier", Value::str("FM")),
+        ]);
         let pressed = by_iid(&[
             (4364, tune),
             (4360, Value::Null),
@@ -3171,10 +4183,22 @@ mod tests {
         assert_eq!(answers.len(), 1);
         assert_eq!(answers[0].0, Lane::Normal);
         let answer = opened(&answers[0].1);
-        assert_eq!(answer.get("command").and_then(Value::as_str), Some("controlResponse"));
+        assert_eq!(
+            answer.get("command").and_then(Value::as_str),
+            Some("controlResponse")
+        );
         assert_eq!(answer.get("transactionID").and_then(Value::as_int), Some(8));
-        assert_eq!(answer.get("values").and_then(Value::as_dict).map(<[_]>::len), Some(8));
-        assert_eq!(answer.get("errors"), Some(&by_iid(&[(9999, Value::Int(NO_SUCH_COMMAND))])));
+        assert_eq!(
+            answer
+                .get("values")
+                .and_then(Value::as_dict)
+                .map(<[_]>::len),
+            Some(8)
+        );
+        assert_eq!(
+            answer.get("errors"),
+            Some(&by_iid(&[(9999, Value::Int(NO_SUCH_COMMAND))]))
+        );
         assert_eq!(
             state.take_radio_commands(),
             vec![
@@ -3192,8 +4216,13 @@ mod tests {
     #[test]
     fn the_radio_reaches_the_phone_as_updates() {
         let mut state = VehicleState::new(false, "9.5.0", "2026-10-15 14:30");
-        let followed =
-            [RADIO_DISABLED, RADIO_ITEMS, RADIO_ITEM_IMAGES, NOW_PLAYING_TITLE, PLAYBACK_STATE];
+        let followed = [
+            RADIO_DISABLED,
+            RADIO_ITEMS,
+            RADIO_ITEM_IMAGES,
+            NOW_PLAYING_TITLE,
+            PLAYBACK_STATE,
+        ];
         let iids = followed.iter().map(|i| Value::Int(*i)).collect();
         state.handle(Lane::High, &command("registerRequest", Value::Array(iids)));
         let radio = Radio {
@@ -3225,21 +4254,46 @@ mod tests {
         assert_eq!(answers.len(), 1);
         let update = opened(&answers[0].1);
         let values = update.get("values").and_then(Value::as_dict).unwrap();
-        let value = |iid| values.iter().find(|(k, _)| k.as_int() == Some(iid)).map(|(_, v)| v);
+        let value = |iid| {
+            values
+                .iter()
+                .find(|(k, _)| k.as_int() == Some(iid))
+                .map(|(_, v)| v)
+        };
         assert_eq!(value(RADIO_DISABLED), Some(&Value::Bool(false)));
         assert_eq!(value(NOW_PLAYING_TITLE), Some(&Value::str("Lesart")));
         assert_eq!(value(PLAYBACK_STATE), Some(&Value::Int(PLAYING)));
         let items = value(RADIO_ITEMS).and_then(Value::as_array).unwrap();
-        assert_eq!(items[0].get("identifier").and_then(Value::as_str), Some("d220"));
-        assert_eq!(items[0].get("mediaItemType").and_then(Value::as_str), Some("dab"));
-        assert_eq!(items[0].get("mediaItemImageIdentifier").and_then(Value::as_str), Some("d220"));
+        assert_eq!(
+            items[0].get("identifier").and_then(Value::as_str),
+            Some("d220")
+        );
+        assert_eq!(
+            items[0].get("mediaItemType").and_then(Value::as_str),
+            Some("dab")
+        );
+        assert_eq!(
+            items[0]
+                .get("mediaItemImageIdentifier")
+                .and_then(Value::as_str),
+            Some("d220")
+        );
         assert!(items[1].get("mediaItemImageIdentifier").is_none());
         let images = value(RADIO_ITEM_IMAGES).and_then(Value::as_array).unwrap();
         assert_eq!(images.len(), 1);
-        assert_eq!(images[0].get("imageData").and_then(Value::as_data), Some(&[0xff, 0xd8][..]));
-        assert_eq!(state.values.get(&NOW_PLAYING_ARTWORK), Some(&Value::Data(vec![1, 2])));
+        assert_eq!(
+            images[0].get("imageData").and_then(Value::as_data),
+            Some(&[0xff, 0xd8][..])
+        );
+        assert_eq!(
+            state.values.get(&NOW_PLAYING_ARTWORK),
+            Some(&Value::Data(vec![1, 2]))
+        );
 
-        assert!(state.set_radio(&radio).is_empty(), "nothing changed, nothing sent");
+        assert!(
+            state.set_radio(&radio).is_empty(),
+            "nothing changed, nothing sent"
+        );
         assert_eq!(shown(&Value::Data(vec![0; 3])), "3 B");
         assert_eq!(shown(&Value::Array(vec![Value::Null; 5])), "5 items");
     }

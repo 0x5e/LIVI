@@ -6,10 +6,8 @@ use livi_host_proto::UrlStatus;
 
 use crate::Say;
 
-/// Above every decoder decodebin3 would pick on its own.
 const PICKED_RANK: i32 = 1024;
 
-/// A stream playbin3 fetches, times and decodes itself, picture and sound.
 pub struct UrlPlayer {
     playbin: gst::Element,
     heard: Arc<Mutex<Heard>>,
@@ -17,7 +15,6 @@ pub struct UrlPlayer {
     say: Say,
 }
 
-/// What only the bus tells.
 #[derive(Default)]
 struct Heard {
     buffered_percent: Option<u8>,
@@ -27,7 +24,6 @@ struct Heard {
     start_at: Option<f64>,
 }
 
-/// Holds playback while the queue fills, from an empty one every segment comes just in time.
 #[derive(Debug, Default)]
 struct Hold {
     wanted: bool,
@@ -36,10 +32,13 @@ struct Hold {
 
 impl Hold {
     fn state(&self) -> gst::State {
-        if self.wanted && !self.filling { gst::State::Playing } else { gst::State::Paused }
+        if self.wanted && !self.filling {
+            gst::State::Playing
+        } else {
+            gst::State::Paused
+        }
     }
 
-    /// Whether a play after the phone paused finds everything held outdated: a live stream ran on.
     fn rejoins(&mut self, playing: bool, live: bool) -> bool {
         let rejoin = playing && !self.wanted && live;
         if rejoin {
@@ -59,7 +58,6 @@ impl Hold {
 }
 
 impl UrlPlayer {
-    /// An empty `audio_device` is the system default. `window` is the UI view on macOS.
     pub fn new(url: &str, audio_device: &str, window: usize, say: Say) -> Option<Self> {
         crate::ensure_init();
         prefer_our_decoders();
@@ -68,7 +66,6 @@ impl UrlPlayer {
             .build()
             .inspect_err(|e| say(&format!("[gst_video] no playbin3: {e}")))
             .ok()?;
-        // No subtitles and no deinterlacing, the bundle carries neither.
         playbin.set_property_from_str("flags", "video+audio+soft-volume+buffering");
         let video = video_sink(&say)?;
         let view = crate::WindowView::default();
@@ -87,7 +84,12 @@ impl UrlPlayer {
         });
         watch_bus(&playbin, heard.clone(), say.clone());
         say(&format!("[gst_video] playbin3 plays {url}"));
-        Some(Self { playbin, heard, view, say })
+        Some(Self {
+            playbin,
+            heard,
+            view,
+            say,
+        })
     }
 
     pub fn start(&self) {
@@ -95,7 +97,6 @@ impl UrlPlayer {
         self.want(true);
     }
 
-    /// The lock is let go first: a state change runs the bus handler on this thread.
     fn want(&self, playing: bool) {
         let state = {
             let mut heard = self.heard.lock().unwrap_or_else(|e| e.into_inner());
@@ -124,10 +125,10 @@ impl UrlPlayer {
         tier_w: f64,
         tier_h: f64,
     ) {
-        self.view.set_region(crop_l, crop_t, vis_w, vis_h, tier_w, tier_h);
+        self.view
+            .set_region(crop_l, crop_t, vis_w, vis_h, tier_w, tier_h);
     }
 
-    /// 0 pauses. After a pause a live stream is joined again where it is now.
     pub fn set_rate(&self, rate: f64) {
         (self.say)(&format!("[gst_video] the phone sets the rate to {rate}"));
         let live = self.playbin.query_duration::<gst::ClockTime>().is_none();
@@ -187,18 +188,18 @@ impl Drop for UrlPlayer {
     }
 }
 
-/// The decoder LIVI picks for its own planes, so the URL lands on the same GPU.
 fn prefer_our_decoders() {
     let sw_only = std::env::var_os("LIVI_GST_SWDEC").is_some();
     for codec in ["h264", "h265"] {
-        let picked = crate::candidates(codec, sw_only).into_iter().find(|n| crate::usable(n));
+        let picked = crate::candidates(codec, sw_only)
+            .into_iter()
+            .find(|n| crate::usable(n));
         if let Some(factory) = picked.and_then(|n| gst::ElementFactory::find(&n)) {
             factory.set_rank(gst::Rank::from(PICKED_RANK));
         }
     }
 }
 
-/// On macOS the sink itself, the window handle goes onto it.
 fn video_sink(say: &Say) -> Option<gst::Element> {
     if cfg!(target_os = "macos") {
         return gst::ElementFactory::make("glimagesink")
@@ -230,15 +231,18 @@ fn audio_sink(device: &str) -> Option<gst::Element> {
 }
 
 fn watch_decoder(element: &gst::Element, say: &Say) {
-    let Some(factory) = element.factory() else { return };
+    let Some(factory) = element.factory() else {
+        return;
+    };
     if factory.has_type(gst::ElementFactoryType::DECODER | gst::ElementFactoryType::MEDIA_VIDEO) {
-        say(&format!("[gst_video] playbin3 decodes with {}", factory.name()));
+        say(&format!(
+            "[gst_video] playbin3 decodes with {}",
+            factory.name()
+        ));
         crate::install_decoder_probes(element, factory.name().as_str(), say);
     }
 }
 
-/// hlsdemux2 finds its way back into a live stream itself. Starting over would cost the window
-/// the compositor bound to the plane.
 fn watch_bus(playbin: &gst::Element, heard: Arc<Mutex<Heard>>, say: Say) {
     let Some(bus) = playbin.bus() else { return };
     let player = playbin.downgrade();
@@ -248,20 +252,25 @@ fn watch_bus(playbin: &gst::Element, heard: Arc<Mutex<Heard>>, say: Say) {
         let mut heard = heard.lock().unwrap_or_else(|e| e.into_inner());
         match msg.view() {
             gst::MessageView::StateChanged(s) if src == own_name => {
-                say(&format!("[gst_video] playbin3 {:?} to {:?}", s.old(), s.current()));
+                say(&format!(
+                    "[gst_video] playbin3 {:?} to {:?}",
+                    s.old(),
+                    s.current()
+                ));
                 let prerolled = s.old() == gst::State::Ready && s.current() == gst::State::Paused;
                 if prerolled
                     && let Some(at) = heard.start_at.take()
                     && let Some(playbin) = player.upgrade()
                 {
                     let say = say.clone();
-                    // Never from a streaming thread directly.
                     playbin.call_async(move |p| {
                         if p.query_duration::<gst::ClockTime>().is_none() {
                             say(&format!("[gst_video] a live stream, {at:.3} s is left out"));
                             return;
                         }
-                        say(&format!("[gst_video] the stream is ready, seeking to {at:.3} s"));
+                        say(&format!(
+                            "[gst_video] the stream is ready, seeking to {at:.3} s"
+                        ));
                         seek_to(p, at, &say);
                     });
                 }
@@ -270,8 +279,9 @@ fn watch_bus(playbin: &gst::Element, heard: Arc<Mutex<Heard>>, say: Say) {
                 let percent = b.percent().clamp(0, 100);
                 heard.buffered_percent = u8::try_from(percent).ok();
                 if let Some(state) = heard.hold.buffering(percent) {
-                    say(&format!("[gst_video] buffered {percent} %, switching to {state:?}"));
-                    // Never from a streaming thread directly.
+                    say(&format!(
+                        "[gst_video] buffered {percent} %, switching to {state:?}"
+                    ));
                     if let Some(playbin) = player.upgrade() {
                         playbin.call_async(move |p| {
                             let _ = p.set_state(state);
@@ -306,7 +316,10 @@ fn watch_bus(playbin: &gst::Element, heard: Arc<Mutex<Heard>>, say: Say) {
                             format!("{}{size}", s.name())
                         })
                         .unwrap_or_default();
-                    say(&format!("[gst_video] playbin3 stream {:?} {what}", stream.stream_type()));
+                    say(&format!(
+                        "[gst_video] playbin3 stream {:?} {what}",
+                        stream.stream_type()
+                    ));
                 }
             }
             gst::MessageView::Eos(_) => {
@@ -364,28 +377,49 @@ mod tests {
         assert_eq!(hold.buffering(100), None);
 
         hold.wanted = false;
-        assert_eq!(hold.buffering(0), None, "paused by the phone, nothing to hold");
+        assert_eq!(
+            hold.buffering(0),
+            None,
+            "paused by the phone, nothing to hold"
+        );
         assert_eq!(hold.buffering(100), None);
         assert_eq!(hold.state(), gst::State::Paused);
 
         hold.buffering(30);
         hold.wanted = true;
-        assert_eq!(hold.state(), gst::State::Paused, "a play while filling waits for the queue");
+        assert_eq!(
+            hold.state(),
+            gst::State::Paused,
+            "a play while filling waits for the queue"
+        );
         assert_eq!(hold.buffering(100), Some(gst::State::Playing));
     }
 
     #[test]
     fn only_a_live_stream_resumed_after_a_pause_is_joined_anew() {
-        let mut hold = Hold { wanted: true, filling: false };
-        assert!(!hold.rejoins(true, true), "already playing, nothing ran away");
+        let mut hold = Hold {
+            wanted: true,
+            filling: false,
+        };
+        assert!(
+            !hold.rejoins(true, true),
+            "already playing, nothing ran away"
+        );
 
         hold.wanted = false;
         assert!(!hold.rejoins(false, true), "still paused");
-        assert!(!hold.rejoins(true, false), "a stream with an end waits where it was");
+        assert!(
+            !hold.rejoins(true, false),
+            "a stream with an end waits where it was"
+        );
 
         hold.buffering(20);
         assert!(hold.rejoins(true, true));
         hold.wanted = true;
-        assert_eq!(hold.state(), gst::State::Playing, "the old queue no longer holds it back");
+        assert_eq!(
+            hold.state(),
+            gst::State::Playing,
+            "the old queue no longer holds it back"
+        );
     }
 }

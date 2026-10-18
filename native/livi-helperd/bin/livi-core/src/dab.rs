@@ -1,7 +1,3 @@
-// DAB+ as LIVI's own audio source. A thread owns the RTL-SDR stick and the
-// receiver, the task here turns its events into state, station list and
-// audio for the gst host.
-
 use std::collections::HashMap;
 use std::path::{Path, PathBuf};
 use std::sync::Arc;
@@ -24,31 +20,15 @@ pub enum DabAsk {
     Scan,
     StopScan,
     Play(u32),
-    /// The tuned station again, else the one played last or the first, unless one plays.
     Resume,
-    /// Audio off, the station stays tuned.
     Pause,
-    /// Leaves DAB+.
     Stop,
-    /// Next or previous station in the list.
     Step(i32),
-    Favorite {
-        service: u32,
-        favorite: bool,
-    },
-    Hide {
-        service: u32,
-        hidden: bool,
-    },
-    /// In the own order, negative towards the top.
-    Move {
-        service: u32,
-        by: i32,
-    },
+    Favorite { service: u32, favorite: bool },
+    Hide { service: u32, hidden: bool },
+    Move { service: u32, by: i32 },
 }
 
-/// A new scan keeps the known stations where the listener put them, favorite or hidden as they
-/// were, and adds the new ones at the end by name.
 fn merged(own: &[DabStation], mut found: Vec<DabStation>) -> Vec<DabStation> {
     let mut out: Vec<DabStation> = own
         .iter()
@@ -65,8 +45,6 @@ fn merged(own: &[DabStation], mut found: Vec<DabStation>) -> Vec<DabStation> {
     out
 }
 
-/// What a media key does to DAB+: it takes the keys while it is the chosen source, or while no
-/// phone is in front and stations were found. None leaves the key to the phone.
 pub fn media_ask(dab: &Dab, phone_in_front: bool, control: MediaControl) -> Option<DabAsk> {
     let idle = !phone_in_front && !dab.stations.is_empty();
     if !dab.active && !idle {
@@ -81,8 +59,6 @@ pub fn media_ask(dab: &Dab, phone_in_front: bool, control: MediaControl) -> Opti
     })
 }
 
-/// The station `by` steps away among those not hidden. From a hidden or no station the walk
-/// starts where it sits in the list.
 fn step_target(list: &[DabStation], current: Option<u32>, by: i32) -> Option<u32> {
     let visible: Vec<&DabStation> = list.iter().filter(|s| !s.hidden).collect();
     if visible.is_empty() {
@@ -93,7 +69,9 @@ fn step_target(list: &[DabStation], current: Option<u32>, by: i32) -> Option<u32
         return Some(visible[(at as i64 + by as i64).rem_euclid(n) as usize].service_id);
     }
     let at = current.and_then(|id| list.iter().position(|s| s.service_id == id));
-    let Some(at) = at else { return Some(visible[0].service_id) };
+    let Some(at) = at else {
+        return Some(visible[0].service_id);
+    };
     let len = list.len() as i64;
     let dir = if by < 0 { -1 } else { 1 };
     (1..=len)
@@ -103,7 +81,9 @@ fn step_target(list: &[DabStation], current: Option<u32>, by: i32) -> Option<u32
 }
 
 fn move_station(list: &mut [DabStation], service: u32, by: i32) -> bool {
-    let Some(at) = list.iter().position(|s| s.service_id == service) else { return false };
+    let Some(at) = list.iter().position(|s| s.service_id == service) else {
+        return false;
+    };
     let to = (at as i64 + by as i64).clamp(0, list.len() as i64 - 1) as usize;
     if to == at {
         return false;
@@ -116,10 +96,10 @@ fn move_station(list: &mut [DabStation], service: u32, by: i32) -> bool {
     true
 }
 
-/// A station that gets or loses its star lands right behind the last other favorite, so the
-/// favorites stay one block at the top of the own order.
 fn star(list: &mut Vec<DabStation>, service: u32, favorite: bool) -> bool {
-    let Some(at) = list.iter().position(|s| s.service_id == service) else { return false };
+    let Some(at) = list.iter().position(|s| s.service_id == service) else {
+        return false;
+    };
     let mut st = list.remove(at);
     st.favorite = favorite;
     let to = list.iter().rposition(|s| s.favorite).map_or(0, |i| i + 1);
@@ -127,7 +107,6 @@ fn star(list: &mut Vec<DabStation>, service: u32, favorite: bool) -> bool {
     true
 }
 
-/// Hidden stations sink to the end of the list, each group keeps its order.
 fn hidden_last(list: &mut [DabStation]) {
     list.sort_by_key(|s| s.hidden);
 }
@@ -138,9 +117,7 @@ const BLOCK: usize = 256 * 1024;
 const BUFFERS: usize = 16;
 const READ_TIMEOUT: Duration = Duration::from_secs(1);
 const LOOK_FOR_STICK: Duration = Duration::from_secs(3);
-/// Blocks read across a retune still hold the old channel.
 const SETTLE_BLOCKS: usize = 2;
-/// How long a scan waits on one channel for sync, then for every label.
 const SCAN_SYNC: Duration = Duration::from_millis(2000);
 const SCAN_LABELS: Duration = Duration::from_secs(8);
 const SCAN_STABLE: Duration = Duration::from_millis(1200);
@@ -155,16 +132,26 @@ fn tuning(state: &State) -> Tuning {
     let c = &state.config;
     let tenths = (c.dab_gain_db * 10.0).round() as i32;
     let gain = (!c.dab_gain_auto).then(|| nearest_gain(tenths));
-    Tuning { gain, ppm: c.dab_ppm }
+    Tuning {
+        gain,
+        ppm: c.dab_ppm,
+    }
 }
 
 fn nearest_gain(tenths: i32) -> i32 {
-    livi_rtlsdr::gains().into_iter().min_by_key(|g| (g - tenths).abs()).unwrap_or(0)
+    livi_rtlsdr::gains()
+        .into_iter()
+        .min_by_key(|g| (g - tenths).abs())
+        .unwrap_or(0)
 }
 
 enum Cmd {
     Scan(Tuning),
-    Play { frequency: u32, service: u32, tuning: Tuning },
+    Play {
+        frequency: u32,
+        service: u32,
+        tuning: Tuning,
+    },
     Stop,
     Tuning(Tuning),
 }
@@ -176,10 +163,18 @@ enum Radio {
     Found(Vec<DabStation>),
     ScanDone,
     Signal(DabSignal),
-    Format { asc: Vec<u8>, rate: u32, channels: u8 },
+    Format {
+        asc: Vec<u8>,
+        rate: u32,
+        channels: u8,
+    },
     Units(Vec<Vec<u8>>),
     Text(String),
-    Logo { service: u32, mime: &'static str, data: Vec<u8> },
+    Logo {
+        service: u32,
+        mime: &'static str,
+        data: Vec<u8>,
+    },
     Error(String),
 }
 
@@ -195,11 +190,15 @@ pub async fn run(hub: Arc<Hub>, gst: GstHost, mut asks: DabAsks, user_data: Path
         logos: load_images(&user_data.join(LOGOS)),
     };
     hidden_last(&mut out.own.stations);
-    let gains_db = livi_rtlsdr::gains().into_iter().map(|g| g as f64 / 10.0).collect();
+    let gains_db = livi_rtlsdr::gains()
+        .into_iter()
+        .map(|g| g as f64 / 10.0)
+        .collect();
     hub.update(|s| s.dab.gains_db = gains_db);
     out.publish();
-    let started =
-        std::thread::Builder::new().name("dab".into()).spawn(move || radio_thread(cmd_rx, ev_tx));
+    let started = std::thread::Builder::new()
+        .name("dab".into())
+        .spawn(move || radio_thread(cmd_rx, ev_tx));
     if let Err(e) = started {
         eprintln!("[dab] no radio thread: {e}");
         return;
@@ -351,9 +350,7 @@ struct Out {
     gst: GstHost,
     cmds: std_mpsc::Sender<Cmd>,
     user_data: PathBuf,
-    /// The station list in the listener's own order, as state/sdr.json holds it.
     own: Sdr,
-    /// Base64 logos by service id, kept in dab/logos.
     logos: HashMap<u32, String>,
 }
 
@@ -370,7 +367,6 @@ impl Out {
         });
     }
 
-    /// Saves state/sdr.json and shows the list as it is now.
     fn keep(&mut self) {
         hidden_last(&mut self.own.stations);
         save_sdr(&self.user_data, &self.own);
@@ -379,11 +375,16 @@ impl Out {
 
     fn play(&mut self, audio: &mut Audio, s: &State, service: u32, tuning: Tuning) {
         let Some(st) = s.dab.stations.iter().find(|st| st.service_id == service) else {
-            self.hub.update(|s| s.dab.error = Some("station not in the list, scan again".into()));
+            self.hub
+                .update(|s| s.dab.error = Some("station not in the list, scan again".into()));
             return;
         };
         audio.close(&self.gst);
-        let _ = self.cmds.send(Cmd::Play { frequency: st.frequency_hz, service, tuning });
+        let _ = self.cmds.send(Cmd::Play {
+            frequency: st.frequency_hz,
+            service,
+            tuning,
+        });
         if self.own.last_station != Some(service) {
             self.own.last_station = Some(service);
             self.keep();
@@ -399,7 +400,6 @@ impl Out {
     }
 }
 
-/// Without the stick the player goes back to the phone.
 fn stick_gone(dab: &mut Dab) {
     *dab = Dab {
         stations: std::mem::take(&mut dab.stations),
@@ -409,11 +409,13 @@ fn stick_gone(dab: &mut Dab) {
     };
 }
 
-/// Under the user data folder: the logo of each station, kept for good once it arrived.
 const LOGOS: &str = "dab/logos";
 
 fn image_path(dir: &Path, service: u32) -> Option<PathBuf> {
-    ["jpg", "png"].iter().map(|ext| dir.join(format!("{service:08x}.{ext}"))).find(|p| p.exists())
+    ["jpg", "png"]
+        .iter()
+        .map(|ext| dir.join(format!("{service:08x}.{ext}")))
+        .find(|p| p.exists())
 }
 
 fn keep_image(dir: &Path, service: u32, mime: &str, data: &[u8]) {
@@ -426,16 +428,20 @@ fn keep_image(dir: &Path, service: u32, mime: &str, data: &[u8]) {
     }
 }
 
-/// Every image in `dir` by the service id its name carries, base64.
 fn load_images(dir: &Path) -> HashMap<u32, String> {
-    let Ok(entries) = std::fs::read_dir(dir) else { return HashMap::new() };
+    let Ok(entries) = std::fs::read_dir(dir) else {
+        return HashMap::new();
+    };
     entries
         .flatten()
         .filter_map(|e| {
             let path = e.path();
             let service = u32::from_str_radix(path.file_stem()?.to_str()?, 16).ok()?;
             let data = std::fs::read(&path).ok()?;
-            Some((service, base64::engine::general_purpose::STANDARD.encode(data)))
+            Some((
+                service,
+                base64::engine::general_purpose::STANDARD.encode(data),
+            ))
         })
         .collect()
 }
@@ -502,12 +508,18 @@ impl Audio {
 
 enum Mode {
     Idle,
-    Scan { index: usize, since: Instant, synced: Option<Instant>, last_change: Instant },
-    Play { service: u32, frequency: u32 },
+    Scan {
+        index: usize,
+        since: Instant,
+        synced: Option<Instant>,
+        last_change: Instant,
+    },
+    Play {
+        service: u32,
+        frequency: u32,
+    },
 }
 
-/// Automatic gain: the tuner's own AGC overdrives on a strong transmitter, so LIVI steps through
-/// the tuner's fixed gains on the level and clipping of the samples.
 struct Agc {
     gains: Vec<i32>,
     at: usize,
@@ -516,7 +528,6 @@ struct Agc {
     samples: usize,
 }
 
-/// About 128 ms of samples per decision.
 const AGC_WINDOW: usize = 256 * 1024;
 const AGC_HIGH_DBFS: f64 = -10.0;
 const AGC_LOW_DBFS: f64 = -22.0;
@@ -526,15 +537,23 @@ const AGC_START_TENTHS: i32 = 197;
 impl Agc {
     fn new() -> Self {
         let gains = livi_rtlsdr::gains();
-        let at = gains.iter().position(|&g| g >= AGC_START_TENTHS).unwrap_or(0);
-        Self { gains, at, power: 0.0, clipped: 0, samples: 0 }
+        let at = gains
+            .iter()
+            .position(|&g| g >= AGC_START_TENTHS)
+            .unwrap_or(0);
+        Self {
+            gains,
+            at,
+            power: 0.0,
+            clipped: 0,
+            samples: 0,
+        }
     }
 
     fn gain(&self) -> i32 {
         self.gains[self.at]
     }
 
-    /// The new gain when the last window asks for one.
     fn feed(&mut self, iq: &[u8]) -> Option<i32> {
         for p in iq.as_chunks::<2>().0 {
             if p.iter().any(|&v| v == 0 || v == 255) {
@@ -585,8 +604,11 @@ fn radio_thread(cmds: std_mpsc::Receiver<Cmd>, events: mpsc::UnboundedSender<Rad
     };
     let mut stream = None;
     loop {
-        let wait =
-            if matches!(t.mode, Mode::Idle) { Duration::from_millis(500) } else { Duration::ZERO };
+        let wait = if matches!(t.mode, Mode::Idle) {
+            Duration::from_millis(500)
+        } else {
+            Duration::ZERO
+        };
         match cmds.recv_timeout(wait) {
             Ok(cmd) => {
                 if t.command(cmd) {
@@ -662,7 +684,9 @@ impl Thread {
             return;
         }
         self.looked = Some(Instant::now());
-        let Ok(list) = livi_rtlsdr::devices() else { return };
+        let Ok(list) = livi_rtlsdr::devices() else {
+            return;
+        };
         let Some(info) = list.first() else { return };
         let name = info.product_string().unwrap_or("RTL2832U").to_string();
         match RtlSdr::open(info) {
@@ -686,7 +710,6 @@ impl Thread {
         self.looked = None;
     }
 
-    /// Returns true when the bulk stream has to restart.
     fn command(&mut self, cmd: Cmd) -> bool {
         match cmd {
             Cmd::Stop => {
@@ -707,12 +730,21 @@ impl Thread {
             Cmd::Scan(tuning) => {
                 self.tuning = tuning;
                 let now = Instant::now();
-                self.mode = Mode::Scan { index: 0, since: now, synced: None, last_change: now };
+                self.mode = Mode::Scan {
+                    index: 0,
+                    since: now,
+                    synced: None,
+                    last_change: now,
+                };
                 self.rx.select(None);
                 self.start_channel();
                 false
             }
-            Cmd::Play { frequency, service, tuning } => {
+            Cmd::Play {
+                frequency,
+                service,
+                tuning,
+            } => {
                 self.tuning = tuning;
                 self.mode = Mode::Play { service, frequency };
                 self.rx.select(Some(service));
@@ -749,7 +781,9 @@ impl Thread {
     }
 
     fn start_channel(&mut self) {
-        let Mode::Scan { index, .. } = self.mode else { return };
+        let Mode::Scan { index, .. } = self.mode else {
+            return;
+        };
         let (name, freq) = CHANNELS[index];
         self.send(Radio::Progress(DabScan {
             channel: name.to_string(),
@@ -758,18 +792,25 @@ impl Thread {
             found: 0,
         }));
         let now = Instant::now();
-        self.mode = Mode::Scan { index, since: now, synced: None, last_change: now };
+        self.mode = Mode::Scan {
+            index,
+            since: now,
+            synced: None,
+            last_change: now,
+        };
         self.tune(freq);
     }
 
-    /// Returns true when the bulk stream has to restart.
     fn step(&mut self, evs: Vec<Event>) -> bool {
         let mut ensemble_changed = false;
         for e in evs {
             match e {
                 Event::Sync { locked, fic_ok } => {
                     if matches!(self.mode, Mode::Play { .. }) {
-                        self.send(Radio::Signal(DabSignal { locked, quality: fic_ok as u32 }));
+                        self.send(Radio::Signal(DabSignal {
+                            locked,
+                            quality: fic_ok as u32,
+                        }));
                     }
                 }
                 Event::Ensemble(_) => ensemble_changed = true,
@@ -780,14 +821,23 @@ impl Thread {
                 }),
                 Event::Audio(units) => self.send(Radio::Units(units)),
                 Event::Label(t) => self.send(Radio::Text(t)),
-                Event::Logo(l) => {
-                    self.send(Radio::Logo { service: l.service, mime: l.mime, data: l.data })
-                }
+                Event::Logo(l) => self.send(Radio::Logo {
+                    service: l.service,
+                    mime: l.mime,
+                    data: l.data,
+                }),
             }
         }
-        let Mode::Scan { index, since, synced, last_change } = self.mode else { return false };
+        let Mode::Scan {
+            index,
+            since,
+            synced,
+            last_change,
+        } = self.mode
+        else {
+            return false;
+        };
         let now = Instant::now();
-        // Only an intact FIB counts, noise can look like a null symbol for a frame.
         let found = self.rx.locked() && self.rx.ensemble().id.is_some();
         let synced = synced.or_else(|| found.then_some(now));
         let last_change = if ensemble_changed { now } else { last_change };
@@ -798,7 +848,12 @@ impl Thread {
                 (complete && last_change.elapsed() > SCAN_STABLE) || at.elapsed() > SCAN_LABELS
             }
         };
-        self.mode = Mode::Scan { index, since, synced, last_change };
+        self.mode = Mode::Scan {
+            index,
+            since,
+            synced,
+            last_change,
+        };
         if !next {
             return false;
         }
@@ -815,7 +870,12 @@ impl Thread {
             self.send(Radio::ScanDone);
             return true;
         }
-        self.mode = Mode::Scan { index: index + 1, since: now, synced: None, last_change: now };
+        self.mode = Mode::Scan {
+            index: index + 1,
+            since: now,
+            synced: None,
+            last_change: now,
+        };
         self.start_channel();
         false
     }
@@ -857,14 +917,20 @@ mod tests {
     use livi_dab::fic::{Component, Protection, Service, Subchannel};
 
     fn ensemble() -> Ensemble {
-        let mut e = Ensemble { label: Some("DR Deutschland".into()), ..Default::default() };
+        let mut e = Ensemble {
+            label: Some("DR Deutschland".into()),
+            ..Default::default()
+        };
         e.subchannels.insert(
             11,
             Subchannel {
                 id: 11,
                 start: 616,
                 size: 104,
-                protection: Protection::Eep { option: 0, level: 1 },
+                protection: Protection::Eep {
+                    option: 0,
+                    level: 1,
+                },
             },
         );
         e.services.insert(
@@ -873,7 +939,11 @@ mod tests {
                 id: 0xd220,
                 label: Some("Dlf Kultur".into()),
                 short_label: Some("Kultur".into()),
-                components: vec![Component { subchannel: 11, ascty: 63, primary: true }],
+                components: vec![Component {
+                    subchannel: 11,
+                    ascty: 63,
+                    primary: true,
+                }],
                 ..Default::default()
             },
         );
@@ -916,11 +986,20 @@ mod tests {
         let window = |i: u8, q: u8| [i, q].repeat(AGC_WINDOW);
         assert_eq!(agc.feed(&[0, 255]), None, "decides once a window is full");
         let mut fresh = Agc::new();
-        assert!(fresh.feed(&window(0, 128)).unwrap() < start, "clipping steps down");
+        assert!(
+            fresh.feed(&window(0, 128)).unwrap() < start,
+            "clipping steps down"
+        );
         let mut loud = Agc::new();
-        assert!(loud.feed(&window(20, 235)).unwrap() < start, "too loud steps down");
+        assert!(
+            loud.feed(&window(20, 235)).unwrap() < start,
+            "too loud steps down"
+        );
         let mut quiet = Agc::new();
-        assert!(quiet.feed(&window(128, 129)).unwrap() > start, "too quiet steps up");
+        assert!(
+            quiet.feed(&window(128, 129)).unwrap() > start,
+            "too quiet steps up"
+        );
         let mut right = Agc::new();
         assert_eq!(right.feed(&window(100, 155)), None, "in range stays");
     }
@@ -948,7 +1027,10 @@ mod tests {
     }
 
     fn hidden(id: u32) -> DabStation {
-        DabStation { hidden: true, ..named(id, "h", false) }
+        DabStation {
+            hidden: true,
+            ..named(id, "h", false)
+        }
     }
 
     #[test]
@@ -967,14 +1049,33 @@ mod tests {
             "nothing else plays"
         );
         phone = true;
-        assert_eq!(media_ask(&dab, phone, MediaControl::Next), None, "a phone is in front");
+        assert_eq!(
+            media_ask(&dab, phone, MediaControl::Next),
+            None,
+            "a phone is in front"
+        );
         dab.active = true;
-        assert_eq!(media_ask(&dab, phone, MediaControl::Prev), Some(DabAsk::Step(-1)));
-        assert_eq!(media_ask(&dab, phone, MediaControl::Pause), Some(DabAsk::Pause));
-        assert_eq!(media_ask(&dab, phone, MediaControl::PlayPause), Some(DabAsk::Resume));
-        assert_eq!(media_ask(&dab, phone, MediaControl::Play), Some(DabAsk::Resume));
+        assert_eq!(
+            media_ask(&dab, phone, MediaControl::Prev),
+            Some(DabAsk::Step(-1))
+        );
+        assert_eq!(
+            media_ask(&dab, phone, MediaControl::Pause),
+            Some(DabAsk::Pause)
+        );
+        assert_eq!(
+            media_ask(&dab, phone, MediaControl::PlayPause),
+            Some(DabAsk::Resume)
+        );
+        assert_eq!(
+            media_ask(&dab, phone, MediaControl::Play),
+            Some(DabAsk::Resume)
+        );
         dab.playing = true;
-        assert_eq!(media_ask(&dab, phone, MediaControl::PlayPause), Some(DabAsk::Pause));
+        assert_eq!(
+            media_ask(&dab, phone, MediaControl::PlayPause),
+            Some(DabAsk::Pause)
+        );
     }
 
     #[test]
@@ -1010,22 +1111,39 @@ mod tests {
         assert_eq!(ids(&list), [1, 4, 2, 3]);
         assert!(list[1].favorite);
         assert!(star(&mut list, 1, false));
-        assert_eq!(ids(&list), [4, 1, 2, 3], "unstarred it follows the remaining favorites");
+        assert_eq!(
+            ids(&list),
+            [4, 1, 2, 3],
+            "unstarred it follows the remaining favorites"
+        );
         assert!(!list[1].favorite);
         assert!(star(&mut list, 4, false));
-        assert_eq!(ids(&list), [4, 1, 2, 3], "no favorites left, it goes to the top");
+        assert_eq!(
+            ids(&list),
+            [4, 1, 2, 3],
+            "no favorites left, it goes to the top"
+        );
         assert!(!star(&mut list, 9, true));
     }
 
     #[test]
     fn hidden_stations_sink_to_the_end() {
-        let mut list = vec![named(1, "a", true), hidden(2), named(3, "c", false), hidden(4)];
+        let mut list = vec![
+            named(1, "a", true),
+            hidden(2),
+            named(3, "c", false),
+            hidden(4),
+        ];
         list.push(named(5, "e", false));
         hidden_last(&mut list);
         assert_eq!(ids(&list), [1, 3, 5, 2, 4]);
         list[3].hidden = false;
         hidden_last(&mut list);
-        assert_eq!(ids(&list), [1, 3, 5, 2, 4], "shown again it closes the visible ones");
+        assert_eq!(
+            ids(&list),
+            [1, 3, 5, 2, 4],
+            "shown again it closes the visible ones"
+        );
         list[0].hidden = true;
         hidden_last(&mut list);
         assert_eq!(ids(&list), [3, 5, 2, 1, 4]);
@@ -1033,11 +1151,24 @@ mod tests {
 
     #[test]
     fn steps_skip_hidden_stations() {
-        let list = [named(1, "a", false), hidden(2), named(3, "c", false), hidden(4)];
+        let list = [
+            named(1, "a", false),
+            hidden(2),
+            named(3, "c", false),
+            hidden(4),
+        ];
         assert_eq!(step_target(&list, Some(1), 1), Some(3));
-        assert_eq!(step_target(&list, Some(3), 1), Some(1), "wraps past the hidden end");
+        assert_eq!(
+            step_target(&list, Some(3), 1),
+            Some(1),
+            "wraps past the hidden end"
+        );
         assert_eq!(step_target(&list, Some(1), -1), Some(3));
-        assert_eq!(step_target(&list, Some(2), 1), Some(3), "from a hidden one onwards");
+        assert_eq!(
+            step_target(&list, Some(2), 1),
+            Some(3),
+            "from a hidden one onwards"
+        );
         assert_eq!(step_target(&list, Some(2), -1), Some(1));
         assert_eq!(step_target(&list, None, 1), Some(1));
         assert_eq!(step_target(&list, Some(9), 1), Some(1));
@@ -1046,8 +1177,14 @@ mod tests {
 
     #[test]
     fn a_new_scan_keeps_own_order_and_favorites() {
-        let own =
-            [hidden(3), named(1, "a", true), DabStation { hidden: true, ..named(2, "b", false) }];
+        let own = [
+            hidden(3),
+            named(1, "a", true),
+            DabStation {
+                hidden: true,
+                ..named(2, "b", false)
+            },
+        ];
         let found = vec![
             named(2, "b", false),
             named(1, "a new", false),
@@ -1055,7 +1192,11 @@ mod tests {
             named(4, "d", false),
         ];
         let list = merged(&own, found);
-        assert_eq!(ids(&list), [1, 2, 4, 5], "3 is gone, 4 and 5 come last by name");
+        assert_eq!(
+            ids(&list),
+            [1, 2, 4, 5],
+            "3 is gone, 4 and 5 come last by name"
+        );
         assert!(list[0].favorite);
         assert_eq!(list[0].label, "a new");
         assert!(list[1].hidden, "hidden stays hidden");
@@ -1064,7 +1205,11 @@ mod tests {
 
     #[test]
     fn stations_move_within_the_own_order() {
-        let mut list = vec![named(1, "a", false), named(2, "b", false), named(3, "c", false)];
+        let mut list = vec![
+            named(1, "a", false),
+            named(2, "b", false),
+            named(3, "c", false),
+        ];
         assert!(move_station(&mut list, 1, 2));
         assert_eq!(ids(&list), [2, 3, 1]);
         assert!(move_station(&mut list, 1, -1));

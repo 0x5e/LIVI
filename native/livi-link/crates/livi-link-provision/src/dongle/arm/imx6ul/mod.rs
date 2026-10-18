@@ -1,5 +1,3 @@
-//! The rootfs can only be written from a system that does not run from it.
-
 pub mod boot;
 pub mod mtd;
 pub mod restore;
@@ -13,7 +11,6 @@ use shell::Shell;
 
 const REBOOT_TIMEOUT: Duration = Duration::from_secs(180);
 
-/// Empty in a local build without the CI assets.
 pub(crate) const IMX6UL_LFWB: &[u8] =
     include_bytes!("../../../../../../../../assets/livi-link/imx6ul_iw416/livi-link-imx6ull.lfwb");
 pub(crate) const IMX6UL_RTL8822CS_LFWB: &[u8] = include_bytes!(
@@ -23,12 +20,16 @@ pub(crate) const IMX6UL_RTL8822BS_LFWB: &[u8] = include_bytes!(
     "../../../../../../../../assets/livi-link/imx6ul_rtl8822bs/livi-link-imx6ull-rtl8822bs.lfwb"
 );
 
-/// Wi-Fi/Bluetooth modules by SDIO device id.
-const MODULES: [(&str, &str); 3] =
-    [("0x9159", "imx6ul_iw416"), ("0xc822", "imx6ul_rtl8822cs"), ("0xb822", "imx6ul_rtl8822bs")];
+const MODULES: [(&str, &str); 3] = [
+    ("0x9159", "imx6ul_iw416"),
+    ("0xc822", "imx6ul_rtl8822cs"),
+    ("0xb822", "imx6ul_rtl8822bs"),
+];
 
 pub fn module_target(sh: &Shell) -> Result<Option<&'static str>, String> {
-    Ok(target_of(&sh.sh("cat /sys/bus/sdio/devices/*/device 2>/dev/null; true")?))
+    Ok(target_of(&sh.sh(
+        "cat /sys/bus/sdio/devices/*/device 2>/dev/null; true",
+    )?))
 }
 
 fn target_of(ids: &str) -> Option<&'static str> {
@@ -41,7 +42,6 @@ fn target_of(ids: &str) -> Option<&'static str> {
 #[derive(Debug, PartialEq, Eq)]
 pub enum Running {
     Vendor,
-    /// Our initramfs, which stays when there is no rootfs of ours to switch to.
     Rescue,
     Livi,
 }
@@ -51,7 +51,11 @@ pub fn running(sh: &Shell) -> Result<Running, String> {
 }
 
 fn running_from(mounts: &str) -> Running {
-    let fs = |t: &str| mounts.lines().any(|l| l.split_whitespace().nth(2) == Some(t));
+    let fs = |t: &str| {
+        mounts
+            .lines()
+            .any(|l| l.split_whitespace().nth(2) == Some(t))
+    };
     if fs("jffs2") {
         Running::Vendor
     } else if fs("squashfs") {
@@ -61,7 +65,6 @@ fn running_from(mounts: &str) -> Running {
     }
 }
 
-/// The rootfs is only written from the rescue system, so a vendor firmware gets our kernel first.
 pub fn install(
     sh: &Shell,
     bundle: &[u8],
@@ -100,7 +103,6 @@ pub fn install(
     }
 }
 
-/// This writes the rootfs partition, so a running LIVI Link goes to the rescue system first.
 pub fn back_to_stock(
     sh: &Shell,
     stock: &restore::Stock,
@@ -117,7 +119,6 @@ pub fn back_to_stock(
     Ok(())
 }
 
-/// The initramfs stays in rescue when bootstate holds the mark a failed start leaves.
 fn to_rescue(sh: &Shell, progress: &dyn Fn(&str)) -> Result<(), String> {
     let parts = mtd::partitions(sh)?;
     let state = parts
@@ -135,18 +136,18 @@ fn to_rescue(sh: &Shell, progress: &dyn Fn(&str)) -> Result<(), String> {
     wait_for_dongle(sh, progress)?;
     match running(sh)? {
         Running::Rescue => Ok(()),
-        other => Err(format!("the dongle came back as {other:?}, not in its rescue system")),
+        other => Err(format!(
+            "the dongle came back as {other:?}, not in its rescue system"
+        )),
     }
 }
 
 fn reboot(sh: &Shell, progress: &dyn Fn(&str)) -> Result<(), String> {
     progress("rebooting into LIVI Link");
-    // A shell as PID 1 (our initramfs) ignores the signal a plain reboot sends it.
     sh.sh("(sleep 1; sync; reboot; sleep 5; reboot -f) >/dev/null 2>&1 &")?;
     Ok(())
 }
 
-/// Our kernel brings NCM, so a dongle installed over the vendor's Wi-Fi comes back on USB.
 fn wait_for_dongle(sh: &Shell, progress: &dyn Fn(&str)) -> Result<(), String> {
     let usb = Shell::new(shell::DEFAULT_HOST);
     let start = Instant::now();
@@ -166,7 +167,10 @@ fn wait_for_dongle(sh: &Shell, progress: &dyn Fn(&str)) -> Result<(), String> {
         }
         sleep(Duration::from_secs(3));
     }
-    Err(format!("dongle did not come back within {}s", REBOOT_TIMEOUT.as_secs()))
+    Err(format!(
+        "dongle did not come back within {}s",
+        REBOOT_TIMEOUT.as_secs()
+    ))
 }
 
 #[cfg(test)]
@@ -179,7 +183,10 @@ mod tests {
         assert_eq!(running_from(vendor), Running::Vendor);
         let ours = "/dev/root / squashfs ro,relatime 0 0\ntmpfs /tmp tmpfs rw 0 0";
         assert_eq!(running_from(ours), Running::Livi);
-        assert_eq!(running_from("none / rootfs rw 0 0\nproc /proc proc rw 0 0"), Running::Rescue);
+        assert_eq!(
+            running_from("none / rootfs rw 0 0\nproc /proc proc rw 0 0"),
+            Running::Rescue
+        );
     }
 
     #[test]

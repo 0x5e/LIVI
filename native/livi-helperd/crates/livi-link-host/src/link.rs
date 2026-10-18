@@ -2,19 +2,19 @@ use std::net::ToSocketAddrs;
 
 pub const LINK_NAME: &str = "livi-link.local";
 
-/// What the Wi-Fi interface and Bluetooth adapter settings carry when a dongle radio is chosen.
 pub const CHOICE: &str = "livi-link";
 
 pub fn resolves() -> bool {
-    (LINK_NAME, 0u16).to_socket_addrs().map(|mut a| a.any(|a| a.is_ipv4())).unwrap_or(false)
+    (LINK_NAME, 0u16)
+        .to_socket_addrs()
+        .map(|mut a| a.any(|a| a.is_ipv4()))
+        .unwrap_or(false)
 }
 
 pub fn addr(port: u16) -> String {
     format!("{LINK_NAME}:{port}")
 }
 
-/// The phone is told to reach the host over this interface, never over a Wi-Fi card in the
-/// same subnet.
 #[cfg(target_os = "linux")]
 pub fn host_iface() -> Option<String> {
     host_iface_in(std::path::Path::new("/sys/class/net"))
@@ -25,14 +25,11 @@ pub fn attached() -> bool {
     host_iface().is_some()
 }
 
-/// macOS shows no gadget product per interface, so an own address in the link's subnet stands
-/// for it.
 #[cfg(not(target_os = "linux"))]
 pub fn attached() -> bool {
     own_ipv4().into_iter().any(on_link)
 }
 
-/// The dongle hands out its USB link's addresses from 10.10.10.0/24.
 #[cfg_attr(target_os = "linux", allow(dead_code))]
 fn on_link(ip: std::net::Ipv4Addr) -> bool {
     matches!(ip.octets(), [10, 10, 10, _])
@@ -64,7 +61,6 @@ fn own_ipv4() -> Vec<std::net::Ipv4Addr> {
 #[cfg(target_os = "linux")]
 fn host_iface_in(net: &std::path::Path) -> Option<String> {
     std::fs::read_dir(net).ok()?.flatten().find_map(|entry| {
-        // `device` is the USB interface, its parent the gadget.
         let product = std::fs::read_to_string(entry.path().join("device/../product")).ok()?;
         (product.trim() == crate::LINK_PRODUCT).then(|| entry.file_name().into_string().ok())?
     })

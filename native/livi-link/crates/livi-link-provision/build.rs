@@ -1,7 +1,6 @@
 use std::path::Path;
 
 fn main() {
-    // include_bytes! needs each file at compile time, CI drops the real ones here.
     let embedded = [
         "../../../../assets/livi-link/v821b_aic8800d80/livi-link-v821b.lfwb",
         "../../../../assets/livi-link/ax520_aic8800d80/livi-link-ax520.lfwb",

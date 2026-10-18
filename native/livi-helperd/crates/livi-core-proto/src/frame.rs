@@ -75,7 +75,10 @@ mod tests {
     #[test]
     fn round_trip_split_across_chunks() {
         let a = encode(&ToCore::Resync).unwrap();
-        let b = encode(&ToCore::Path { path: "/media".into() }).unwrap();
+        let b = encode(&ToCore::Path {
+            path: "/media".into(),
+        })
+        .unwrap();
         let mut stream = a.clone();
         stream.extend_from_slice(&b);
 
@@ -83,13 +86,18 @@ mod tests {
         for byte in &stream[..a.len() + 3] {
             dec.push(std::slice::from_ref(byte));
         }
-        assert_eq!(dec.next_message::<ToCore>().unwrap().unwrap(), ToCore::Resync);
+        assert_eq!(
+            dec.next_message::<ToCore>().unwrap().unwrap(),
+            ToCore::Resync
+        );
         assert!(dec.next_message::<ToCore>().is_none());
 
         dec.push(&stream[a.len() + 3..]);
         assert_eq!(
             dec.next_message::<ToCore>().unwrap().unwrap(),
-            ToCore::Path { path: "/media".into() }
+            ToCore::Path {
+                path: "/media".into()
+            }
         );
         assert!(dec.next_message::<ToCore>().is_none());
     }
@@ -119,7 +127,13 @@ mod tests {
         dec.push(&(junk.len() as u32).to_le_bytes());
         dec.push(junk);
         dec.push(&encode(&ToCore::Resync).unwrap());
-        assert!(matches!(dec.next_message::<ToCore>(), Some(Err(FrameError::Json(_)))));
-        assert_eq!(dec.next_message::<ToCore>().unwrap().unwrap(), ToCore::Resync);
+        assert!(matches!(
+            dec.next_message::<ToCore>(),
+            Some(Err(FrameError::Json(_)))
+        ));
+        assert_eq!(
+            dec.next_message::<ToCore>().unwrap().unwrap(),
+            ToCore::Resync
+        );
     }
 }

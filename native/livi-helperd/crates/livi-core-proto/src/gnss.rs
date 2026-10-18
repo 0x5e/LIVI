@@ -53,12 +53,21 @@ pub struct Satellite {
     pub id: f64,
     pub constellation: Constellation,
     pub used: bool,
-    #[serde(skip_serializing_if = "Option::is_none", serialize_with = "optional_number")]
+    #[serde(
+        skip_serializing_if = "Option::is_none",
+        serialize_with = "optional_number"
+    )]
     pub elevation: Option<f64>,
-    #[serde(skip_serializing_if = "Option::is_none", serialize_with = "optional_number")]
+    #[serde(
+        skip_serializing_if = "Option::is_none",
+        serialize_with = "optional_number"
+    )]
     pub azimuth: Option<f64>,
     /// Absent while the receiver only knows where the satellite is.
-    #[serde(skip_serializing_if = "Option::is_none", serialize_with = "optional_number")]
+    #[serde(
+        skip_serializing_if = "Option::is_none",
+        serialize_with = "optional_number"
+    )]
     pub snr: Option<f64>,
 }
 
@@ -145,14 +154,26 @@ pub struct GnssInfo {
     pub rf: Option<Rf>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub error: Option<String>,
-    #[serde(skip_serializing_if = "Option::is_none", serialize_with = "optional_number")]
+    #[serde(
+        skip_serializing_if = "Option::is_none",
+        serialize_with = "optional_number"
+    )]
     pub pdop: Option<f64>,
-    #[serde(skip_serializing_if = "Option::is_none", serialize_with = "optional_number")]
+    #[serde(
+        skip_serializing_if = "Option::is_none",
+        serialize_with = "optional_number"
+    )]
     pub hdop: Option<f64>,
-    #[serde(skip_serializing_if = "Option::is_none", serialize_with = "optional_number")]
+    #[serde(
+        skip_serializing_if = "Option::is_none",
+        serialize_with = "optional_number"
+    )]
     pub vdop: Option<f64>,
     /// Unix milliseconds.
-    #[serde(skip_serializing_if = "Option::is_none", serialize_with = "optional_number")]
+    #[serde(
+        skip_serializing_if = "Option::is_none",
+        serialize_with = "optional_number"
+    )]
     pub receiver_time: Option<f64>,
     /// Unix milliseconds of the last bytes.
     #[serde(skip_serializing_if = "Option::is_none")]
@@ -165,23 +186,47 @@ pub struct GnssInfo {
 #[ts(export_to = "contract.ts", optional_fields)]
 #[serde(rename_all = "camelCase")]
 pub struct GpsFix {
-    #[serde(skip_serializing_if = "Option::is_none", serialize_with = "optional_number")]
+    #[serde(
+        skip_serializing_if = "Option::is_none",
+        serialize_with = "optional_number"
+    )]
     pub lat: Option<f64>,
-    #[serde(skip_serializing_if = "Option::is_none", serialize_with = "optional_number")]
+    #[serde(
+        skip_serializing_if = "Option::is_none",
+        serialize_with = "optional_number"
+    )]
     pub lng: Option<f64>,
-    #[serde(skip_serializing_if = "Option::is_none", serialize_with = "optional_number")]
+    #[serde(
+        skip_serializing_if = "Option::is_none",
+        serialize_with = "optional_number"
+    )]
     pub alt: Option<f64>,
-    #[serde(skip_serializing_if = "Option::is_none", serialize_with = "optional_number")]
+    #[serde(
+        skip_serializing_if = "Option::is_none",
+        serialize_with = "optional_number"
+    )]
     pub heading: Option<f64>,
-    #[serde(skip_serializing_if = "Option::is_none", serialize_with = "optional_number")]
+    #[serde(
+        skip_serializing_if = "Option::is_none",
+        serialize_with = "optional_number"
+    )]
     pub speed_ms: Option<f64>,
     /// Horizontal.
-    #[serde(skip_serializing_if = "Option::is_none", serialize_with = "optional_number")]
+    #[serde(
+        skip_serializing_if = "Option::is_none",
+        serialize_with = "optional_number"
+    )]
     pub accuracy_m: Option<f64>,
-    #[serde(skip_serializing_if = "Option::is_none", serialize_with = "optional_number")]
+    #[serde(
+        skip_serializing_if = "Option::is_none",
+        serialize_with = "optional_number"
+    )]
     pub satellites: Option<f64>,
     /// Unix milliseconds.
-    #[serde(skip_serializing_if = "Option::is_none", serialize_with = "optional_number")]
+    #[serde(
+        skip_serializing_if = "Option::is_none",
+        serialize_with = "optional_number"
+    )]
     pub fix_ts: Option<f64>,
 }
 
@@ -275,10 +320,28 @@ mod tests {
 
     #[test]
     fn a_newer_fix_replaces_only_what_it_says() {
-        let mut fix = GpsFix { lat: Some(1.0), lng: Some(2.0), ..Default::default() };
-        fix.merge(&GpsFix { alt: Some(500.0), lng: Some(3.0), ..Default::default() });
-        assert_eq!(serde_json::to_value(&fix).unwrap(), json!({ "lat": 1, "lng": 3, "alt": 500 }));
-        let odd = GpsFix { accuracy_m: Some(f64::NAN), speed_ms: Some(-0.0), ..Default::default() };
-        assert_eq!(serde_json::to_string(&odd).unwrap(), r#"{"speedMs":0,"accuracyM":null}"#);
+        let mut fix = GpsFix {
+            lat: Some(1.0),
+            lng: Some(2.0),
+            ..Default::default()
+        };
+        fix.merge(&GpsFix {
+            alt: Some(500.0),
+            lng: Some(3.0),
+            ..Default::default()
+        });
+        assert_eq!(
+            serde_json::to_value(&fix).unwrap(),
+            json!({ "lat": 1, "lng": 3, "alt": 500 })
+        );
+        let odd = GpsFix {
+            accuracy_m: Some(f64::NAN),
+            speed_ms: Some(-0.0),
+            ..Default::default()
+        };
+        assert_eq!(
+            serde_json::to_string(&odd).unwrap(),
+            r#"{"speedMs":0,"accuracyM":null}"#
+        );
     }
 }

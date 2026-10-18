@@ -1,5 +1,3 @@
-//! The frames go from the helper straight to the host.
-
 use livi_aa_proto::{VideoFocusMode, VideoFocusNotification, VideoFocusRequest};
 use prost::Message;
 
@@ -11,7 +9,6 @@ use crate::wire::decode_start;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum VideoChannelEvent {
-    /// The phone wants native or transient-native focus: the user asked for the host's UI.
     HostUiRequested,
     VideoFocusProjected,
 }
@@ -24,7 +21,10 @@ pub struct VideoChannel {
 
 impl VideoChannel {
     pub fn new(channel: u8) -> Self {
-        Self { channel, session: 0 }
+        Self {
+            channel,
+            session: 0,
+        }
     }
 
     pub fn channel_id(&self) -> u8 {
@@ -32,10 +32,13 @@ impl VideoChannel {
     }
 
     fn label(&self) -> &'static str {
-        if self.channel == ch::CLUSTER_VIDEO { "ClusterVideoChannel" } else { "VideoChannel" }
+        if self.channel == ch::CLUSTER_VIDEO {
+            "ClusterVideoChannel"
+        } else {
+            "VideoChannel"
+        }
     }
 
-    /// The focus indication answering a request goes out before the event.
     pub fn handle_message(
         &mut self,
         msg_id: u16,
@@ -46,7 +49,11 @@ impl VideoChannel {
                 if let Some(start) = decode_start(payload) {
                     self.session = start.session_id;
                 }
-                detail!("[{}] stream started, session={}", self.label(), self.session);
+                detail!(
+                    "[{}] stream started, session={}",
+                    self.label(),
+                    self.session
+                );
                 (None, None)
             }
             media_msg::STOP => {
@@ -94,7 +101,6 @@ impl VideoChannel {
     }
 }
 
-/// The mode of a focus request, projected when it names none.
 fn focus_mode(payload: &[u8]) -> VideoFocusMode {
     VideoFocusRequest::decode(payload)
         .ok()
@@ -130,10 +136,16 @@ mod tests {
         let (answer, _) =
             c.handle_message(media_msg::VIDEO_FOCUS_REQUEST, &[0x10, 0x01, 0x18, 0x00]);
         assert_eq!(answer.unwrap().ch, ch::CLUSTER_VIDEO);
-        assert_eq!(c.handle_message(media_msg::START, &[0x08, 0x04]), (None, None));
+        assert_eq!(
+            c.handle_message(media_msg::START, &[0x08, 0x04]),
+            (None, None)
+        );
         assert_eq!(c.session, 4);
         assert_eq!(c.handle_message(media_msg::STOP, &[]), (None, None));
-        assert_eq!(c.handle_message(media_msg::VIDEO_FOCUS_NOTIFICATION, &[]), (None, None));
+        assert_eq!(
+            c.handle_message(media_msg::VIDEO_FOCUS_NOTIFICATION, &[]),
+            (None, None)
+        );
         assert_eq!(c.handle_message(0x1234, &[]), (None, None));
         assert_eq!(c.channel_id(), ch::CLUSTER_VIDEO);
     }

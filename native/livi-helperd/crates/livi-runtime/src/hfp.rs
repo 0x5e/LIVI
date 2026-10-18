@@ -12,7 +12,6 @@ struct HfpInner {
     established: AtomicBool,
     events: Mutex<Option<crate::livi_sock::Broadcaster>>,
     links: Mutex<HashSet<String>>,
-    /// Phones ringing, dialling or in a call.
     calls: AtomicUsize,
 }
 
@@ -26,7 +25,11 @@ impl Hfp {
     }
 
     pub fn linked(&self, mac: &str) -> bool {
-        self.inner.links.lock().unwrap().contains(&mac.to_uppercase())
+        self.inner
+            .links
+            .lock()
+            .unwrap()
+            .contains(&mac.to_uppercase())
     }
 
     pub fn in_call(&self) -> bool {
@@ -48,7 +51,6 @@ mod slc {
 
     const AT_TIMEOUT: Duration = Duration::from_secs(300);
 
-    /// AT_TIMEOUT applies only while the SLC is negotiating, an established one may stay silent.
     pub fn slc_loop(inner: &HfpInner, fd: OwnedFd, initial: Vec<u8>, send_hello: bool, mac: &str) {
         let mut slc = Slc::default();
         if send_hello && write_all(&fd, Slc::hello().as_bytes()).is_err() {
@@ -79,7 +81,10 @@ mod slc {
                 if slc.established() && !was_up {
                     was_up = true;
                     inner.established.store(true, Ordering::SeqCst);
-                    emit(inner, &format!("{{\"event\":\"hfp\",\"up\":true,\"mac\":\"{mac}\"}}"));
+                    emit(
+                        inner,
+                        &format!("{{\"event\":\"hfp\",\"up\":true,\"mac\":\"{mac}\"}}"),
+                    );
                 }
                 if slc.battchg != last_batt {
                     last_batt = slc.battchg;
@@ -127,12 +132,19 @@ mod slc {
         }
         inner.established.store(false, Ordering::SeqCst);
         if was_up {
-            emit(inner, &format!("{{\"event\":\"hfp\",\"up\":false,\"mac\":\"{mac}\"}}"));
+            emit(
+                inner,
+                &format!("{{\"event\":\"hfp\",\"up\":false,\"mac\":\"{mac}\"}}"),
+            );
         }
     }
 
     fn poll(fd: &OwnedFd, events: libc::c_short, timeout: Duration) -> bool {
-        let mut pfd = libc::pollfd { fd: fd.as_raw_fd(), events, revents: 0 };
+        let mut pfd = libc::pollfd {
+            fd: fd.as_raw_fd(),
+            events,
+            revents: 0,
+        };
         let rc = unsafe { libc::poll(&mut pfd, 1, timeout.as_millis() as libc::c_int) };
         rc > 0 && pfd.revents & events != 0
     }
@@ -142,7 +154,11 @@ mod slc {
     }
 
     fn hung_up(fd: &OwnedFd) -> bool {
-        let mut pfd = libc::pollfd { fd: fd.as_raw_fd(), events: libc::POLLIN, revents: 0 };
+        let mut pfd = libc::pollfd {
+            fd: fd.as_raw_fd(),
+            events: libc::POLLIN,
+            revents: 0,
+        };
         let rc = unsafe { libc::poll(&mut pfd, 1, 0) };
         rc > 0 && pfd.revents & (libc::POLLHUP | libc::POLLERR) != 0
     }

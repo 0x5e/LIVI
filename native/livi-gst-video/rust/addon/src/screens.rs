@@ -1,5 +1,3 @@
-//! Everything that touches a view runs on the main thread.
-
 use std::collections::HashMap;
 use std::sync::{Arc, LazyLock, Mutex, MutexGuard};
 
@@ -69,7 +67,10 @@ struct Placement {
 
 impl Default for Placement {
     fn default() -> Self {
-        Self { region: Region::default(), shown: true }
+        Self {
+            region: Region::default(),
+            shown: true,
+        }
     }
 }
 
@@ -81,11 +82,8 @@ struct Drawn {
 
 #[derive(Default)]
 struct Screens {
-    /// The content view of each screen's window.
     windows: HashMap<String, usize>,
-    /// By tag, kept for the planes that come later.
     placements: HashMap<String, Placement>,
-    /// By plane id.
     drawn: HashMap<u32, Drawn>,
     gamma: Option<[f64; 5]>,
     backdrop: Option<[u8; 3]>,
@@ -109,12 +107,18 @@ pub fn apply(line: Line) -> Option<String> {
         Line::Place { tag, region } => on_main(|| {
             let mut s = screens();
             s.placements.entry(tag.clone()).or_default().region = region;
-            s.drawn.values().filter(|d| d.tag == tag).for_each(|d| d.view.place(region));
+            s.drawn
+                .values()
+                .filter(|d| d.tag == tag)
+                .for_each(|d| d.view.place(region));
         }),
         Line::Show { tag, shown } => on_main(|| {
             let mut s = screens();
             s.placements.entry(tag.clone()).or_default().shown = shown;
-            s.drawn.values().filter(|d| d.tag == tag).for_each(|d| d.view.set_visible(shown));
+            s.drawn
+                .values()
+                .filter(|d| d.tag == tag)
+                .for_each(|d| d.view.set_visible(shown));
         }),
         Line::Backdrop(rgb) => on_main(|| {
             let mut s = screens();
@@ -162,7 +166,14 @@ fn draw<V: View + 'static>(
             view.set_gamma(v);
         }
         view.start();
-        let replaced = s.drawn.insert(id, Drawn { tag, screen, view: view.clone() });
+        let replaced = s.drawn.insert(
+            id,
+            Drawn {
+                tag,
+                screen,
+                view: view.clone(),
+            },
+        );
         (Some(view), replaced)
     });
     if let Some(old) = replaced {
@@ -185,7 +196,6 @@ pub fn remove<V: View + 'static>(id: u32, view: &Arc<V>) {
     });
 }
 
-/// `window` is 0 once the screen's window closed.
 pub fn set_window(screen: &str, window: usize) {
     on_main(|| {
         let mut s = screens();
@@ -195,9 +205,16 @@ pub fn set_window(screen: &str, window: usize) {
             s.windows.insert(screen.to_string(), window)
         };
         let gone: Vec<Arc<dyn View>> = if before.is_some_and(|b| b != window) {
-            let ids: Vec<u32> =
-                s.drawn.iter().filter(|(_, d)| d.screen == screen).map(|(id, _)| *id).collect();
-            ids.iter().filter_map(|id| s.drawn.remove(id)).map(|d| d.view).collect()
+            let ids: Vec<u32> = s
+                .drawn
+                .iter()
+                .filter(|(_, d)| d.screen == screen)
+                .map(|(id, _)| *id)
+                .collect();
+            ids.iter()
+                .filter_map(|id| s.drawn.remove(id))
+                .map(|d| d.view)
+                .collect()
         } else {
             Vec::new()
         };

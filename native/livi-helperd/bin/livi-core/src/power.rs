@@ -19,12 +19,10 @@ impl Power {
     }
 }
 
-/// On the appliance Power Off and Restart mean the device, not only LIVI.
 pub fn owns_host() -> bool {
     std::env::var("LIVI_KIOSK").is_ok_and(|v| v == "1")
 }
 
-/// In a process group of its own, so it outlives core.
 pub fn run(action: Power) {
     let action = action.arg();
     if !Path::new(POWER_HELPER).exists() {

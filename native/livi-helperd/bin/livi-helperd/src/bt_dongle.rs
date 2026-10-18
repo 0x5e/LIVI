@@ -1,6 +1,3 @@
-// The dongle's Bluetooth controller, driven from here over its HCI tunnel by our own host, the way
-// BlueZ drives it on Linux.
-
 use std::collections::{HashMap, HashSet};
 use std::os::fd::OwnedFd;
 use std::os::unix::net::UnixListener;
@@ -28,15 +25,12 @@ const FAST_ATTEMPTS: u32 = 15;
 const SLOW_INTERVAL: Duration = Duration::from_secs(30);
 const STALE: Duration = Duration::from_secs(10);
 
-/// A phone on a channel a session is built on.
 pub struct Arrival {
     pub peer: String,
-    /// The controller's address, most significant byte first: the one the phone talks to.
     pub local: [u8; 6],
     pub stream: tokio::net::UnixStream,
 }
 
-/// Where each profile's phones go.
 #[derive(Clone)]
 pub struct Profiles {
     pub carplay: Option<UnboundedSender<Arrival>>,
@@ -57,17 +51,19 @@ impl Dongle {
     pub fn disconnect(&self, mac: &str) -> Result<(), String> {
         let addr = hci::parse_addr(mac).ok_or_else(|| format!("{mac} is no Bluetooth address"))?;
         let stack = self.stack().ok_or("the dongle's Bluetooth is not up")?;
-        if stack.disconnect(&addr) { Ok(()) } else { Err(format!("{mac} is not connected")) }
+        if stack.disconnect(&addr) {
+            Ok(())
+        } else {
+            Err(format!("{mac} is not connected"))
+        }
     }
 
-    /// The dongle went, its links with it.
     pub fn end(&self) {
         if let Some(stack) = self.0.lock().unwrap().take() {
             stack.end();
         }
     }
 
-    /// CarPlay over the cable keeps the phone's Bluetooth to the accessory disconnected.
     pub fn on_cable(&self, state: Arc<HelperState>) -> OnCable {
         let dongle = self.clone();
         OnCable(Arc::new(move |mac: &str| {
@@ -89,7 +85,13 @@ fn open(name: String) -> Result<(Stack, Inbox), String> {
     let tunnel = livi_net::connect(at, CONNECT_TIMEOUT)
         .map_err(|e| format!("the dongle's controller: {e}"))?;
     let _ = tunnel.set_nodelay(true);
-    Stack::start(tunnel, Config { name, keys: keys_path() })
+    Stack::start(
+        tunnel,
+        Config {
+            name,
+            keys: keys_path(),
+        },
+    )
 }
 
 pub async fn run(
@@ -125,7 +127,11 @@ pub async fn run(
             }
         }
         *dongle.0.lock().unwrap() = Some(stack.clone());
-        let Inbox { incoming, calls, notices } = inbox;
+        let Inbox {
+            incoming,
+            calls,
+            notices,
+        } = inbox;
         let rt = Handle::current();
         let (s, p, r) = (stack.clone(), profiles.clone(), rt.clone());
         std::thread::spawn(move || {
@@ -156,7 +162,13 @@ fn take(rt: &Handle, stack: &Stack, profiles: &Profiles, arrived: Incoming) {
         }
         Some(Service::CarPlay) => hand(rt, stack, profiles.carplay.as_ref(), mac, arrived.stream),
         Some(Service::AndroidAuto) => {
-            hand(rt, stack, profiles.android_auto.as_ref(), mac, arrived.stream);
+            hand(
+                rt,
+                stack,
+                profiles.android_auto.as_ref(),
+                mac,
+                arrived.stream,
+            );
         }
         None => {}
     }
@@ -171,24 +183,32 @@ fn hand(
 ) {
     let Some(to) = to else { return };
     let _inside = rt.enter();
-    let Ok(stream) =
-        stream.set_nonblocking(true).and_then(|()| tokio::net::UnixStream::from_std(stream))
+    let Ok(stream) = stream
+        .set_nonblocking(true)
+        .and_then(|()| tokio::net::UnixStream::from_std(stream))
     else {
         return;
     };
     let mut local = stack.local();
     local.reverse();
-    let _ = to.send(Arrival { peer, local, stream });
+    let _ = to.send(Arrival {
+        peer,
+        local,
+        stream,
+    });
 }
 
 fn answer(call: Call, profiles: &Profiles, mic: &Arc<UnixListener>) {
     let link = livi_hfp::sco::Link {
         fd: OwnedFd::from(call.socket),
-        // Our own host sends each packet whole, there is no kernel limit in between.
         mtu: livi_hfp::sco::MAX_PACKET,
         peer: call.peer,
     };
-    let (events, sink, mic) = (profiles.events.clone(), profiles.sco_sink.clone(), mic.clone());
+    let (events, sink, mic) = (
+        profiles.events.clone(),
+        profiles.sco_sink.clone(),
+        mic.clone(),
+    );
     std::thread::spawn(move || livi_runtime::sco::call(&events, &link, &mic, &sink));
 }
 
@@ -204,12 +224,10 @@ fn parse_uuid(text: &str) -> Option<[u8; 16]> {
     Some(out)
 }
 
-/// livi-core pages an Android Auto phone through its hands-free gateway.
 fn wakes_hands_free(wake: Option<&str>) -> bool {
     wake.and_then(parse_uuid) == Some(sdp::full_uuid(sdp::HANDS_FREE_GATEWAY))
 }
 
-/// The SDP element of the UUID a target is woken by, iAP when it names none.
 fn service_element(wake: Option<&str>) -> Vec<u8> {
     let Some(uuid) = wake.and_then(parse_uuid) else {
         return sdp::uuid_of_128(&sdp::IAP_CLIENT_UUID);
@@ -222,8 +240,6 @@ fn service_element(wake: Option<&str>) -> Vec<u8> {
     }
 }
 
-/// Opens the target's profile in the background. Its stream goes to the profile whenever it
-/// arrives, the rotation does not wait for it.
 fn poke(
     stack: &Stack,
     profiles: &Profiles,
@@ -237,7 +253,11 @@ fn poke(
         return None;
     }
     let (stack, profiles, rt, busy) = (stack.clone(), profiles.clone(), rt.clone(), busy.clone());
-    let (mac, gateway, service) = (mac.to_string(), wakes_hands_free(wake), service_element(wake));
+    let (mac, gateway, service) = (
+        mac.to_string(),
+        wakes_hands_free(wake),
+        service_element(wake),
+    );
     Some(rt.clone().spawn_blocking(move || {
         let opened = stack.connect(addr, &service);
         busy.lock().unwrap().remove(&mac);
@@ -261,9 +281,6 @@ fn poke(
     }))
 }
 
-/// Round-robins the phones LIVI wants back, as the reconnect loop does over BlueZ: each page is
-/// abandoned after a second and runs on in the background, so an absent phone does not hold up
-/// the one that is there.
 async fn page(stack: Stack, state: Arc<HelperState>, profiles: Profiles, rt: Handle) {
     let mut turn: usize = 0;
     let mut attempts: HashMap<String, u32> = HashMap::new();
@@ -283,12 +300,13 @@ async fn page(stack: Stack, state: Arc<HelperState>, profiles: Profiles, rt: Han
         }
         let (mac, wake) = targets[turn % targets.len()].clone();
         turn = turn.wrapping_add(1);
-        let Some(addr) = hci::parse_addr(&mac) else { continue };
+        let Some(addr) = hci::parse_addr(&mac) else {
+            continue;
+        };
 
         if stack.connected(&addr) {
             attempts.remove(&mac);
             next_try.remove(&mac);
-            // A link in progress, for instance still waiting for the access point, is not stale.
             if state.link_active(&mac) {
                 stale_since.remove(&mac);
                 continue;
@@ -308,7 +326,6 @@ async fn page(stack: Stack, state: Arc<HelperState>, profiles: Profiles, rt: Han
         if next_try.get(&mac).is_some_and(|t| Instant::now() < *t) {
             continue;
         }
-        // A page holds the radio for seconds, a call's audio would not get through.
         if profiles.hfp.in_call() {
             continue;
         }
@@ -337,12 +354,22 @@ mod tests {
     fn each_target_is_woken_by_the_service_it_names() {
         let gateway = "0000111f-0000-1000-8000-00805f9b34fb";
         assert!(wakes_hands_free(Some(gateway)));
-        assert!(wakes_hands_free(Some("0000111F-0000-1000-8000-00805F9B34FB")));
-        assert!(!wakes_hands_free(Some("00000000-deca-fade-deca-deafdecacafe")));
+        assert!(wakes_hands_free(Some(
+            "0000111F-0000-1000-8000-00805F9B34FB"
+        )));
+        assert!(!wakes_hands_free(Some(
+            "00000000-deca-fade-deca-deafdecacafe"
+        )));
         assert!(!wakes_hands_free(None));
-        assert_eq!(service_element(Some(gateway)), sdp::uuid_of(sdp::HANDS_FREE_GATEWAY));
+        assert_eq!(
+            service_element(Some(gateway)),
+            sdp::uuid_of(sdp::HANDS_FREE_GATEWAY)
+        );
         let iap = sdp::uuid_of_128(&sdp::IAP_CLIENT_UUID);
-        assert_eq!(service_element(Some("00000000-deca-fade-deca-deafdecacafe")), iap);
+        assert_eq!(
+            service_element(Some("00000000-deca-fade-deca-deafdecacafe")),
+            iap
+        );
         assert_eq!(service_element(None), iap);
         assert_eq!(service_element(Some("not a uuid")), iap);
     }

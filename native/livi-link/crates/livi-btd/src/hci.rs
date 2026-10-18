@@ -1,6 +1,3 @@
-//! The ioctls behind `hciconfig hciN up|down` on a raw HCI socket, as no LIVI Link rootfs ships
-//! bluez.
-
 #[cfg(target_os = "linux")]
 mod imp {
     use std::io;
@@ -8,7 +5,6 @@ mod imp {
 
     const AF_BLUETOOTH: libc::c_int = 31;
     const BTPROTO_HCI: libc::c_int = 1;
-    // <net/bluetooth/hci.h>: _IOW('H', 201, int), _IOW('H', 202, int), _IOR('H', 211, int)
     const HCIDEVUP: libc::c_ulong = 0x4004_48c9;
     const HCIDEVDOWN: libc::c_ulong = 0x4004_48ca;
     const HCIGETDEVINFO: libc::c_ulong = 0x8004_48d3;
@@ -27,8 +23,13 @@ mod imp {
     }
 
     fn control_socket() -> io::Result<OwnedFd> {
-        let raw =
-            unsafe { libc::socket(AF_BLUETOOTH, libc::SOCK_RAW | libc::SOCK_CLOEXEC, BTPROTO_HCI) };
+        let raw = unsafe {
+            libc::socket(
+                AF_BLUETOOTH,
+                libc::SOCK_RAW | libc::SOCK_CLOEXEC,
+                BTPROTO_HCI,
+            )
+        };
         if raw < 0 {
             return Err(io::Error::last_os_error());
         }

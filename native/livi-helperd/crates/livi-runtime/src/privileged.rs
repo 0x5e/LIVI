@@ -1,10 +1,12 @@
-//! The app renders each file and hands its path over, so what lands is what it showed.
-
 use std::os::unix::fs::PermissionsExt;
 use std::process::{Command, Stdio};
 
 fn require_root() -> Result<(), String> {
-    if unsafe { libc::geteuid() } == 0 { Ok(()) } else { Err("needs root".into()) }
+    if unsafe { libc::geteuid() } == 0 {
+        Ok(())
+    } else {
+        Err("needs root".into())
+    }
 }
 
 fn read(src: &str) -> Result<Vec<u8>, String> {
@@ -48,7 +50,6 @@ fn run(cmd: &str, args: &[&str]) {
 const UDEV_RULE: &str = "/etc/udev/rules.d/99-LIVI.rules";
 const TOUCH_FILTER: &str = "/usr/local/lib/livi/livi-touch-filter";
 
-/// `--install-udev-rule <rule> [<touch filter>]`
 pub fn install_udev_rule(rule_src: &str, filter_src: Option<&str>) -> Result<(), String> {
     write_root_file(UDEV_RULE, &read(rule_src)?, 0o644)?;
     if let Some(filter) = filter_src {
@@ -62,7 +63,6 @@ pub fn install_udev_rule(rule_src: &str, filter_src: Option<&str>) -> Result<(),
 const GVFS_GUARD: &str = "/usr/local/lib/livi/gvfs-phone-guard.sh";
 const GVFS_SUDOERS: &str = "/etc/sudoers.d/99-LIVI-gvfs";
 
-/// `--install-gvfs-guard <script> <rule>`
 pub fn install_gvfs_guard(script_src: &str, rule_src: &str) -> Result<(), String> {
     write_root_file(GVFS_GUARD, &read(script_src)?, 0o755)?;
     install_sudoers(GVFS_SUDOERS, &read(rule_src)?)
@@ -70,11 +70,8 @@ pub fn install_gvfs_guard(script_src: &str, rule_src: &str) -> Result<(), String
 
 const AP_UNIT: &str = "/etc/systemd/system/livi-wifi-ap.service";
 const AP_SUDOERS: &str = "/etc/sudoers.d/99-LIVI-wifi-ap";
-/// The unit runs root's own copy: systemd may start it under SELinux, and no
-/// user can swap the binary a root service runs.
 const AP_HELPER: &str = "/usr/local/sbin/livi-helperd";
 
-/// `--install-wifi-ap <unit> <rule>`
 pub fn install_wifi_ap(unit_src: &str, rule_src: &str) -> Result<(), String> {
     install_sudoers(AP_SUDOERS, &read(rule_src)?)?;
     install_own_copy(AP_HELPER)?;
@@ -83,7 +80,6 @@ pub fn install_wifi_ap(unit_src: &str, rule_src: &str) -> Result<(), String> {
     Ok(())
 }
 
-/// Swapped in whole, a service still running the old copy keeps it until its restart.
 fn install_own_copy(path: &str) -> Result<(), String> {
     require_root()?;
     let me = std::env::current_exe().map_err(|e| format!("own binary: {e}"))?;

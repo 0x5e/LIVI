@@ -1,7 +1,3 @@
-// DAB+ receiver for transmission mode I at 2.048 MS/s: OFDM demodulation,
-// FIC with the ensemble description, and one DAB+ sub-channel decoded down
-// to AAC access units plus its programme associated data.
-
 pub mod charset;
 pub mod dabplus;
 pub mod fec;
@@ -25,7 +21,6 @@ use pad::PadDecoder;
 pub use dabplus::AudioFormat;
 pub use fic::{Ensemble, Service, Subchannel};
 
-/// Band III channel names and centre frequencies.
 pub const CHANNELS: [(&str, u32); 41] = [
     ("5A", 174_928_000),
     ("5B", 176_640_000),
@@ -70,7 +65,6 @@ pub const CHANNELS: [(&str, u32); 41] = [
     ("13F", 239_200_000),
 ];
 
-/// Interleaved unsigned 8 bit I/Q as the RTL2832U delivers it.
 pub fn convert_u8(iq: &[u8], out: &mut Vec<Complex32>) {
     out.clear();
     out.extend(
@@ -83,26 +77,14 @@ pub fn convert_u8(iq: &[u8], out: &mut Vec<Complex32>) {
 
 #[derive(Clone, Debug, PartialEq)]
 pub enum Event {
-    /// Once a second: sync state and FIC health in percent.
-    Sync {
-        locked: bool,
-        fic_ok: u8,
-    },
-    /// The ensemble description changed.
+    Sync { locked: bool, fic_ok: u8 },
     Ensemble(Ensemble),
-    /// Audio of the selected service starts or changes format.
-    Format {
-        format: AudioFormat,
-        asc: Vec<u8>,
-    },
-    /// AAC access units of one superframe, 120 ms of audio.
+    Format { format: AudioFormat, asc: Vec<u8> },
     Audio(Vec<Vec<u8>>),
     Label(String),
-    /// A station logo from the ensemble's service information.
     Logo(spi::Logo),
 }
 
-/// The service information decoded next to the audio, for station logos.
 struct SpiPath {
     address: u16,
     msc: SubchannelDecoder,
@@ -118,7 +100,6 @@ struct AudioPath {
     format: Option<AudioFormat>,
 }
 
-/// I/Q in, events out. Retune with `reset`, pick the service with `select`.
 pub struct Receiver {
     demod: Demodulator,
     fic: FicDecoder,
@@ -154,7 +135,6 @@ impl Receiver {
         }
     }
 
-    /// Forget everything about the old channel.
     pub fn reset(&mut self) {
         let wanted = self.wanted;
         *self = Self::new();
@@ -196,7 +176,10 @@ impl Receiver {
             let bad = self.fic.fibs_bad - self.fibs.1;
             self.fibs = (self.fic.fibs_ok, self.fic.fibs_bad);
             let fic_ok = (ok * 100 / (ok + bad).max(1)) as u8;
-            events.push(Event::Sync { locked: self.demod.locked(), fic_ok });
+            events.push(Event::Sync {
+                locked: self.demod.locked(),
+                fic_ok,
+            });
             if self.published.as_ref() != Some(&self.fic.ensemble) {
                 self.published = Some(self.fic.ensemble.clone());
                 events.push(Event::Ensemble(self.fic.ensemble.clone()));
@@ -213,18 +196,29 @@ impl Receiver {
                     events.extend(spi.carousel.data_group(&group).into_iter().map(Event::Logo));
                 }
             }
-            let Some(audio) = self.audio.as_mut() else { continue };
-            let Some(logical) = audio.msc.process_cif(cif) else { continue };
-            let Some(sf) = audio.superframes.push(logical) else { continue };
+            let Some(audio) = self.audio.as_mut() else {
+                continue;
+            };
+            let Some(logical) = audio.msc.process_cif(cif) else {
+                continue;
+            };
+            let Some(sf) = audio.superframes.push(logical) else {
+                continue;
+            };
             if let Some(format) = sf.format
                 && !sf.units.is_empty()
                 && audio.format != Some(format)
             {
                 audio.format = Some(format);
-                events.push(Event::Format { format, asc: format.audio_specific_config() });
+                events.push(Event::Format {
+                    format,
+                    asc: format.audio_specific_config(),
+                });
             }
             for unit in &sf.units {
-                let Some(pad) = pad::pad_of_unit(unit) else { continue };
+                let Some(pad) = pad::pad_of_unit(unit) else {
+                    continue;
+                };
                 events.extend(audio.pad.process(pad).into_iter().map(Event::Label));
             }
             if !sf.units.is_empty() {
@@ -233,13 +227,14 @@ impl Receiver {
         }
     }
 
-    /// While a station plays, the ensemble's service information comes along.
     fn follow_spi(&mut self) {
         if self.wanted.is_none() {
             self.spi = None;
             return;
         }
-        let Some((sub, address)) = self.fic.ensemble.spi() else { return };
+        let Some((sub, address)) = self.fic.ensemble.spi() else {
+            return;
+        };
         if let Some(s) = &self.spi
             && s.address == address
             && s.msc.subchannel() == &sub
@@ -254,8 +249,6 @@ impl Receiver {
         });
     }
 
-    /// Starts or rebuilds the audio path when the service's sub-channel is
-    /// known or moved.
     fn follow_service(&mut self) {
         let Some(want) = self.wanted else { return };
         let ensemble = &self.fic.ensemble;

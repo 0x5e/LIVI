@@ -5,7 +5,6 @@ pub struct Resources {
     pub gst_host: PathBuf,
     pub compositor: PathBuf,
     pub gstreamer: Option<PathBuf>,
-    /// Templates of the files LIVI installs as root.
     pub templates: PathBuf,
     pub ui: Option<UiCmd>,
 }
@@ -26,14 +25,15 @@ fn platform_dir() -> Option<&'static str> {
 }
 
 fn env_path(name: &str) -> Option<PathBuf> {
-    std::env::var_os(name).filter(|v| !v.is_empty()).map(PathBuf::from)
+    std::env::var_os(name)
+        .filter(|v| !v.is_empty())
+        .map(PathBuf::from)
 }
 
 fn env_str(name: &str) -> Option<String> {
     std::env::var(name).ok().filter(|v| !v.is_empty())
 }
 
-/// So a development build runs from any directory.
 fn repo_around(exe: &Path) -> Option<PathBuf> {
     exe.ancestors()
         .find(|dir| dir.join("native/livi-helperd/Cargo.toml").is_file())
@@ -46,7 +46,11 @@ impl Resources {
             Some(res) => Self::installed(&res),
             None => {
                 let root = env_path("LIVI_ROOT")
-                    .or_else(|| std::env::current_exe().ok().and_then(|exe| repo_around(&exe)))
+                    .or_else(|| {
+                        std::env::current_exe()
+                            .ok()
+                            .and_then(|exe| repo_around(&exe))
+                    })
                     .or_else(|| std::env::current_dir().ok())
                     .unwrap_or_default();
                 Self::repo(&root)
@@ -72,9 +76,14 @@ impl Resources {
             helper: res.join("driver/livi-helperd"),
             gst_host: res.join("gst-host/livi-gst-host"),
             compositor: res.join("compositor/livi-compositor"),
-            gstreamer: platform_dir().map(|d| res.join("gstreamer").join(d)).filter(|p| p.is_dir()),
+            gstreamer: platform_dir()
+                .map(|d| res.join("gstreamer").join(d))
+                .filter(|p| p.is_dir()),
             templates: res.to_path_buf(),
-            ui: res.parent().map(|app| UiCmd::Exec { bin: app.join("livi-ui"), args: Vec::new() }),
+            ui: res.parent().map(|app| UiCmd::Exec {
+                bin: app.join("livi-ui"),
+                args: Vec::new(),
+            }),
         }
     }
 
@@ -95,8 +104,6 @@ impl Resources {
     }
 }
 
-/// The AppImage launcher decides whether Electron can sandbox itself and hands
-/// its flags to the start script, which passes them on in LIVI_UI_ARGS.
 fn with_launcher_args(ui: UiCmd, extra: Option<&str>) -> UiCmd {
     match (ui, extra) {
         (UiCmd::Exec { bin, mut args }, Some(extra)) => {
@@ -108,15 +115,26 @@ fn with_launcher_args(ui: UiCmd, extra: Option<&str>) -> UiCmd {
 }
 
 pub fn gst_env(root: &Path) -> Vec<(String, String)> {
-    let utf8 = if cfg!(target_os = "macos") { "en_US.UTF-8" } else { "C.UTF-8" };
-    let lib_var = if cfg!(target_os = "macos") { "DYLD_LIBRARY_PATH" } else { "LD_LIBRARY_PATH" };
+    let utf8 = if cfg!(target_os = "macos") {
+        "en_US.UTF-8"
+    } else {
+        "C.UTF-8"
+    };
+    let lib_var = if cfg!(target_os = "macos") {
+        "DYLD_LIBRARY_PATH"
+    } else {
+        "LD_LIBRARY_PATH"
+    };
     let p = |rel: &str| root.join(rel).display().to_string();
     vec![
         ("LANG".into(), utf8.into()),
         ("LC_ALL".into(), utf8.into()),
         ("GST_PLUGIN_SYSTEM_PATH".into(), String::new()),
         ("GST_PLUGIN_PATH".into(), p("lib/gstreamer-1.0")),
-        ("GST_PLUGIN_SCANNER".into(), p("libexec/gstreamer-1.0/gst-plugin-scanner")),
+        (
+            "GST_PLUGIN_SCANNER".into(),
+            p("libexec/gstreamer-1.0/gst-plugin-scanner"),
+        ),
         (lib_var.into(), p("lib")),
     ]
 }
@@ -132,7 +150,10 @@ mod tests {
             repo.helper,
             PathBuf::from("/src/LIVI/native/livi-helperd/build/Release/livi-helperd")
         );
-        assert_eq!(repo.compositor, PathBuf::from("/src/LIVI/out/compositor/livi-compositor"));
+        assert_eq!(
+            repo.compositor,
+            PathBuf::from("/src/LIVI/out/compositor/livi-compositor")
+        );
         assert_eq!(
             repo.ui,
             Some(UiCmd::Exec {
@@ -141,12 +162,21 @@ mod tests {
             })
         );
         let installed = Resources::installed(Path::new("/opt/LIVI/resources"));
-        assert_eq!(installed.helper, PathBuf::from("/opt/LIVI/resources/driver/livi-helperd"));
-        assert_eq!(installed.gst_host, PathBuf::from("/opt/LIVI/resources/gst-host/livi-gst-host"));
+        assert_eq!(
+            installed.helper,
+            PathBuf::from("/opt/LIVI/resources/driver/livi-helperd")
+        );
+        assert_eq!(
+            installed.gst_host,
+            PathBuf::from("/opt/LIVI/resources/gst-host/livi-gst-host")
+        );
         assert_eq!(installed.gstreamer, None);
         assert_eq!(
             installed.ui,
-            Some(UiCmd::Exec { bin: PathBuf::from("/opt/LIVI/livi-ui"), args: Vec::new() })
+            Some(UiCmd::Exec {
+                bin: PathBuf::from("/opt/LIVI/livi-ui"),
+                args: Vec::new()
+            })
         );
     }
 
@@ -162,7 +192,10 @@ mod tests {
 
     #[test]
     fn launcher_flags_reach_only_a_program() {
-        let exec = UiCmd::Exec { bin: PathBuf::from("/a/livi-ui"), args: Vec::new() };
+        let exec = UiCmd::Exec {
+            bin: PathBuf::from("/a/livi-ui"),
+            args: Vec::new(),
+        };
         assert_eq!(
             with_launcher_args(exec.clone(), Some(" --no-sandbox  --x ")),
             UiCmd::Exec {
@@ -172,7 +205,10 @@ mod tests {
         );
         assert_eq!(with_launcher_args(exec.clone(), None), exec);
         let shell = UiCmd::Shell("pnpm dev".into());
-        assert_eq!(with_launcher_args(shell.clone(), Some("--no-sandbox")), shell);
+        assert_eq!(
+            with_launcher_args(shell.clone(), Some("--no-sandbox")),
+            shell
+        );
     }
 
     #[test]

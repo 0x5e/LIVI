@@ -26,13 +26,11 @@ pub mod mfi_async;
 
 use std::future::Future;
 
-/// A bidirectional stream of whole CSM control-session frames.
 pub trait ControlChannel {
     fn send(&mut self, frame: Vec<u8>) -> impl Future<Output = Result<(), ChannelError>> + Send;
     fn recv(&mut self) -> impl Future<Output = Option<Vec<u8>>> + Send;
 }
 
-/// Certificate read and challenge signing, async.
 pub trait AsyncAuth {
     fn read_certificate(&mut self) -> impl Future<Output = Result<Vec<u8>, String>> + Send;
     fn sign(&mut self, challenge: Vec<u8>) -> impl Future<Output = Result<Vec<u8>, String>> + Send;

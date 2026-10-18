@@ -28,7 +28,6 @@ fn wifid_ap_name() -> Option<String> {
 
 const AF_BLUETOOTH: libc::c_int = 31;
 const BTPROTO_RFCOMM: libc::c_int = 3;
-/// One stored bond: the address, its kind, the key and its length.
 const KEY_LEN: usize = 25;
 
 #[repr(C)]
@@ -42,7 +41,6 @@ const NAME: &str = "LIVI Link";
 const NAME_POLL: std::time::Duration = std::time::Duration::from_secs(5);
 const CONTROLLER_TRIES: u32 = 120;
 const CONTROLLER_POLL: std::time::Duration = std::time::Duration::from_millis(500);
-/// Audio/Video, car audio.
 const CLASS_MAJOR: u8 = 0x04;
 const CLASS_MINOR: u8 = 0x20;
 const SERVICE_AUDIO: u8 = 0x20;
@@ -83,9 +81,10 @@ pub fn run(config: Config) -> ExitCode {
             if current == shown {
                 continue;
             }
-            match Mgmt::open()
-                .and_then(|m| m.call(SET_NAME, mgmt::INDEX, &local_name(&current)).map(|_| ()))
-            {
+            match Mgmt::open().and_then(|m| {
+                m.call(SET_NAME, mgmt::INDEX, &local_name(&current))
+                    .map(|_| ())
+            }) {
                 Ok(()) => {
                     println!("[accessory] the car is now called {current}");
                     shown = current;
@@ -111,8 +110,9 @@ pub fn run(config: Config) -> ExitCode {
 fn ready() -> Option<(Mgmt, String)> {
     for _ in 0..CONTROLLER_TRIES {
         if let Ok(mgmt) = Mgmt::open()
-            && let Ok(info) =
-                mgmt.call(mgmt::READ_INFO, mgmt::INDEX, &[]).and_then(|b| mgmt::info(&b))
+            && let Ok(info) = mgmt
+                .call(mgmt::READ_INFO, mgmt::INDEX, &[])
+                .and_then(|b| mgmt::info(&b))
         {
             let local = mac(&info.address);
             return Some((mgmt, local));
@@ -130,7 +130,6 @@ fn present(mgmt: &Mgmt, name: &str) -> Result<(), String> {
     mgmt.call(SET_CLASS, mgmt::INDEX, &[CLASS_MAJOR, CLASS_MINOR])?;
     mgmt.call(SET_NAME, mgmt::INDEX, &local_name(name))?;
     mgmt.call(SET_CONNECTABLE, mgmt::INDEX, &[1])?;
-    // A timeout of zero stays visible.
     let mut visible = vec![1u8];
     visible.extend_from_slice(&0u16.to_le_bytes());
     mgmt.call(SET_DISCOVERABLE, mgmt::INDEX, &visible)?;
@@ -145,7 +144,9 @@ fn channel(local: &str) -> Result<(), String> {
     for record in &sdp::RECORDS {
         let listener = rfcomm(record.channel)?;
         let (local, host) = (local.to_string(), host.clone());
-        open.push(std::thread::spawn(move || take(&listener, record, &local, &host)));
+        open.push(std::thread::spawn(move || {
+            take(&listener, record, &local, &host)
+        }));
     }
     println!("[accessory] waiting for a phone, host on :{IAP}");
     for thread in open {
@@ -155,15 +156,26 @@ fn channel(local: &str) -> Result<(), String> {
 }
 
 fn accept(listener: &OwnedFd) -> std::io::Result<(std::fs::File, [u8; 6])> {
-    let mut peer = SockaddrRc { family: 0, bdaddr: [0; 6], channel: 0 };
+    let mut peer = SockaddrRc {
+        family: 0,
+        bdaddr: [0; 6],
+        channel: 0,
+    };
     let mut size = size_of::<SockaddrRc>() as libc::socklen_t;
     let raw = unsafe {
-        libc::accept(listener.as_raw_fd(), &raw mut peer as *mut libc::sockaddr, &raw mut size)
+        libc::accept(
+            listener.as_raw_fd(),
+            &raw mut peer as *mut libc::sockaddr,
+            &raw mut size,
+        )
     };
     if raw < 0 {
         return Err(std::io::Error::last_os_error());
     }
-    Ok((std::fs::File::from(unsafe { OwnedFd::from_raw_fd(raw) }), peer.bdaddr))
+    Ok((
+        std::fs::File::from(unsafe { OwnedFd::from_raw_fd(raw) }),
+        peer.bdaddr,
+    ))
 }
 
 fn take(listener: &OwnedFd, record: &sdp::Record, local: &str, host: &Mutex<Option<TcpStream>>) {
@@ -203,13 +215,24 @@ fn attend(host: &Mutex<Option<TcpStream>>) {
 
 fn rfcomm(channel: u8) -> Result<OwnedFd, String> {
     let raw = unsafe {
-        libc::socket(AF_BLUETOOTH, libc::SOCK_STREAM | libc::SOCK_CLOEXEC, BTPROTO_RFCOMM)
+        libc::socket(
+            AF_BLUETOOTH,
+            libc::SOCK_STREAM | libc::SOCK_CLOEXEC,
+            BTPROTO_RFCOMM,
+        )
     };
     if raw < 0 {
-        return Err(format!("rfcomm socket: {}", std::io::Error::last_os_error()));
+        return Err(format!(
+            "rfcomm socket: {}",
+            std::io::Error::last_os_error()
+        ));
     }
     let fd = unsafe { OwnedFd::from_raw_fd(raw) };
-    let addr = SockaddrRc { family: AF_BLUETOOTH as libc::sa_family_t, bdaddr: [0; 6], channel };
+    let addr = SockaddrRc {
+        family: AF_BLUETOOTH as libc::sa_family_t,
+        bdaddr: [0; 6],
+        channel,
+    };
     let bound = unsafe {
         libc::bind(
             fd.as_raw_fd(),
@@ -218,10 +241,16 @@ fn rfcomm(channel: u8) -> Result<OwnedFd, String> {
         )
     };
     if bound < 0 {
-        return Err(format!("rfcomm bind {channel}: {}", std::io::Error::last_os_error()));
+        return Err(format!(
+            "rfcomm bind {channel}: {}",
+            std::io::Error::last_os_error()
+        ));
     }
     if unsafe { libc::listen(fd.as_raw_fd(), 2) } < 0 {
-        return Err(format!("rfcomm listen: {}", std::io::Error::last_os_error()));
+        return Err(format!(
+            "rfcomm listen: {}",
+            std::io::Error::last_os_error()
+        ));
     }
     Ok(fd)
 }
@@ -257,14 +286,12 @@ fn carry(link: std::fs::File, tcp: TcpStream) -> usize {
     total
 }
 
-/// The kernel takes the UUID in reversed byte order.
 fn advertised(uuid: &[u8; 16]) -> Vec<u8> {
     let mut out: Vec<u8> = uuid.iter().rev().copied().collect();
     out.push(SERVICE_AUDIO);
     out
 }
 
-/// The fixed-width name field the kernel expects: 249 bytes, then 11 for the short name.
 fn local_name(name: &str) -> Vec<u8> {
     let mut out = vec![0u8; 260];
     let bytes = name.as_bytes();
@@ -292,11 +319,13 @@ fn listen(mgmt: &Mgmt) {
                 }
             }
             EV_PIN_CODE_REQUEST => {
-                println!("[accessory] {} asked for a pin, turning it down", addr(&body));
+                println!(
+                    "[accessory] {} asked for a pin, turning it down",
+                    addr(&body)
+                );
                 let _ = mgmt.call(PIN_CODE_NEG_REPLY, mgmt::INDEX, &body[..7]);
             }
             EV_NEW_LINK_KEY => {
-                // The key sits behind a one byte store hint.
                 println!("[accessory] bonded with {}", addr(&body[1..]));
                 if body.len() > KEY_LEN {
                     remember(&body[1..1 + KEY_LEN]);
@@ -346,7 +375,6 @@ fn drop_phone(phone: &[u8; 6]) -> Result<(), String> {
     Ok(())
 }
 
-/// Hosts give their orders through wifid's port, so this one stays on the device.
 fn control() {
     let listener = match TcpListener::bind(("127.0.0.1", ACCESSORY)) {
         Ok(l) => l,
@@ -374,7 +402,6 @@ fn control() {
 
 fn order(line: &str) -> Result<String, String> {
     match line {
-        // Sets the controller up again after a host had it.
         "on" => {
             let mgmt = Mgmt::open()?;
             let name = wifid_ap_name().unwrap_or_else(|| NAME.into());
@@ -387,7 +414,6 @@ fn order(line: &str) -> Result<String, String> {
             if let Err(e) = advertise(false) {
                 println!("[accessory] off: {e}");
             }
-            // A host that holds the controller keeps it off the air itself.
             if let Err(e) = offer(false) {
                 println!("[accessory] off: {e}");
             }
@@ -405,7 +431,6 @@ fn order(line: &str) -> Result<String, String> {
     }
 }
 
-/// Lists CarPlay's records and UUIDs, or takes them back.
 fn advertise(on: bool) -> Result<(), String> {
     if !sdp::set_offered(on) {
         return Ok(());
@@ -416,7 +441,6 @@ fn advertise(on: bool) -> Result<(), String> {
             if on {
                 mgmt.call(ADD_UUID, mgmt::INDEX, &uuid)?;
             } else {
-                // The kernel takes the UUID alone, without the service hint.
                 mgmt.call(REMOVE_UUID, mgmt::INDEX, &uuid[..16])?;
             }
         }
@@ -428,7 +452,10 @@ fn advertise(on: bool) -> Result<(), String> {
     }
     for record in &sdp::RECORDS {
         let what = if on { "offering" } else { "withdrew" };
-        println!("[accessory] {what} {} on channel {}", record.name, record.channel);
+        println!(
+            "[accessory] {what} {} on channel {}",
+            record.name, record.channel
+        );
     }
     Ok(())
 }
@@ -438,7 +465,6 @@ fn offer(on: bool) -> Result<(), String> {
     let mut visible = vec![u8::from(on)];
     visible.extend_from_slice(&0u16.to_le_bytes());
     mgmt.call(SET_CONNECTABLE, mgmt::INDEX, &[u8::from(on)])?;
-    // Not connectable is not discoverable either, and the kernel refuses to be told so.
     if on {
         mgmt.call(SET_DISCOVERABLE, mgmt::INDEX, &visible)?;
     }
@@ -452,13 +478,14 @@ fn stored_keys() -> Vec<Vec<u8>> {
     text.lines().filter_map(unhex).collect()
 }
 
-/// A bond kept with more after its key still restores, the rest is left out.
 fn unhex(line: &str) -> Option<Vec<u8>> {
     let line = line.trim();
     if line.len() < KEY_LEN * 2 {
         return None;
     }
-    (0..KEY_LEN).map(|i| u8::from_str_radix(line.get(i * 2..i * 2 + 2)?, 16).ok()).collect()
+    (0..KEY_LEN)
+        .map(|i| u8::from_str_radix(line.get(i * 2..i * 2 + 2)?, 16).ok())
+        .collect()
 }
 
 fn keep(records: Vec<Vec<u8>>) {
@@ -484,8 +511,10 @@ fn remember(key: &[u8]) {
     if key.len() != KEY_LEN {
         return;
     }
-    let mut records: Vec<Vec<u8>> =
-        stored_keys().into_iter().filter(|r| r[..6] != key[..6]).collect();
+    let mut records: Vec<Vec<u8>> = stored_keys()
+        .into_iter()
+        .filter(|r| r[..6] != key[..6])
+        .collect();
     records.push(key.to_vec());
     keep(records);
 }
@@ -515,7 +544,6 @@ fn blue(on: bool) {
     }
 }
 
-/// Reversed, the way the kernel stores an address.
 fn address(text: &str) -> Option<[u8; 6]> {
     let mut out = [0u8; 6];
     let mut parts = text.trim().split(':');
@@ -526,7 +554,12 @@ fn address(text: &str) -> Option<[u8; 6]> {
 }
 
 fn mac(bdaddr: &[u8; 6]) -> String {
-    bdaddr.iter().rev().map(|b| format!("{b:02X}")).collect::<Vec<_>>().join(":")
+    bdaddr
+        .iter()
+        .rev()
+        .map(|b| format!("{b:02X}"))
+        .collect::<Vec<_>>()
+        .join(":")
 }
 
 fn addr(body: &[u8]) -> String {

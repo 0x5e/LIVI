@@ -1,7 +1,3 @@
-// TLS 1.2 in frames: handshake bytes travel in SSL_HANDSHAKE control frames,
-// afterwards every encrypted frame payload is one TLS record. The head unit is
-// the client, the phone the server, and all channels share the one session.
-
 use std::collections::HashMap;
 use std::fmt;
 use std::io::{Read, Write};
@@ -19,7 +15,6 @@ use crate::cert::{HU_CERT_PEM, HU_KEY_PEM};
 use crate::consts::{FLAG_FIRST, FLAG_LAST};
 use crate::frame;
 
-/// One decrypted AA message.
 #[derive(Debug, PartialEq, Eq)]
 pub struct Message {
     pub ch: u8,
@@ -47,9 +42,6 @@ impl fmt::Display for Error {
 
 impl std::error::Error for Error {}
 
-/// Takes whatever certificate the phone presents, like the main process did.
-/// With the chain unverified a signature check would add nothing and would
-/// refuse the v1 certificates webpki cannot parse.
 #[derive(Debug)]
 struct AcceptAny(WebPkiSupportedAlgorithms);
 
@@ -99,15 +91,15 @@ pub fn hu_cert() -> Result<(Vec<CertificateDer<'static>>, PrivateKeyDer<'static>
     Ok((certs, PrivateKeyDer::Pkcs1(key)))
 }
 
-/// The certificate as a signing identity, built directly: the loaders would run
-/// it through webpki, which refuses its v1 format.
 pub fn hu_identity(provider: &CryptoProvider) -> Result<Arc<CertifiedKey>, Error> {
     let (certs, key) = hu_cert()?;
-    let signing = provider.key_provider.load_private_key(key).map_err(Error::Tls)?;
+    let signing = provider
+        .key_provider
+        .load_private_key(key)
+        .map_err(Error::Tls)?;
     Ok(Arc::new(CertifiedKey::new(certs, signing)))
 }
 
-/// Presents the head-unit certificate whenever the phone asks for one.
 #[derive(Debug)]
 struct HuCert(Arc<CertifiedKey>);
 
@@ -140,7 +132,6 @@ fn client_config() -> Result<Arc<ClientConfig>, Error> {
 
 pub struct TlsEngine {
     conn: ClientConnection,
-    /// Cleartext fragments per channel, with the flags of the first one.
     fragments: HashMap<u8, (u8, Vec<u8>)>,
 }
 
@@ -148,14 +139,16 @@ impl TlsEngine {
     pub fn new(peer: IpAddr) -> Result<Self, Error> {
         let conn = ClientConnection::new(client_config()?, ServerName::IpAddress(peer.into()))
             .map_err(Error::Tls)?;
-        Ok(Self { conn, fragments: HashMap::new() })
+        Ok(Self {
+            conn,
+            fragments: HashMap::new(),
+        })
     }
 
     pub fn is_handshaking(&self) -> bool {
         self.conn.is_handshaking()
     }
 
-    /// The TLS bytes waiting to go to the phone.
     pub fn take_output(&mut self) -> Vec<u8> {
         let mut out = Vec::new();
         while self.conn.wants_write() {
@@ -166,13 +159,10 @@ impl TlsEngine {
         out
     }
 
-    /// Handshake bytes from an SSL_HANDSHAKE frame.
     pub fn inject_handshake(&mut self, bytes: &[u8]) -> Result<(), Error> {
         self.feed(bytes).map(|_| ())
     }
 
-    /// One encrypted frame payload with the channel and flags of its frame,
-    /// and the messages that completed with it.
     pub fn inject_record(
         &mut self,
         ch: u8,
@@ -206,7 +196,6 @@ impl TlsEngine {
         Ok(out)
     }
 
-    /// Encrypts one message into wire frames.
     pub fn encrypt(
         &mut self,
         ch: u8,
@@ -222,7 +211,6 @@ impl TlsEngine {
         Ok(frame::encode_records(ch, flags, &tls))
     }
 
-    /// Runs bytes through the engine and returns the cleartext they produced.
     fn feed(&mut self, mut bytes: &[u8]) -> Result<Vec<u8>, Error> {
         while !bytes.is_empty() {
             let n = self.conn.read_tls(&mut bytes).map_err(Error::Io)?;
@@ -270,7 +258,6 @@ mod tests {
         }
     }
 
-    /// A phone stand-in: a TLS 1.2 server with the head-unit certificate.
     fn phone() -> ServerConnection {
         let provider = Arc::new(ring::default_provider());
         let identity = hu_identity(&provider).unwrap();
@@ -330,14 +317,21 @@ mod tests {
         let msgs = hu.inject_record(f.ch, f.flags, &f.payload).unwrap();
         assert_eq!(
             msgs,
-            vec![Message { ch: 3, flags: FLAGS_ENC_SIGNAL, msg_id: 0x8001, payload: vec![8, 7] }]
+            vec![Message {
+                ch: 3,
+                flags: FLAGS_ENC_SIGNAL,
+                msg_id: 0x8001,
+                payload: vec![8, 7]
+            }]
         );
     }
 
     #[test]
     fn a_message_to_the_phone_arrives_in_clear() {
         let (mut hu, mut phone) = handshake();
-        let wire = hu.encrypt(4, FLAGS_ENC_SIGNAL, 0x8004, &[8, 1, 16, 1]).unwrap();
+        let wire = hu
+            .encrypt(4, FLAGS_ENC_SIGNAL, 0x8004, &[8, 1, 16, 1])
+            .unwrap();
         let mut s = FrameSplitter::default();
         s.push(&wire);
         let f = s.next_frame().unwrap();
@@ -359,7 +353,12 @@ mod tests {
         let msgs = hu.inject_record(1, 0x0a, &last).unwrap();
         assert_eq!(
             msgs,
-            vec![Message { ch: 1, flags: 0x09, msg_id: 5, payload: vec![1, 2, 3, 4] }]
+            vec![Message {
+                ch: 1,
+                flags: 0x09,
+                msg_id: 5,
+                payload: vec![1, 2, 3, 4]
+            }]
         );
     }
 }

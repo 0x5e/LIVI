@@ -1,6 +1,3 @@
-// One multi-call binary saves more than 3 MiB of runtime. common/build-rootfs.sh makes the
-// symlinks whose names pick the module.
-
 use std::env;
 use std::path::Path;
 use std::process::ExitCode;
@@ -16,7 +13,6 @@ mod mfid;
 mod netd;
 mod wifid;
 
-/// One livid build serves every board of a CPU arch, so the board comes from its devicetree.
 fn board() -> (&'static str, &'static str) {
     let compatible = std::fs::read("/sys/firmware/devicetree/base/compatible").unwrap_or_default();
     let has = |c: &[u8]| compatible.windows(c.len()).any(|w| w == c);
@@ -33,8 +29,14 @@ fn board() -> (&'static str, &'static str) {
 fn wifi_standards(target: &str) -> livi_wifid::server::Standards {
     use livi_wifid::server::Standards;
     match target {
-        "v821b_aic8800d80" | "ax520_aic8800d80" => Standards { vht: true, he: true },
-        "imx6ul_rtl8822cs" | "imx6ul_rtl8822bs" => Standards { vht: true, he: false },
+        "v821b_aic8800d80" | "ax520_aic8800d80" => Standards {
+            vht: true,
+            he: true,
+        },
+        "imx6ul_rtl8822cs" | "imx6ul_rtl8822bs" => Standards {
+            vht: true,
+            he: false,
+        },
         _ => Standards::default(),
     }
 }
@@ -49,20 +51,15 @@ fn web_caps() -> livi_web::WebCaps {
         stage: None,
         before_write: None,
     };
-    // The bundle types are the MTD numbers. The bootloader partition is never in the table, a bad
-    // write there needs the flash off the board (AX520, i.MX6UL) or FEL (V821B).
     let (led, flash) = match target {
         "ax520_aic8800d80" => (
             true,
             livi_web::Flash {
                 mtd: vec![
-                    slot(3, "mtdblock3", &[0x56, 0x19, 0x05, 0x27], 0x30_0000), // little-endian uImage
-                    // The vendor userspace, which also holds the config. Only a rollback bundle
-                    // to stock writes it.
+                    slot(3, "mtdblock3", &[0x56, 0x19, 0x05, 0x27], 0x30_0000),
                     slot(5, "mtdblock5", b"hsqs", 0x44_0000),
                     slot(6, "mtdblock6", b"hsqs", 0x44_0000),
                 ],
-                // The loader after the bootrom reads the flash in quad mode and needs QE set.
                 check: Some("/usr/sbin/sfc-sr".into()),
             },
         ),
@@ -71,8 +68,6 @@ fn web_caps() -> livi_web::WebCaps {
             false,
             livi_web::Flash {
                 mtd: vec![
-                    // The vendor U-Boot decrypts the kernel head with a key only the SoC holds,
-                    // so the zImage goes in as staging blocks it converts on its next start.
                     livi_web::MtdSlot {
                         stage: Some(imx6ul::stage_kernel),
                         before_write: Some(imx6ul::erase_env),
@@ -111,7 +106,10 @@ fn web_caps() -> livi_web::WebCaps {
 fn main() -> ExitCode {
     let args: Vec<String> = env::args().collect();
     let arg0 = args.first().map(|s| s.as_str()).unwrap_or("livid");
-    let basename = Path::new(arg0).file_name().and_then(|s| s.to_str()).unwrap_or("livid");
+    let basename = Path::new(arg0)
+        .file_name()
+        .and_then(|s| s.to_str())
+        .unwrap_or("livid");
 
     let (cmd, rest): (&str, Vec<String>) = if basename == "livid" {
         match args.get(1) {
@@ -158,11 +156,26 @@ mod tests {
 
     #[test]
     fn each_module_is_asked_only_for_what_it_speaks() {
-        let ac_ax = Standards { vht: true, he: true };
+        let ac_ax = Standards {
+            vht: true,
+            he: true,
+        };
         assert_eq!(wifi_standards("v821b_aic8800d80"), ac_ax);
         assert_eq!(wifi_standards("ax520_aic8800d80"), ac_ax);
-        assert_eq!(wifi_standards("imx6ul_rtl8822cs"), Standards { vht: true, he: false });
-        assert_eq!(wifi_standards("imx6ul_rtl8822bs"), Standards { vht: true, he: false });
+        assert_eq!(
+            wifi_standards("imx6ul_rtl8822cs"),
+            Standards {
+                vht: true,
+                he: false
+            }
+        );
+        assert_eq!(
+            wifi_standards("imx6ul_rtl8822bs"),
+            Standards {
+                vht: true,
+                he: false
+            }
+        );
         assert_eq!(wifi_standards("imx6ul_iw416"), Standards::default());
     }
 }

@@ -12,15 +12,11 @@ pub mod web;
 pub const DONGLE_HOST: &str = "192.168.50.100";
 pub const BIND_SHELL_PORT: u16 = 2323;
 
-/// A root shell on the dongle: the bind shell the hook opens on a stock one, or telnet on one that
-/// runs our kernel.
 pub trait Remote {
-    /// An error unless the command exits 0.
     fn run(&mut self, cmd: &str) -> Result<String, String>;
     fn write_mtd(&mut self, node: &str, data: &[u8]) -> Result<(), String>;
 }
 
-/// A `/proc/mtd` line: `mtd3: 00300000 00010000 "boot"`, size and erase size in hex.
 pub(crate) fn mtd_is(proc_mtd: &str, index: u8, name: &str, size: u64) -> bool {
     let prefix = format!("mtd{index}:");
     proc_mtd.lines().any(|line| {

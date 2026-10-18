@@ -1,21 +1,15 @@
-//! The kernel of the i.MX6ULL board goes in through the vendor U-Boot (see imx6ul-uboot): the web
-//! flash stages it with this dongle's fuses, and U-Boot converts it on its next start.
-
 use std::fs;
 use std::process::Command;
 
 const OCOTP: &str = "/sys/bus/nvmem/devices/imx-ocotp0/nvmem";
 const SDIO: &str = "/sys/bus/sdio/devices";
 
-/// The Wi-Fi/Bluetooth modules the board comes with and has a build for: SDIO device id, label,
-/// firmware target.
 const MODULES: [(&str, &str, &str); 3] = [
     ("0x9159", "i.MX6ULL + IW416", "imx6ul_iw416"),
     ("0xc822", "i.MX6ULL + RTL8822CS", "imx6ul_rtl8822cs"),
     ("0xb822", "i.MX6ULL + RTL8822BS", "imx6ul_rtl8822bs"),
 ];
 
-/// An unknown module gets the IW416 build, which runs all but Wi-Fi and Bluetooth there.
 pub fn module() -> (&'static str, &'static str) {
     let ids: Vec<String> = fs::read_dir(SDIO)
         .into_iter()
@@ -30,9 +24,10 @@ fn module_of(ids: &[String]) -> (&'static str, &'static str) {
     MODULES
         .iter()
         .find(|(id, ..)| ids.iter().any(|found| found.trim() == *id))
-        .map_or(("i.MX6ULL + unknown Wi-Fi module", "imx6ul_iw416"), |&(_, model, target)| {
-            (model, target)
-        })
+        .map_or(
+            ("i.MX6ULL + unknown Wi-Fi module", "imx6ul_iw416"),
+            |&(_, model, target)| (model, target),
+        )
 }
 
 pub fn stage_kernel(zimage: &[u8], kernel: &[u8]) -> Result<Vec<u8>, String> {
@@ -45,8 +40,6 @@ pub fn stage_kernel(zimage: &[u8], kernel: &[u8]) -> Result<Vec<u8>, String> {
     imx6ul_uboot::stage(zimage, kernel, &uboot, fuses)
 }
 
-/// Makes U-Boot convert the staging blocks on its next start. It runs before the kernel write, so
-/// a failed erase keeps the old kernel and any start after the write brings up the new one.
 pub fn erase_env() -> Result<(), String> {
     let env = mtd("env")?;
     let erased = Command::new("/usr/sbin/flash_eraseall")
@@ -54,7 +47,11 @@ pub fn erase_env() -> Result<(), String> {
         .status()
         .is_ok_and(|s| s.success())
         && fs::read(&env).is_ok_and(|b| !b.is_empty() && b.iter().all(|&x| x == 0xff));
-    if erased { Ok(()) } else { Err(format!("could not erase the environment block {env}")) }
+    if erased {
+        Ok(())
+    } else {
+        Err(format!("could not erase the environment block {env}"))
+    }
 }
 
 fn mtd(name: &str) -> Result<String, String> {
@@ -85,8 +82,14 @@ mod tests {
     #[test]
     fn the_module_picks_the_target() {
         assert_eq!(module_of(&ids(&["0x9159"])).1, "imx6ul_iw416");
-        assert_eq!(module_of(&ids(&["0xc822"])), ("i.MX6ULL + RTL8822CS", "imx6ul_rtl8822cs"));
-        assert_eq!(module_of(&ids(&["0xb822"])), ("i.MX6ULL + RTL8822BS", "imx6ul_rtl8822bs"));
+        assert_eq!(
+            module_of(&ids(&["0xc822"])),
+            ("i.MX6ULL + RTL8822CS", "imx6ul_rtl8822cs")
+        );
+        assert_eq!(
+            module_of(&ids(&["0xb822"])),
+            ("i.MX6ULL + RTL8822BS", "imx6ul_rtl8822bs")
+        );
     }
 
     #[test]

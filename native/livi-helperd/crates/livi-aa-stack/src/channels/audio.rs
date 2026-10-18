@@ -1,5 +1,3 @@
-//! The samples go from the helper straight to the host.
-
 use crate::consts::{ch, media_msg};
 use crate::log::{debug, detail};
 use crate::wire::decode_start;
@@ -31,7 +29,6 @@ impl AudioChannelType {
         }
     }
 
-    /// Not "call", that tag is the hands-free stream.
     pub fn name(self) -> &'static str {
         match self {
             Self::Media => "media",
@@ -54,7 +51,11 @@ impl AudioChannelType {
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum AudioChannelEvent {
-    Setup { codec: i32, sample_rate: u32, channels: u32 },
+    Setup {
+        codec: i32,
+        sample_rate: u32,
+        channels: u32,
+    },
     Start,
     Stop,
 }
@@ -69,7 +70,12 @@ pub struct AudioChannel {
 
 impl AudioChannel {
     pub fn new(channel: u8) -> Self {
-        Self { channel, session: 0, sample_rate: 48000, channel_count: 2 }
+        Self {
+            channel,
+            session: 0,
+            sample_rate: 48000,
+            channel_count: 2,
+        }
     }
 
     pub fn channel_type(&self) -> AudioChannelType {
@@ -91,7 +97,10 @@ impl AudioChannel {
                 if let Some(start) = decode_start(payload) {
                     self.session = start.session_id;
                 }
-                detail!("[AudioChannel:{name}] stream started, session={}", self.session);
+                detail!(
+                    "[AudioChannel:{name}] stream started, session={}",
+                    self.session
+                );
                 Some(AudioChannelEvent::Start)
             }
             media_msg::STOP => {
@@ -144,22 +153,39 @@ mod tests {
         assert_eq!(a.format(), (48000, 2));
         assert_eq!(
             a.handle_setup_request(1, 16000, 1),
-            AudioChannelEvent::Setup { codec: 1, sample_rate: 16000, channels: 1 }
+            AudioChannelEvent::Setup {
+                codec: 1,
+                sample_rate: 16000,
+                channels: 1
+            }
         );
         assert_eq!(
             a.handle_setup_request(1, 0, 0),
-            AudioChannelEvent::Setup { codec: 1, sample_rate: 16000, channels: 1 }
+            AudioChannelEvent::Setup {
+                codec: 1,
+                sample_rate: 16000,
+                channels: 1
+            }
         );
         assert_eq!(
             a.handle_message(media_msg::START, &[0x08, 0x07]),
             Some(AudioChannelEvent::Start)
         );
         assert_eq!(a.session, 7);
-        assert_eq!(a.handle_message(media_msg::START, &[]), Some(AudioChannelEvent::Start));
+        assert_eq!(
+            a.handle_message(media_msg::START, &[]),
+            Some(AudioChannelEvent::Start)
+        );
         assert_eq!(a.session, 7);
-        assert_eq!(a.handle_message(media_msg::STOP, &[]), Some(AudioChannelEvent::Stop));
+        assert_eq!(
+            a.handle_message(media_msg::STOP, &[]),
+            Some(AudioChannelEvent::Stop)
+        );
         assert_eq!(a.handle_message(media_msg::ACK, &[]), None);
-        assert_eq!(AudioChannel::new(42).channel_type(), AudioChannelType::Media);
+        assert_eq!(
+            AudioChannel::new(42).channel_type(),
+            AudioChannelType::Media
+        );
         for t in [
             AudioChannelType::Media,
             AudioChannelType::Speech,

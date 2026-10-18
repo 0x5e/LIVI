@@ -49,22 +49,22 @@ impl VideoCodec {
         codec as i32
     }
 
-    /// From protocol 5.0 on the phone drops a display that offers more than one codec type, and
-    /// it only ever encodes H.264 or H.265.
     fn for_display(cfg: &AaConfig) -> Self {
-        if cfg.hevc_supported { Self::H265 } else { Self::H264 }
+        if cfg.hevc_supported {
+            Self::H265
+        } else {
+            Self::H264
+        }
     }
 }
 
 #[derive(Debug, Clone, PartialEq)]
 pub struct Discovery {
     pub buf: Vec<u8>,
-    /// Indexed like the offered video configurations.
     pub video_codecs: Vec<VideoCodec>,
     pub cluster_codecs: Vec<VideoCodec>,
 }
 
-/// Raw GPS plus accelerometer, gyroscope, compass and car speed.
 const LOCATION_CHARACTERIZATION: u32 = 256 | 4 | 2 | 8 | 64;
 
 const KEYCODES: [Keycode; 46] = [
@@ -166,7 +166,11 @@ fn resolution_of(width: u32, height: u32) -> Option<VideoCodecResolution> {
 }
 
 fn frame_rate(fps: u32) -> VideoFrameRate {
-    if fps == 60 { VideoFrameRate::VideoFrameRate60 } else { VideoFrameRate::VideoFrameRate30 }
+    if fps == 60 {
+        VideoFrameRate::VideoFrameRate60
+    } else {
+        VideoFrameRate::VideoFrameRate30
+    }
 }
 
 fn display_insets(i: Insets) -> DisplayInsets {
@@ -179,7 +183,11 @@ fn display_insets(i: Insets) -> DisplayInsets {
 }
 
 fn audio(sampling_rate_hz: u32, channel_count: u32) -> AudioConfiguration {
-    AudioConfiguration { sampling_rate_hz, bits_per_sample: 16, channel_count }
+    AudioConfiguration {
+        sampling_rate_hz,
+        bits_per_sample: 16,
+        channel_count,
+    }
 }
 
 fn audio_sink(id: u8, stream: i32, sampling_rate: u32, channels: u32) -> Service {
@@ -198,12 +206,13 @@ fn audio_sink(id: u8, stream: i32, sampling_rate: u32, channels: u32) -> Service
 fn video_configs(base: &VideoConfiguration, codecs: &[VideoCodec]) -> Vec<VideoConfiguration> {
     codecs
         .iter()
-        .map(|c| VideoConfiguration { codec_type: Some(c.media_codec()), ..base.clone() })
+        .map(|c| VideoConfiguration {
+            codec_type: Some(c.media_codec()),
+            ..base.clone()
+        })
         .collect()
 }
 
-/// The car's identity goes in the flat fields as well, the phone reads them when car_info is
-/// missing.
 pub fn build(cfg: &AaConfig) -> Discovery {
     let v_w = cfg.video_width.unwrap_or(1280);
     let dpi = cfg.video_dpi.unwrap_or(140);
@@ -247,7 +256,10 @@ pub fn build(cfg: &AaConfig) -> Discovery {
     let mut cluster_codecs = Vec::new();
     if cfg.cluster_enabled {
         let (c_w, c_h) = (cfg.cluster_width, cfg.cluster_height);
-        let tier = (cfg.cluster_tier_width.unwrap_or(c_w), cfg.cluster_tier_height.unwrap_or(c_h));
+        let tier = (
+            cfg.cluster_tier_width.unwrap_or(c_w),
+            cfg.cluster_tier_height.unwrap_or(c_h),
+        );
         let cluster_res = resolution_of(tier.0, tier.1).unwrap_or(v_res);
         let cluster_fps = match cfg.cluster_fps {
             30 | 60 => frame_rate(cfg.cluster_fps),
@@ -284,16 +296,28 @@ pub fn build(cfg: &AaConfig) -> Discovery {
         });
         channels.push(Service {
             id: i32::from(ch::CLUSTER_INPUT),
-            input_source: Some(InputSourceService { display_id: Some(1), ..Default::default() }),
+            input_source: Some(InputSourceService {
+                display_id: Some(1),
+                ..Default::default()
+            }),
             ..Default::default()
         });
     }
 
     if !cfg.disable_audio_output {
-        channels.push(audio_sink(ch::MEDIA_AUDIO, AudioStreamType::Media as i32, 48000, 2));
-        channels.push(audio_sink(ch::SPEECH_AUDIO, AudioStreamType::Guidance as i32, 16000, 1));
+        channels.push(audio_sink(
+            ch::MEDIA_AUDIO,
+            AudioStreamType::Media as i32,
+            48000,
+            2,
+        ));
+        channels.push(audio_sink(
+            ch::SPEECH_AUDIO,
+            AudioStreamType::Guidance as i32,
+            16000,
+            1,
+        ));
         if cfg.telephony_audio {
-            // Probe: LIVI_AA_TELEPHONY_TYPE puts another stream type on the same channel.
             let stream = std::env::var("LIVI_AA_TELEPHONY_TYPE")
                 .ok()
                 .and_then(|v| v.parse().ok())
@@ -301,7 +325,12 @@ pub fn build(cfg: &AaConfig) -> Discovery {
             channels.push(audio_sink(ch::TELEPHONY_AUDIO, stream, 16000, 1));
         }
     }
-    channels.push(audio_sink(ch::SYSTEM_AUDIO, AudioStreamType::SystemAudio as i32, 16000, 1));
+    channels.push(audio_sink(
+        ch::SYSTEM_AUDIO,
+        AudioStreamType::SystemAudio as i32,
+        16000,
+        1,
+    ));
     channels.push(Service {
         id: i32::from(ch::MIC_INPUT),
         media_source: Some(MediaSourceService {
@@ -311,13 +340,19 @@ pub fn build(cfg: &AaConfig) -> Discovery {
         ..Default::default()
     });
 
-    let fuel_types = if cfg.fuel_types.is_empty() { vec![1] } else { cfg.fuel_types.clone() };
+    let fuel_types = if cfg.fuel_types.is_empty() {
+        vec![1]
+    } else {
+        cfg.fuel_types.clone()
+    };
     channels.push(Service {
         id: i32::from(ch::SENSOR),
         sensor_source: Some(SensorSourceService {
             supported_sensors: SENSORS
                 .iter()
-                .map(|t| SupportedSensor { sensor_type: *t as i32 })
+                .map(|t| SupportedSensor {
+                    sensor_type: *t as i32,
+                })
                 .collect(),
             location_characterization: Some(LOCATION_CHARACTERIZATION),
             fuel_types,
@@ -382,7 +417,9 @@ pub fn build(cfg: &AaConfig) -> Discovery {
     if let Some(bssid) = cfg.wifi_bssid.as_ref().filter(|b| !b.is_empty()) {
         channels.push(Service {
             id: i32::from(ch::WIFI),
-            wifi_projection: Some(WifiProjectionService { car_wifi_bssid: Some(bssid.clone()) }),
+            wifi_projection: Some(WifiProjectionService {
+                car_wifi_bssid: Some(bssid.clone()),
+            }),
             ..Default::default()
         });
     }
@@ -426,9 +463,17 @@ pub fn build(cfg: &AaConfig) -> Discovery {
     if debug() {
         println!("[Session] SDR: {channel_count} channels, {}B", buf.len());
         let shown = &buf[..buf.len().min(64)];
-        println!("[Session] SDR hex: {}{}", hex(shown), if buf.len() > 64 { "..." } else { "" });
+        println!(
+            "[Session] SDR hex: {}{}",
+            hex(shown),
+            if buf.len() > 64 { "..." } else { "" }
+        );
     }
-    Discovery { buf, video_codecs, cluster_codecs }
+    Discovery {
+        buf,
+        video_codecs,
+        cluster_codecs,
+    }
 }
 
 #[cfg(test)]
@@ -461,12 +506,21 @@ mod tests {
 
     #[test]
     fn call_audio_is_offered_only_when_asked() {
-        let sdr = decoded(&AaConfig { telephony_audio: true, ..Default::default() });
+        let sdr = decoded(&AaConfig {
+            telephony_audio: true,
+            ..Default::default()
+        });
         assert_eq!(ids(&sdr), [3, 4, 5, 7, 6, 9, 1, 8, 10, 12, 13, 14]);
         let call = sdr.services[3].media_sink.as_ref().unwrap();
-        assert_eq!(call.audio_stream_type, Some(AudioStreamType::Telephony as i32));
-        let muted =
-            AaConfig { telephony_audio: true, disable_audio_output: true, ..Default::default() };
+        assert_eq!(
+            call.audio_stream_type,
+            Some(AudioStreamType::Telephony as i32)
+        );
+        let muted = AaConfig {
+            telephony_audio: true,
+            disable_audio_output: true,
+            ..Default::default()
+        };
         assert!(!ids(&decoded(&muted)).contains(&7));
     }
 
@@ -492,28 +546,55 @@ mod tests {
         for display in &sdr.services[..2] {
             let sink = display.media_sink.as_ref().unwrap();
             assert_eq!(sink.codec_type, Some(MediaCodecType::VideoH265 as i32));
-            assert!(sink.video_configurations.iter().all(|v| v.codec_type == sink.codec_type));
+            assert!(
+                sink.video_configurations
+                    .iter()
+                    .all(|v| v.codec_type == sink.codec_type)
+            );
         }
-        let cluster = &sdr.services[1].media_sink.as_ref().unwrap().video_configurations[0];
+        let cluster = &sdr.services[1]
+            .media_sink
+            .as_ref()
+            .unwrap()
+            .video_configurations[0];
         assert_eq!(
             cluster.codec_resolution,
             Some(VideoCodecResolution::VideoCodecResolution1280x720 as i32)
         );
         assert_eq!(cluster.margin_height, Some(0));
         assert_eq!(cluster.margin_width, Some(0));
-        assert_eq!(cluster.frame_rate, Some(VideoFrameRate::VideoFrameRate60 as i32));
-        let tiered =
-            AaConfig { cluster_tier_width: Some(800), cluster_tier_height: Some(480), ..cfg };
+        assert_eq!(
+            cluster.frame_rate,
+            Some(VideoFrameRate::VideoFrameRate60 as i32)
+        );
+        let tiered = AaConfig {
+            cluster_tier_width: Some(800),
+            cluster_tier_height: Some(480),
+            ..cfg
+        };
         let sdr = decoded(&tiered);
-        let cluster = &sdr.services[1].media_sink.as_ref().unwrap().video_configurations[0];
+        let cluster = &sdr.services[1]
+            .media_sink
+            .as_ref()
+            .unwrap()
+            .video_configurations[0];
         assert_eq!(
             cluster.codec_resolution,
             Some(VideoCodecResolution::VideoCodecResolution800x480 as i32)
         );
         assert_eq!(cluster.margin_height, Some(80));
-        assert_eq!(VideoCodec::of_media_codec(MediaCodecType::VideoAv1 as i32), VideoCodec::Av1);
+        assert_eq!(
+            VideoCodec::of_media_codec(MediaCodecType::VideoAv1 as i32),
+            VideoCodec::Av1
+        );
         assert_eq!(VideoCodec::of_media_codec(0), VideoCodec::H264);
-        assert_eq!(resolution(3840), VideoCodecResolution::VideoCodecResolution3840x2160);
-        assert_eq!(resolution(2560), VideoCodecResolution::VideoCodecResolution2560x1440);
+        assert_eq!(
+            resolution(3840),
+            VideoCodecResolution::VideoCodecResolution3840x2160
+        );
+        assert_eq!(
+            resolution(2560),
+            VideoCodecResolution::VideoCodecResolution2560x1440
+        );
     }
 }

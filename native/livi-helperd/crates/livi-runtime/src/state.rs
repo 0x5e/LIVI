@@ -5,9 +5,6 @@ use crate::livi_sock::SharedTag;
 use crate::vehicle::{Vehicle, VehicleFeed};
 use tokio::sync::Notify;
 
-/// Shared helper state: reconnect targets, the tags of the carkit iAP2 sessions, and the
-/// phones an iAP2 link is running with. Targets stay in the order LIVI sent them: most
-/// recently seen phone first.
 #[derive(Default)]
 pub struct HelperState {
     reconnect_targets: Mutex<Vec<(String, Option<String>)>>,
@@ -18,7 +15,6 @@ pub struct HelperState {
     redo: Mutex<HashSet<String>>,
 }
 
-/// A running wired session: how to end it, and how to have it offer CarPlay again.
 struct Wired {
     restart: Arc<Notify>,
     again: Arc<Notify>,
@@ -34,14 +30,16 @@ impl HelperState {
     }
 
     pub fn wired_started(&self, serial: &str, restart: Arc<Notify>, again: Arc<Notify>) {
-        self.wired.lock().unwrap().insert(serial.to_string(), Wired { restart, again });
+        self.wired
+            .lock()
+            .unwrap()
+            .insert(serial.to_string(), Wired { restart, again });
     }
 
     pub fn wired_ended(&self, serial: &str) {
         self.wired.lock().unwrap().remove(serial);
     }
 
-    /// Ends every wired iAP2 session.
     pub fn restart_wired(&self) -> usize {
         let wired = self.wired.lock().unwrap();
         let mut redo = self.redo.lock().unwrap();
@@ -52,13 +50,14 @@ impl HelperState {
         wired.len()
     }
 
-    /// Has this phone's wired session offer CarPlay again over the iAP2 it already runs.
     pub fn start_wired_again(&self, serial: &str) -> bool {
         let wired = self.wired.lock().unwrap();
-        wired.get(serial).inspect(|w| w.again.notify_one()).is_some()
+        wired
+            .get(serial)
+            .inspect(|w| w.again.notify_one())
+            .is_some()
     }
 
-    /// Whether this phone's session was ended for a fresh start, once.
     pub fn take_redo(&self, serial: &str) -> bool {
         self.redo.lock().unwrap().remove(serial)
     }
@@ -71,13 +70,15 @@ impl HelperState {
         self.links.lock().unwrap().remove(&mac.to_uppercase());
     }
 
-    /// True while an iAP2 link runs with this phone, from identification to the end.
     pub fn link_active(&self, mac: &str) -> bool {
         self.links.lock().unwrap().contains(&mac.to_uppercase())
     }
 
     pub fn set_reconnect_targets(&self, targets: Vec<(String, Option<String>)>) {
-        let normalized = targets.into_iter().map(|(m, u)| (m.to_uppercase(), u)).collect();
+        let normalized = targets
+            .into_iter()
+            .map(|(m, u)| (m.to_uppercase(), u))
+            .collect();
         *self.reconnect_targets.lock().unwrap() = normalized;
     }
 
@@ -93,24 +94,28 @@ impl HelperState {
         self.carkit.lock().unwrap().retain(|t| !Arc::ptr_eq(t, tag));
     }
 
-    /// True when this phone (or any phone, when no MAC is given) runs iAP2 over carkit.
     pub fn carkit_blocks(&self, bt_mac: &str) -> bool {
         let sessions = self.carkit.lock().unwrap();
         if bt_mac.is_empty() {
             return !sessions.is_empty();
         }
         sessions.iter().any(|t| {
-            t.lock().unwrap().phone_id.as_deref().is_some_and(|p| p.eq_ignore_ascii_case(bt_mac))
+            t.lock()
+                .unwrap()
+                .phone_id
+                .as_deref()
+                .is_some_and(|p| p.eq_ignore_ascii_case(bt_mac))
         })
     }
 
-    /// True when iAP2 over Bluetooth with this phone would compete with carkit for it: carkit runs
-    /// with this phone, or with one it has not identified yet. The phone takes the transport of
-    /// whichever identified last, so a Bluetooth session pulls it off the cable.
     pub fn carkit_claims(&self, bt_mac: &str) -> bool {
         let sessions = self.carkit.lock().unwrap();
         sessions.iter().any(|t| {
-            t.lock().unwrap().phone_id.as_deref().is_none_or(|p| p.eq_ignore_ascii_case(bt_mac))
+            t.lock()
+                .unwrap()
+                .phone_id
+                .as_deref()
+                .is_none_or(|p| p.eq_ignore_ascii_case(bt_mac))
         })
     }
 }
@@ -121,7 +126,10 @@ mod tests {
     use crate::events::EventTag;
 
     fn tag(mac: Option<&str>) -> SharedTag {
-        Arc::new(Mutex::new(EventTag { phone_id: mac.map(str::to_string), ..Default::default() }))
+        Arc::new(Mutex::new(EventTag {
+            phone_id: mac.map(str::to_string),
+            ..Default::default()
+        }))
     }
 
     #[test]
@@ -142,7 +150,6 @@ mod tests {
         let unlearned = tag(None);
         state.carkit_started(unlearned.clone());
         assert!(state.carkit_blocks(""));
-        // A session that has not learned its phone yet cannot be matched by MAC.
         assert!(!state.carkit_blocks("AA:BB:CC:DD:EE:FF"));
         state.carkit_ended(&unlearned);
         assert!(!state.carkit_blocks(""));

@@ -1,6 +1,3 @@
-// DAB+ audio superframes: five logical frames, found by the fire code,
-// Reed-Solomon corrected, split into AAC access units.
-
 use std::collections::VecDeque;
 
 use crate::fec::crc16_ok;
@@ -10,7 +7,6 @@ const FIRE_POLY: u16 = 0x782f;
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub struct AudioFormat {
-    /// Output rate 48 kHz, else 32 kHz.
     pub dac_48k: bool,
     pub sbr: bool,
     pub ps: bool,
@@ -23,7 +19,11 @@ impl AudioFormat {
     }
 
     pub fn core_rate(&self) -> u32 {
-        if self.sbr { self.sample_rate() / 2 } else { self.sample_rate() }
+        if self.sbr {
+            self.sample_rate() / 2
+        } else {
+            self.sample_rate()
+        }
     }
 
     fn units(&self) -> usize {
@@ -35,13 +35,13 @@ impl AudioFormat {
         }
     }
 
-    /// AudioSpecificConfig: AAC LC core with 960 sample frames, SBR and PS
-    /// signalled backwards compatible so a plain AAC decoder still plays.
     pub fn audio_specific_config(&self) -> Vec<u8> {
         let core_index = sample_rate_index(self.core_rate());
         let channels = if self.stereo { 2 } else { 1 };
-        let mut asc =
-            vec![(2 << 3) | (core_index >> 1), ((core_index & 1) << 7) | (channels << 3) | 0b100];
+        let mut asc = vec![
+            (2 << 3) | (core_index >> 1),
+            ((core_index & 1) << 7) | (channels << 3) | 0b100,
+        ];
         if self.sbr {
             let ext_index = sample_rate_index(self.sample_rate());
             asc.extend_from_slice(&[0x56, 0xe5, 0x80 | (ext_index << 3)]);
@@ -70,7 +70,6 @@ fn sample_rate_index(rate: u32) -> u8 {
 #[derive(Debug, Default)]
 pub struct Superframe {
     pub format: Option<AudioFormat>,
-    /// Access units whose CRC held, CRC stripped.
     pub units: Vec<Vec<u8>>,
 }
 
@@ -87,7 +86,10 @@ impl Default for SuperframeDecoder {
 
 impl SuperframeDecoder {
     pub fn new() -> Self {
-        Self { frames: VecDeque::with_capacity(5), gf: Gf::new() }
+        Self {
+            frames: VecDeque::with_capacity(5),
+            gf: Gf::new(),
+        }
     }
 
     pub fn push(&mut self, frame: Vec<u8>) -> Option<Superframe> {
@@ -96,7 +98,6 @@ impl SuperframeDecoder {
             return None;
         }
         if !fire_code_ok(&self.frames[0]) {
-            // Correct the head first, a few bit errors there are common.
             let mut sf: Vec<u8> = self.frames.iter().flatten().copied().collect();
             if !self.correct(&mut sf) || !fire_code_ok(&sf) {
                 self.frames.pop_front();
@@ -104,12 +105,10 @@ impl SuperframeDecoder {
             }
         }
         let mut sf: Vec<u8> = self.frames.drain(..).flatten().collect();
-        // Units whose CRC still holds play even when a codeword is beyond repair.
         self.correct(&mut sf);
         Some(parse(&sf))
     }
 
-    /// Codeword c holds every s-th byte starting at c. False when one is beyond repair.
     fn correct(&self, sf: &mut [u8]) -> bool {
         let s = sf.len() / rs::N;
         let mut ok = true;
@@ -139,7 +138,11 @@ fn fire_code_ok(frame: &[u8]) -> bool {
     for &byte in &frame[2..11] {
         crc ^= (byte as u16) << 8;
         for _ in 0..8 {
-            crc = if crc & 0x8000 != 0 { (crc << 1) ^ FIRE_POLY } else { crc << 1 };
+            crc = if crc & 0x8000 != 0 {
+                (crc << 1) ^ FIRE_POLY
+            } else {
+                crc << 1
+            };
         }
     }
     crc == u16::from_be_bytes([frame[0], frame[1]]) && frame[2..11].iter().any(|&b| b != 0)
@@ -187,15 +190,27 @@ mod tests {
 
     #[test]
     fn asc_for_he_aac_v2_at_48k() {
-        let f = AudioFormat { dac_48k: true, sbr: true, ps: true, stereo: false };
-        // AAC LC, 24 kHz core, mono, 960, SBR at 48 kHz, PS.
-        assert_eq!(f.audio_specific_config(), vec![0x13, 0x0c, 0x56, 0xe5, 0x9d, 0x48, 0x80]);
+        let f = AudioFormat {
+            dac_48k: true,
+            sbr: true,
+            ps: true,
+            stereo: false,
+        };
+        assert_eq!(
+            f.audio_specific_config(),
+            vec![0x13, 0x0c, 0x56, 0xe5, 0x9d, 0x48, 0x80]
+        );
         assert_eq!(f.output_channels(), 2);
     }
 
     #[test]
     fn asc_for_plain_aac_stereo_48k() {
-        let f = AudioFormat { dac_48k: true, sbr: false, ps: false, stereo: true };
+        let f = AudioFormat {
+            dac_48k: true,
+            sbr: false,
+            ps: false,
+            stereo: true,
+        };
         assert_eq!(f.audio_specific_config(), vec![0x11, 0x94]);
     }
 
@@ -204,7 +219,11 @@ mod tests {
         for &byte in data {
             crc ^= (byte as u16) << 8;
             for _ in 0..8 {
-                crc = if crc & 0x8000 != 0 { (crc << 1) ^ FIRE_POLY } else { crc << 1 };
+                crc = if crc & 0x8000 != 0 {
+                    (crc << 1) ^ FIRE_POLY
+                } else {
+                    crc << 1
+                };
             }
         }
         crc.to_be_bytes()
@@ -213,10 +232,9 @@ mod tests {
     #[test]
     fn decodes_a_built_superframe_with_errors() {
         let gf = Gf::new();
-        let s = 4; // 32 kbit/s
+        let s = 4;
         let audio_len = s * rs::K;
         let mut audio = vec![0u8; audio_len];
-        // dac 48k, sbr: three units, header 6 bytes.
         audio[2] = 0x60;
         let starts = [6usize, 150, 300];
         audio[3] = (starts[1] >> 4) as u8;
@@ -246,7 +264,6 @@ mod tests {
 
         let mut dec = SuperframeDecoder::new();
         let frame_len = sf.len() / 5;
-        // A stray frame first, the decoder has to slide past it.
         assert!(dec.push(vec![0xaa; frame_len]).is_none());
         let mut out = None;
         for chunk in sf.chunks(frame_len) {

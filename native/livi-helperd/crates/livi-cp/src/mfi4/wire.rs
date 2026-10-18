@@ -1,13 +1,7 @@
-//! One message: [start u16][length u16][id u16], then parameters as [length u16][id u16][value].
-//! Big-endian, every length counts its own header. A sealed message keeps the header in the clear
-//! and authenticates it, its length then includes the tag.
-
 pub const HEADER: usize = 6;
 const PARAM_HEADER: usize = 4;
 
-/// Start word of a message in the clear, a sealed one starts with the session id.
 pub const CLEAR: u16 = 0x0000;
-/// Start word of the message a tunnel carries inside its own.
 pub const TUNNELED: u16 = 0x4040;
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -19,7 +13,11 @@ pub struct Message {
 
 impl Message {
     pub fn new(start: u16, id: u16) -> Self {
-        Self { start, id, params: Vec::new() }
+        Self {
+            start,
+            id,
+            params: Vec::new(),
+        }
     }
 
     pub fn with(mut self, id: u16, value: impl Into<Vec<u8>>) -> Self {
@@ -28,11 +26,17 @@ impl Message {
     }
 
     pub fn param(&self, id: u16) -> Option<&[u8]> {
-        self.params.iter().find(|(p, _)| *p == id).map(|(_, v)| v.as_slice())
+        self.params
+            .iter()
+            .find(|(p, _)| *p == id)
+            .map(|(_, v)| v.as_slice())
     }
 
     pub fn all(&self, id: u16) -> impl Iterator<Item = &[u8]> {
-        self.params.iter().filter(move |(p, _)| *p == id).map(|(_, v)| v.as_slice())
+        self.params
+            .iter()
+            .filter(move |(p, _)| *p == id)
+            .map(|(_, v)| v.as_slice())
     }
 
     pub fn u8(&self, id: u16) -> Option<u8> {
@@ -50,7 +54,6 @@ impl Message {
         self.param(id)?.try_into().ok()
     }
 
-    /// The parameter ids in the order they came, to reject duplicates and strays.
     pub fn ids(&self) -> Vec<u16> {
         self.params.iter().map(|(p, _)| *p).collect()
     }
@@ -65,7 +68,6 @@ impl Message {
         out
     }
 
-    /// The header for a body of `body_len` bytes after it.
     pub fn header(&self, body_len: usize) -> [u8; HEADER] {
         let mut h = [0; HEADER];
         h[..2].copy_from_slice(&self.start.to_be_bytes());
@@ -80,19 +82,26 @@ impl Message {
     }
 }
 
-/// Start word and id, before anything is opened.
 pub fn peek(buf: &[u8]) -> Option<(u16, u16)> {
     if buf.len() < HEADER {
         return None;
     }
     let length = usize::from(u16::from_be_bytes([buf[2], buf[3]]));
-    (length == buf.len())
-        .then(|| (u16::from_be_bytes([buf[0], buf[1]]), u16::from_be_bytes([buf[4], buf[5]])))
+    (length == buf.len()).then(|| {
+        (
+            u16::from_be_bytes([buf[0], buf[1]]),
+            u16::from_be_bytes([buf[4], buf[5]]),
+        )
+    })
 }
 
 pub fn decode(buf: &[u8]) -> Result<Message, String> {
     let (start, id) = peek(buf).ok_or("not one whole message")?;
-    Ok(Message { start, id, params: decode_params(&buf[HEADER..])? })
+    Ok(Message {
+        start,
+        id,
+        params: decode_params(&buf[HEADER..])?,
+    })
 }
 
 pub fn decode_params(mut buf: &[u8]) -> Result<Vec<(u16, Vec<u8>)>, String> {
@@ -103,9 +112,15 @@ pub fn decode_params(mut buf: &[u8]) -> Result<Vec<(u16, Vec<u8>)>, String> {
         }
         let length = usize::from(u16::from_be_bytes([buf[0], buf[1]]));
         if length < PARAM_HEADER || length > buf.len() {
-            return Err(format!("a parameter of length {length} in {} bytes", buf.len()));
+            return Err(format!(
+                "a parameter of length {length} in {} bytes",
+                buf.len()
+            ));
         }
-        params.push((u16::from_be_bytes([buf[2], buf[3]]), buf[PARAM_HEADER..length].to_vec()));
+        params.push((
+            u16::from_be_bytes([buf[2], buf[3]]),
+            buf[PARAM_HEADER..length].to_vec(),
+        ));
         buf = &buf[length..];
     }
     Ok(params)
@@ -117,9 +132,16 @@ mod tests {
 
     #[test]
     fn a_message_goes_out_and_comes_back() {
-        let msg = Message::new(CLEAR, 0x5201).with(0, [3]).with(3, 0x1234u16.to_be_bytes());
+        let msg = Message::new(CLEAR, 0x5201)
+            .with(0, [3])
+            .with(3, 0x1234u16.to_be_bytes());
         let bytes = msg.encode();
-        assert_eq!(bytes, [0, 0, 0, 17, 0x52, 0x01, 0, 5, 0, 0, 3, 0, 6, 0, 3, 0x12, 0x34]);
+        assert_eq!(
+            bytes,
+            [
+                0, 0, 0, 17, 0x52, 0x01, 0, 5, 0, 0, 3, 0, 6, 0, 3, 0x12, 0x34
+            ]
+        );
         let back = decode(&bytes).unwrap();
         assert_eq!(back, msg);
         assert_eq!(back.u16(3), Some(0x1234));

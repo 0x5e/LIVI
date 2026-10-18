@@ -1,7 +1,3 @@
-//! Input routing: host pointer/touch/keyboard into the inner seat. The
-//! compositor decoration (titlebar buttons, move/resize borders) is hit-tested
-//! first and handled there.
-
 use smithay::backend::input::{ButtonState, KeyState};
 use smithay::input::keyboard::{FilterResult, ModifiersState};
 use smithay::input::pointer::{AxisFrame, ButtonEvent, MotionEvent};
@@ -21,7 +17,6 @@ pub enum DecoHit {
     Resize(u32),
 }
 
-/// Hit-test the compositor decoration in layout coords.
 pub fn deco_hit_test(state: &LiviState, lx: f64, ly: f64) -> (Option<usize>, DecoHit) {
     for (i, s) in state.screens.iter().enumerate() {
         if s.fullscreen || s.width <= 0 || s.height <= 0 {
@@ -69,8 +64,6 @@ pub fn deco_hit_test(state: &LiviState, lx: f64, ly: f64) -> (Option<usize>, Dec
     (None, DecoHit::None)
 }
 
-/// Topmost surface at a layout point, with the surface's global origin
-/// (smithay's focus convention). Z-order: dialogs > UI > videos > nothing.
 pub fn surface_at(state: &LiviState, lx: f64, ly: f64) -> Option<(WlSurface, Point<f64, Logical>)> {
     let pt = Point::<f64, Logical>::from((lx, ly));
     let mut ordered: Vec<usize> = Vec::new();
@@ -96,7 +89,6 @@ pub fn surface_at(state: &LiviState, lx: f64, ly: f64) -> Option<(WlSurface, Poi
         if let Some((surface, surf_local)) =
             crate::render::surface_under(t.toplevel.wl_surface(), local)
         {
-            // origin of the hit surface in layout coords
             return Some((surface, pt - surf_local));
         }
     }
@@ -179,7 +171,11 @@ pub fn pointer_button(state: &mut LiviState, time: u32, button: u32, pressed: bo
             state,
             &ButtonEvent {
                 button,
-                state: if pressed { ButtonState::Pressed } else { ButtonState::Released },
+                state: if pressed {
+                    ButtonState::Pressed
+                } else {
+                    ButtonState::Released
+                },
                 serial: SERIAL_COUNTER.next_serial(),
                 time,
             },
@@ -192,8 +188,11 @@ pub fn pointer_button(state: &mut LiviState, time: u32, button: u32, pressed: bo
 }
 
 pub fn focus_surface(state: &mut LiviState, surface: &WlSurface) {
-    // Focus skips video planes.
-    if state.toplevels.iter().any(|t| t.kind == Kind::Video && t.toplevel.wl_surface() == surface) {
+    if state
+        .toplevels
+        .iter()
+        .any(|t| t.kind == Kind::Video && t.toplevel.wl_surface() == surface)
+    {
         return;
     }
     if let Some(keyboard) = state.seat.get_keyboard() {
@@ -237,9 +236,15 @@ pub fn touch_down(state: &mut LiviState, time: u32, id: i32, lx: f64, ly: f64, _
     let under = surface_at(state, lx, ly);
     log::debug!(
         "touch down id={id} at {lx:.0},{ly:.0} surface={}",
-        if under.is_some() { "yes" } else { "NONE (dropped)" }
+        if under.is_some() {
+            "yes"
+        } else {
+            "NONE (dropped)"
+        }
     );
-    let Some((surface, origin)) = under else { return };
+    let Some((surface, origin)) = under else {
+        return;
+    };
     if let Some(touch) = state.seat.get_touch() {
         touch.down(
             state,
@@ -257,7 +262,6 @@ pub fn touch_down(state: &mut LiviState, time: u32, id: i32, lx: f64, ly: f64, _
 }
 
 pub fn touch_motion(state: &mut LiviState, time: u32, id: i32, wx: f64, wy: f64) {
-    // Window-local coords: keep the finger on the screen it went down on.
     let screen_x = state
         .host
         .touch_positions
@@ -265,11 +269,22 @@ pub fn touch_motion(state: &mut LiviState, time: u32, id: i32, wx: f64, wy: f64)
         .find(|(tid, _, _)| *tid == id)
         .map(|(_, lx, _)| {
             let sx = *lx;
-            state.screens.iter().map(|s| s.x).filter(|&x| (x as f64) <= sx).max().unwrap_or(0)
+            state
+                .screens
+                .iter()
+                .map(|s| s.x)
+                .filter(|&x| (x as f64) <= sx)
+                .max()
+                .unwrap_or(0)
         })
         .unwrap_or(0);
     let (lx, ly) = (screen_x as f64 + wx, wy);
-    if let Some(p) = state.host.touch_positions.iter_mut().find(|(tid, _, _)| *tid == id) {
+    if let Some(p) = state
+        .host
+        .touch_positions
+        .iter_mut()
+        .find(|(tid, _, _)| *tid == id)
+    {
         p.1 = lx;
         p.2 = ly;
     }
@@ -294,14 +309,16 @@ pub fn touch_up(state: &mut LiviState, time: u32, id: i32) {
     if let Some(touch) = state.seat.get_touch() {
         touch.up(
             state,
-            &UpEvent { slot: Some(id as u32).into(), serial: SERIAL_COUNTER.next_serial(), time },
+            &UpEvent {
+                slot: Some(id as u32).into(),
+                serial: SERIAL_COUNTER.next_serial(),
+                time,
+            },
         );
         touch.frame(state);
     }
 }
 
-/// Ends every touch point the seat still holds when the host takes the input
-/// away.
 pub fn touch_cancel(state: &mut LiviState) {
     state.host.touch_positions.clear();
     if let Some(touch) = state.seat.get_touch() {
@@ -320,7 +337,6 @@ pub fn key(
     pressed: bool,
     keysym: smithay_client_toolkit::seat::keyboard::Keysym,
 ) {
-    // Alt keybindings: Esc quits, F11 toggles main fullscreen.
     if pressed && state.host.alt_held {
         match keysym {
             k if k == smithay_client_toolkit::seat::keyboard::Keysym::Escape => {
@@ -340,7 +356,11 @@ pub fn key(
         keyboard.input::<(), _>(
             state,
             (raw_code + 8).into(),
-            if pressed { KeyState::Pressed } else { KeyState::Released },
+            if pressed {
+                KeyState::Pressed
+            } else {
+                KeyState::Released
+            },
             SERIAL_COUNTER.next_serial(),
             time,
             |_, _, _| FilterResult::Forward,

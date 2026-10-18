@@ -10,11 +10,14 @@ use tokio::time::Instant;
 
 use crate::server::Core;
 
-/// The rolling prerelease each build of main replaces.
 const NIGHTLY_TAG: &str = "nightly";
 const USER_AGENT: &str = "LIVI-updater";
 const PROGRESS_EVERY: Duration = Duration::from_millis(250);
-const PACKAGE: &str = if cfg!(target_os = "macos") { ".dmg" } else { ".appimage" };
+const PACKAGE: &str = if cfg!(target_os = "macos") {
+    ".dmg"
+} else {
+    ".appimage"
+};
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum UpdateAsk {
@@ -31,15 +34,25 @@ fn feed_url(nightly: bool) -> String {
         return feed;
     }
     let repo = std::env::var("UPDATE_REPO").ok().filter(|r| !r.is_empty());
-    let base =
-        format!("https://api.github.com/repos/{}/releases", repo.as_deref().unwrap_or("f-io/LIVI"));
-    if nightly { format!("{base}/tags/{NIGHTLY_TAG}") } else { format!("{base}/latest") }
+    let base = format!(
+        "https://api.github.com/repos/{}/releases",
+        repo.as_deref().unwrap_or("f-io/LIVI")
+    );
+    if nightly {
+        format!("{base}/tags/{NIGHTLY_TAG}")
+    } else {
+        format!("{base}/latest")
+    }
 }
 
-/// The build number the nightly carries in its title, "#123".
 fn run_number(title: &str) -> String {
-    let Some(at) = title.find('#') else { return String::new() };
-    title[at + 1..].chars().take_while(char::is_ascii_digit).collect()
+    let Some(at) = title.find('#') else {
+        return String::new();
+    };
+    title[at + 1..]
+        .chars()
+        .take_while(char::is_ascii_digit)
+        .collect()
 }
 
 fn pick_asset(assets: &[Value], arch: &str, package: &str) -> Option<String> {
@@ -50,18 +63,30 @@ fn pick_asset(assets: &[Value], arch: &str, package: &str) -> Option<String> {
     };
     assets.iter().find_map(|a| {
         let url = a.get("browser_download_url").and_then(Value::as_str);
-        let name = a.get("name").and_then(Value::as_str).or(url)?.to_lowercase();
+        let name = a
+            .get("name")
+            .and_then(Value::as_str)
+            .or(url)?
+            .to_lowercase();
         let stem = name.strip_suffix(package)?;
         names
             .iter()
-            .any(|n| stem.strip_suffix(n).is_some_and(|rest| rest.ends_with(['-', '_', '.'])))
+            .any(|n| {
+                stem.strip_suffix(n)
+                    .is_some_and(|rest| rest.ends_with(['-', '_', '.']))
+            })
             .then(|| url.map(str::to_string))
             .flatten()
     })
 }
 
 fn release(feed: &Value) -> Release {
-    let text = |key: &str| feed.get(key).and_then(Value::as_str).unwrap_or("").to_string();
+    let text = |key: &str| {
+        feed.get(key)
+            .and_then(Value::as_str)
+            .unwrap_or("")
+            .to_string()
+    };
     let tag = feed
         .get("tag_name")
         .and_then(Value::as_str)
@@ -69,9 +94,18 @@ fn release(feed: &Value) -> Release {
         .or_else(|| feed.get("name").and_then(Value::as_str))
         .unwrap_or("");
     let version = tag.strip_prefix(['v', 'V']).unwrap_or(tag).to_string();
-    let assets = feed.get("assets").and_then(Value::as_array).cloned().unwrap_or_default();
+    let assets = feed
+        .get("assets")
+        .and_then(Value::as_array)
+        .cloned()
+        .unwrap_or_default();
     let url = pick_asset(&assets, std::env::consts::ARCH, PACKAGE);
-    Release { version, commit: text("target_commitish"), run: run_number(&text("name")), url }
+    Release {
+        version,
+        commit: text("target_commitish"),
+        run: run_number(&text("name")),
+        url,
+    }
 }
 
 async fn check(client: &reqwest::Client, nightly: bool) -> Result<Release, String> {
@@ -90,7 +124,6 @@ fn publish(core: &Core, update: &Update) {
     core.hub.update(|s| s.update = update);
 }
 
-/// A failed copy never leaves half an AppImage.
 #[cfg(not(target_os = "macos"))]
 async fn install(downloaded: &Path) -> Result<PathBuf, String> {
     let current = std::env::var_os("APPIMAGE")
@@ -99,22 +132,28 @@ async fn install(downloaded: &Path) -> Result<PathBuf, String> {
     let mut staged = current.clone().into_os_string();
     staged.push(".new");
     let staged = PathBuf::from(staged);
-    tokio::fs::copy(downloaded, &staged).await.map_err(|e| e.to_string())?;
+    tokio::fs::copy(downloaded, &staged)
+        .await
+        .map_err(|e| e.to_string())?;
     let mode = std::os::unix::fs::PermissionsExt::from_mode(0o755);
-    tokio::fs::set_permissions(&staged, mode).await.map_err(|e| e.to_string())?;
-    tokio::fs::rename(&staged, &current).await.map_err(|e| e.to_string())?;
+    tokio::fs::set_permissions(&staged, mode)
+        .await
+        .map_err(|e| e.to_string())?;
+    tokio::fs::rename(&staged, &current)
+        .await
+        .map_err(|e| e.to_string())?;
     Ok(current)
 }
 
-/// LIVI_RESOURCES is LIVI.app/Contents/Resources.
 #[cfg(target_os = "macos")]
 fn running_app() -> Option<PathBuf> {
     let resources = PathBuf::from(std::env::var_os("LIVI_RESOURCES")?);
     let app = resources.parent()?.parent()?;
-    app.extension().is_some_and(|e| e == "app").then(|| app.to_path_buf())
+    app.extension()
+        .is_some_and(|e| e == "app")
+        .then(|| app.to_path_buf())
 }
 
-/// A failed copy leaves the running app as it was.
 #[cfg(target_os = "macos")]
 const SWAP_APP: &str = r#"set -e
 src="$1"; dst="$2"
@@ -150,10 +189,12 @@ async fn ran(cmd: &mut tokio::process::Command) -> Result<(), String> {
     if out.status.success() {
         return Ok(());
     }
-    Err(format!("{program}: {}", String::from_utf8_lossy(&out.stderr).trim()))
+    Err(format!(
+        "{program}: {}",
+        String::from_utf8_lossy(&out.stderr).trim()
+    ))
 }
 
-/// Where the user may not write, macOS asks for an administrator's password.
 #[cfg(target_os = "macos")]
 async fn install(downloaded: &Path) -> Result<PathBuf, String> {
     use tokio::process::Command;
@@ -165,7 +206,9 @@ async fn install(downloaded: &Path) -> Result<PathBuf, String> {
         .arg(downloaded))
     .await?;
     let swapped = async {
-        let mut entries = tokio::fs::read_dir(&mount).await.map_err(|e| e.to_string())?;
+        let mut entries = tokio::fs::read_dir(&mount)
+            .await
+            .map_err(|e| e.to_string())?;
         let mut new_app = None;
         while let Some(entry) = entries.next_entry().await.map_err(|e| e.to_string())? {
             if entry.path().extension().is_some_and(|e| e == "app") {
@@ -178,14 +221,20 @@ async fn install(downloaded: &Path) -> Result<PathBuf, String> {
         if ran(&mut swap).await.is_ok() {
             return Ok(());
         }
-        ran(Command::new("osascript").arg("-e").arg(swap_as_admin(&new_app, &app))).await
+        ran(Command::new("osascript")
+            .arg("-e")
+            .arg(swap_as_admin(&new_app, &app)))
+        .await
     }
     .await;
-    let _ = ran(Command::new("hdiutil").arg("detach").arg(&mount).arg("-force")).await;
+    let _ = ran(Command::new("hdiutil")
+        .arg("detach")
+        .arg(&mount)
+        .arg("-force"))
+    .await;
     swapped.map(|()| app)
 }
 
-/// Dropping `stop` ends the download.
 struct Download {
     stop: Option<oneshot::Sender<()>>,
 }
@@ -201,7 +250,9 @@ async fn download(
         return Err(format!("download {}", res.status().as_u16()));
     }
     let total = res.content_length().unwrap_or(0) as f64;
-    let mut out = tokio::fs::File::create(&file).await.map_err(|e| e.to_string())?;
+    let mut out = tokio::fs::File::create(&file)
+        .await
+        .map_err(|e| e.to_string())?;
     let mut received = 0.0;
     let mut told = Instant::now();
     while let Some(chunk) = res.chunk().await.map_err(|e| e.to_string())? {
@@ -363,13 +414,26 @@ mod tests {
             ("9.1.0", "abc1234", "482")
         );
         let assets = feed["assets"].as_array().unwrap();
-        assert_eq!(pick_asset(assets, "x86_64", ".appimage").as_deref(), Some("https://x/x64"));
-        assert_eq!(pick_asset(assets, "aarch64", ".appimage").as_deref(), Some("https://x/arm"));
-        assert_eq!(pick_asset(assets, "aarch64", ".dmg").as_deref(), Some("https://x/dmg"));
+        assert_eq!(
+            pick_asset(assets, "x86_64", ".appimage").as_deref(),
+            Some("https://x/x64")
+        );
+        assert_eq!(
+            pick_asset(assets, "aarch64", ".appimage").as_deref(),
+            Some("https://x/arm")
+        );
+        assert_eq!(
+            pick_asset(assets, "aarch64", ".dmg").as_deref(),
+            Some("https://x/dmg")
+        );
         assert_eq!(pick_asset(assets, "x86_64", ".dmg"), None);
         assert_eq!(pick_asset(assets, "riscv64", ".appimage"), None);
         assert_eq!(
-            pick_asset(&[json!({ "name": "LIVIx64.AppImage" })], "x86_64", ".appimage"),
+            pick_asset(
+                &[json!({ "name": "LIVIx64.AppImage" })],
+                "x86_64",
+                ".appimage"
+            ),
             None
         );
         assert_eq!(release(&json!({ "name": "V2.0" })).version, "2.0");
@@ -379,8 +443,10 @@ mod tests {
     #[cfg(target_os = "macos")]
     #[test]
     fn the_swap_survives_quotes_in_the_paths() {
-        let script =
-            swap_as_admin(Path::new("/Volumes/LIVI 2/LIVI.app"), Path::new("/Apps/it's.app"));
+        let script = swap_as_admin(
+            Path::new("/Volumes/LIVI 2/LIVI.app"),
+            Path::new("/Apps/it's.app"),
+        );
         assert!(script.starts_with("do shell script \"sh -c 'set -e"));
         assert!(script.ends_with("'/Apps/it'\\\\''s.app'\" with administrator privileges"));
         assert!(script.contains(r#"src=\"$1\""#));

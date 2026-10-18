@@ -103,7 +103,10 @@ fn audio_profile(audio_type: &str) -> AudioProfile {
         "" => (AudioKind::Alert, "nav"),
         other => (AudioKind::Alert, other),
     };
-    AudioProfile { kind, label: label.to_string() }
+    AudioProfile {
+        kind,
+        label: label.to_string(),
+    }
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -139,7 +142,10 @@ pub enum StackCmd {
     NextClusterContent,
     ClusterLayout(ui_sync::Layout),
     Touches(Vec<Touch>),
-    Knob { state: KnobState, momentary: bool },
+    Knob {
+        state: KnobState,
+        momentary: bool,
+    },
     KnobSelect(bool),
     Notification(Option<Notice>),
     History(Vec<HistoryEntry>),
@@ -154,7 +160,11 @@ pub enum StackCmd {
     ClusterActive(bool),
     VideoActive(bool),
     AudioActive(bool),
-    StreamVolume { kind: AudioKind, level: f64, ramp_ms: u32 },
+    StreamVolume {
+        kind: AudioKind,
+        level: f64,
+        ramp_ms: u32,
+    },
     PhoneBtMac(String),
     Climate(Climate),
     Gauges(Gauges),
@@ -164,21 +174,47 @@ pub enum StackCmd {
 
 #[derive(Debug, Clone, PartialEq)]
 pub enum StackEvent {
-    DeviceInfo { name: String, device_id: String, wifi_mac: String, model: String },
-    Active { ip: String, controller_id: Option<String> },
-    VideoCodec { cluster: bool, codec: ScreenCodec },
+    DeviceInfo {
+        name: String,
+        device_id: String,
+        wifi_mac: String,
+        model: String,
+    },
+    Active {
+        ip: String,
+        controller_id: Option<String>,
+    },
+    VideoCodec {
+        cluster: bool,
+        codec: ScreenCodec,
+    },
     MainScreenReady,
-    AudioActive { profile: AudioProfile, active: bool },
-    MicActive { active: bool, rate: u32, channels: u8 },
-    Duck { level: f64, duration_ms: u32 },
+    AudioActive {
+        profile: AudioProfile,
+        active: bool,
+    },
+    MicActive {
+        active: bool,
+        rate: u32,
+        channels: u8,
+    },
+    Duck {
+        level: f64,
+        duration_ms: u32,
+    },
     HostUiRequested,
     SpeechActive(bool),
     DisableBluetooth(String),
     Climate(Climate),
     Radio(RadioCommand),
-    Volume { name: &'static str, level: f64 },
+    Volume {
+        name: &'static str,
+        level: f64,
+    },
     Cluster(ui_sync::PhoneChoice),
-    Closed { was_active: bool },
+    Closed {
+        was_active: bool,
+    },
     NotificationClosed,
     HistoryHidden(u64),
 }
@@ -406,7 +442,11 @@ fn number(v: Option<&Value>) -> f64 {
 
 fn int(v: Option<&Value>) -> u64 {
     let n = number(v);
-    if n.is_finite() && n > 0.0 { n as u64 } else { 0 }
+    if n.is_finite() && n > 0.0 {
+        n as u64
+    } else {
+        0
+    }
 }
 
 fn plist_response(body: &Value) -> Response {
@@ -418,7 +458,10 @@ fn plist_response(body: &Value) -> Response {
 }
 
 fn status(code: u16) -> Response {
-    Response { status: Some(code), ..Default::default() }
+    Response {
+        status: Some(code),
+        ..Default::default()
+    }
 }
 
 fn octet(result: Result<Vec<u8>, String>, what: &str) -> Response {
@@ -447,7 +490,11 @@ fn header_number(req: &Request, name: &str) -> Option<u32> {
 }
 
 fn stream_key(shared: &[u8; 32], id: &str, info: &str) -> [u8; 32] {
-    hkdf_sha512(shared, format!("DataStream-Salt{id}").as_bytes(), info.as_bytes())
+    hkdf_sha512(
+        shared,
+        format!("DataStream-Salt{id}").as_bytes(),
+        info.as_bytes(),
+    )
 }
 
 pub async fn run<M: Media>(
@@ -456,7 +503,9 @@ pub async fn run<M: Media>(
     mut cmds: mpsc::UnboundedReceiver<StackCmd>,
     events: mpsc::UnboundedSender<StackEvent>,
 ) {
-    let peer = stream.peer_addr().unwrap_or_else(|_| SocketAddr::from(([0, 0, 0, 0], 0)));
+    let peer = stream
+        .peer_addr()
+        .unwrap_or_else(|_| SocketAddr::from(([0, 0, 0, 0], 0)));
     println!("[cpStack] control connection from {peer}");
     let mut started = Some(ctx.media.audio_started());
     let (mut rd, mut wr) = stream.into_split();
@@ -693,7 +742,9 @@ impl<M: Media> Conn<M> {
             bound = true;
             Ok(ours.to_vec())
         };
-        let result = session.handle(&req.body, &self.ctx.helper, &mut check).await;
+        let result = session
+            .handle(&req.body, &self.ctx.helper, &mut check)
+            .await;
         if bound {
             println!("[cpStack] MFi4: this pair-verify is bound to the mutual authentication");
         }
@@ -704,7 +755,12 @@ impl<M: Media> Conn<M> {
         let path = req.path.to_lowercase();
         let chatty = req.method == "OPTIONS" || path.ends_with("/feedback");
         if !chatty {
-            println!("[cpStack] < {} {} (body {}B)", req.method, req.path, req.body.len());
+            println!(
+                "[cpStack] < {} {} (body {}B)",
+                req.method,
+                req.path,
+                req.body.len()
+            );
             if self.ctx.debug && !req.body.is_empty() {
                 match bplist::decode(&req.body) {
                     Ok(v) => println!("[cpStack]   body: {v:?}"),
@@ -753,7 +809,9 @@ impl<M: Media> Conn<M> {
             return octet(result, "MFi4 pair-setup");
         }
         if path.ends_with("/pair-setup") {
-            let body = self.pair_setup.handle(&req.body, &self.ctx.identity, &self.ctx.pairings);
+            let body = self
+                .pair_setup
+                .handle(&req.body, &self.ctx.identity, &self.ctx.pairings);
             return Response {
                 headers: vec![("Content-Type".into(), PAIRING.into())],
                 body,
@@ -761,7 +819,9 @@ impl<M: Media> Conn<M> {
             };
         }
         if path.ends_with("/pair-verify") {
-            let body = self.pair_verify.handle(&req.body, &self.ctx.identity, &self.ctx.pairings);
+            let body = self
+                .pair_verify
+                .handle(&req.body, &self.ctx.identity, &self.ctx.pairings);
             return Response {
                 headers: vec![("Content-Type".into(), PAIRING.into())],
                 body,
@@ -782,7 +842,10 @@ impl<M: Media> Conn<M> {
                 },
                 Ok(None) => status(400),
                 Err(e) => {
-                    println!("[cpStack] handler error for {} {}: {e}", req.method, req.path);
+                    println!(
+                        "[cpStack] handler error for {} {}: {e}",
+                        req.method, req.path
+                    );
                     status(500)
                 }
             };
@@ -792,7 +855,10 @@ impl<M: Media> Conn<M> {
                 match bplist::decode(&req.body) {
                     Ok(ask) => println!("[cpStack] /info request from phone: {ask:?}"),
                     Err(_) => {
-                        println!("[cpStack] /info request body not a plist ({}B)", req.body.len())
+                        println!(
+                            "[cpStack] /info request body not a plist ({}B)",
+                            req.body.len()
+                        )
                     }
                 }
             }
@@ -818,7 +884,11 @@ impl<M: Media> Conn<M> {
                     entries.push(state.info_entry());
                 }
             }
-            let count = |k: &str| info.get(k).and_then(Value::as_array).map_or(0, <[Value]>::len);
+            let count = |k: &str| {
+                info.get(k)
+                    .and_then(Value::as_array)
+                    .map_or(0, <[Value]>::len)
+            };
             println!(
                 "[cpStack] /info audio: disableAudioOutput={} audioFormats={} audioLatencies={}",
                 cfg.disable_audio_output,
@@ -833,7 +903,10 @@ impl<M: Media> Conn<M> {
         if req.method == "POST" && path.ends_with("/feedback") {
             return self.build_feedback();
         }
-        println!("[cpStack] unhandled request {} {} (ack 200)", req.method, req.path);
+        println!(
+            "[cpStack] unhandled request {} {} (ack 200)",
+            req.method, req.path
+        );
         status(200)
     }
 
@@ -878,14 +951,24 @@ impl<M: Media> Conn<M> {
             return plist_response(&dict([("streams", Value::Array(out))]));
         }
 
-        let text = |k: &str| body.get(k).and_then(Value::as_str).unwrap_or("").to_string();
+        let text = |k: &str| {
+            body.get(k)
+                .and_then(Value::as_str)
+                .unwrap_or("")
+                .to_string()
+        };
         let (name, device_id, model) = (text("name"), text("deviceID"), text("model"));
         let wifi_mac = text("macAddress").to_lowercase();
         if !device_id.is_empty() {
             self.device_bt_mac = device_id.clone();
         }
         if !name.is_empty() || !device_id.is_empty() || !wifi_mac.is_empty() {
-            self.emit(StackEvent::DeviceInfo { name, device_id, wifi_mac, model });
+            self.emit(StackEvent::DeviceInfo {
+                name,
+                device_id,
+                wifi_mac,
+                model,
+            });
         }
         let offered: Vec<&str> = body
             .get("features")
@@ -966,24 +1049,35 @@ impl<M: Media> Conn<M> {
             ("eventPort".to_string(), Value::Int(u64::from(event_port))),
         ];
         if keep_alive_port > 0 {
-            resp.push(("keepAlivePort".to_string(), Value::Int(u64::from(keep_alive_port))));
+            resp.push((
+                "keepAlivePort".to_string(),
+                Value::Int(u64::from(keep_alive_port)),
+            ));
         }
         resp.push(("enabledFeatures".to_string(), Value::Array(features)));
         plist_response(&Value::Dict(resp))
     }
 
     fn setup_failed(&self, req: &Request, e: &str) -> Response {
-        println!("[cpStack] handler error for {} {}: {e}", req.method, req.path);
+        println!(
+            "[cpStack] handler error for {} {}: {e}",
+            req.method, req.path
+        );
         status(500)
     }
 
     async fn setup_screen(&mut self, sd: &Value, cluster: bool) -> Result<u16, String> {
-        let shared =
-            self.pair_verify.shared_secret().ok_or("screen SETUP arrived before pair-verify")?;
+        let shared = self
+            .pair_verify
+            .shared_secret()
+            .ok_or("screen SETUP arrived before pair-verify")?;
         let id = id_text(sd.get("streamConnectionID"));
         let key = stream_key(&shared, &id, "DataStream-Output-Encryption-Key");
-        let codec =
-            if self.ctx.config.borrow().info.hevc { ScreenCodec::H265 } else { ScreenCodec::H264 };
+        let codec = if self.ctx.config.borrow().info.hevc {
+            ScreenCodec::H265
+        } else {
+            ScreenCodec::H264
+        };
         let (port, receiver) = self.ctx.media.open_screen(cluster, key).await;
         if self.video_active {
             self.ctx.media.set_screen_active(receiver, true);
@@ -992,13 +1086,19 @@ impl<M: Media> Conn<M> {
             self.cluster_screen = Some(receiver);
             if !self.cluster_codec_emitted {
                 self.cluster_codec_emitted = true;
-                self.emit(StackEvent::VideoCodec { cluster: true, codec });
+                self.emit(StackEvent::VideoCodec {
+                    cluster: true,
+                    codec,
+                });
             }
         } else {
             self.screen = Some(receiver);
             if !self.codec_emitted {
                 self.codec_emitted = true;
-                self.emit(StackEvent::VideoCodec { cluster: false, codec });
+                self.emit(StackEvent::VideoCodec {
+                    cluster: false,
+                    codec,
+                });
             }
             if !self.main_stream_ready {
                 self.main_stream_ready = true;
@@ -1016,13 +1116,20 @@ impl<M: Media> Conn<M> {
     }
 
     async fn setup_audio(&mut self, sd: &Value, kind: u64) -> Result<Value, String> {
-        let shared =
-            self.pair_verify.shared_secret().ok_or("audio SETUP arrived before pair-verify")?;
-        let connection_id = sd.get("streamConnectionID").cloned().unwrap_or(Value::Int(0));
+        let shared = self
+            .pair_verify
+            .shared_secret()
+            .ok_or("audio SETUP arrived before pair-verify")?;
+        let connection_id = sd
+            .get("streamConnectionID")
+            .cloned()
+            .unwrap_or(Value::Int(0));
         let id = id_text(sd.get("streamConnectionID"));
         let latency_ms = int(sd.get("audioLatencyMs")) as u32;
         let key = stream_key(&shared, &id, "DataStream-Output-Encryption-Key");
-        let audio_type = sd.get("audioType").map_or_else(|| "media".to_string(), text);
+        let audio_type = sd
+            .get("audioType")
+            .map_or_else(|| "media".to_string(), text);
         let profile = audio_profile(&audio_type);
         let fmt = int(sd.get("audioFormat"));
         let is_aac = fmt & (AAC_LC_44K_STEREO | AAC_LC_48K_STEREO) != 0;
@@ -1030,7 +1137,14 @@ impl<M: Media> Conn<M> {
         let (sample_rate, channels) = if is_opus {
             (48000, 1)
         } else if is_aac {
-            (if fmt & AAC_LC_48K_STEREO != 0 { 48000 } else { 44100 }, 2)
+            (
+                if fmt & AAC_LC_48K_STEREO != 0 {
+                    48000
+                } else {
+                    44100
+                },
+                2,
+            )
         } else {
             pcm_format(fmt).unwrap_or((44100, 2))
         };
@@ -1059,7 +1173,11 @@ impl<M: Media> Conn<M> {
             self.ctx.media.set_audio_active(opened.id, true);
         }
 
-        let phone_mic_port = if kind == STREAM_MAIN_AUDIO { int(sd.get("dataPort")) } else { 0 };
+        let phone_mic_port = if kind == STREAM_MAIN_AUDIO {
+            int(sd.get("dataPort"))
+        } else {
+            0
+        };
         let opus_rate = if fmt & OPUS_48K != 0 {
             48000
         } else if fmt & OPUS_24K != 0 {
@@ -1084,22 +1202,25 @@ impl<M: Media> Conn<M> {
         } else {
             96000
         };
-        let mic_plan = u16::try_from(phone_mic_port).ok().filter(|p| *p > 0).map(|port| {
-            (
-                stream_key(&shared, &id, "DataStream-Input-Encryption-Key"),
-                MicRequest {
-                    opus: is_opus,
-                    payload_type: kind as u8,
-                    sample_rate: mic_rate,
-                    channels: mic_channels,
-                    bitrate,
-                    frame_ms,
-                    port,
-                    phone: net::route_of(&self.peer),
-                    device: input_device,
-                },
-            )
-        });
+        let mic_plan = u16::try_from(phone_mic_port)
+            .ok()
+            .filter(|p| *p > 0)
+            .map(|port| {
+                (
+                    stream_key(&shared, &id, "DataStream-Input-Encryption-Key"),
+                    MicRequest {
+                        opus: is_opus,
+                        payload_type: kind as u8,
+                        sample_rate: mic_rate,
+                        channels: mic_channels,
+                        bitrate,
+                        frame_ms,
+                        port,
+                        phone: net::route_of(&self.peer),
+                        device: input_device,
+                    },
+                )
+            });
         println!(
             "[cpStack] SETUP audio (type {kind}, audioType={audio_type}, format=0x{fmt:x}, codec={codec:?}, audioLatencyMs={latency_ms}, dataPort={}, controlPort={}, id={id})",
             opened.data_port, opened.control_port
@@ -1176,7 +1297,9 @@ impl<M: Media> Conn<M> {
     }
 
     fn on_vehicle_message(&mut self, lane: Lane, message: &[u8]) {
-        let Some(state) = &mut self.vehicle_state else { return };
+        let Some(state) = &mut self.vehicle_state else {
+            return;
+        };
         let answers = state.handle(lane, message);
         let commands = state.take_radio_commands();
         let hidden = state.take_hidden_by_phone();
@@ -1203,7 +1326,9 @@ impl<M: Media> Conn<M> {
     }
 
     fn report_volume(&mut self) {
-        let Some(levels) = self.vehicle_state.as_ref().map(VehicleState::volumes) else { return };
+        let Some(levels) = self.vehicle_state.as_ref().map(VehicleState::volumes) else {
+            return;
+        };
         let seen = self.volume_reported.replace(levels.clone());
         let Some(seen) = seen else { return };
         for (name, level) in levels {
@@ -1224,7 +1349,9 @@ impl<M: Media> Conn<M> {
     }
 
     fn show_notice(&mut self) {
-        let (Some(notice), Some(state)) = (&self.notice, &mut self.vehicle_state) else { return };
+        let (Some(notice), Some(state)) = (&self.notice, &mut self.vehicle_state) else {
+            return;
+        };
         if !self.notice_ready {
             return;
         }
@@ -1236,7 +1363,9 @@ impl<M: Media> Conn<M> {
     fn close_notice(&mut self) {
         self.notice = None;
         self.notice_shown = false;
-        let Some(state) = &mut self.vehicle_state else { return };
+        let Some(state) = &mut self.vehicle_state else {
+            return;
+        };
         let answers = state.hide_notice();
         self.to_vehicle_streams(answers);
     }
@@ -1254,11 +1383,18 @@ impl<M: Media> Conn<M> {
     }
 
     fn setup_data_stream(&mut self, sd: &Value) -> Result<Option<Value>, String> {
-        let uuid = sd.get("clientTypeUUID").and_then(Value::as_str).unwrap_or("").to_uppercase();
+        let uuid = sd
+            .get("clientTypeUUID")
+            .and_then(Value::as_str)
+            .unwrap_or("")
+            .to_uppercase();
         if uuid == video_playback::DATASTREAM_UUID && self.video_playback {
             self.last_stream_id += 1;
             let id = self.last_stream_id;
-            let client = sd.get("clientUUID").and_then(Value::as_str).unwrap_or("none");
+            let client = sd
+                .get("clientUUID")
+                .and_then(Value::as_str)
+                .unwrap_or("none");
             println!("[cpStack] SETUP video playback (type 130, streamID={id}, client {client})");
             return Ok(Some(dict([
                 ("type", Value::Int(STREAM_DATA)),
@@ -1401,11 +1537,14 @@ impl<M: Media> Conn<M> {
         }
         println!("[cpStack] borrowing the screen for video");
         self.video_screen_borrowed = true;
-        self.send_event_command(&video_playback::borrow_screen(true)).await;
+        self.send_event_command(&video_playback::borrow_screen(true))
+            .await;
     }
 
     fn keep_side_message(&mut self, source: &str, message: &[u8]) {
-        let Some(capture) = &mut self.video_capture else { return };
+        let Some(capture) = &mut self.video_capture else {
+            return;
+        };
         let kept = match capture.keep(source, message) {
             Ok(path) => format!("kept as {}", path.display()),
             Err(e) => format!("not kept: {e}"),
@@ -1414,7 +1553,10 @@ impl<M: Media> Conn<M> {
             Ok(v) => video_playback::describe(&v),
             Err(_) => video_playback::describe_setting(message),
         };
-        println!("[cpStack] video {source} message: {what} ({} B, {kept})", message.len());
+        println!(
+            "[cpStack] video {source} message: {what} ({} B, {kept})",
+            message.len()
+        );
     }
 
     async fn on_stream_payload(&mut self, stream: &str, data: &[u8]) {
@@ -1426,12 +1568,16 @@ impl<M: Media> Conn<M> {
             None => String::new(),
         };
         let message = bplist::decode(data).ok();
-        let polling = message.as_ref().and_then(|m| m.get("type")).and_then(Value::as_str)
+        let polling = message
+            .as_ref()
+            .and_then(|m| m.get("type"))
+            .and_then(Value::as_str)
             == Some("playbackInfo");
         if !polling || self.ctx.debug {
-            let what = message
-                .as_ref()
-                .map_or_else(|| format!("{} B, not a plist", data.len()), video_playback::describe);
+            let what = message.as_ref().map_or_else(
+                || format!("{} B, not a plist", data.len()),
+                video_playback::describe,
+            );
             println!("[cpStack] data stream {stream} < {what}{kept}");
         }
         let Some(message) = message else { return };
@@ -1442,10 +1588,17 @@ impl<M: Media> Conn<M> {
         let (answer, started) = self.video_player.handle(&message, status.as_ref());
         if let Some(answer) = answer {
             if !polling || self.ctx.debug {
-                println!("[cpStack] data stream {stream} > {}", video_playback::describe(&answer));
+                println!(
+                    "[cpStack] data stream {stream} > {}",
+                    video_playback::describe(&answer)
+                );
             }
-            let body = dict([("params", dict([("data", Value::Data(bplist::encode(&answer)))]))]);
-            self.send_event_command_with(&body, &format!("X-Apple-StreamID: {stream}\r\n")).await;
+            let body = dict([(
+                "params",
+                dict([("data", Value::Data(bplist::encode(&answer)))]),
+            )]);
+            self.send_event_command_with(&body, &format!("X-Apple-StreamID: {stream}\r\n"))
+                .await;
         }
         if started {
             println!("[cpStack] telling the phone that video plays");
@@ -1476,7 +1629,8 @@ impl<M: Media> Conn<M> {
         {
             println!("[cpStack] video stopped, giving the screen back");
             self.video_screen_borrowed = false;
-            self.send_event_command(&video_playback::borrow_screen(false)).await;
+            self.send_event_command(&video_playback::borrow_screen(false))
+                .await;
         }
     }
 
@@ -1503,7 +1657,8 @@ impl<M: Media> Conn<M> {
         }
         self.ctx.media.set_video_shown(allowed);
         if self.live {
-            self.send_event_command(&video_playback::allowed_command(allowed, status)).await;
+            self.send_event_command(&video_playback::allowed_command(allowed, status))
+                .await;
         }
         if allowed && self.video_tunnel.is_some() {
             self.borrow_screen_for_video().await;
@@ -1513,7 +1668,10 @@ impl<M: Media> Conn<M> {
     async fn open_video_tunnel(&mut self, message: &Value) {
         self.video_tunnel = None;
         let item = message.get("item");
-        let Some(url) = item.and_then(|i| i.get("Content-Location")).and_then(Value::as_str) else {
+        let Some(url) = item
+            .and_then(|i| i.get("Content-Location"))
+            .and_then(Value::as_str)
+        else {
             return;
         };
         let Some(offer) = self.video_proxy.clone() else {
@@ -1530,7 +1688,10 @@ impl<M: Media> Conn<M> {
         };
         println!("[cpStack] video {url} reachable at {}", gateway.url());
         let device = self.ctx.config.borrow().audio_device.clone();
-        let muted = item.and_then(|i| i.get("muted")).and_then(Value::as_bool).unwrap_or(false);
+        let muted = item
+            .and_then(|i| i.get("muted"))
+            .and_then(Value::as_bool)
+            .unwrap_or(false);
         self.video_muted.store(muted, Ordering::Relaxed);
         let media = self.ctx.media.clone();
         media.play_video(gateway.url().into(), device.clone(), muted);
@@ -1546,7 +1707,11 @@ impl<M: Media> Conn<M> {
             restarts,
         ));
         let stop = Box::new(move || media.stop_video());
-        self.video_tunnel = Some(VideoRun { _gateway: gateway, restarts, stop });
+        self.video_tunnel = Some(VideoRun {
+            _gateway: gateway,
+            restarts,
+            stop,
+        });
     }
 
     async fn relay_iap(&mut self, iap: &[u8]) {
@@ -1587,7 +1752,11 @@ impl<M: Media> Conn<M> {
     }
 
     fn close_screen(&mut self, cluster: bool) {
-        let slot = if cluster { &mut self.cluster_screen } else { &mut self.screen };
+        let slot = if cluster {
+            &mut self.cluster_screen
+        } else {
+            &mut self.screen
+        };
         if let Some(receiver) = slot.take() {
             self.ctx.media.close_screen(receiver);
         }
@@ -1595,13 +1764,20 @@ impl<M: Media> Conn<M> {
 
     fn close_audio(&mut self, a: AudioStreamState) {
         self.ctx.media.close_audio(a.host_stream);
-        self.emit(StackEvent::AudioActive { profile: a.profile.clone(), active: false });
+        self.emit(StackEvent::AudioActive {
+            profile: a.profile.clone(),
+            active: false,
+        });
         if a.profile.kind == AudioKind::Call {
             self.call_active = false;
         }
         if let Some(mic) = a.mic {
             self.ctx.media.close_mic(mic);
-            self.emit(StackEvent::MicActive { active: false, rate: 0, channels: 0 });
+            self.emit(StackEvent::MicActive {
+                active: false,
+                rate: 0,
+                channels: 0,
+            });
         }
     }
 
@@ -1620,7 +1796,9 @@ impl<M: Media> Conn<M> {
     }
 
     fn audio_started(&mut self, stream: u32, first_sample: u32) {
-        let Some(a) = self.audio.iter_mut().find(|a| a.host_stream == stream) else { return };
+        let Some(a) = self.audio.iter_mut().find(|a| a.host_stream == stream) else {
+            return;
+        };
         a.origin = Some((first_sample, Instant::now()));
         let profile = a.profile.clone();
         let mut mic_on = None;
@@ -1631,9 +1809,16 @@ impl<M: Media> Conn<M> {
             a.mic = Some(self.ctx.media.open_mic(key, req));
             mic_on = Some((rate, channels));
         }
-        self.emit(StackEvent::AudioActive { profile, active: true });
+        self.emit(StackEvent::AudioActive {
+            profile,
+            active: true,
+        });
         if let Some((rate, channels)) = mic_on {
-            self.emit(StackEvent::MicActive { active: true, rate, channels });
+            self.emit(StackEvent::MicActive {
+                active: true,
+                rate,
+                channels,
+            });
         }
     }
 
@@ -1647,17 +1832,27 @@ impl<M: Media> Conn<M> {
             .map(|a| {
                 let mut s = vec![
                     ("type".to_string(), Value::Int(a.stream_type)),
-                    ("sampleRate".to_string(), Value::Int(u64::from(a.sample_rate))),
+                    (
+                        "sampleRate".to_string(),
+                        Value::Int(u64::from(a.sample_rate)),
+                    ),
                 ];
                 if let Some((first, at)) = a.origin {
-                    let output = self.ctx.media.audio_output_delay(a.host_stream).unwrap_or(0);
+                    let output = self
+                        .ctx
+                        .media
+                        .audio_output_delay(a.host_stream)
+                        .unwrap_or(0);
                     let play = sounding_sample(
                         first,
                         at.elapsed().as_secs_f64(),
                         a.playout_latency_ms + output,
                         a.sample_rate,
                     );
-                    let ntp = self.timing.as_ref().map_or_else(ntp64_now, TimingSync::synced_ntp);
+                    let ntp = self
+                        .timing
+                        .as_ref()
+                        .map_or_else(ntp64_now, TimingSync::synced_ntp);
                     s.push(("streamConnectionID".to_string(), a.connection_id.clone()));
                     s.push(("timestamp".to_string(), Value::Int(ntp)));
                     s.push(("timestampRawNs".to_string(), Value::Int(mono_ns())));
@@ -1671,8 +1866,15 @@ impl<M: Media> Conn<M> {
 
     async fn handle_command(&mut self, req: &Request) -> Response {
         let body = bplist::decode(&req.body).unwrap_or(Value::Dict(Vec::new()));
-        let kind = body.get("type").and_then(Value::as_str).unwrap_or("").to_string();
-        let params = body.get("params").cloned().unwrap_or(Value::Dict(Vec::new()));
+        let kind = body
+            .get("type")
+            .and_then(Value::as_str)
+            .unwrap_or("")
+            .to_string();
+        let params = body
+            .get("params")
+            .cloned()
+            .unwrap_or(Value::Dict(Vec::new()));
         match kind.as_str() {
             "requestUI" => {
                 let url = params.get("url").and_then(Value::as_str).unwrap_or("");
@@ -1701,7 +1903,10 @@ impl<M: Media> Conn<M> {
                 }
             }
             "suggestUI" => {
-                let urls = params.get("urls").and_then(Value::as_array).map_or(0, <[Value]>::len);
+                let urls = params
+                    .get("urls")
+                    .and_then(Value::as_array)
+                    .map_or(0, <[Value]>::len);
                 println!("[cpStack] suggestUI ({urls} urls, not shown)");
             }
             "iAPSendMessage" => {
@@ -1717,12 +1922,18 @@ impl<M: Media> Conn<M> {
                 println!(
                     "[cpStack] duckAudio volume={db}dB (level={level:.3}) durationMs={duration}"
                 );
-                self.emit(StackEvent::Duck { level, duration_ms: duration.max(0.0) as u32 });
+                self.emit(StackEvent::Duck {
+                    level,
+                    duration_ms: duration.max(0.0) as u32,
+                });
             }
             "unduckAudio" => {
                 let duration = number(params.get("durationMs"));
                 println!("[cpStack] unduckAudio durationMs={duration}");
-                self.emit(StackEvent::Duck { level: 1.0, duration_ms: duration.max(0.0) as u32 });
+                self.emit(StackEvent::Duck {
+                    level: 1.0,
+                    duration_ms: duration.max(0.0) as u32,
+                });
             }
             "setProxyParameters" => {
                 let scope = match self.peer {
@@ -1738,8 +1949,14 @@ impl<M: Media> Conn<M> {
                 }
             }
             "" => {
-                let stream = req.headers.get("x-apple-streamid").map_or("none", String::as_str);
-                let data = params.get("data").and_then(Value::as_data).unwrap_or_default();
+                let stream = req
+                    .headers
+                    .get("x-apple-streamid")
+                    .map_or("none", String::as_str);
+                let data = params
+                    .get("data")
+                    .and_then(Value::as_data)
+                    .unwrap_or_default();
                 self.on_stream_payload(stream, data).await;
             }
             other => println!("[cpStack] unhandled command '{other}' (ack 200) {body:?}"),
@@ -1748,7 +1965,9 @@ impl<M: Media> Conn<M> {
     }
 
     fn modes_changed(&mut self, params: &Value) {
-        let Some(states) = params.get("appStates").and_then(Value::as_array) else { return };
+        let Some(states) = params.get("appStates").and_then(Value::as_array) else {
+            return;
+        };
         let mut in_call = self.call_active;
         for s in states {
             if int(s.get("appStateID")) == 2 && s.get("entity").is_some() {
@@ -1761,7 +1980,9 @@ impl<M: Media> Conn<M> {
             if int(s.get("appStateID")) != 1 {
                 continue;
             }
-            let Some(mode) = s.get("speechMode") else { continue };
+            let Some(mode) = s.get("speechMode") else {
+                continue;
+            };
             let mode = number(Some(mode));
             active = !in_call && (mode == 1.0 || mode == 2.0);
         }
@@ -1770,14 +1991,19 @@ impl<M: Media> Conn<M> {
         }
         if active != self.speech_active {
             self.speech_active = active;
-            println!("[cpStack] Siri speech {}", if active { "active" } else { "done" });
+            println!(
+                "[cpStack] Siri speech {}",
+                if active { "active" } else { "done" }
+            );
             self.emit(StackEvent::SpeechActive(active));
         }
     }
 
     fn on_event_connection(&mut self, sock: TcpStream) {
         println!("[cpStack] event channel connected");
-        let Some(shared) = self.pair_verify.shared_secret() else { return };
+        let Some(shared) = self.pair_verify.shared_secret() else {
+            return;
+        };
         let write = hkdf_sha512(&shared, b"Events-Salt", b"Events-Write-Encryption-Key");
         let read = hkdf_sha512(&shared, b"Events-Salt", b"Events-Read-Encryption-Key");
         let (rd, wr) = sock.into_split();
@@ -1793,7 +2019,9 @@ impl<M: Media> Conn<M> {
 
     async fn on_event_bytes(&mut self, chunk: &[u8]) {
         let debug = self.ctx.debug;
-        let Some(ev) = self.event.as_mut() else { return };
+        let Some(ev) = self.event.as_mut() else {
+            return;
+        };
         ev.sealed.extend_from_slice(chunk);
         match ev.cipher.decrypt(&ev.sealed) {
             Ok((data, rest)) => {
@@ -1815,7 +2043,10 @@ impl<M: Media> Conn<M> {
                         Err(_) if msg.body.is_empty() => String::new(),
                         Err(_) => format!(" ({}B non-plist body)", msg.body.len()),
                     };
-                    println!("[cpStack] event response {} {}{body}", msg.path, msg.protocol);
+                    println!(
+                        "[cpStack] event response {} {}{body}",
+                        msg.path, msg.protocol
+                    );
                 }
                 continue;
             }
@@ -1845,7 +2076,9 @@ impl<M: Media> Conn<M> {
         if self.ctx.debug && !matches!(kind, "hidSendReport" | "iAPSendMessage") {
             println!("[cpStack] event > {}{body:?}", headers.replace("\r\n", " "));
         }
-        let Some(ev) = self.event.as_mut() else { return };
+        let Some(ev) = self.event.as_mut() else {
+            return;
+        };
         ev.cseq += 1;
         let payload = bplist::encode(body);
         let mut msg = format!(
@@ -1944,7 +2177,11 @@ impl<M: Media> Conn<M> {
 
     fn wanted_cluster_url(&self) -> String {
         let url = &self.ctx.config.borrow().cluster_url;
-        if url.is_empty() { CLUSTER_MAP_URL.into() } else { url.clone() }
+        if url.is_empty() {
+            CLUSTER_MAP_URL.into()
+        } else {
+            url.clone()
+        }
     }
 
     async fn follow_cluster_url(&mut self) {
@@ -1967,19 +2204,28 @@ impl<M: Media> Conn<M> {
                 }
                 let (w, h) = {
                     let cfg = self.ctx.config.borrow();
-                    (cfg.info.main.width_pixels as f64, cfg.info.main.height_pixels as f64)
+                    (
+                        cfg.info.main.width_pixels as f64,
+                        cfg.info.main.height_pixels as f64,
+                    )
                 };
                 let contacts: Vec<Contact> = touches
                     .iter()
-                    .map(|t| Contact { x: t.x * w, y: t.y * h, down: t.down })
+                    .map(|t| Contact {
+                        x: t.x * w,
+                        y: t.y * h,
+                        down: t.down,
+                    })
                     .collect();
                 let report = hid::touch_report(&contacts);
                 self.send_hid(hid::TOUCH_HID_UID, &report).await;
             }
             StackCmd::Knob { state, momentary } => {
-                self.send_hid(hid::KNOB_HID_UID, &hid::knob_report(state)).await;
+                self.send_hid(hid::KNOB_HID_UID, &hid::knob_report(state))
+                    .await;
                 if momentary {
-                    self.send_hid(hid::KNOB_HID_UID, &hid::knob_report(KnobState::default())).await;
+                    self.send_hid(hid::KNOB_HID_UID, &hid::knob_report(KnobState::default()))
+                        .await;
                 }
             }
             StackCmd::History(entries) => {
@@ -2005,16 +2251,24 @@ impl<M: Media> Conn<M> {
                 if !down && std::mem::take(&mut self.select_closed_notice) {
                     return;
                 }
-                let state = KnobState { select: down, ..Default::default() };
-                self.send_hid(hid::KNOB_HID_UID, &hid::knob_report(state)).await;
+                let state = KnobState {
+                    select: down,
+                    ..Default::default()
+                };
+                self.send_hid(hid::KNOB_HID_UID, &hid::knob_report(state))
+                    .await;
             }
             StackCmd::Media(index) => {
-                self.send_hid(hid::MEDIA_HID_UID, &hid::media_report(index)).await;
-                self.send_hid(hid::MEDIA_HID_UID, &hid::media_report(0)).await;
+                self.send_hid(hid::MEDIA_HID_UID, &hid::media_report(index))
+                    .await;
+                self.send_hid(hid::MEDIA_HID_UID, &hid::media_report(0))
+                    .await;
             }
             StackCmd::Telephony(index) => {
-                self.send_hid(hid::TELEPHONY_HID_UID, &hid::telephony_report(index)).await;
-                self.send_hid(hid::TELEPHONY_HID_UID, &hid::telephony_report(0)).await;
+                self.send_hid(hid::TELEPHONY_HID_UID, &hid::telephony_report(index))
+                    .await;
+                self.send_hid(hid::TELEPHONY_HID_UID, &hid::telephony_report(0))
+                    .await;
             }
             StackCmd::ClusterLayout(layout) => {
                 let answers = self.ui_sync_state.select(layout);
@@ -2025,8 +2279,12 @@ impl<M: Media> Conn<M> {
                     return;
                 }
                 println!("[cpStack] cluster knob turns the phone's centre zone");
-                let turn = KnobState { wheel: 1.0, ..KnobState::default() };
-                self.send_hid(hid::CLUSTER_KNOB_HID_UID, &hid::knob_report(turn)).await;
+                let turn = KnobState {
+                    wheel: 1.0,
+                    ..KnobState::default()
+                };
+                self.send_hid(hid::CLUSTER_KNOB_HID_UID, &hid::knob_report(turn))
+                    .await;
                 let rest = hid::knob_report(KnobState::default());
                 self.send_hid(hid::CLUSTER_KNOB_HID_UID, &rest).await;
             }
@@ -2110,26 +2368,38 @@ impl<M: Media> Conn<M> {
                     self.ctx.media.set_audio_active(a.host_stream, active);
                 }
             }
-            StackCmd::StreamVolume { kind, level, ramp_ms } => {
+            StackCmd::StreamVolume {
+                kind,
+                level,
+                ramp_ms,
+            } => {
                 for a in self.audio.iter().filter(|a| a.profile.kind == kind) {
-                    self.ctx.media.set_audio_volume(a.host_stream, level, ramp_ms);
+                    self.ctx
+                        .media
+                        .set_audio_volume(a.host_stream, level, ramp_ms);
                 }
             }
             StackCmd::PhoneBtMac(mac) => self.phone_bt_mac = mac,
             StackCmd::Climate(climate) => {
-                let Some(state) = &mut self.vehicle_state else { return };
+                let Some(state) = &mut self.vehicle_state else {
+                    return;
+                };
                 let answers = state.set_climate(&climate);
                 self.to_vehicle_streams(answers);
                 self.report_climate();
             }
             StackCmd::Gauges(gauges) => {
-                let Some(state) = &mut self.vehicle_state else { return };
+                let Some(state) = &mut self.vehicle_state else {
+                    return;
+                };
                 let answers = state.set_gauges(&gauges);
                 self.volume_reported = Some(state.volumes());
                 self.to_vehicle_streams(answers);
             }
             StackCmd::Radio(radio) => {
-                let Some(state) = &mut self.vehicle_state else { return };
+                let Some(state) = &mut self.vehicle_state else {
+                    return;
+                };
                 let answers = state.set_radio(&radio);
                 self.to_vehicle_streams(answers);
             }
@@ -2209,7 +2479,13 @@ pub(crate) mod tests {
                 "open_audio {:?} {} {} {} {} {}",
                 req.codec, req.clock_rate, req.channels, req.latency_ms, req.realtime, req.device
             ));
-            async { AudioStream { id: 9, data_port: 6001, control_port: 6002 } }
+            async {
+                AudioStream {
+                    id: 9,
+                    data_port: 6001,
+                    control_port: 6002,
+                }
+            }
         }
         fn set_audio_active(&self, stream: u32, active: bool) {
             self.log(format!("audio_active {stream} {active}"));
@@ -2270,7 +2546,13 @@ pub(crate) mod tests {
 
     impl Phone {
         pub(crate) fn new(sock: TcpStream) -> Self {
-            Self { sock, cipher: None, buf: Vec::new(), cseq: 0, shared: [0; 32] }
+            Self {
+                sock,
+                cipher: None,
+                buf: Vec::new(),
+                cseq: 0,
+                shared: [0; 32],
+            }
         }
 
         pub(crate) async fn request(
@@ -2330,7 +2612,11 @@ pub(crate) mod tests {
         pub(crate) async fn plist(&mut self, method: &str, path: &str, body: &Value) -> Value {
             let (code, body) = self.request(method, path, &bplist::encode(body)).await;
             assert_eq!(code, "200");
-            if body.is_empty() { Value::Dict(Vec::new()) } else { bplist::decode(&body).unwrap() }
+            if body.is_empty() {
+                Value::Dict(Vec::new())
+            } else {
+                bplist::decode(&body).unwrap()
+            }
         }
 
         pub(crate) async fn verify(&mut self, secret: &[u8; 32], id: &[u8]) {
@@ -2341,8 +2627,11 @@ pub(crate) mod tests {
             let m2 = tlv8::decode(&m2);
             let acc: [u8; 32] = m2[&tlv::PUBLIC_KEY].as_slice().try_into().unwrap();
             let shared = eph.shared(&acc).unwrap();
-            let enc =
-                hkdf_sha512(&shared, b"Pair-Verify-Encrypt-Salt", b"Pair-Verify-Encrypt-Info");
+            let enc = hkdf_sha512(
+                &shared,
+                b"Pair-Verify-Encrypt-Salt",
+                b"Pair-Verify-Encrypt-Info",
+            );
             let sig = ed25519_sign(secret, &[eph_public.as_slice(), id, &acc].concat());
             let sub = tlv8::encode(&[(tlv::IDENTIFIER, id), (tlv::SIGNATURE, &sig)]);
             let sealed = chacha_seal(&enc, &nonce_label("PV-Msg03"), &sub, &[]);
@@ -2412,12 +2701,29 @@ pub(crate) mod tests {
             let (cmds, cmd_rx) = mpsc::unbounded_channel();
             let (ev_tx, events) = mpsc::unbounded_channel();
             tokio::spawn(run(accepted, ctx, cmd_rx, ev_tx));
-            let phone = Phone { sock, cipher: None, buf: Vec::new(), cseq: 0, shared: [0; 32] };
-            Self { _dir: dir, media, phone, cmds, events, helper_lines, secret }
+            let phone = Phone {
+                sock,
+                cipher: None,
+                buf: Vec::new(),
+                cseq: 0,
+                shared: [0; 32],
+            };
+            Self {
+                _dir: dir,
+                media,
+                phone,
+                cmds,
+                events,
+                helper_lines,
+                secret,
+            }
         }
 
         async fn event(&mut self) -> StackEvent {
-            tokio::time::timeout(Duration::from_secs(5), self.events.recv()).await.unwrap().unwrap()
+            tokio::time::timeout(Duration::from_secs(5), self.events.recv())
+                .await
+                .unwrap()
+                .unwrap()
         }
     }
 
@@ -2427,14 +2733,22 @@ pub(crate) mod tests {
 
     #[test]
     fn the_feedback_names_the_sample_the_speaker_plays_now() {
-        assert_eq!(sounding_sample(100, 0.5, 1000, 48_000), 100, "still in the jitter buffer");
+        assert_eq!(
+            sounding_sample(100, 0.5, 1000, 48_000),
+            100,
+            "still in the jitter buffer"
+        );
         assert_eq!(sounding_sample(100, 2.0, 1000, 48_000), 100 + 48_000);
         assert_eq!(
             sounding_sample(100, 2.0, 1300, 48_000),
             100 + 33_600,
             "the measured output delay moves it back"
         );
-        assert_eq!(sounding_sample(u32::MAX, 2.0, 1000, 48_000), 47_999, "RTP time wraps");
+        assert_eq!(
+            sounding_sample(u32::MAX, 2.0, 1000, 48_000),
+            47_999,
+            "RTP time wraps"
+        );
     }
 
     #[test]
@@ -2470,7 +2784,10 @@ pub(crate) mod tests {
     #[tokio::test]
     async fn plain_requests_before_pairing() {
         let mut rig = Rig::new().await;
-        let info = rig.phone.plist("GET", "/info", &dict([("qualifier", Value::Bool(true))])).await;
+        let info = rig
+            .phone
+            .plist("GET", "/info", &dict([("qualifier", Value::Bool(true))]))
+            .await;
         assert!(info.get("displays").is_some());
         let (code, _) = rig.phone.request("OPTIONS", "*", b"").await;
         assert_eq!(code, "200");
@@ -2478,8 +2795,14 @@ pub(crate) mod tests {
         assert_eq!(code, "200");
         let (code, _) = rig.phone.request("SETUP", "/s", b"nope").await;
         assert_eq!(code, "400");
-        let screen = dict([("streams", Value::Array(vec![dict([("type", Value::Int(110))])]))]);
-        let (code, _) = rig.phone.request("SETUP", "/s", &bplist::encode(&screen)).await;
+        let screen = dict([(
+            "streams",
+            Value::Array(vec![dict([("type", Value::Int(110))])]),
+        )]);
+        let (code, _) = rig
+            .phone
+            .request("SETUP", "/s", &bplist::encode(&screen))
+            .await;
         assert_eq!(code, "500");
         let (code, _) = rig.phone.request("POST", "/auth-setup", b"short").await;
         assert_eq!(code, "400");
@@ -2487,8 +2810,10 @@ pub(crate) mod tests {
         assert_eq!(code, "200");
         let (code, _) = rig.phone.request("POST", "/feedback", b"").await;
         assert_eq!(code, "200");
-        let (code, setup) =
-            rig.phone.request("POST", "/pair-setup", &tlv8::encode(&[(tlv::STATE, &[1])])).await;
+        let (code, setup) = rig
+            .phone
+            .request("POST", "/pair-setup", &tlv8::encode(&[(tlv::STATE, &[1])]))
+            .await;
         assert_eq!(code, "200");
         assert!(!setup.is_empty());
         rig.phone.sock.shutdown().await.unwrap();
@@ -2500,7 +2825,10 @@ pub(crate) mod tests {
         let mut rig = Rig::new().await;
         let secret = rig.secret;
         rig.phone.verify(&secret, b"phone-1").await;
-        let resp = rig.phone.plist("SETUP", "/s", &dict([("timingPort", Value::Int(9))])).await;
+        let resp = rig
+            .phone
+            .plist("SETUP", "/s", &dict([("timingPort", Value::Int(9))]))
+            .await;
 
         tokio::time::sleep(PHONE_SILENT * 2).await;
         let (code, _) = rig.phone.request("POST", "/feedback", b"").await;
@@ -2508,7 +2836,13 @@ pub(crate) mod tests {
 
         let clock = tokio::net::UdpSocket::bind("127.0.0.1:0").await.unwrap();
         let timing_port = int_of(&resp, "timingPort") as u16;
-        clock.send_to(&[0u8; crate::timing::PACKET_LEN], ("127.0.0.1", timing_port)).await.unwrap();
+        clock
+            .send_to(
+                &[0u8; crate::timing::PACKET_LEN],
+                ("127.0.0.1", timing_port),
+            )
+            .await
+            .unwrap();
         tokio::time::sleep(PHONE_SILENT - Duration::from_secs(1)).await;
         let (code, _) = rig.phone.request("POST", "/feedback", b"").await;
         assert_eq!(code, "200");
@@ -2531,10 +2865,19 @@ pub(crate) mod tests {
         rig.phone.plist("SETUP", "/s", &session).await;
         let video = dict([
             ("type", Value::Int(STREAM_DATA)),
-            ("clientTypeUUID", Value::String(video_playback::DATASTREAM_UUID.to_lowercase())),
+            (
+                "clientTypeUUID",
+                Value::String(video_playback::DATASTREAM_UUID.to_lowercase()),
+            ),
             ("clientUUID", Value::String("client-1".into())),
         ]);
-        rig.phone.plist("SETUP", "/s", &dict([("streams", Value::Array(vec![video]))])).await;
+        rig.phone
+            .plist(
+                "SETUP",
+                "/s",
+                &dict([("streams", Value::Array(vec![video]))]),
+            )
+            .await;
         let offer = dict([
             ("type", Value::String("setProxyParameters".into())),
             (
@@ -2548,7 +2891,9 @@ pub(crate) mod tests {
                 ]),
             ),
         ]);
-        rig.phone.request("POST", "/command", &bplist::encode(&offer)).await;
+        rig.phone
+            .request("POST", "/command", &bplist::encode(&offer))
+            .await;
 
         let kind = |t: &str| ("type", Value::String(t.into()));
         let item = dict([(
@@ -2562,14 +2907,26 @@ pub(crate) mod tests {
             dict([kind("insertPlayQueueItem"), ("item", item)]),
             dict([kind("setRate"), ("rate", Value::Real(0.0))]),
             dict([kind("seek"), ("time", time)]),
-            dict([kind("setProperty"), muted.clone(), ("value", Value::Bool(true))]),
+            dict([
+                kind("setProperty"),
+                muted.clone(),
+                ("value", Value::Bool(true)),
+            ]),
             dict([kind("setProperty"), muted, ("value", Value::Int(1))]),
             dict([kind("stop")]),
         ] {
-            let body = dict([("params", dict([("data", Value::Data(bplist::encode(&message)))]))]);
+            let body = dict([(
+                "params",
+                dict([("data", Value::Data(bplist::encode(&message)))]),
+            )]);
             let (code, _) = rig
                 .phone
-                .request_with("POST", "/command", "X-Apple-StreamID: 2\r\n", &bplist::encode(&body))
+                .request_with(
+                    "POST",
+                    "/command",
+                    "X-Apple-StreamID: 2\r\n",
+                    &bplist::encode(&body),
+                )
                 .await;
             assert_eq!(code, "200");
         }
@@ -2588,9 +2945,18 @@ pub(crate) mod tests {
             .collect();
         assert_eq!(
             calls,
-            ["play", "video_rate 0", "seek_video 12", "video_muted true", "stop_video"]
+            [
+                "play",
+                "video_rate 0",
+                "seek_video 12",
+                "video_muted true",
+                "stop_video"
+            ]
         );
-        assert!(!rig._dir.0.join("video").exists(), "without debug nothing is kept");
+        assert!(
+            !rig._dir.0.join("video").exists(),
+            "without debug nothing is kept"
+        );
     }
 
     #[tokio::test]
@@ -2603,9 +2969,18 @@ pub(crate) mod tests {
         rig.phone.plist("SETUP", "/s", &session).await;
         let video = dict([
             ("type", Value::Int(STREAM_DATA)),
-            ("clientTypeUUID", Value::String(video_playback::DATASTREAM_UUID.to_lowercase())),
+            (
+                "clientTypeUUID",
+                Value::String(video_playback::DATASTREAM_UUID.to_lowercase()),
+            ),
         ]);
-        rig.phone.plist("SETUP", "/s", &dict([("streams", Value::Array(vec![video]))])).await;
+        rig.phone
+            .plist(
+                "SETUP",
+                "/s",
+                &dict([("streams", Value::Array(vec![video]))]),
+            )
+            .await;
         let media = dict([
             ("type", Value::Int(102)),
             ("streamConnectionID", Value::Int(44)),
@@ -2613,7 +2988,13 @@ pub(crate) mod tests {
             ("audioFormat", Value::Int(0x10)),
             ("audioLatencyMs", Value::Int(1000)),
         ]);
-        rig.phone.plist("SETUP", "/s", &dict([("streams", Value::Array(vec![media]))])).await;
+        rig.phone
+            .plist(
+                "SETUP",
+                "/s",
+                &dict([("streams", Value::Array(vec![media]))]),
+            )
+            .await;
         let offer = dict([
             ("type", Value::String("setProxyParameters".into())),
             (
@@ -2627,21 +3008,35 @@ pub(crate) mod tests {
                 ]),
             ),
         ]);
-        rig.phone.request("POST", "/command", &bplist::encode(&offer)).await;
+        rig.phone
+            .request("POST", "/command", &bplist::encode(&offer))
+            .await;
 
         let item = dict([
-            ("Content-Location", Value::String("http://127.0.0.1:58539/mirror/index.m3u8".into())),
+            (
+                "Content-Location",
+                Value::String("http://127.0.0.1:58539/mirror/index.m3u8".into()),
+            ),
             ("muted", Value::Bool(true)),
         ]);
-        let message = dict([("type", Value::String("insertPlayQueueItem".into())), ("item", item)]);
+        let message = dict([
+            ("type", Value::String("insertPlayQueueItem".into())),
+            ("item", item),
+        ]);
         let body = bplist::encode(&dict([(
             "params",
             dict([("data", Value::Data(bplist::encode(&message)))]),
         )]));
-        rig.phone.request_with("POST", "/command", "X-Apple-StreamID: 2\r\n", &body).await;
+        rig.phone
+            .request_with("POST", "/command", "X-Apple-StreamID: 2\r\n", &body)
+            .await;
 
-        let plays: Vec<String> =
-            rig.media.calls().into_iter().filter(|c| c.starts_with("play_video")).collect();
+        let plays: Vec<String> = rig
+            .media
+            .calls()
+            .into_iter()
+            .filter(|c| c.starts_with("play_video"))
+            .collect();
         assert_eq!(plays.len(), 1);
         assert!(plays[0].ends_with(" muted"), "{plays:?}");
     }
@@ -2656,9 +3051,18 @@ pub(crate) mod tests {
         rig.phone.plist("SETUP", "/s", &session).await;
         let video = dict([
             ("type", Value::Int(STREAM_DATA)),
-            ("clientTypeUUID", Value::String(video_playback::DATASTREAM_UUID.to_lowercase())),
+            (
+                "clientTypeUUID",
+                Value::String(video_playback::DATASTREAM_UUID.to_lowercase()),
+            ),
         ]);
-        rig.phone.plist("SETUP", "/s", &dict([("streams", Value::Array(vec![video]))])).await;
+        rig.phone
+            .plist(
+                "SETUP",
+                "/s",
+                &dict([("streams", Value::Array(vec![video]))]),
+            )
+            .await;
         let offer = dict([
             ("type", Value::String("setProxyParameters".into())),
             (
@@ -2672,37 +3076,57 @@ pub(crate) mod tests {
                 ]),
             ),
         ]);
-        rig.phone.request("POST", "/command", &bplist::encode(&offer)).await;
+        rig.phone
+            .request("POST", "/command", &bplist::encode(&offer))
+            .await;
         let queue = || {
             let item = dict([(
                 "Content-Location",
                 Value::String("http://127.0.0.1:58539/mirror/index.m3u8".into()),
             )]);
-            let message =
-                dict([("type", Value::String("insertPlayQueueItem".into())), ("item", item)]);
+            let message = dict([
+                ("type", Value::String("insertPlayQueueItem".into())),
+                ("item", item),
+            ]);
             bplist::encode(&dict([(
                 "params",
                 dict([("data", Value::Data(bplist::encode(&message)))]),
             )]))
         };
         let video_calls = |rig: &Rig| -> Vec<String> {
-            let calls = rig.media.calls().into_iter().filter(|c| c.contains("_video"));
-            calls.map(|c| c.split(' ').next().unwrap_or_default().to_string()).collect()
+            let calls = rig
+                .media
+                .calls()
+                .into_iter()
+                .filter(|c| c.contains("_video"));
+            calls
+                .map(|c| c.split(' ').next().unwrap_or_default().to_string())
+                .collect()
         };
         let allowed = |info: &Value| {
-            let v = info.get("videoPlaybackInfo").and_then(|v| v.get("videoPlaybackAllowed"));
+            let v = info
+                .get("videoPlaybackInfo")
+                .and_then(|v| v.get("videoPlaybackAllowed"));
             v.and_then(Value::as_bool)
         };
         let qualifier = dict([("qualifier", Value::Bool(true))]);
 
-        rig.phone.request_with("POST", "/command", "X-Apple-StreamID: 2\r\n", &queue()).await;
+        rig.phone
+            .request_with("POST", "/command", "X-Apple-StreamID: 2\r\n", &queue())
+            .await;
         assert_eq!(video_calls(&rig), ["play_video"]);
 
         let wait_for = |n: usize| {
             let media = rig.media.clone();
             async move {
                 tokio::time::timeout(Duration::from_secs(5), async {
-                    while media.calls().iter().filter(|c| c.contains("_video")).count() < n {
+                    while media
+                        .calls()
+                        .iter()
+                        .filter(|c| c.contains("_video"))
+                        .count()
+                        < n
+                    {
                         tokio::time::sleep(Duration::from_millis(10)).await;
                     }
                 })
@@ -2716,18 +3140,38 @@ pub(crate) mod tests {
         assert_eq!(video_calls(&rig), ["play_video", "show_video"]);
         assert!(rig.media.calls().contains(&"show_video false".to_string()));
 
-        rig.phone.request_with("POST", "/command", "X-Apple-StreamID: 2\r\n", &queue()).await;
-        assert_eq!(video_calls(&rig), ["play_video", "show_video", "stop_video", "play_video"]);
-        assert_eq!(allowed(&rig.phone.plist("GET", "/info", &qualifier).await), Some(false));
-        let audio_only = dict([("type", Value::String("changeVideoPlaybackToAudioOnly".into()))]);
-        let (code, _) = rig.phone.request("POST", "/command", &bplist::encode(&audio_only)).await;
+        rig.phone
+            .request_with("POST", "/command", "X-Apple-StreamID: 2\r\n", &queue())
+            .await;
+        assert_eq!(
+            video_calls(&rig),
+            ["play_video", "show_video", "stop_video", "play_video"]
+        );
+        assert_eq!(
+            allowed(&rig.phone.plist("GET", "/info", &qualifier).await),
+            Some(false)
+        );
+        let audio_only = dict([(
+            "type",
+            Value::String("changeVideoPlaybackToAudioOnly".into()),
+        )]);
+        let (code, _) = rig
+            .phone
+            .request("POST", "/command", &bplist::encode(&audio_only))
+            .await;
         assert_eq!(code, "200");
 
         rig.cmds.send(StackCmd::VideoAllowed(false)).unwrap();
         rig.cmds.send(StackCmd::VideoAllowed(true)).unwrap();
         wait_for(5).await;
-        assert_eq!(rig.media.calls().last().map(String::as_str), Some("show_video true"));
-        assert_eq!(allowed(&rig.phone.plist("GET", "/info", &qualifier).await), Some(true));
+        assert_eq!(
+            rig.media.calls().last().map(String::as_str),
+            Some("show_video true")
+        );
+        assert_eq!(
+            allowed(&rig.phone.plist("GET", "/info", &qualifier).await),
+            Some(true)
+        );
     }
 
     #[tokio::test]
@@ -2736,23 +3180,42 @@ pub(crate) mod tests {
         let secret = rig.secret;
         rig.phone.verify(&secret, b"phone-1").await;
         let offered = ["hevc", video_playback::FEATURE].map(|f| Value::String(f.into()));
-        let session =
-            dict([("timingPort", Value::Int(9)), ("features", Value::Array(offered.into()))]);
+        let session = dict([
+            ("timingPort", Value::Int(9)),
+            ("features", Value::Array(offered.into())),
+        ]);
         let resp = rig.phone.plist("SETUP", "/s", &session).await;
-        let enabled = resp.get("enabledFeatures").and_then(Value::as_array).unwrap();
+        let enabled = resp
+            .get("enabledFeatures")
+            .and_then(Value::as_array)
+            .unwrap();
         assert!(enabled.contains(&Value::String(video_playback::FEATURE.into())));
 
-        let info = rig.phone.plist("GET", "/info", &dict([("qualifier", Value::Bool(true))])).await;
-        let allowed = info.get("videoPlaybackInfo").and_then(|v| v.get("videoPlaybackAllowed"));
+        let info = rig
+            .phone
+            .plist("GET", "/info", &dict([("qualifier", Value::Bool(true))]))
+            .await;
+        let allowed = info
+            .get("videoPlaybackInfo")
+            .and_then(|v| v.get("videoPlaybackAllowed"));
         assert_eq!(allowed.and_then(Value::as_bool), Some(true));
 
         let video = dict([
             ("type", Value::Int(STREAM_DATA)),
-            ("clientTypeUUID", Value::String(video_playback::DATASTREAM_UUID.to_lowercase())),
+            (
+                "clientTypeUUID",
+                Value::String(video_playback::DATASTREAM_UUID.to_lowercase()),
+            ),
             ("clientUUID", Value::String("client-1".into())),
         ]);
-        let out =
-            rig.phone.plist("SETUP", "/s", &dict([("streams", Value::Array(vec![video]))])).await;
+        let out = rig
+            .phone
+            .plist(
+                "SETUP",
+                "/s",
+                &dict([("streams", Value::Array(vec![video]))]),
+            )
+            .await;
         let stream = &out.get("streams").and_then(Value::as_array).unwrap()[0];
         assert_eq!(int_of(stream, "streamID"), 2);
         assert!(stream.get("dataPort").is_none());
@@ -2760,18 +3223,29 @@ pub(crate) mod tests {
         let payload = dict([("params", dict([("data", Value::Data(b"hello".to_vec()))]))]);
         let (code, _) = rig
             .phone
-            .request_with("POST", "/command", "X-Apple-StreamID: 2\r\n", &bplist::encode(&payload))
+            .request_with(
+                "POST",
+                "/command",
+                "X-Apple-StreamID: 2\r\n",
+                &bplist::encode(&payload),
+            )
             .await;
         assert_eq!(code, "200");
-        let session_dir =
-            std::fs::read_dir(rig._dir.0.join("video")).unwrap().next().unwrap().unwrap().path();
+        let session_dir = std::fs::read_dir(rig._dir.0.join("video"))
+            .unwrap()
+            .next()
+            .unwrap()
+            .unwrap()
+            .path();
         let kept = std::fs::read(session_dir.join("0001-stream2.bin")).unwrap();
         assert_eq!(kept, b"hello");
 
         let queue = |url: &str| {
             let item = dict([("Content-Location", Value::String(url.into()))]);
-            let message =
-                dict([("type", Value::String("insertPlayQueueItem".into())), ("item", item)]);
+            let message = dict([
+                ("type", Value::String("insertPlayQueueItem".into())),
+                ("item", item),
+            ]);
             bplist::encode(&dict([(
                 "params",
                 dict([("data", Value::Data(bplist::encode(&message)))]),
@@ -2779,8 +3253,10 @@ pub(crate) mod tests {
         };
         let mine = "http://127.0.0.1:58539/mirror/index.m3u8";
         for body in [queue(mine), queue("http:///nothing")] {
-            let (code, _) =
-                rig.phone.request_with("POST", "/command", "X-Apple-StreamID: 2\r\n", &body).await;
+            let (code, _) = rig
+                .phone
+                .request_with("POST", "/command", "X-Apple-StreamID: 2\r\n", &body)
+                .await;
             assert_eq!(code, "200");
         }
         let offer = dict([
@@ -2798,15 +3274,23 @@ pub(crate) mod tests {
         ]);
         let broken = dict([
             ("type", Value::String("setProxyParameters".into())),
-            ("params", dict([("proxyUrl", Value::String("https://phone".into()))])),
+            (
+                "params",
+                dict([("proxyUrl", Value::String("https://phone".into()))]),
+            ),
         ]);
         for command in [broken, offer] {
-            let (code, _) = rig.phone.request("POST", "/command", &bplist::encode(&command)).await;
+            let (code, _) = rig
+                .phone
+                .request("POST", "/command", &bplist::encode(&command))
+                .await;
             assert_eq!(code, "200");
         }
         for body in [queue(mine), queue("https://play.itunes.apple.com/a.m3u8")] {
-            let (code, _) =
-                rig.phone.request_with("POST", "/command", "X-Apple-StreamID: 2\r\n", &body).await;
+            let (code, _) = rig
+                .phone
+                .request_with("POST", "/command", "X-Apple-StreamID: 2\r\n", &body)
+                .await;
             assert_eq!(code, "200");
         }
 
@@ -2828,7 +3312,13 @@ pub(crate) mod tests {
         assert_eq!(int_of(stream, "streamID"), 3);
         let port = int_of(stream, "dataPort") as u16;
         let again = rig.phone.plist("SETUP", "/s", &settings()).await;
-        assert_eq!(again.get("streams").and_then(Value::as_array).map(<[Value]>::len), Some(0));
+        assert_eq!(
+            again
+                .get("streams")
+                .and_then(Value::as_array)
+                .map(<[Value]>::len),
+            Some(0)
+        );
 
         let key = hkdf_sha512(
             &rig.phone.shared,
@@ -2840,7 +3330,9 @@ pub(crate) mod tests {
         package[16..20].copy_from_slice(b"comm");
         package.extend_from_slice(b"opak");
         let mut sock = TcpStream::connect(("127.0.0.1", port)).await.unwrap();
-        sock.write_all(&ControlCipher::new([0; 32], key).encrypt(&package)).await.unwrap();
+        sock.write_all(&ControlCipher::new([0; 32], key).encrypt(&package))
+            .await
+            .unwrap();
         let kept = session_dir.join("0006-settings.bin");
         tokio::time::timeout(Duration::from_secs(5), async {
             while !kept.exists() {
@@ -2857,12 +3349,18 @@ pub(crate) mod tests {
         let mut rig = Rig::new().await;
         let secret = rig.secret;
         rig.phone.verify(&secret, b"phone-1").await;
-        let warmer = serde_json::json!({ "driverTargetC": 23 }).as_object().cloned().unwrap();
+        let warmer = serde_json::json!({ "driverTargetC": 23 })
+            .as_object()
+            .cloned()
+            .unwrap();
         rig.cmds.send(StackCmd::Climate(warmer)).unwrap();
         let offered = Value::Array(vec![Value::String(vehicle_state::FEATURE.into())]);
         let session = dict([("timingPort", Value::Int(9)), ("features", offered)]);
         let resp = rig.phone.plist("SETUP", "/s", &session).await;
-        let enabled = resp.get("enabledFeatures").and_then(Value::as_array).unwrap();
+        let enabled = resp
+            .get("enabledFeatures")
+            .and_then(Value::as_array)
+            .unwrap();
         assert!(enabled.contains(&Value::String(vehicle_state::FEATURE.into())));
         let climate = loop {
             if let StackEvent::Climate(c) = rig.event().await
@@ -2871,23 +3369,49 @@ pub(crate) mod tests {
                 break c;
             }
         };
-        assert_eq!(climate["auto"], true, "LIVI's climate waits for the vehicle state");
-        let by_hand = serde_json::json!({ "fanLevel": 6 }).as_object().cloned().unwrap();
+        assert_eq!(
+            climate["auto"], true,
+            "LIVI's climate waits for the vehicle state"
+        );
+        let by_hand = serde_json::json!({ "fanLevel": 6 })
+            .as_object()
+            .cloned()
+            .unwrap();
         rig.cmds.send(StackCmd::Climate(by_hand)).unwrap();
-        let StackEvent::Climate(climate) = rig.event().await else { panic!("no climate") };
-        assert_eq!((&climate["fanLevel"], &climate["auto"]), (&6.into(), &false.into()));
-        let info = rig.phone.plist("GET", "/info", &Value::Dict(Vec::new())).await;
+        let StackEvent::Climate(climate) = rig.event().await else {
+            panic!("no climate")
+        };
+        assert_eq!(
+            (&climate["fanLevel"], &climate["auto"]),
+            (&6.into(), &false.into())
+        );
+        let info = rig
+            .phone
+            .plist("GET", "/info", &Value::Dict(Vec::new()))
+            .await;
         let described = info.get("vehicleStateProtocolInfo").unwrap();
-        assert_eq!(described.get("pluginCount").and_then(Value::as_int), Some(1));
+        assert_eq!(
+            described.get("pluginCount").and_then(Value::as_int),
+            Some(1)
+        );
         assert!(info.get("displayPanels").is_some());
 
         let stream = dict([
             ("type", Value::Int(STREAM_DATA)),
-            ("clientTypeUUID", Value::String(vehicle_state::HIGH_PRIORITY_DATASTREAM_UUID.into())),
+            (
+                "clientTypeUUID",
+                Value::String(vehicle_state::HIGH_PRIORITY_DATASTREAM_UUID.into()),
+            ),
             ("seed", Value::Int(11)),
         ]);
-        let out =
-            rig.phone.plist("SETUP", "/s", &dict([("streams", Value::Array(vec![stream]))])).await;
+        let out = rig
+            .phone
+            .plist(
+                "SETUP",
+                "/s",
+                &dict([("streams", Value::Array(vec![stream]))]),
+            )
+            .await;
         let stream = &out.get("streams").and_then(Value::as_array).unwrap()[0];
         assert_eq!(int_of(stream, "streamID"), 2);
         let port = int_of(stream, "dataPort") as u16;
@@ -2931,11 +3455,21 @@ pub(crate) mod tests {
         assert_eq!(&plain[4..8], b"asyn");
         assert_eq!(&plain[16..20], b"cmnd");
         let outer = opack::decode(&plain[32..]).unwrap();
-        let answer =
-            opack::decode(outer.get("pluginData").and_then(opack::Value::as_data).unwrap())
-                .unwrap();
-        assert_eq!(answer.get("command").and_then(opack::Value::as_str), Some("configResponse"));
-        assert_eq!(answer.get("transactionID").and_then(opack::Value::as_int), Some(-5));
+        let answer = opack::decode(
+            outer
+                .get("pluginData")
+                .and_then(opack::Value::as_data)
+                .unwrap(),
+        )
+        .unwrap();
+        assert_eq!(
+            answer.get("command").and_then(opack::Value::as_str),
+            Some("configResponse")
+        );
+        assert_eq!(
+            answer.get("transactionID").and_then(opack::Value::as_int),
+            Some(-5)
+        );
     }
 
     #[tokio::test]
@@ -2947,9 +3481,18 @@ pub(crate) mod tests {
             let offered = Value::Array(vec![Value::String(offered.into())]);
             let session = dict([("timingPort", Value::Int(9)), ("features", offered)]);
             let resp = rig.phone.plist("SETUP", "/s", &session).await;
-            let enabled = resp.get("enabledFeatures").and_then(Value::as_array).unwrap();
-            assert_eq!(enabled.contains(&Value::String(vehicle_state::FEATURE.into())), on);
-            let info = rig.phone.plist("GET", "/info", &Value::Dict(Vec::new())).await;
+            let enabled = resp
+                .get("enabledFeatures")
+                .and_then(Value::as_array)
+                .unwrap();
+            assert_eq!(
+                enabled.contains(&Value::String(vehicle_state::FEATURE.into())),
+                on
+            );
+            let info = rig
+                .phone
+                .plist("GET", "/info", &Value::Dict(Vec::new()))
+                .await;
             assert!(info.get("vehicleStateProtocolInfo").is_some());
             assert!(info.get("displayPanels").is_some());
         }
@@ -3002,7 +3545,10 @@ pub(crate) mod tests {
         let streams = dict([(
             "streams",
             Value::Array(vec![
-                dict([("type", Value::Int(110)), ("streamConnectionID", Value::Int(42))]),
+                dict([
+                    ("type", Value::Int(110)),
+                    ("streamConnectionID", Value::Int(42)),
+                ]),
                 dict([
                     ("type", Value::Int(100)),
                     ("streamConnectionID", Value::Int(43)),
@@ -3027,7 +3573,10 @@ pub(crate) mod tests {
         assert_eq!(int_of(&out[1], "streamConnectionID"), 43);
         assert_eq!(
             rig.event().await,
-            StackEvent::VideoCodec { cluster: false, codec: ScreenCodec::H264 }
+            StackEvent::VideoCodec {
+                cluster: false,
+                codec: ScreenCodec::H264
+            }
         );
         assert_eq!(rig.event().await, StackEvent::MainScreenReady);
 
@@ -3035,19 +3584,32 @@ pub(crate) mod tests {
         assert_eq!(code, "200");
         assert_eq!(
             rig.event().await,
-            StackEvent::Active { ip: "127.0.0.1".into(), controller_id: Some("phone-1".into()) }
+            StackEvent::Active {
+                ip: "127.0.0.1".into(),
+                controller_id: Some("phone-1".into())
+            }
         );
 
         rig.media.started.send((99, 1)).unwrap();
         rig.media.started.send((9, 100)).unwrap();
-        let call = AudioProfile { kind: AudioKind::Call, label: "telephony".into() };
+        let call = AudioProfile {
+            kind: AudioKind::Call,
+            label: "telephony".into(),
+        };
         assert_eq!(
             rig.event().await,
-            StackEvent::AudioActive { profile: call.clone(), active: true }
+            StackEvent::AudioActive {
+                profile: call.clone(),
+                active: true
+            }
         );
         assert_eq!(
             rig.event().await,
-            StackEvent::MicActive { active: true, rate: 16000, channels: 1 }
+            StackEvent::MicActive {
+                active: true,
+                rate: 16000,
+                channels: 1
+            }
         );
 
         let fb = rig.phone.plist("POST", "/feedback", &dict([])).await;
@@ -3058,13 +3620,28 @@ pub(crate) mod tests {
 
         let duck = dict([
             ("type", Value::String("duckAudio".into())),
-            ("params", dict([("volume", Value::Int(0)), ("durationMs", Value::Int(500))])),
+            (
+                "params",
+                dict([("volume", Value::Int(0)), ("durationMs", Value::Int(500))]),
+            ),
         ]);
         rig.phone.plist("POST", "/command", &duck).await;
-        assert_eq!(rig.event().await, StackEvent::Duck { level: 1.0, duration_ms: 500 });
+        assert_eq!(
+            rig.event().await,
+            StackEvent::Duck {
+                level: 1.0,
+                duration_ms: 500
+            }
+        );
         let unduck = dict([("type", Value::String("unduckAudio".into()))]);
         rig.phone.plist("POST", "/command", &unduck).await;
-        assert_eq!(rig.event().await, StackEvent::Duck { level: 1.0, duration_ms: 0 });
+        assert_eq!(
+            rig.event().await,
+            StackEvent::Duck {
+                level: 1.0,
+                duration_ms: 0
+            }
+        );
         let siri = dict([
             ("type", Value::String("modesChanged".into())),
             (
@@ -3095,7 +3672,13 @@ pub(crate) mod tests {
         ]);
         rig.phone.plist("POST", "/command", &call_state).await;
         assert_eq!(rig.event().await, StackEvent::SpeechActive(false));
-        for cmd in ["requestUI", "disableBluetooth", "suggestUI", "iAPSendMessage", "mystery"] {
+        for cmd in [
+            "requestUI",
+            "disableBluetooth",
+            "suggestUI",
+            "iAPSendMessage",
+            "mystery",
+        ] {
             let body = dict([
                 ("type", Value::String(cmd.into())),
                 (
@@ -3109,26 +3692,46 @@ pub(crate) mod tests {
             rig.phone.plist("POST", "/command", &body).await;
         }
         assert_eq!(rig.event().await, StackEvent::HostUiRequested);
-        assert_eq!(rig.event().await, StackEvent::DisableBluetooth("AA:BB".into()));
+        assert_eq!(
+            rig.event().await,
+            StackEvent::DisableBluetooth("AA:BB".into())
+        );
 
-        rig.cmds.send(StackCmd::Touches(vec![Touch { x: 0.5, y: 0.5, down: true }])).unwrap();
+        rig.cmds
+            .send(StackCmd::Touches(vec![Touch {
+                x: 0.5,
+                y: 0.5,
+                down: true,
+            }]))
+            .unwrap();
         rig.cmds.send(StackCmd::Keyframe).unwrap();
         rig.cmds.send(StackCmd::NightMode(true)).unwrap();
         rig.cmds.send(StackCmd::ClusterNightMode(true)).unwrap();
         rig.cmds.send(StackCmd::LimitedUi(true)).unwrap();
         rig.cmds.send(StackCmd::Siri).unwrap();
-        rig.cmds.send(StackCmd::Media(hid::media_button::NEXT)).unwrap();
-        rig.cmds.send(StackCmd::Telephony(hid::telephony_button::DROP)).unwrap();
+        rig.cmds
+            .send(StackCmd::Media(hid::media_button::NEXT))
+            .unwrap();
+        rig.cmds
+            .send(StackCmd::Telephony(hid::telephony_button::DROP))
+            .unwrap();
         rig.cmds
             .send(StackCmd::Knob {
-                state: KnobState { x: 1.0, ..Default::default() },
+                state: KnobState {
+                    x: 1.0,
+                    ..Default::default()
+                },
                 momentary: true,
             })
             .unwrap();
         rig.cmds.send(StackCmd::KnobSelect(true)).unwrap();
         rig.cmds.send(StackCmd::ClusterActive(true)).unwrap();
         rig.cmds
-            .send(StackCmd::StreamVolume { kind: AudioKind::Call, level: 0.5, ramp_ms: 10 })
+            .send(StackCmd::StreamVolume {
+                kind: AudioKind::Call,
+                level: 0.5,
+                ramp_ms: 10,
+            })
             .unwrap();
         let mut sealed = Vec::new();
         let mut plain = Vec::new();
@@ -3147,7 +3750,12 @@ pub(crate) mod tests {
             plain = rest;
             for m in msgs {
                 let body = bplist::decode(&m.body).unwrap();
-                commands.push(body.get("type").and_then(Value::as_str).unwrap().to_string());
+                commands.push(
+                    body.get("type")
+                        .and_then(Value::as_str)
+                        .unwrap()
+                        .to_string(),
+                );
             }
         }
         assert_eq!(
@@ -3199,10 +3807,20 @@ pub(crate) mod tests {
             ]),
         )]);
         rig.phone.plist("TEARDOWN", "/s", &teardown).await;
-        assert_eq!(rig.event().await, StackEvent::AudioActive { profile: call, active: false });
         assert_eq!(
             rig.event().await,
-            StackEvent::MicActive { active: false, rate: 0, channels: 0 }
+            StackEvent::AudioActive {
+                profile: call,
+                active: false
+            }
+        );
+        assert_eq!(
+            rig.event().await,
+            StackEvent::MicActive {
+                active: false,
+                rate: 0,
+                channels: 0
+            }
         );
 
         rig.phone.sock.shutdown().await.unwrap();
@@ -3219,9 +3837,18 @@ pub(crate) mod tests {
             "close_mic 11",
             "close_screen 7",
         ] {
-            assert!(calls.iter().any(|c| c == expected), "{expected} missing from {calls:?}");
+            assert!(
+                calls.iter().any(|c| c == expected),
+                "{expected} missing from {calls:?}"
+            );
         }
-        assert!(rig.helper_lines.lock().unwrap().iter().any(|l| l == "tunnel phone-1 AA:BB"));
+        assert!(
+            rig.helper_lines
+                .lock()
+                .unwrap()
+                .iter()
+                .any(|l| l == "tunnel phone-1 AA:BB")
+        );
     }
 
     #[tokio::test]

@@ -1,5 +1,3 @@
-// MSC data groups and MOT objects of the service information carousel.
-
 use std::collections::BTreeMap;
 
 use crate::charset;
@@ -8,7 +6,6 @@ use crate::fec::crc16_ok;
 pub const DG_BODY: u8 = 4;
 pub const DG_DIRECTORY: u8 = 6;
 
-/// One segment of a MOT entity, the segmentation header already removed.
 #[derive(Debug, PartialEq, Eq)]
 pub struct DataGroup<'a> {
     pub kind: u8,
@@ -18,7 +15,6 @@ pub struct DataGroup<'a> {
     pub data: &'a [u8],
 }
 
-/// None when the CRC fails or the group carries no transport id.
 pub fn data_group(g: &[u8]) -> Option<DataGroup<'_>> {
     if g.len() < 4 {
         return None;
@@ -97,7 +93,6 @@ impl Segments {
 #[derive(Clone, Debug, Default, PartialEq, Eq)]
 pub struct Header {
     pub body_size: usize,
-    /// Header core and extension together.
     pub header_size: usize,
     pub content_type: u8,
     pub subtype: u16,
@@ -114,7 +109,6 @@ impl Header {
     }
 }
 
-/// The 7 byte header core and its extension parameters.
 pub fn header(h: &[u8]) -> Option<Header> {
     if h.len() < 7 {
         return None;
@@ -132,8 +126,11 @@ pub fn header(h: &[u8]) -> Option<Header> {
         subtype: (((h[5] & 1) as u16) << 8) | h[6] as u16,
         name: None,
     };
-    // A header that names no size of its own ends with its data.
-    let end = if header_size >= 7 { header_size.min(h.len()) } else { h.len() };
+    let end = if header_size >= 7 {
+        header_size.min(h.len())
+    } else {
+        h.len()
+    };
     let mut i = 7;
     while i < end {
         let pli = h[i] >> 6;
@@ -164,7 +161,6 @@ pub fn header(h: &[u8]) -> Option<Header> {
     Some(out)
 }
 
-/// The entries of an uncompressed MOT directory: transport id and header.
 pub fn directory(d: &[u8]) -> Option<Vec<(u16, Header)>> {
     if d.len() < 13 || d[0] & 0x80 != 0 {
         return None;
@@ -195,7 +191,6 @@ pub(crate) mod tests {
         v
     }
 
-    /// A data group with CRC, one segment, transport id and segmentation header.
     pub fn group(kind: u8, transport: u16, segment: u16, last: bool, data: &[u8]) -> Vec<u8> {
         let seg = (u16::from(last) << 15) | segment;
         let mut g = vec![0x40 | 0x20 | 0x10 | kind, 0x00];
@@ -207,7 +202,6 @@ pub(crate) mod tests {
         with_crc(g)
     }
 
-    /// Header core plus a ContentName in UTF-8.
     pub fn mot_header(body: usize, content_type: u8, subtype: u16, name: &str) -> Vec<u8> {
         let mut ext = vec![0xcc, (name.len() + 1) as u8, 0xf0];
         ext.extend_from_slice(name.as_bytes());
@@ -231,7 +225,13 @@ pub(crate) mod tests {
         let dg = data_group(&g).unwrap();
         assert_eq!(
             dg,
-            DataGroup { kind: DG_BODY, transport: 0x1234, segment: 3, last: true, data: b"abc" }
+            DataGroup {
+                kind: DG_BODY,
+                transport: 0x1234,
+                segment: 3,
+                last: true,
+                data: b"abc"
+            }
         );
         let mut broken = g.clone();
         broken[9] ^= 1;
@@ -263,7 +263,10 @@ pub(crate) mod tests {
         assert_eq!(list.len(), 2);
         assert_eq!(list[0].0, 5);
         assert_eq!(list[1].1.name.as_deref(), Some("d210.png"));
-        assert!(directory(&[0x80; 13]).is_none(), "compressed is not for SPI");
+        assert!(
+            directory(&[0x80; 13]).is_none(),
+            "compressed is not for SPI"
+        );
     }
 
     #[test]

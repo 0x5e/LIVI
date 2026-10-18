@@ -1,5 +1,3 @@
-//! The taps are pre-fader, so the bars show what arrives whether or not a sink plays it.
-
 use std::collections::HashMap;
 use std::sync::Arc;
 
@@ -9,10 +7,7 @@ use realfft::{RealFftPlanner, RealToComplex};
 pub const BANDS: usize = 24;
 const FLOOR_DB: f32 = -80.0;
 const MIN_FREQ: f32 = 20.0;
-/// Every stream shares the bands up to half of 48 kHz, a call at 16 kHz only
-/// reaches the lower ones.
 const MAX_FREQ: f32 = 24_000.0;
-/// 4096 samples at 48 kHz, the same span at any other rate.
 const WINDOW_SECS: f32 = 4096.0 / 48_000.0;
 const STALE_PUMPS: u32 = 8;
 
@@ -63,17 +58,25 @@ impl Analyzer {
         }
     }
 
-    /// Mono s16le samples.
     fn push(&mut self, samples: &[u8]) {
         self.quiet = 0;
         let (whole, _) = samples.as_chunks::<2>();
-        self.pending.extend(whole.iter().map(|s| f32::from(i16::from_le_bytes(*s)) / 32768.0));
+        self.pending.extend(
+            whole
+                .iter()
+                .map(|s| f32::from(i16::from_le_bytes(*s)) / 32768.0),
+        );
         let size = self.input.len();
         if self.pending.len() < size {
             return;
         }
         let start = (self.pending.len() - size) / self.hop * self.hop;
-        for ((x, s), w) in self.input.iter_mut().zip(&self.pending[start..]).zip(&self.window) {
+        for ((x, s), w) in self
+            .input
+            .iter_mut()
+            .zip(&self.pending[start..])
+            .zip(&self.window)
+        {
             *x = s * w;
         }
         self.pending.drain(..start + self.hop);
@@ -91,7 +94,6 @@ impl Analyzer {
     }
 }
 
-/// 0 at the floor, 1 at full scale.
 fn levels(power: &[f32; BANDS]) -> [f32; BANDS] {
     power.map(|p| {
         let db = (20.0 * (p.sqrt() + 1e-12).log10()).clamp(FLOOR_DB, 0.0);
@@ -102,13 +104,16 @@ fn levels(power: &[f32; BANDS]) -> [f32; BANDS] {
 pub struct Spectrum {
     planner: RealFftPlanner<f32>,
     streams: HashMap<u32, Analyzer>,
-    /// The last frame sent was the empty one.
     silent: bool,
 }
 
 impl Spectrum {
     pub fn new() -> Self {
-        Self { planner: RealFftPlanner::new(), streams: HashMap::new(), silent: false }
+        Self {
+            planner: RealFftPlanner::new(),
+            streams: HashMap::new(),
+            silent: false,
+        }
     }
 
     pub fn push(&mut self, stream: u32, rate: u32, samples: &[u8]) {
@@ -116,7 +121,8 @@ impl Spectrum {
             return;
         }
         if self.streams.get(&stream).is_none_or(|a| a.rate != rate) {
-            self.streams.insert(stream, Analyzer::new(rate, &mut self.planner));
+            self.streams
+                .insert(stream, Analyzer::new(rate, &mut self.planner));
         }
         if let Some(a) = self.streams.get_mut(&stream) {
             a.push(samples);
@@ -166,7 +172,9 @@ mod tests {
     }
 
     fn loudest(bands: &[f32; BANDS]) -> usize {
-        (0..BANDS).max_by(|a, b| bands[*a].total_cmp(&bands[*b])).unwrap_or(0)
+        (0..BANDS)
+            .max_by(|a, b| bands[*a].total_cmp(&bands[*b]))
+            .unwrap_or(0)
     }
 
     fn band_of(freq: f32) -> usize {

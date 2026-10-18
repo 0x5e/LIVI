@@ -1,5 +1,3 @@
-//! The media playback status channel (13).
-
 use crate::channels::text;
 use crate::consts::playback_msg;
 use crate::log::{detail, hex};
@@ -13,7 +11,6 @@ pub struct MediaPlaybackMetadata {
     pub playlist: Option<String>,
     pub duration_seconds: Option<u32>,
     pub rating: Option<u32>,
-    /// JPEG or PNG as the phone sent it.
     pub album_art: Option<Vec<u8>>,
 }
 
@@ -54,7 +51,8 @@ pub enum MediaInfoEvent {
 }
 
 fn opt<T: std::fmt::Debug>(v: &Option<T>) -> String {
-    v.as_ref().map_or_else(|| "undefined".to_string(), |v| format!("{v:?}"))
+    v.as_ref()
+        .map_or_else(|| "undefined".to_string(), |v| format!("{v:?}"))
 }
 
 #[derive(Debug, Default)]
@@ -71,7 +69,9 @@ impl MediaInfoChannel {
                     opt(&m.artist),
                     opt(&m.album),
                     opt(&m.duration_seconds),
-                    m.album_art.as_ref().map_or("none".to_string(), |a| format!("{}B", a.len())),
+                    m.album_art
+                        .as_ref()
+                        .map_or("none".to_string(), |a| format!("{}B", a.len())),
                     opt(&m.playlist)
                 );
                 Some(MediaInfoEvent::Metadata(m))
@@ -149,7 +149,9 @@ mod tests {
     #[test]
     fn metadata_and_status_are_read_field_by_field() {
         let mut c = MediaInfoChannel;
-        let meta = [0x0a, 0x01, b'S', 0x22, 0x02, 1, 2, 0x30, 0xb4, 0x01, 0x38, 0x05];
+        let meta = [
+            0x0a, 0x01, b'S', 0x22, 0x02, 1, 2, 0x30, 0xb4, 0x01, 0x38, 0x05,
+        ];
         assert_eq!(
             c.handle_message(playback_msg::METADATA, &meta),
             Some(MediaInfoEvent::Metadata(MediaPlaybackMetadata {
@@ -160,7 +162,9 @@ mod tests {
                 ..Default::default()
             }))
         );
-        let status = [0x08, 0x02, 0x12, 0x01, b'M', 0x18, 0x0a, 0x20, 0x01, 0x28, 0x00, 0x30, 0x01];
+        let status = [
+            0x08, 0x02, 0x12, 0x01, b'M', 0x18, 0x0a, 0x20, 0x01, 0x28, 0x00, 0x30, 0x01,
+        ];
         assert_eq!(
             c.handle_message(playback_msg::STATUS, &status),
             Some(MediaInfoEvent::Status(MediaPlaybackStatus {
@@ -172,9 +176,18 @@ mod tests {
                 repeat_one: Some(true),
             }))
         );
-        assert_eq!(decode_status(&[0x08, 0x09]).state, MediaPlaybackState::Unknown);
-        assert_eq!(decode_status(&[0x08, 0x01]).state, MediaPlaybackState::Stopped);
-        assert_eq!(decode_status(&[0x08, 0x03]).state, MediaPlaybackState::Paused);
+        assert_eq!(
+            decode_status(&[0x08, 0x09]).state,
+            MediaPlaybackState::Unknown
+        );
+        assert_eq!(
+            decode_status(&[0x08, 0x01]).state,
+            MediaPlaybackState::Stopped
+        );
+        assert_eq!(
+            decode_status(&[0x08, 0x03]).state,
+            MediaPlaybackState::Paused
+        );
         assert_eq!(
             decode_metadata(&[0x1a, 0x01, b'A', 0x12, 0x01, b'B', 0x2a, 0x01, b'P']).playlist,
             Some("P".into())

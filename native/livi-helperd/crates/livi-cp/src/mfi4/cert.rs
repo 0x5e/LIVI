@@ -1,6 +1,3 @@
-//! The phone's certificates arrive compressed. The DER is rebuilt to the byte, because the phone
-//! names its leaf by a hash over exactly that encoding. They chain to Apple's accessory root.
-
 use std::path::Path;
 
 use openssl::bn::{BigNum, BigNumContext};
@@ -12,21 +9,17 @@ use openssl::x509::X509;
 use super::keys::{POINT, group};
 use crate::crypto::{sha1, sha256};
 
-/// Apple Accessory Root CA - 00000001.
 const ROOT_SHA256: [u8; 32] = [
     0x77, 0x57, 0xb6, 0x1f, 0x5b, 0xe7, 0xfc, 0x25, 0x9c, 0xad, 0x89, 0xa5, 0x9c, 0x11, 0x74, 0xb9,
     0xa0, 0x62, 0x34, 0xcb, 0xcb, 0x68, 0xdc, 0xd2, 0x43, 0xde, 0x30, 0x4d, 0x86, 0x75, 0x3c, 0x00,
 ];
-/// Where the owner may put the root, next to the pairings.
 pub const ROOT_FILE: &str = "accessory-root-ca.pem";
-/// A macOS program that carries the root.
 const MACOS_CARRIER: &str = "/usr/libexec/mobileactivationd";
 
 const LEAVES: std::ops::RangeInclusive<u8> = 0xA0..=0xA3;
 const INTERMEDIATES: std::ops::RangeInclusive<u8> = 0xA4..=0xA5;
 const WITH_PLAN_ID: u8 = 0x01;
 const WITH_ACCESSORY_DATA: u8 = 0x02;
-/// The last byte of a leaf's accessory property says what kind of party holds it.
 const HELD_BY_APPLE_DEVICE: u8 = 0x03;
 
 const NAME_LEN: usize = 8;
@@ -63,9 +56,7 @@ pub struct Unpacked {
     pub der: Vec<u8>,
     pub leaf: bool,
     pub point: [u8; FULL_POINT],
-    /// The issuer's key id.
     pub authority: [u8; KEY_ID_LEN],
-    /// This certificate's own key id, what a certificate it issued names as its authority.
     pub key_id: [u8; KEY_ID_LEN],
     pub property: Option<[u8; PROPERTY_LEN]>,
 }
@@ -74,7 +65,10 @@ struct Reader<'a>(&'a [u8]);
 
 impl<'a> Reader<'a> {
     fn take(&mut self, n: usize) -> Result<&'a [u8], String> {
-        let (head, rest) = self.0.split_at_checked(n).ok_or("the certificate is cut short")?;
+        let (head, rest) = self
+            .0
+            .split_at_checked(n)
+            .ok_or("the certificate is cut short")?;
         self.0 = rest;
         Ok(head)
     }
@@ -87,7 +81,6 @@ impl<'a> Reader<'a> {
         std::str::from_utf8(self.take(n)?).map_err(|_| "a name that is no text".into())
     }
 
-    /// A DER sequence with a one byte length, kept whole.
     fn sequence(&mut self) -> Result<&'a [u8], String> {
         match self.0 {
             [0x30, len, ..] if *len < 0x80 => self.take(2 + usize::from(*len)),
@@ -108,12 +101,23 @@ pub fn unpack(compressed: &[u8]) -> Result<Unpacked, String> {
     let not_after = r.text(TIME_LEN)?;
     let subject = if leaf { None } else { Some(r.text(NAME_LEN)?) };
     let point = full_point(&r.array::<POINT>()?)?;
-    let property = if leaf { Some(r.array::<PROPERTY_LEN>()?) } else { None };
+    let property = if leaf {
+        Some(r.array::<PROPERTY_LEN>()?)
+    } else {
+        None
+    };
     let authority = r.array::<KEY_ID_LEN>()?;
-    let plan_id = if kind & WITH_PLAN_ID != 0 { Some(r.take(PLAN_ID_LEN)?) } else { None };
+    let plan_id = if kind & WITH_PLAN_ID != 0 {
+        Some(r.take(PLAN_ID_LEN)?)
+    } else {
+        None
+    };
     let signature = r.sequence()?;
-    let accessory_data =
-        if leaf && kind & WITH_ACCESSORY_DATA != 0 { Some(r.sequence()?) } else { None };
+    let accessory_data = if leaf && kind & WITH_ACCESSORY_DATA != 0 {
+        Some(r.sequence()?)
+    } else {
+        None
+    };
     if !r.0.is_empty() {
         return Err(format!("{} bytes past the certificate", r.0.len()));
     }
@@ -122,7 +126,10 @@ pub fn unpack(compressed: &[u8]) -> Result<Unpacked, String> {
     let (issuer_name, subject_name) = match subject {
         None => (
             name(&[(OID_COMMON_NAME, &format!("{AUTHORITY_PREFIX}{issuer}"))]),
-            name(&[(OID_COMMON_NAME, &upper_hex(&sha256(&[&point]))), (OID_UNIT, LEAF_UNIT)]),
+            name(&[
+                (OID_COMMON_NAME, &upper_hex(&sha256(&[&point]))),
+                (OID_UNIT, LEAF_UNIT),
+            ]),
         ),
         Some(subject) => (
             name(&[(OID_COMMON_NAME, &format!("{ROOT_PREFIX}{issuer}"))]),
@@ -132,12 +139,19 @@ pub fn unpack(compressed: &[u8]) -> Result<Unpacked, String> {
 
     let mut extensions = Vec::new();
     if !leaf {
-        extensions.push(extension(OID_BASIC_CONSTRAINTS, true, &der(0x30, &der(0x01, &[0xff]))));
+        extensions.push(extension(
+            OID_BASIC_CONSTRAINTS,
+            true,
+            &der(0x30, &der(0x01, &[0xff])),
+        ));
     }
-    extensions.push(extension(OID_AUTHORITY_KEY_ID, false, &der(0x30, &der(0x80, &authority))));
+    extensions.push(extension(
+        OID_AUTHORITY_KEY_ID,
+        false,
+        &der(0x30, &der(0x80, &authority)),
+    ));
     if !leaf {
         extensions.push(extension(OID_SUBJECT_KEY_ID, false, &der(0x04, &key_id)));
-        // keyCertSign and cRLSign.
         extensions.push(extension(OID_KEY_USAGE, true, &der(0x03, &[0x01, 0x06])));
     }
     if let Some(property) = &property {
@@ -154,7 +168,10 @@ pub fn unpack(compressed: &[u8]) -> Result<Unpacked, String> {
     let key_info = der(
         0x30,
         &[
-            der(0x30, &[der(0x06, OID_EC_PUBLIC_KEY), der(0x06, OID_P256)].concat()),
+            der(
+                0x30,
+                &[der(0x06, OID_EC_PUBLIC_KEY), der(0x06, OID_P256)].concat(),
+            ),
             bit_string(&point),
         ]
         .concat(),
@@ -163,7 +180,6 @@ pub fn unpack(compressed: &[u8]) -> Result<Unpacked, String> {
         0x30,
         &[
             der(0xa0, &der(0x02, &[2])),
-            // The point's leading bytes, the first is always 0x04, so no sign byte is needed.
             der(0x02, &point[..KEY_ID_LEN]),
             algorithm.clone(),
             with_place(issuer_name),
@@ -175,7 +191,14 @@ pub fn unpack(compressed: &[u8]) -> Result<Unpacked, String> {
         .concat(),
     );
     let der = der(0x30, &[tbs, algorithm, bit_string(signature)].concat());
-    Ok(Unpacked { der, leaf, point, authority, key_id, property })
+    Ok(Unpacked {
+        der,
+        leaf,
+        point,
+        authority,
+        key_id,
+        property,
+    })
 }
 
 fn full_point(compressed: &[u8; POINT]) -> Result<[u8; FULL_POINT], String> {
@@ -205,7 +228,6 @@ fn bit_string(bytes: &[u8]) -> Vec<u8> {
     der(0x03, &[&[0][..], bytes].concat())
 }
 
-/// Organization and state follow every name.
 fn with_place(mut entries: Vec<Vec<u8>>) -> Vec<u8> {
     entries.push(rdn(OID_ORGANIZATION, ORGANIZATION));
     entries.push(rdn(OID_STATE, STATE));
@@ -217,11 +239,21 @@ fn name(entries: &[(&[u8], &str)]) -> Vec<Vec<u8>> {
 }
 
 fn rdn(oid: &[u8], value: &str) -> Vec<u8> {
-    der(0x31, &der(0x30, &[der(0x06, oid), der(0x0c, value.as_bytes())].concat()))
+    der(
+        0x31,
+        &der(
+            0x30,
+            &[der(0x06, oid), der(0x0c, value.as_bytes())].concat(),
+        ),
+    )
 }
 
 fn extension(oid: &[u8], critical: bool, value: &[u8]) -> Vec<u8> {
-    let critical = if critical { der(0x01, &[0xff]) } else { Vec::new() };
+    let critical = if critical {
+        der(0x01, &[0xff])
+    } else {
+        Vec::new()
+    };
     der(0x30, &[der(0x06, oid), critical, der(0x04, value)].concat())
 }
 
@@ -229,7 +261,6 @@ fn apple(arc: u8) -> Vec<u8> {
     [OID_APPLE_ACCESSORY, &[arc]].concat()
 }
 
-/// UTCTime for 1950 to 2049, GeneralizedTime otherwise.
 fn time(digits: &str) -> Result<Vec<u8>, String> {
     if digits.len() != TIME_LEN || !digits.bytes().all(|b| b.is_ascii_digit()) {
         return Err(format!("a validity time {digits:?}"));
@@ -251,19 +282,22 @@ struct Issuer {
     key: PKey<Public>,
 }
 
-/// Apple's accessory root and the intermediates that proved to come from it. Without the root
-/// the chain goes unchecked, the phone's signature over the session still is.
 pub struct Trust {
     issuers: Vec<Issuer>,
     rooted: bool,
 }
 
 impl Trust {
-    /// `dir` may hold the root as [`ROOT_FILE`]. On macOS the system carries it.
     pub fn new(dir: Option<&Path>) -> Self {
         match find_root(dir) {
-            Some(root) => Self { issuers: vec![root], rooted: true },
-            None => Self { issuers: Vec::new(), rooted: false },
+            Some(root) => Self {
+                issuers: vec![root],
+                rooted: true,
+            },
+            None => Self {
+                issuers: Vec::new(),
+                rooted: false,
+            },
         }
     }
 
@@ -294,16 +328,16 @@ impl Trust {
         Ok(())
     }
 
-    /// A checked intermediate, from now on an issuer itself.
     pub fn admit(&mut self, cert: &Unpacked) -> Result<(), String> {
         self.check(cert)?;
-        self.issuers.push(Issuer { key_id: cert.key_id, key: public_key(&cert.point)? });
+        self.issuers.push(Issuer {
+            key_id: cert.key_id,
+            key: public_key(&cert.point)?,
+        });
         Ok(())
     }
 }
 
-/// The root is Apple's to hand out, so LIVI takes it from where Apple put it and knows it only
-/// by its fingerprint.
 fn find_root(dir: Option<&Path>) -> Option<Issuer> {
     let the_root = |blocks: Vec<&[u8]>| {
         blocks.into_iter().find_map(|block| {
@@ -317,7 +351,10 @@ fn find_root(dir: Option<&Path>) -> Option<Issuer> {
     {
         root = the_root(pem_blocks(&pem));
         if root.is_none() {
-            println!("[cp] mfi4: {} is not Apple's accessory root", file.display());
+            println!(
+                "[cp] mfi4: {} is not Apple's accessory root",
+                file.display()
+            );
         }
     }
     if root.is_none()
@@ -328,7 +365,10 @@ fn find_root(dir: Option<&Path>) -> Option<Issuer> {
     }
     let root = root?;
     let key_id = root.subject_key_id()?.as_slice().try_into().ok()?;
-    Some(Issuer { key_id, key: root.public_key().ok()? })
+    Some(Issuer {
+        key_id,
+        key: root.public_key().ok()?,
+    })
 }
 
 fn pem_blocks(bytes: &[u8]) -> Vec<&[u8]> {
@@ -338,7 +378,9 @@ fn pem_blocks(bytes: &[u8]) -> Vec<&[u8]> {
     let mut rest = bytes;
     while let Some(start) = rest.windows(BEGIN.len()).position(|w| w == BEGIN) {
         let from = &rest[start..];
-        let Some(end) = from.windows(END.len()).position(|w| w == END) else { break };
+        let Some(end) = from.windows(END.len()).position(|w| w == END) else {
+            break;
+        };
         out.push(&from[..end + END.len()]);
         rest = &from[end + END.len()..];
     }
@@ -356,11 +398,11 @@ fn ec_key(point: &[u8; FULL_POINT]) -> Result<EcKey<Public>, String> {
     EcKey::from_public_key(&group, &point).map_err(|e| e.to_string())
 }
 
-/// ECDSA with SHA-256 over `data`, the signature as r then s, 32 bytes each.
 pub fn signed_by(cert: &Unpacked, data: &[u8], signature: &[u8; 64]) -> Result<bool, String> {
     let r = BigNum::from_slice(&signature[..32]).map_err(|e| e.to_string())?;
     let s = BigNum::from_slice(&signature[32..]).map_err(|e| e.to_string())?;
     let sig = EcdsaSig::from_private_components(r, s).map_err(|e| e.to_string())?;
     let key = ec_key(&cert.point)?;
-    sig.verify(&sha256(&[data]), &key).map_err(|e| e.to_string())
+    sig.verify(&sha256(&[data]), &key)
+        .map_err(|e| e.to_string())
 }

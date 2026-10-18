@@ -8,7 +8,9 @@ fn key(raw: &[u8]) -> Option<LessSafeKey> {
     if raw.len() != KEY_LEN {
         return None;
     }
-    UnboundKey::new(&CHACHA20_POLY1305, raw).ok().map(LessSafeKey::new)
+    UnboundKey::new(&CHACHA20_POLY1305, raw)
+        .ok()
+        .map(LessSafeKey::new)
 }
 
 fn nonce(raw: &[u8]) -> Option<Nonce> {
@@ -21,7 +23,8 @@ pub fn seal_impl(key_raw: &[u8], nonce_raw: &[u8], pt: &[u8], aad: &[u8]) -> Opt
     let n = nonce(nonce_raw)?;
     let mut buf = Vec::with_capacity(pt.len() + TAG_LEN);
     buf.extend_from_slice(pt);
-    k.seal_in_place_append_tag(n, Aad::from(aad), &mut buf).ok()?;
+    k.seal_in_place_append_tag(n, Aad::from(aad), &mut buf)
+        .ok()?;
     Some(buf)
 }
 
@@ -42,7 +45,10 @@ mod tests {
     use super::*;
 
     fn hex(s: &str) -> Vec<u8> {
-        (0..s.len()).step_by(2).map(|i| u8::from_str_radix(&s[i..i + 2], 16).unwrap()).collect()
+        (0..s.len())
+            .step_by(2)
+            .map(|i| u8::from_str_radix(&s[i..i + 2], 16).unwrap())
+            .collect()
     }
 
     const RFC_KEY: &str = "808182838485868788898a8b8c8d8e8f909192939495969798999a9b9c9d9e9f";

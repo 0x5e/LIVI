@@ -1,7 +1,3 @@
-//! Framing of the gst-host control protocol: four bytes of payload length in
-//! host order, then one byte of opcode, four bytes of id and the rest. A
-//! payload shorter than five bytes is skipped.
-
 pub mod feed;
 pub mod ui_planes;
 
@@ -53,7 +49,6 @@ impl Framer {
     }
 }
 
-/// Encodes requests as well as replies.
 pub fn encode_reply(op: u8, id: u32, rest: &[u8]) -> Vec<u8> {
     let len = (HEAD_BYTES + rest.len()) as u32;
     let mut out = Vec::with_capacity(LEN_BYTES + len as usize);
@@ -76,10 +71,13 @@ pub fn is_cluster_plane(id: u32) -> bool {
 }
 
 pub fn feeder_of(plane_id: u32) -> u32 {
-    if is_cluster_plane(plane_id) { CLUSTER_RECV_ID } else { plane_id }
+    if is_cluster_plane(plane_id) {
+        CLUSTER_RECV_ID
+    } else {
+        plane_id
+    }
 }
 
-/// The cluster plane ids follow this order.
 pub const SCREENS: [&str; 3] = ["main", "cluster", "aux"];
 pub const MAIN_TAG: &str = "main";
 pub const VIDEO_TAG: &str = "video";
@@ -101,7 +99,6 @@ pub fn plane_place(id: u32) -> Option<(String, &'static str)> {
 
 const CODEC_MAX: usize = 15;
 
-/// `[1B codecLen][codec ascii][codec_data]`
 pub fn plane_body(codec: &str, codec_data: &[u8]) -> Vec<u8> {
     let codec = &codec.as_bytes()[..codec.len().min(CODEC_MAX)];
     let mut rest = Vec::with_capacity(1 + codec.len() + codec_data.len());
@@ -114,10 +111,12 @@ pub fn plane_body(codec: &str, codec_data: &[u8]) -> Vec<u8> {
 pub fn parse_plane_body(rest: &[u8]) -> Option<(String, &[u8])> {
     let len = usize::from(*rest.first()?).min(CODEC_MAX);
     let codec = rest.get(1..1 + len)?;
-    Some((String::from_utf8_lossy(codec).into_owned(), &rest[1 + len..]))
+    Some((
+        String::from_utf8_lossy(codec).into_owned(),
+        &rest[1 + len..],
+    ))
 }
 
-/// `[2B deviceLen LE][audio device][url]`, an empty device for the system default.
 pub fn url_body(url: &str, audio_device: &str) -> Vec<u8> {
     let device = &audio_device.as_bytes()[..audio_device.len().min(usize::from(u16::MAX))];
     let mut rest = Vec::with_capacity(2 + device.len() + url.len());
@@ -127,26 +126,22 @@ pub fn url_body(url: &str, audio_device: &str) -> Vec<u8> {
     rest
 }
 
-/// (url, audio device)
 pub fn parse_url_body(rest: &[u8]) -> Option<(String, String)> {
     let len = usize::from(u16::from_le_bytes([*rest.first()?, *rest.get(1)?]));
     let device = core::str::from_utf8(rest.get(2..2 + len)?).ok()?;
-    let url = core::str::from_utf8(&rest[2 + len..]).ok().filter(|u| !u.is_empty())?;
+    let url = core::str::from_utf8(&rest[2 + len..])
+        .ok()
+        .filter(|u| !u.is_empty())?;
     Some((url.to_owned(), device.to_owned()))
 }
 
-/// What a URL player knows about itself. Times are seconds, None while the player cannot tell,
-/// a live stream has no duration.
 #[derive(Debug, Clone, Copy, Default, PartialEq)]
 pub struct UrlStatus {
     pub position: Option<f64>,
     pub duration: Option<f64>,
-    /// (start, end) of what can be sought to.
     pub seekable: Option<(f64, f64)>,
     pub playing: bool,
-    /// Paused or playing, the stream opened.
     pub ready: bool,
-    /// Of the last buffering report, None when the player sent none.
     pub buffered_percent: Option<u8>,
     pub ended: bool,
     pub failed: bool,
@@ -158,8 +153,6 @@ const STATUS_ENDED: u8 = 4;
 const STATUS_FAILED: u8 = 8;
 const STATUS_BUFFERING: u8 = 16;
 
-/// `[1B flags][1B buffered percent][8B position][8B duration][8B seek start][8B seek end]`,
-/// times as f64 LE, NaN for none.
 pub fn url_status_body(s: &UrlStatus) -> Vec<u8> {
     let flag = |on: bool, bit: u8| if on { bit } else { 0 };
     let flags = flag(s.playing, STATUS_PLAYING)
@@ -208,7 +201,14 @@ mod tests {
         let mut f = Framer::new();
         f.push(&frame(2, 0x7a00_0001, &[1, 2, 3]));
 
-        assert_eq!(f.next_message(), Some(Message { op: 2, id: 0x7a00_0001, rest: vec![1, 2, 3] }));
+        assert_eq!(
+            f.next_message(),
+            Some(Message {
+                op: 2,
+                id: 0x7a00_0001,
+                rest: vec![1, 2, 3]
+            })
+        );
         assert_eq!(f.next_message(), None);
     }
 
@@ -252,7 +252,14 @@ mod tests {
         let mut f = Framer::new();
         f.push(&frame(3, 99, &[]));
 
-        assert_eq!(f.next_message(), Some(Message { op: 3, id: 99, rest: vec![] }));
+        assert_eq!(
+            f.next_message(),
+            Some(Message {
+                op: 3,
+                id: 99,
+                rest: vec![]
+            })
+        );
     }
 
     #[test]
@@ -267,8 +274,14 @@ mod tests {
     fn every_plane_has_its_tag_and_screen() {
         assert_eq!(plane_place(PLANE_MAIN), Some(("main".into(), "main")));
         assert_eq!(plane_place(PLANE_VIDEO), Some(("video".into(), "main")));
-        assert_eq!(plane_place(CLUSTER_PLANE_MIN + 1), Some(("cluster-cluster".into(), "cluster")));
-        assert_eq!(plane_place(CLUSTER_PLANE_MAX), Some(("cluster-aux".into(), "aux")));
+        assert_eq!(
+            plane_place(CLUSTER_PLANE_MIN + 1),
+            Some(("cluster-cluster".into(), "cluster"))
+        );
+        assert_eq!(
+            plane_place(CLUSTER_PLANE_MAX),
+            Some(("cluster-aux".into(), "aux"))
+        );
         assert_eq!(plane_place(PLANE_CLUSTER_RECV), None);
         assert_eq!(plane_place(CLUSTER_PLANE_MAX + 1), None);
     }
@@ -277,7 +290,10 @@ mod tests {
     fn a_plane_body_comes_back_apart() {
         let body = plane_body("h265", &[1, 2]);
         assert_eq!(body, [&[4u8][..], b"h265", &[1, 2]].concat());
-        assert_eq!(parse_plane_body(&body), Some(("h265".into(), &[1u8, 2][..])));
+        assert_eq!(
+            parse_plane_body(&body),
+            Some(("h265".into(), &[1u8, 2][..]))
+        );
         assert_eq!(parse_plane_body(&[4, b'h', b'2']), None);
         assert_eq!(parse_plane_body(&[]), None);
     }
@@ -311,7 +327,10 @@ mod tests {
         assert_eq!(out.len(), 4 + 5 + 2);
         assert_eq!(u32::from_ne_bytes([out[0], out[1], out[2], out[3]]), 7);
         assert_eq!(out[4], 2);
-        assert_eq!(u32::from_ne_bytes([out[5], out[6], out[7], out[8]]), 0x0102_0304);
+        assert_eq!(
+            u32::from_ne_bytes([out[5], out[6], out[7], out[8]]),
+            0x0102_0304
+        );
         assert_eq!(&out[9..], &[7, 8]);
     }
 
@@ -328,7 +347,11 @@ mod tests {
             failed: true,
         };
         assert_eq!(parse_url_status(&url_status_body(&full)), Some(full));
-        let live = UrlStatus { position: Some(3.0), ready: true, ..Default::default() };
+        let live = UrlStatus {
+            position: Some(3.0),
+            ready: true,
+            ..Default::default()
+        };
         assert_eq!(parse_url_status(&url_status_body(&live)), Some(live));
         assert_eq!(parse_url_status(&url_status_body(&live)[..20]), None);
         assert_eq!(parse_url_status(&[1]), None);

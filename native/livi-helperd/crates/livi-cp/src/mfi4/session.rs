@@ -1,7 +1,3 @@
-//! One mutual authentication per control connection. The phone opens, both send their
-//! certificate hashes and signatures sealed, then each asks for the other's certificate. After
-//! that the channel carries pair-setup and the transcript check.
-
 use std::path::Path;
 
 use super::cert::{self, Trust, Unpacked};
@@ -41,7 +37,6 @@ mod id {
 
 const LOWEST_VERSION: u8 = 2;
 const OUR_VERSION: u8 = 3;
-/// The phone proves itself with a device certificate, we answer as the responder.
 const PHONE_PROVES_AS_DEVICE: u8 = 1;
 const WE_RESPOND: u8 = 2;
 const OUR_CHAIN_IS_ACCESSORY: u8 = 0;
@@ -55,7 +50,6 @@ const SIGNATURE: usize = 64;
 const PREFIX: usize = 16;
 const PAIRING_DATA: u8 = 1;
 
-/// Where a payload the phone sends through the channel goes, and what comes back.
 pub type Tunnel<'a> = &'a mut (dyn FnMut(&[u8]) -> Result<Vec<u8>, String> + Send);
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -86,18 +80,15 @@ pub struct Session {
     trust: Trust,
     leaf_waiting: Option<Unpacked>,
     tunnel_out: Vec<u8>,
-    /// The phone said it binds the pairing to this session, the channel only opens then.
     pub binds_pairing: bool,
 }
 
-/// How a step ends when it cannot go on, each with its own answer to the phone.
 enum Fault {
     Malformed(String),
     Operation(String),
 }
 
 impl Session {
-    /// `root_dir` may hold Apple's accessory root, see [`cert::ROOT_FILE`].
     pub fn new(root_dir: Option<&Path>) -> Self {
         let trust = Trust::new(root_dir);
         if !trust.rooted() {
@@ -131,8 +122,6 @@ impl Session {
         self.step == Step::Proven
     }
 
-    /// One message in, the answer out. Err when the phone gave up or the chip cannot do it,
-    /// which the caller turns into a 500.
     pub async fn handle(
         &mut self,
         body: &[u8],
@@ -239,7 +228,11 @@ impl Session {
             || auth_types.len() > MAX_AUTH_TYPES
             || capabilities.len() > MAX_CAPABILITIES
         {
-            return Err(format!("{} kinds, {} capabilities", auth_types.len(), capabilities.len()));
+            return Err(format!(
+                "{} kinds, {} capabilities",
+                auth_types.len(),
+                capabilities.len()
+            ));
         }
         if !auth_types.contains(&WE_RESPOND) {
             return Err(format!("the phone offers {auth_types:?}, we only respond"));
@@ -268,8 +261,12 @@ impl Session {
     async fn start(&mut self, msg: &Message, chip: &impl MfiSigner) -> Result<Message, Fault> {
         let malformed = |what: &str| Fault::Malformed(format!("AuthStart: {what}"));
         let nonce = msg.u16(0).ok_or_else(|| malformed("no nonce"))?;
-        let point = msg.exact::<POINT>(1).ok_or_else(|| malformed("no 33 byte key"))?;
-        let sealed = msg.exact::<{ HASH + SIGNATURE + TAG }>(2).ok_or_else(|| malformed("seal"))?;
+        let point = msg
+            .exact::<POINT>(1)
+            .ok_or_else(|| malformed("no 33 byte key"))?;
+        let sealed = msg
+            .exact::<{ HASH + SIGNATURE + TAG }>(2)
+            .ok_or_else(|| malformed("seal"))?;
         if nonce == 0 || nonce == u16::MAX {
             return Err(malformed("a reserved nonce"));
         }
@@ -288,8 +285,10 @@ impl Session {
         .concat();
         let context = [&[keys::SIGMA][..], &ephemeral.public, &point, &negotiation].concat();
         let mut keys = keys::derive(&shared, &context);
-        let opened =
-            keys.start.open(&[], &sealed).ok_or_else(|| malformed("the seal does not open"))?;
+        let opened = keys
+            .start
+            .open(&[], &sealed)
+            .ok_or_else(|| malformed("the seal does not open"))?;
         self.phone_hash.copy_from_slice(&opened[..HASH]);
         self.phone_signature.copy_from_slice(&opened[HASH..]);
         self.phone_point = point;
@@ -327,27 +326,39 @@ impl Session {
             return Err(malformed(format!("kind {kind} with {ids:?}")));
         }
         self.trust.admit(&unpacked).map_err(malformed)?;
-        let leaf = self.leaf_waiting.take().ok_or_else(|| malformed("no leaf before".into()))?;
+        let leaf = self
+            .leaf_waiting
+            .take()
+            .ok_or_else(|| malformed("no leaf before".into()))?;
         self.finish(leaf, chip).await
     }
 
     async fn finish(&mut self, leaf: Unpacked, chip: &impl MfiSigner) -> Result<Message, Fault> {
-        self.trust.check(&leaf).map_err(|e| Fault::Malformed(format!("phone leaf: {e}")))?;
+        self.trust
+            .check(&leaf)
+            .map_err(|e| Fault::Malformed(format!("phone leaf: {e}")))?;
         let keys = self.keys.as_ref().expect("derived at start");
         let ours = self.ephemeral.as_ref().expect("set up before").public;
         let phone_mac = keys::cmac(&keys.phone_mac, &self.phone_hash);
         let theirs = keys::signed_data(&ours, &self.phone_point, &phone_mac);
         if !cert::signed_by(&leaf, &theirs, &self.phone_signature).map_err(Fault::Malformed)? {
-            return Err(Fault::Malformed("the phone's signature does not verify".into()));
+            return Err(Fault::Malformed(
+                "the phone's signature does not verify".into(),
+            ));
         }
         let our_mac = keys::cmac(&keys.our_mac, &self.our_hash);
         let digest = sha256(&[&keys::signed_data(&ours, &self.phone_point, &our_mac)]);
         let signature = chip.sign(&digest).await.map_err(Fault::Operation)?;
         if signature.len() != SIGNATURE {
-            return Err(Fault::Operation(format!("a {} byte signature", signature.len())));
+            return Err(Fault::Operation(format!(
+                "a {} byte signature",
+                signature.len()
+            )));
         }
         self.step = Step::Finished;
-        Ok(Message::new(self.session_id, id::FINISH).with(0, self.our_hash).with(1, signature))
+        Ok(Message::new(self.session_id, id::FINISH)
+            .with(0, self.our_hash)
+            .with(1, signature))
     }
 
     fn our_cert(&mut self, msg: &Message) -> Result<Message, Fault> {
@@ -359,8 +370,12 @@ impl Session {
                     .with(2, self.our_prefix))
             }
             (Some(_), None) => Err(Fault::Operation("the phone asks for another hash".into())),
-            (None, Some(_)) => Err(Fault::Operation("the phone asks for an intermediate".into())),
-            _ => Err(Fault::Malformed("certificate request without hash or key id".into())),
+            (None, Some(_)) => Err(Fault::Operation(
+                "the phone asks for an intermediate".into(),
+            )),
+            _ => Err(Fault::Malformed(
+                "certificate request without hash or key id".into(),
+            )),
         }
     }
 
@@ -374,7 +389,10 @@ impl Session {
             if inner.start != TUNNELED
                 || ![id::TUNNELED_FROM_PHONE, id::TUNNELED_FROM_US].contains(&inner.id)
             {
-                return Err(format!("tunneled {:#06x} under {:#06x}", inner.id, inner.start));
+                return Err(format!(
+                    "tunneled {:#06x} under {:#06x}",
+                    inner.id, inner.start
+                ));
             }
             tunnel(inner.param(1).ok_or("tunneled message without data")?)
         })();
@@ -406,13 +424,19 @@ impl Session {
         let plain = channel.open(&body[..HEADER], &body[HEADER..])?;
         let params = wire::decode_params(&plain).ok()?;
         let (start, msg_id) = wire::peek(body)?;
-        Some(Message { start, id: msg_id, params })
+        Some(Message {
+            start,
+            id: msg_id,
+            params,
+        })
     }
 
     fn seal(&mut self, msg: &Message) -> Vec<u8> {
         let params = msg.encode_params();
         let header = msg.header(params.len() + TAG);
-        let channel = self.channel(msg.id, true).expect("keys before anything is sealed");
+        let channel = self
+            .channel(msg.id, true)
+            .expect("keys before anything is sealed");
         [&header[..], &channel.seal(&header, &params)].concat()
     }
 }
@@ -421,7 +445,6 @@ fn clear(msg_id: u16) -> Vec<u8> {
     Message::new(CLEAR, msg_id).encode()
 }
 
-/// A parameter that may repeat, each a single byte.
 fn single_bytes(msg: &Message, param: u16) -> Result<Vec<u8>, String> {
     msg.all(param)
         .map(|v| match v {

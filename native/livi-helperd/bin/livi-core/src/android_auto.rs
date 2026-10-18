@@ -22,7 +22,11 @@ const CALL_TAG: &str = "call";
 
 pub fn codecs(probe: &serde_json::Value) -> Codecs {
     let hw = |codec: &str| probe[codec]["hw"].as_bool().unwrap_or(false);
-    Codecs { hevc: crate::carplay::offers_hevc(probe), vp9: hw("vp9"), av1: hw("av1") }
+    Codecs {
+        hevc: crate::carplay::offers_hevc(probe),
+        vp9: hw("vp9"),
+        av1: hw("av1"),
+    }
 }
 
 fn codec(c: VideoCodec) -> Codec {
@@ -34,12 +38,12 @@ fn codec(c: VideoCodec) -> Codec {
     }
 }
 
-/// Coordinates are 0 to 1. The stream is the screen's picture plus the margins its tier adds.
 pub fn to_stream(x: f64, y: f64, crop: Option<&Crop>) -> (f64, f64) {
     match crop {
-        Some(c) if c.tier_w > 0.0 && c.tier_h > 0.0 => {
-            ((c.crop_l + x * c.vis_w) / c.tier_w, (c.crop_t + y * c.vis_h) / c.tier_h)
-        }
+        Some(c) if c.tier_w > 0.0 && c.tier_h > 0.0 => (
+            (c.crop_l + x * c.vis_w) / c.tier_w,
+            (c.crop_t + y * c.vis_h) / c.tier_h,
+        ),
         _ => (x, y),
     }
 }
@@ -66,20 +70,14 @@ struct Audio {
     opening: Vec<OutputKey>,
     keys: HashMap<u32, OutputKey>,
     levels: HashMap<AudioKind, f64>,
-    /// The helper feeds the call stream itself, it plays while a session has the front.
     call_active: bool,
 }
 
-/// A session's own streams into the planes and outputs all sessions share, so one session's
-/// hold never reaches another's picture or sound.
 #[derive(Default)]
 struct Feeds {
     active: bool,
-    /// By cluster.
     video: BTreeMap<bool, u32>,
-    /// By cluster.
     codecs: BTreeMap<bool, Codec>,
-    /// By the output stream.
     audio: BTreeMap<u32, u32>,
 }
 
@@ -89,7 +87,6 @@ struct Sessions {
     front: Option<SessionId>,
 }
 
-/// `round` tells a late answer of an earlier call apart.
 #[derive(Default)]
 struct Call {
     up: bool,
@@ -125,7 +122,10 @@ impl GstAaMedia {
             plane,
             clusters,
             state,
-            audio: Arc::new(Mutex::new(Audio { call_active: true, ..Default::default() })),
+            audio: Arc::new(Mutex::new(Audio {
+                call_active: true,
+                ..Default::default()
+            })),
             opened: broadcast::channel(16).0,
             crop: watch::channel(None).0,
             call: Mutex::new(Call::default()),
@@ -159,7 +159,11 @@ impl GstAaMedia {
         let streams: Vec<u32> = {
             let mut a = self.audio();
             a.call_active = active;
-            a.outputs.iter().filter(|o| is_call(o)).map(|o| o.stream).collect()
+            a.outputs
+                .iter()
+                .filter(|o| is_call(o))
+                .map(|o| o.stream)
+                .collect()
         };
         for stream in streams {
             self.gst.set_audio_active(stream, active);
@@ -186,7 +190,12 @@ impl GstAaMedia {
         };
         println!("[core] call audio up");
         let mut opened = self.opened.subscribe();
-        let open = self.audio().outputs.iter().find(|o| is_call(o)).map(|o| o.stream);
+        let open = self
+            .audio()
+            .outputs
+            .iter()
+            .find(|o| is_call(o))
+            .map(|o| o.stream);
         let (me, helper) = (self.clone(), helper.clone());
         tokio::spawn(async move {
             let stream = match open {
@@ -214,7 +223,13 @@ impl GstAaMedia {
         if open.is_none() {
             self.prime_audio(AudioKind::Call, SCO_RATE, SCO_CHANNELS, CALL_TAG);
         }
-        let device = self.state.borrow().config.audio_input_device.clone().unwrap_or_default();
+        let device = self
+            .state
+            .borrow()
+            .config
+            .audio_input_device
+            .clone()
+            .unwrap_or_default();
         let tap = self.open_mic_tap(SCO_MIC_SOCK, SCO_RATE, SCO_CHANNELS, &device);
         if tap.is_none() {
             eprintln!("[core] no microphone tap, the caller hears nothing");
@@ -241,8 +256,12 @@ impl GstAaMedia {
         });
         let streams: Vec<u32> = {
             let mut a = self.audio();
-            let gone: Vec<u32> =
-                a.outputs.iter().filter(|o| is_call(o)).map(|o| o.stream).collect();
+            let gone: Vec<u32> = a
+                .outputs
+                .iter()
+                .filter(|o| is_call(o))
+                .map(|o| o.stream)
+                .collect();
             a.outputs.retain(|o| !is_call(o));
             a.keys.retain(|stream, _| !gone.contains(stream));
             gone
@@ -290,7 +309,14 @@ impl AaMedia for GstAaMedia {
     }
 
     fn video_feed(&self, session: SessionId, cluster: bool) -> u32 {
-        self.feed(session, FeedTarget::Plane(if cluster { PLANE_CLUSTER_RECV } else { PLANE_MAIN }))
+        self.feed(
+            session,
+            FeedTarget::Plane(if cluster {
+                PLANE_CLUSTER_RECV
+            } else {
+                PLANE_MAIN
+            }),
+        )
     }
 
     fn prime_video(&self, session: SessionId, cluster: bool, video: VideoCodec) {
@@ -315,8 +341,10 @@ impl AaMedia for GstAaMedia {
         }
         let cfg = self.state.borrow().config.clone();
         if crate::carplay::cluster_displayed(&cfg) {
-            self.clusters
-                .set_crop(crop_for((width, height), (cfg.cluster_width, cfg.cluster_height)));
+            self.clusters.set_crop(crop_for(
+                (width, height),
+                (cfg.cluster_width, cfg.cluster_height),
+            ));
         }
     }
 
@@ -324,14 +352,17 @@ impl AaMedia for GstAaMedia {
         self.feed(session, FeedTarget::Audio(stream))
     }
 
-    /// A session coming back to the front finds the plane as another phone
-    /// left it, so its own codec and crop go there again.
     fn set_active(&self, session: SessionId, active: bool) {
         let (feeds, codecs, front) = {
             let mut sessions = self.sessions();
             let feeds = sessions.feeds.entry(session).or_default();
             feeds.active = active;
-            let ids: Vec<u32> = feeds.video.values().chain(feeds.audio.values()).copied().collect();
+            let ids: Vec<u32> = feeds
+                .video
+                .values()
+                .chain(feeds.audio.values())
+                .copied()
+                .collect();
             let codecs = feeds.codecs.clone();
             if active {
                 sessions.front = Some(session);
@@ -364,8 +395,9 @@ impl AaMedia for GstAaMedia {
             }
             sessions.feeds.remove(&session)
         };
-        for feed in
-            feeds.into_iter().flat_map(|f| f.video.into_values().chain(f.audio.into_values()))
+        for feed in feeds
+            .into_iter()
+            .flat_map(|f| f.video.into_values().chain(f.audio.into_values()))
         {
             self.gst.close_feed_route(feed);
         }
@@ -399,7 +431,13 @@ impl AaMedia for GstAaMedia {
             latency_ms: 0,
             realtime: false,
             fed: true,
-            device: self.state.borrow().config.audio_output_device.clone().unwrap_or_default(),
+            device: self
+                .state
+                .borrow()
+                .config
+                .audio_output_device
+                .clone()
+                .unwrap_or_default(),
         };
         let fallback = config_level(&self.state.borrow(), kind);
         let (gst, audio, opened) = (self.gst.clone(), self.audio.clone(), self.opened.clone());
@@ -411,11 +449,19 @@ impl AaMedia for GstAaMedia {
                 if stream == 0 {
                     return;
                 }
-                let output = AudioOutput { kind, stream, tag: Some(key.3.clone()) };
+                let output = AudioOutput {
+                    kind,
+                    stream,
+                    tag: Some(key.3.clone()),
+                };
                 let active = !is_call(&output) || a.call_active;
                 a.keys.insert(stream, key);
                 a.outputs.push(output.clone());
-                (output, a.levels.get(&kind).copied().unwrap_or(fallback), active)
+                (
+                    output,
+                    a.levels.get(&kind).copied().unwrap_or(fallback),
+                    active,
+                )
             };
             gst.set_audio_active(stream, active);
             gst.set_audio_volume(stream, level, 0);
@@ -427,7 +473,11 @@ impl AaMedia for GstAaMedia {
         let streams: Vec<u32> = {
             let mut a = self.audio();
             a.levels.insert(kind, level);
-            a.outputs.iter().filter(|o| o.kind == kind).map(|o| o.stream).collect()
+            a.outputs
+                .iter()
+                .filter(|o| o.kind == kind)
+                .map(|o| o.stream)
+                .collect()
         };
         for stream in streams {
             self.gst.set_audio_volume(stream, level, ramp_ms);
@@ -520,7 +570,10 @@ mod tests {
         async fn connect(sock: &std::path::Path) -> Self {
             for _ in 0..200 {
                 if let Ok(stream) = UnixStream::connect(sock).await {
-                    return Self { stream, framer: Framer::new() };
+                    return Self {
+                        stream,
+                        framer: Framer::new(),
+                    };
                 }
                 tokio::time::sleep(Duration::from_millis(10)).await;
             }
@@ -549,7 +602,11 @@ mod tests {
         config.projection_height = 600;
         config.voice_assistant_volume = 0.5;
         State {
-            front: PerScreen { main: Front::Livi, cluster: Front::Livi, aux: Front::Livi },
+            front: PerScreen {
+                main: Front::Livi,
+                cluster: Front::Livi,
+                aux: Front::Livi,
+            },
             sessions: Default::default(),
             now_playing: Default::default(),
             telemetry: Default::default(),
@@ -579,10 +636,19 @@ mod tests {
             tier_w: 1280.0,
             tier_h: 720.0,
         };
-        assert_eq!(to_stream(0.0, 0.0, Some(&crop)), (40.0 / 1280.0, 60.0 / 720.0));
-        assert_eq!(to_stream(1.0, 1.0, Some(&crop)), (1240.0 / 1280.0, 660.0 / 720.0));
+        assert_eq!(
+            to_stream(0.0, 0.0, Some(&crop)),
+            (40.0 / 1280.0, 60.0 / 720.0)
+        );
+        assert_eq!(
+            to_stream(1.0, 1.0, Some(&crop)),
+            (1240.0 / 1280.0, 660.0 / 720.0)
+        );
         assert_eq!(to_stream(0.3, 0.6, None), (0.3, 0.6));
-        let empty = Crop { tier_w: 0.0, ..crop };
+        let empty = Crop {
+            tier_w: 0.0,
+            ..crop
+        };
         assert_eq!(to_stream(0.3, 0.6, Some(&empty)), (0.3, 0.6));
     }
 
@@ -594,7 +660,14 @@ mod tests {
             "vp9": { "hw": true, "sw": true },
             "av1": { "hw": false, "sw": true }
         });
-        assert_eq!(codecs(&probe), Codecs { hevc: false, vp9: true, av1: false });
+        assert_eq!(
+            codecs(&probe),
+            Codecs {
+                hevc: false,
+                vp9: true,
+                av1: false
+            }
+        );
         assert_eq!(codecs(&json!({})), Codecs::default());
     }
 
@@ -616,14 +689,23 @@ mod tests {
         let mut host = FakeHost::connect(&sock).await;
         let (op, id, _) = host.next().await;
         assert_eq!(op, OP_AUDIO_OPEN);
-        host.stream.write_all(&encode_reply(REPLY_AUDIO_PORTS, id, &[0, 0, 0, 0])).await.unwrap();
+        host.stream
+            .write_all(&encode_reply(REPLY_AUDIO_PORTS, id, &[0, 0, 0, 0]))
+            .await
+            .unwrap();
         assert_eq!(host.next().await, (OP_AUDIO_ACTIVE, id, vec![1]));
         assert_eq!(host.next().await, (OP_AUDIO_VOLUME, id, volume(0.5, 0)));
-        let output =
-            tokio::time::timeout(Duration::from_secs(5), opened.recv()).await.unwrap().unwrap();
+        let output = tokio::time::timeout(Duration::from_secs(5), opened.recv())
+            .await
+            .unwrap()
+            .unwrap();
         assert_eq!(
             output,
-            AudioOutput { kind: AudioKind::Speech, stream: id, tag: Some("speech".into()) }
+            AudioOutput {
+                kind: AudioKind::Speech,
+                stream: id,
+                tag: Some("speech".into())
+            }
         );
         assert_eq!(media.audio_outputs(), [output]);
 
@@ -651,9 +733,15 @@ mod tests {
 
         let wifi = media.video_feed(1, false);
         let mut host = FakeHost::connect(&sock).await;
-        assert_eq!(host.next().await, (OP_FEED_ROUTE, wifi, route(0, PLANE_MAIN, false)));
+        assert_eq!(
+            host.next().await,
+            (OP_FEED_ROUTE, wifi, route(0, PLANE_MAIN, false))
+        );
         let wifi_speech = media.audio_feed(1, 0x7b00_0040);
-        assert_eq!(host.next().await, (OP_FEED_ROUTE, wifi_speech, route(1, 0x7b00_0040, false)));
+        assert_eq!(
+            host.next().await,
+            (OP_FEED_ROUTE, wifi_speech, route(1, 0x7b00_0040, false))
+        );
         assert_eq!(media.video_feed(1, false), wifi);
         media.set_active(1, true);
         assert_eq!(host.next().await, (OP_SET_ACTIVE, wifi, vec![1]));
@@ -661,11 +749,18 @@ mod tests {
 
         media.set_active(2, true);
         let usb = media.video_feed(2, false);
-        assert_eq!(host.next().await, (OP_FEED_ROUTE, usb, route(0, PLANE_MAIN, true)));
+        assert_eq!(
+            host.next().await,
+            (OP_FEED_ROUTE, usb, route(0, PLANE_MAIN, true))
+        );
         let usb_cluster = media.video_feed(2, true);
         assert_eq!(
             host.next().await,
-            (OP_FEED_ROUTE, usb_cluster, route(0, PLANE_CLUSTER_RECV, true))
+            (
+                OP_FEED_ROUTE,
+                usb_cluster,
+                route(0, PLANE_CLUSTER_RECV, true)
+            )
         );
 
         media.set_active(1, false);
@@ -694,7 +789,10 @@ mod tests {
 
         let back = media.video_feed(2, false);
         let mut host = FakeHost::connect(&sock).await;
-        assert_eq!(host.next().await, (OP_FEED_ROUTE, back, route(0, PLANE_MAIN, false)));
+        assert_eq!(
+            host.next().await,
+            (OP_FEED_ROUTE, back, route(0, PLANE_MAIN, false))
+        );
         media.prime_video(2, false, VideoCodec::H265);
         tokio::time::sleep(Duration::from_millis(100)).await;
         media.release(2);
@@ -708,8 +806,10 @@ mod tests {
     }
 
     async fn helper_line(listener: &tokio::net::UnixListener) -> String {
-        let (sock, _) =
-            tokio::time::timeout(Duration::from_secs(5), listener.accept()).await.unwrap().unwrap();
+        let (sock, _) = tokio::time::timeout(Duration::from_secs(5), listener.accept())
+            .await
+            .unwrap()
+            .unwrap();
         let (read, mut write) = sock.into_split();
         let mut line = String::new();
         tokio::io::AsyncBufReadExt::read_line(&mut tokio::io::BufReader::new(read), &mut line)
@@ -746,19 +846,29 @@ mod tests {
         let mut host = FakeHost::connect(&sock).await;
         let mut first = vec![host.next().await, host.next().await];
         first.sort_by_key(|(op, _, _)| *op);
-        let [(open, stream, _), (tap_op, tap, tap_body)] = first.as_slice() else { panic!() };
+        let [(open, stream, _), (tap_op, tap, tap_body)] = first.as_slice() else {
+            panic!()
+        };
         assert_eq!((*open, *tap_op), (OP_AUDIO_OPEN, OP_TAP_OPEN));
         assert!(tap_body.ends_with(b"mic1/tmp/aa-sco.mic"));
         let stream = *stream;
-        host.stream.write_all(&encode_reply(REPLY_AUDIO_PORTS, stream, &[0; 4])).await.unwrap();
+        host.stream
+            .write_all(&encode_reply(REPLY_AUDIO_PORTS, stream, &[0; 4]))
+            .await
+            .unwrap();
         assert_eq!(host.next().await, (OP_AUDIO_ACTIVE, stream, vec![1]));
         assert_eq!(host.next().await.0, OP_AUDIO_VOLUME);
         let (op, _, _) = host.next().await;
         assert_eq!(op, OP_FEED_OPEN);
-        host.stream.write_all(&encode_reply(REPLY_FEED, 0, b"/run/feed")).await.unwrap();
-        assert_eq!(helper_line(&listener).await, format!("sco-sink /run/feed {stream}"));
+        host.stream
+            .write_all(&encode_reply(REPLY_FEED, 0, b"/run/feed"))
+            .await
+            .unwrap();
+        assert_eq!(
+            helper_line(&listener).await,
+            format!("sco-sink /run/feed {stream}")
+        );
 
-        // The caller follows whichever session has the front, a late hold of another leaves it.
         media.set_active(1, true);
         media.set_active(2, true);
         media.set_active(1, false);

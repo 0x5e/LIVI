@@ -84,13 +84,26 @@ async fn a_wired_phone_hears_the_start_again_without_its_session_ending() {
     let state = Arc::new(HelperState::default());
     let again = Arc::new(Notify::new());
     state.wired_started("00008120", Arc::new(Notify::new()), again.clone());
-    let server =
-        tokio::spawn(serve(config(&path), MockAuth, no_bluez(), Broadcaster::default(), state));
+    let server = tokio::spawn(serve(
+        config(&path),
+        MockAuth,
+        no_bluez(),
+        Broadcaster::default(),
+        state,
+    ));
     listening(&path).await;
 
-    assert!(request(&path, "start-wired 00008120").await.contains("\"ok\":true"));
+    assert!(
+        request(&path, "start-wired 00008120")
+            .await
+            .contains("\"ok\":true")
+    );
     again.notified().await;
-    assert!(request(&path, "start-wired 00008030").await.contains("\"ok\":false"));
+    assert!(
+        request(&path, "start-wired 00008030")
+            .await
+            .contains("\"ok\":false")
+    );
 
     server.abort();
     let _ = std::fs::remove_file(&path);
@@ -104,7 +117,13 @@ async fn before_bluetooth_is_up_a_phone_cannot_be_dropped_but_the_socket_serves(
         .to_string();
     let state = Arc::new(HelperState::default());
     let (_bluez, later) = watch::channel(None);
-    let server = tokio::spawn(serve(config(&path), MockAuth, later, Broadcaster::default(), state));
+    let server = tokio::spawn(serve(
+        config(&path),
+        MockAuth,
+        later,
+        Broadcaster::default(),
+        state,
+    ));
     listening(&path).await;
 
     let dropped = request(&path, "disconnect 0C:6A:C4:4E:F3:2A").await;
@@ -118,7 +137,11 @@ async fn before_bluetooth_is_up_a_phone_cannot_be_dropped_but_the_socket_serves(
 async fn request(path: &str, line: &str) -> String {
     let stream = UnixStream::connect(path).await.unwrap();
     let mut reader = BufReader::new(stream);
-    reader.get_mut().write_all(format!("{line}\n").as_bytes()).await.unwrap();
+    reader
+        .get_mut()
+        .write_all(format!("{line}\n").as_bytes())
+        .await
+        .unwrap();
     let mut resp = String::new();
     reader.read_line(&mut resp).await.unwrap();
     resp.trim().to_string()
@@ -130,11 +153,16 @@ async fn certificate_sign_and_subscribe() {
     let path = dir.to_string_lossy().to_string();
     let bus = match zbus::Connection::system().await {
         Ok(b) => b,
-        Err(_) => return, // no system bus in CI; RPC paths not exercising bluez still tested elsewhere
+        Err(_) => return,
     };
     let bcast = Broadcaster::default();
     let state = Arc::new(HelperState::default());
-    let bluez = watch::channel(Some(Bluez { bus, adapter: "hci0".into(), bt_mac: [0; 6] })).1;
+    let bluez = watch::channel(Some(Bluez {
+        bus,
+        adapter: "hci0".into(),
+        bt_mac: [0; 6],
+    }))
+    .1;
     let server = tokio::spawn(serve(config(&path), MockAuth, bluez, bcast.clone(), state));
 
     for _ in 0..50 {
@@ -156,7 +184,6 @@ async fn certificate_sign_and_subscribe() {
     let unknown = request(&path, "bogus").await;
     assert!(unknown.contains("\"ok\":false"));
 
-    // subscribe receives pushed lines
     let stream = UnixStream::connect(&path).await.unwrap();
     let mut reader = BufReader::new(stream);
     reader.get_mut().write_all(b"subscribe\n").await.unwrap();

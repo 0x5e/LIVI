@@ -1,6 +1,3 @@
-//! A phone that paired before proves its long-term key over a fresh X25519
-//! exchange, which yields the control keys.
-
 use std::collections::BTreeMap;
 
 use crate::crypto::{
@@ -45,18 +42,18 @@ impl PairVerify {
         self.keys
     }
 
-    /// The X25519 secret the stream keys derive from.
     pub fn shared_secret(&self) -> Option<[u8; 32]> {
         self.shared
     }
 
-    /// The proofs for mutual authentication, once a run completed.
     pub fn transcript_proofs(&self) -> Option<([u8; 32], [u8; 32])> {
         self.keys.as_ref()?;
-        Some(crate::mfi4::transcript_proofs(&self.shared?, &self.transcript))
+        Some(crate::mfi4::transcript_proofs(
+            &self.shared?,
+            &self.transcript,
+        ))
     }
 
-    /// Same error states as pair-setup.
     pub fn handle(&mut self, body: &[u8], identity: &Identity, pairings: &Pairings) -> Vec<u8> {
         let msg = tlv8::decode(body);
         let state = msg.get(&tlv::STATE).and_then(|s| s.first().copied());
@@ -86,18 +83,29 @@ impl PairVerify {
         msg: &BTreeMap<u8, Vec<u8>>,
         identity: &Identity,
     ) -> Result<Vec<u8>, (u8, String)> {
-        let client = msg.get(&tlv::PUBLIC_KEY).ok_or((2, "M1 without a public key".to_string()))?;
-        let client: [u8; 32] =
-            client.as_slice().try_into().map_err(|_| (1, "M1 key is no X25519 key".to_string()))?;
+        let client = msg
+            .get(&tlv::PUBLIC_KEY)
+            .ok_or((2, "M1 without a public key".to_string()))?;
+        let client: [u8; 32] = client
+            .as_slice()
+            .try_into()
+            .map_err(|_| (1, "M1 key is no X25519 key".to_string()))?;
         let eph = X25519::generate();
         let eph_public = eph.public;
-        let shared = eph.shared(&client).ok_or((1, "M1 key forces a zero secret".to_string()))?;
-        let enc_key =
-            hkdf_sha512(&shared, b"Pair-Verify-Encrypt-Salt", b"Pair-Verify-Encrypt-Info");
+        let shared = eph
+            .shared(&client)
+            .ok_or((1, "M1 key forces a zero secret".to_string()))?;
+        let enc_key = hkdf_sha512(
+            &shared,
+            b"Pair-Verify-Encrypt-Salt",
+            b"Pair-Verify-Encrypt-Info",
+        );
 
         let acc_id = identity.pairing_id.as_bytes();
-        let sig =
-            ed25519_sign(&identity.secret, &[eph_public.as_slice(), acc_id, &client].concat());
+        let sig = ed25519_sign(
+            &identity.secret,
+            &[eph_public.as_slice(), acc_id, &client].concat(),
+        );
         let sub = tlv8::encode(&[(tlv::IDENTIFIER, acc_id), (tlv::SIGNATURE, &sig)]);
         let sealed = chacha_seal(&enc_key, &nonce_label("PV-Msg02"), &sub, &[]);
 
@@ -135,14 +143,14 @@ impl PairVerify {
             return Err((4, "M3 lacks identifier or signature".into()));
         };
         let controller = String::from_utf8_lossy(ctrl_id).into_owned();
-        let ltpk =
-            pairings.get(&controller).ok_or((4, format!("unknown controller {controller}")))?;
+        let ltpk = pairings
+            .get(&controller)
+            .ok_or((4, format!("unknown controller {controller}")))?;
         let signed = [client.as_slice(), ctrl_id, &eph].concat();
         if !ed25519_verify(&ltpk, &signed, ctrl_sig) {
             return Err((4, "controller signature invalid".into()));
         }
 
-        // Named from the phone's side: we read what it writes.
         self.keys = Some(ControlKeys {
             read: hkdf_sha512(&shared, b"Control-Salt", b"Control-Write-Encryption-Key"),
             write: hkdf_sha512(&shared, b"Control-Salt", b"Control-Read-Encryption-Key"),
@@ -186,18 +194,37 @@ mod tests {
         ));
         let acc_eph: [u8; 32] = m2[&tlv::PUBLIC_KEY].as_slice().try_into().unwrap();
         let shared = eph.shared(&acc_eph).unwrap();
-        let enc_key =
-            hkdf_sha512(&shared, b"Pair-Verify-Encrypt-Salt", b"Pair-Verify-Encrypt-Info");
+        let enc_key = hkdf_sha512(
+            &shared,
+            b"Pair-Verify-Encrypt-Salt",
+            b"Pair-Verify-Encrypt-Info",
+        );
 
         let sub = tlv8::decode(
-            &chacha_open(&enc_key, &nonce_label("PV-Msg02"), &m2[&tlv::ENCRYPTED_DATA], &[])
-                .unwrap(),
+            &chacha_open(
+                &enc_key,
+                &nonce_label("PV-Msg02"),
+                &m2[&tlv::ENCRYPTED_DATA],
+                &[],
+            )
+            .unwrap(),
         );
-        let signed = [acc_eph.as_slice(), identity.pairing_id.as_bytes(), &eph_public].concat();
-        assert!(ed25519_verify(&identity.public, &signed, &sub[&tlv::SIGNATURE]));
+        let signed = [
+            acc_eph.as_slice(),
+            identity.pairing_id.as_bytes(),
+            &eph_public,
+        ]
+        .concat();
+        assert!(ed25519_verify(
+            &identity.public,
+            &signed,
+            &sub[&tlv::SIGNATURE]
+        ));
 
-        let sig =
-            ed25519_sign(&phone.secret, &[eph_public.as_slice(), phone.id, &acc_eph].concat());
+        let sig = ed25519_sign(
+            &phone.secret,
+            &[eph_public.as_slice(), phone.id, &acc_eph].concat(),
+        );
         let sub = tlv8::encode(&[(tlv::IDENTIFIER, phone.id), (tlv::SIGNATURE, &sig)]);
         let sealed = chacha_seal(&enc_key, &nonce_label("PV-Msg03"), &sub, &[]);
         let m4 = verify.handle(
@@ -213,7 +240,10 @@ mod tests {
         let dir = TempDir::new();
         let identity = load_or_create(&dir.0.join("identity.json"));
         let pairings = Pairings::new(dir.0.join("pairings.json"));
-        let phone = Phone { secret: random_bytes(), id: b"phone-1" };
+        let phone = Phone {
+            secret: random_bytes(),
+            id: b"phone-1",
+        };
         pairings.save("phone-1", &ed25519_public(&phone.secret));
 
         let mut verify = PairVerify::new();
@@ -238,11 +268,17 @@ mod tests {
         let dir = TempDir::new();
         let identity = load_or_create(&dir.0.join("identity.json"));
         let pairings = Pairings::new(dir.0.join("pairings.json"));
-        let stranger = Phone { secret: random_bytes(), id: b"stranger" };
+        let stranger = Phone {
+            secret: random_bytes(),
+            id: b"stranger",
+        };
         let (m4, _) = run(&mut PairVerify::new(), &identity, &pairings, &stranger);
         assert_eq!(state_and_error(&m4), (4, Some(ERR_AUTHENTICATION)));
 
-        let impostor = Phone { secret: random_bytes(), id: b"phone-1" };
+        let impostor = Phone {
+            secret: random_bytes(),
+            id: b"phone-1",
+        };
         pairings.save("phone-1", &ed25519_public(&random_bytes()));
         let mut verify = PairVerify::new();
         let (m4, _) = run(&mut verify, &identity, &pairings, &impostor);
@@ -258,14 +294,29 @@ mod tests {
         let mut verify = PairVerify::new();
         let mut h = |b: &[u8]| state_and_error(&verify.handle(b, &identity, &pairings));
         assert_eq!(h(&[]), (0, Some(ERR_AUTHENTICATION)));
-        assert_eq!(h(&tlv8::encode(&[(tlv::STATE, &[5])])), (5, Some(ERR_AUTHENTICATION)));
-        assert_eq!(h(&tlv8::encode(&[(tlv::STATE, &[1])])), (2, Some(ERR_AUTHENTICATION)));
         assert_eq!(
-            h(&tlv8::encode(&[(tlv::STATE, &[1]), (tlv::PUBLIC_KEY, &[0; 32])])),
+            h(&tlv8::encode(&[(tlv::STATE, &[5])])),
+            (5, Some(ERR_AUTHENTICATION))
+        );
+        assert_eq!(
+            h(&tlv8::encode(&[(tlv::STATE, &[1])])),
+            (2, Some(ERR_AUTHENTICATION))
+        );
+        assert_eq!(
+            h(&tlv8::encode(&[
+                (tlv::STATE, &[1]),
+                (tlv::PUBLIC_KEY, &[0; 32])
+            ])),
             (1, Some(ERR_AUTHENTICATION))
         );
-        assert_eq!(h(&tlv8::encode(&[(tlv::STATE, &[3])])), (4, Some(ERR_AUTHENTICATION)));
-        let m1 = tlv8::encode(&[(tlv::STATE, &[1]), (tlv::PUBLIC_KEY, &X25519::generate().public)]);
+        assert_eq!(
+            h(&tlv8::encode(&[(tlv::STATE, &[3])])),
+            (4, Some(ERR_AUTHENTICATION))
+        );
+        let m1 = tlv8::encode(&[
+            (tlv::STATE, &[1]),
+            (tlv::PUBLIC_KEY, &X25519::generate().public),
+        ]);
         assert_eq!(h(&m1).0, 2);
         let junk = tlv8::encode(&[(tlv::STATE, &[3]), (tlv::ENCRYPTED_DATA, &[1, 2, 3])]);
         assert_eq!(h(&junk), (3, Some(ERR_AUTHENTICATION)));

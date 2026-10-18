@@ -12,7 +12,6 @@ use tokio::process::{Child, Command};
 use tokio::sync::{Notify, watch};
 
 const HELPER_BIN: &str = "livi-helperd";
-/// The end anchor spares the access point service, which runs the same binary as --wifi-ap.
 const STALE_PATTERN: &str = "driver/livi-helperd$";
 const STOP_GRACE: Duration = Duration::from_secs(3);
 
@@ -38,7 +37,6 @@ pub fn starts_differently(before: &Config, after: &Config) -> bool {
     settings_env(before) != settings_env(after)
 }
 
-/// The fuels the phone hears ranges for.
 fn cp_fuels(car: Option<CarType>) -> &'static str {
     match car {
         Some(CarType::Gasoline | CarType::E85) => "Gasoline",
@@ -51,7 +49,6 @@ fn cp_fuels(car: Option<CarType>) -> &'static str {
     }
 }
 
-/// `Combo2:150000,Mennekes:11000`, each plug with the power in W the car takes on it.
 fn cp_connectors(cfg: &Config) -> String {
     use livi_core_proto::config::EvConnectorType as T;
     let watts = |kw: Option<f64>| kw.map(|kw| format!(":{}", (kw * 1000.0).round() as u64));
@@ -83,13 +80,26 @@ fn settings_env(cfg: &Config) -> Vec<(String, String)> {
     } else {
         cfg.car_name.clone()
     };
-    let channel = if cfg.wifi_channel == 0 { String::new() } else { cfg.wifi_channel.to_string() };
+    let channel = if cfg.wifi_channel == 0 {
+        String::new()
+    } else {
+        cfg.wifi_channel.to_string()
+    };
     vec![
-        ("LIVI_AA_WIRELESS".to_string(), flag(cfg.wireless_aa_enabled, "0")),
-        ("LIVI_CP_WIRELESS".to_string(), flag(cfg.wireless_cp_enabled, "")),
+        (
+            "LIVI_AA_WIRELESS".to_string(),
+            flag(cfg.wireless_aa_enabled, "0"),
+        ),
+        (
+            "LIVI_CP_WIRELESS".to_string(),
+            flag(cfg.wireless_cp_enabled, ""),
+        ),
         ("DEBUG".to_string(), flag(debug, "")),
         ("LIVI_CP_NAME".to_string(), car_name),
-        ("LIVI_CP_FUELS".to_string(), cp_fuels(cfg.car_type).to_string()),
+        (
+            "LIVI_CP_FUELS".to_string(),
+            cp_fuels(cfg.car_type).to_string(),
+        ),
         ("LIVI_CP_CONNECTORS".to_string(), cp_connectors(cfg)),
         ("LIVI_CP_THEME".to_string(), cfg.car_play_theme.clone()),
         ("LIVI_BT_ADAPTER".to_string(), cfg.bt_adapter.clone()),
@@ -106,7 +116,9 @@ fn settings_env(cfg: &Config) -> Vec<(String, String)> {
 }
 
 fn inside_appimage_mount(p: &Path) -> bool {
-    let appdir = std::env::var_os("APPDIR").map(PathBuf::from).unwrap_or_default();
+    let appdir = std::env::var_os("APPDIR")
+        .map(PathBuf::from)
+        .unwrap_or_default();
     (std::env::var_os("APPIMAGE").is_some() && p.starts_with(&appdir))
         || p.to_string_lossy().contains("/.mount_")
 }
@@ -115,9 +127,6 @@ fn digest(p: &Path) -> io::Result<Vec<u8>> {
     Ok(Sha256::digest(fs::read(p)?).to_vec())
 }
 
-/// Root cannot run a binary from the user's FUSE mount, so it is copied out.
-/// Temp file plus rename, because the access point service may be running the
-/// old one.
 fn stage(src: &Path, dest: &Path) -> io::Result<()> {
     if dest.exists() && digest(dest)? == digest(src)? {
         return Ok(());
@@ -132,7 +141,6 @@ fn stage(src: &Path, dest: &Path) -> io::Result<()> {
     fs::rename(&tmp, dest)
 }
 
-/// `user_data` is where the sudoers rule points.
 pub fn resolve_bin(bin: &Path, user_data: &Path) -> PathBuf {
     if !cfg!(target_os = "linux") || !bin.exists() || !inside_appimage_mount(bin) {
         return bin.to_path_buf();
@@ -142,8 +150,11 @@ pub fn resolve_bin(bin: &Path, user_data: &Path) -> PathBuf {
         Ok(()) => staged,
         Err(e) => {
             eprintln!("[core] staging the helper failed: {e}");
-            // Even an older staged copy is the only one root can run.
-            if staged.exists() { staged } else { bin.to_path_buf() }
+            if staged.exists() {
+                staged
+            } else {
+                bin.to_path_buf()
+            }
         }
     }
 }
@@ -155,8 +166,6 @@ fn stale_running() -> bool {
         .is_ok_and(|o| !o.stdout.is_empty())
 }
 
-/// A crashed LIVI leaves a root helper holding the MFi GPIO, the RFCOMM channel
-/// and the BT sockets, and only root can end it.
 async fn kill_stale() {
     if !stale_running() {
         return;
@@ -180,12 +189,10 @@ async fn kill_stale() {
 
 pub struct Spec {
     pub bin: PathBuf,
-    /// Built at every start, so a restart takes the config as it is then.
     pub env: Box<dyn Fn() -> Vec<(String, String)> + Send + Sync>,
     pub restart: Arc<Notify>,
     pub use_sudo: bool,
     pub restart_delay: Duration,
-    /// None restarts for ever.
     pub max_restarts: Option<u32>,
 }
 
@@ -197,7 +204,10 @@ pub struct HelperSupervisor {
 impl HelperSupervisor {
     pub fn start(spec: Spec) -> Self {
         let (stop, stop_rx) = watch::channel(false);
-        Self { stop, task: tokio::spawn(run(spec, stop_rx)) }
+        Self {
+            stop,
+            task: tokio::spawn(run(spec, stop_rx)),
+        }
     }
 
     pub async fn stop(self) {
@@ -304,7 +314,11 @@ mod tests {
     use crate::config_file::tests::TempDir;
 
     fn identity() -> Identity {
-        Identity { secret: [1; 32], public: [0xab; 32], pairing_id: "pi-1".into() }
+        Identity {
+            secret: [1; 32],
+            public: [0xab; 32],
+            pairing_id: "pi-1".into(),
+        }
     }
 
     fn get<'a>(env: &'a [(String, String)], key: &str) -> Option<&'a str> {
@@ -343,7 +357,10 @@ mod tests {
         );
         cfg.ev_max_dc_power_kw = None;
         let env = helper_env(&cfg, &identity(), None);
-        assert_eq!(get(&env, "LIVI_CP_CONNECTORS"), Some("Combo2,Mennekes:11000,Chademo"));
+        assert_eq!(
+            get(&env, "LIVI_CP_CONNECTORS"),
+            Some("Combo2,Mennekes:11000,Chademo")
+        );
         cfg.car_play_theme = "44C9FA31EC:985:19.0".into();
         let env = helper_env(&cfg, &identity(), None);
         assert_eq!(get(&env, "LIVI_CP_THEME"), Some("44C9FA31EC:985:19.0"));
@@ -386,7 +403,10 @@ mod tests {
         fs::write(&src, b"v1").unwrap();
         stage(&src, &dest).unwrap();
         assert_eq!(fs::read(&dest).unwrap(), b"v1");
-        assert_eq!(fs::metadata(&dest).unwrap().permissions().mode() & 0o777, 0o755);
+        assert_eq!(
+            fs::metadata(&dest).unwrap().permissions().mode() & 0o777,
+            0o755
+        );
         stage(&src, &dest).unwrap();
         fs::write(&src, b"v2").unwrap();
         stage(&src, &dest).unwrap();
@@ -414,7 +434,11 @@ mod tests {
             max_restarts: Some(2),
         });
         tokio::time::timeout(Duration::from_secs(10), async {
-            while fs::read_to_string(&count).map(|s| s.lines().count()).unwrap_or(0) < 3 {
+            while fs::read_to_string(&count)
+                .map(|s| s.lines().count())
+                .unwrap_or(0)
+                < 3
+            {
                 tokio::time::sleep(Duration::from_millis(20)).await;
             }
         })
@@ -438,14 +462,19 @@ mod tests {
             max_restarts: None,
         });
         tokio::time::sleep(Duration::from_millis(100)).await;
-        tokio::time::timeout(Duration::from_secs(5), sup.stop()).await.unwrap();
+        tokio::time::timeout(Duration::from_secs(5), sup.stop())
+            .await
+            .unwrap();
     }
 
     #[tokio::test]
     async fn new_settings_start_the_helper_again_at_once() {
         let dir = TempDir::new();
         let count = dir.0.join("starts");
-        let bin = script(&dir, &format!("echo $LIVI_TEST >> {}\nexec sleep 30", count.display()));
+        let bin = script(
+            &dir,
+            &format!("echo $LIVI_TEST >> {}\nexec sleep 30", count.display()),
+        );
         let restart = Arc::new(Notify::new());
         let n = Arc::new(std::sync::atomic::AtomicU32::new(0));
         let built = n.clone();
@@ -463,15 +492,25 @@ mod tests {
         let lines = |want: usize| {
             let count = count.clone();
             async move {
-                while fs::read_to_string(&count).map(|s| s.lines().count()).unwrap_or(0) < want {
+                while fs::read_to_string(&count)
+                    .map(|s| s.lines().count())
+                    .unwrap_or(0)
+                    < want
+                {
                     tokio::time::sleep(Duration::from_millis(20)).await;
                 }
             }
         };
-        tokio::time::timeout(Duration::from_secs(5), lines(1)).await.unwrap();
+        tokio::time::timeout(Duration::from_secs(5), lines(1))
+            .await
+            .unwrap();
         restart.notify_one();
-        tokio::time::timeout(Duration::from_secs(5), lines(2)).await.unwrap();
+        tokio::time::timeout(Duration::from_secs(5), lines(2))
+            .await
+            .unwrap();
         assert_eq!(fs::read_to_string(&count).unwrap(), "0\n1\n");
-        tokio::time::timeout(Duration::from_secs(5), sup.stop()).await.unwrap();
+        tokio::time::timeout(Duration::from_secs(5), sup.stop())
+            .await
+            .unwrap();
     }
 }

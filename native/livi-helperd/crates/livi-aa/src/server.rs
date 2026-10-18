@@ -1,6 +1,3 @@
-// The TCP listener a phone reaches after the WPP bootstrap. Every connection
-// gets a session socket (livi_session_io::sock) the main process is told about.
-
 use std::net::IpAddr;
 use std::sync::Arc;
 use std::time::Duration;
@@ -41,19 +38,27 @@ pub async fn run(port: u16, on_session: impl Fn(&str, IpAddr) + Send + Sync + 's
             eprintln!("[aa-tcp] {peer}: socket options: {e}");
         }
 
-        let Some((node, path)) = bind_session_socket("aa-session") else { continue };
+        let Some((node, path)) = bind_session_socket("aa-session") else {
+            continue;
+        };
         println!("[aa-tcp] connection from {peer}, session socket {path}");
         on_session(&path, peer.ip());
-        let phone = Peer { label: peer.to_string(), ip: peer.ip() };
+        let phone = Peer {
+            label: peer.to_string(),
+            ip: peer.ip(),
+        };
         tokio::spawn(async move {
             crate::session::run(tcp, phone, node, path, Arc::new(Notify::new())).await;
         });
     }
 }
 
-/// TCP keepalive: probes after 5 s idle.
 fn tune(tcp: &TcpStream) -> std::io::Result<()> {
     tcp.set_nodelay(true)?;
     let sock = SockRef::from(tcp);
-    sock.set_tcp_keepalive(&TcpKeepalive::new().with_time(KEEPALIVE).with_interval(KEEPALIVE))
+    sock.set_tcp_keepalive(
+        &TcpKeepalive::new()
+            .with_time(KEEPALIVE)
+            .with_interval(KEEPALIVE),
+    )
 }

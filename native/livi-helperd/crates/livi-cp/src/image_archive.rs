@@ -1,6 +1,3 @@
-// The car's own pictures for the phone: a zip of PNGs and a Contents.json.
-// Car items show one with `imageArchive://?identifier=`.
-
 const MANIFEST: &str = "Contents.json";
 const LIGHT: u8 = 0;
 const DARK: u8 = 1;
@@ -11,7 +8,10 @@ const JANUARY_1980: u16 = 0x21;
 const ZIP_VERSION: u16 = 20;
 
 pub fn build(images: &[(String, Vec<u8>)]) -> Vec<u8> {
-    let files: Vec<_> = images.iter().map(|(name, png)| (format!("{name}.png"), png)).collect();
+    let files: Vec<_> = images
+        .iter()
+        .map(|(name, png)| (format!("{name}.png"), png))
+        .collect();
     let entries: Vec<_> = images
         .iter()
         .zip(&files)
@@ -28,7 +28,11 @@ pub fn build(images: &[(String, Vec<u8>)]) -> Vec<u8> {
         .collect();
     let contents = serde_json::json!({ "images": entries }).to_string();
     let mut parts: Vec<(&str, &[u8])> = vec![(MANIFEST, contents.as_bytes())];
-    parts.extend(files.iter().map(|(file, png)| (file.as_str(), png.as_slice())));
+    parts.extend(
+        files
+            .iter()
+            .map(|(file, png)| (file.as_str(), png.as_slice())),
+    );
     zip(&parts)
 }
 
@@ -74,12 +78,13 @@ fn zip(files: &[(&str, &[u8])]) -> Vec<u8> {
 
 pub fn crc32(data: &[u8]) -> u32 {
     !data.iter().fold(!0, |crc, &byte| {
-        (0..8).fold(
-            crc ^ u32::from(byte),
-            |c, _| {
-                if c & 1 == 1 { (c >> 1) ^ 0xEDB8_8320 } else { c >> 1 }
-            },
-        )
+        (0..8).fold(crc ^ u32::from(byte), |c, _| {
+            if c & 1 == 1 {
+                (c >> 1) ^ 0xEDB8_8320
+            } else {
+                c >> 1
+            }
+        })
     })
 }
 
@@ -98,14 +103,20 @@ mod tests {
     #[test]
     fn the_archive_names_the_picture_for_both_appearances() {
         let png = b"\x89PNG not really";
-        let archive = build(&[("livi".into(), png.to_vec()), ("frost".into(), b"ice".to_vec())]);
+        let archive = build(&[
+            ("livi".into(), png.to_vec()),
+            ("frost".into(), b"ice".to_vec()),
+        ]);
         let end = archive.len() - 22;
         assert_eq!(u32_at(&archive, end), 0x0605_4b50);
         assert_eq!(u16_at(&archive, end + 10), 3);
         let (mut at, mut files) = (u32_at(&archive, end + 16), Vec::new());
         while u32_at(&archive, at) == 0x0201_4b50 {
-            let (size, name_len, offset) =
-                (u32_at(&archive, at + 20), u16_at(&archive, at + 28), u32_at(&archive, at + 42));
+            let (size, name_len, offset) = (
+                u32_at(&archive, at + 20),
+                u16_at(&archive, at + 28),
+                u32_at(&archive, at + 42),
+            );
             let name = String::from_utf8(archive[at + 46..at + 46 + name_len].to_vec()).unwrap();
             let data_at = offset + 30 + u16_at(&archive, offset + 26);
             let data = archive[data_at..data_at + size].to_vec();
@@ -122,9 +133,17 @@ mod tests {
             .as_array()
             .unwrap()
             .iter()
-            .map(|p| (p["fileName"].as_str().unwrap(), p["appearance"].as_u64().unwrap()))
+            .map(|p| {
+                (
+                    p["fileName"].as_str().unwrap(),
+                    p["appearance"].as_u64().unwrap(),
+                )
+            })
             .collect();
-        assert_eq!(appearances, [("livi.png", 0), ("livi.png", 1), ("livi.png", 2)]);
+        assert_eq!(
+            appearances,
+            [("livi.png", 0), ("livi.png", 1), ("livi.png", 2)]
+        );
         assert_eq!(contents["images"][1]["symbolName"], "frost");
         assert_eq!(crc32(b"123456789"), 0xCBF4_3926);
     }

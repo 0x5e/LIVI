@@ -1,6 +1,3 @@
-//! One host holds the controller at a time, and the newest one wins. A host that vanished
-//! without closing its connection would otherwise keep the controller from the next one.
-
 use std::net::{Shutdown, TcpStream};
 use std::sync::mpsc::{Receiver, Sender, TryRecvError, channel};
 use std::sync::{Arc, Mutex};
@@ -17,11 +14,16 @@ pub struct Hosts {
 
 pub fn queue() -> (Arrivals, Hosts) {
     let (tx, rx) = channel();
-    (Arrivals { current: Arc::default(), tx }, Hosts { rx, pending: None })
+    (
+        Arrivals {
+            current: Arc::default(),
+            tx,
+        },
+        Hosts { rx, pending: None },
+    )
 }
 
 impl Arrivals {
-    /// Ends whichever host came before, its session sees its connection close.
     pub fn arrive(&self, stream: TcpStream) {
         let held = stream.try_clone().ok();
         let before = std::mem::replace(&mut *self.current.lock().unwrap(), held);
@@ -33,7 +35,6 @@ impl Arrivals {
 }
 
 impl Hosts {
-    /// The newest host, any older one still queued is already hung up on.
     pub fn next(&mut self) -> Option<TcpStream> {
         let mut newest = match self.pending.take() {
             Some(s) => s,
@@ -45,7 +46,6 @@ impl Hosts {
         Some(newest)
     }
 
-    /// Whether a newer host is already waiting.
     pub fn waiting(&mut self) -> bool {
         if self.pending.is_some() {
             return true;
@@ -67,7 +67,6 @@ mod tests {
     use std::net::TcpListener;
     use std::time::Duration;
 
-    /// The host's end and the dongle's end of one connection.
     fn connection(listener: &TcpListener) -> (TcpStream, TcpStream) {
         let host = TcpStream::connect(listener.local_addr().unwrap()).unwrap();
         let (dongle, _) = listener.accept().unwrap();
@@ -96,7 +95,11 @@ mod tests {
         let (new_host, new) = connection(&listener);
         arrivals.arrive(new);
         let mut b = [0u8; 1];
-        assert_eq!(session.read(&mut b).unwrap(), 0, "the old session sees its end");
+        assert_eq!(
+            session.read(&mut b).unwrap(),
+            0,
+            "the old session sees its end"
+        );
         assert!(hung_up(&old_host));
         assert!(hosts.waiting());
         assert!(same(&new_host, &hosts.next().unwrap()));

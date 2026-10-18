@@ -13,7 +13,10 @@ use iap2_csm::messages::vehicle_status::*;
 use iap2_csm::messages::wifi::*;
 
 fn unhex(s: &str) -> Vec<u8> {
-    (0..s.len()).step_by(2).map(|i| u8::from_str_radix(&s[i..i + 2], 16).unwrap()).collect()
+    (0..s.len())
+        .step_by(2)
+        .map(|i| u8::from_str_radix(&s[i..i + 2], 16).unwrap())
+        .collect()
 }
 
 fn vectors() -> Vec<(String, Vec<u8>)> {
@@ -79,7 +82,10 @@ fn vectors_roundtrip() {
                     assert_eq!(w.wifi_ssid.as_deref(), Some("LIVI"));
                     assert_eq!(w.channel, Some(36));
                     assert_eq!(w.ip_address, vec!["192.168.2.1"]);
-                    assert_eq!(w.security_type, Some(CarPlayWiFiSecurityType::Wpa3Transition));
+                    assert_eq!(
+                        w.security_type,
+                        Some(CarPlayWiFiSecurityType::Wpa3Transition)
+                    );
                     assert_eq!(m.port, Some(49152));
                 }
             }
@@ -109,7 +115,10 @@ fn vectors_roundtrip() {
             }
             "AccessoryWiFiConfigurationInformation" => {
                 let m = roundtrip::<AccessoryWiFiConfigurationInformation>(&name, &frame);
-                assert_eq!(m.security_type, AccessoryWiFiSecurityType::Wpa2OrWpa3Transition);
+                assert_eq!(
+                    m.security_type,
+                    AccessoryWiFiSecurityType::Wpa2OrWpa3Transition
+                );
                 assert_eq!(m.channel, 36);
             }
             "StartLocationInformation" => {
@@ -167,11 +176,17 @@ fn vectors_roundtrip() {
                 let media = m.media_item_attributes.unwrap();
                 assert_eq!(media.persistent_id, Some(0xDEADBEEF));
                 assert_eq!(media.artwork_ftid, Some(7));
-                assert_eq!(m.playback_attributes.unwrap().status, Some(PlaybackStatus::Playing));
+                assert_eq!(
+                    m.playback_attributes.unwrap().status,
+                    Some(PlaybackStatus::Playing)
+                );
             }
             "IdentificationInformation" => {
                 let m = roundtrip::<IdentificationInformation>(&name, &frame);
-                assert_eq!(m.power_providing_capability, PowerProvidingCapability::Advanced);
+                assert_eq!(
+                    m.power_providing_capability,
+                    PowerProvidingCapability::Advanced
+                );
                 let eap = &m.supported_external_accessory_protocol[0];
                 assert_eq!(eap.match_action, MatchAction::NoActionNoCommunication);
                 assert!(eap.car_play);
@@ -180,7 +195,10 @@ fn vectors_roundtrip() {
                 assert!(usb.supports_iap2_connection && usb.supports_car_play);
                 assert_eq!(usb.car_play_interface_number, Some(0));
                 let bt = &m.bluetooth_transport_component[0];
-                assert_eq!(bt.bluetooth_transport_mac, vec![0xAA, 0xBB, 0xCC, 0xDD, 0xEE, 0xFF]);
+                assert_eq!(
+                    bt.bluetooth_transport_mac,
+                    vec![0xAA, 0xBB, 0xCC, 0xDD, 0xEE, 0xFF]
+                );
                 let wcp = m.wireless_car_play_transport_component.unwrap();
                 assert!(wcp.supports_car_play && wcp.supports_iap2_connection);
                 assert_eq!(

@@ -1,5 +1,3 @@
-// Reassembles files the phone pushes over the iAP2 file-transfer session (album artwork).
-
 use std::collections::HashMap;
 
 const SETUP: u8 = 0x04;
@@ -39,7 +37,10 @@ impl FileTransferReceiver {
                 Vec::new()
             }
             DATA => {
-                self.buffers.entry(ftid).or_default().extend_from_slice(data);
+                self.buffers
+                    .entry(ftid)
+                    .or_default()
+                    .extend_from_slice(data);
                 Vec::new()
             }
             FIRST_AND_ONLY_DATA => self.complete(ftid, data.to_vec()),
@@ -58,7 +59,10 @@ impl FileTransferReceiver {
 
     fn complete(&mut self, ftid: u8, data: Vec<u8>) -> Vec<FtOutput> {
         self.buffers.remove(&ftid);
-        vec![FtOutput::Reply(vec![ftid, SUCCESS]), FtOutput::Complete(data)]
+        vec![
+            FtOutput::Reply(vec![ftid, SUCCESS]),
+            FtOutput::Complete(data),
+        ]
     }
 }
 

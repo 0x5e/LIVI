@@ -52,8 +52,6 @@ csm_group! {
     }
 }
 
-// Transport components emit their base params (id, name, iap2 flag) twice: as ids 0-2 and
-// again in the 3-5 range, with subclass params overriding single ids in that range.
 macro_rules! transport_component {
     (
         $name:ident {

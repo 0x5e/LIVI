@@ -1,7 +1,3 @@
-//! The navigation status channel (12), phone to head unit only. Phones send the
-//! turn and distance events, the state and position messages are handled for
-//! those that use them.
-
 use crate::channels::text;
 use crate::consts::nav_msg;
 use crate::log::detail;
@@ -125,7 +121,6 @@ pub struct NavigationTurnUpdate {
 pub struct NavigationDistanceUpdate {
     pub distance_meters: u32,
     pub time_to_turn_seconds: u32,
-    /// The shown value times 1000 in `display_unit`.
     pub display_distance_e3: Option<u32>,
     pub display_unit: Option<u32>,
 }
@@ -146,7 +141,6 @@ pub struct NavigationPositionUpdate {
     pub destination_meters: Option<u32>,
     pub destination_display: Option<String>,
     pub destination_units: Option<u32>,
-    /// Arrival on the clock, "21:58".
     pub eta_text: Option<String>,
     pub time_to_arrival_seconds: Option<u32>,
     pub current_road_name: Option<String>,
@@ -164,7 +158,8 @@ pub enum NavigationEvent {
 }
 
 fn opt<T: std::fmt::Debug>(v: &Option<T>) -> String {
-    v.as_ref().map_or_else(|| "undefined".to_string(), |v| format!("{v:?}"))
+    v.as_ref()
+        .map_or_else(|| "undefined".to_string(), |v| format!("{v:?}"))
 }
 
 #[derive(Debug, Default)]
@@ -194,7 +189,9 @@ impl NavigationChannel {
                     opt(&t.event),
                     opt(&t.turn_side),
                     opt(&t.turn_angle),
-                    t.image.as_ref().map_or("none".to_string(), |i| format!("{}B", i.len()))
+                    t.image
+                        .as_ref()
+                        .map_or("none".to_string(), |i| format!("{}B", i.len()))
                 );
                 Some(NavigationEvent::Turn(t))
             }
@@ -231,7 +228,10 @@ impl NavigationChannel {
                 Some(NavigationEvent::Position(p))
             }
             other => {
-                println!("[NavigationChannel] unhandled msgId=0x{other:x} len={}", payload.len());
+                println!(
+                    "[NavigationChannel] unhandled msgId=0x{other:x} len={}",
+                    payload.len()
+                );
                 None
             }
         }
@@ -420,8 +420,14 @@ mod tests {
     #[test]
     fn the_channel_sorts_its_messages() {
         let mut n = NavigationChannel;
-        assert_eq!(n.handle_message(nav_msg::START, &[]), Some(NavigationEvent::Start));
-        assert_eq!(n.handle_message(nav_msg::STOP, &[]), Some(NavigationEvent::Stop));
+        assert_eq!(
+            n.handle_message(nav_msg::START, &[]),
+            Some(NavigationEvent::Start)
+        );
+        assert_eq!(
+            n.handle_message(nav_msg::STOP, &[]),
+            Some(NavigationEvent::Stop)
+        );
         for (raw, state) in [
             (1, NavigationState::Active),
             (2, NavigationState::Inactive),
@@ -453,9 +459,13 @@ mod tests {
                 turn_angle: Some(90),
             }))
         );
-        let dist =
-            [field_varint(1, 250), field_varint(2, 20), field_varint(3, 250), field_varint(4, 1)]
-                .concat();
+        let dist = [
+            field_varint(1, 250),
+            field_varint(2, 20),
+            field_varint(3, 250),
+            field_varint(4, 1),
+        ]
+        .concat();
         assert_eq!(
             n.handle_message(nav_msg::NEXT_TURN_DISTANCE, &dist),
             Some(NavigationEvent::Distance(NavigationDistanceUpdate {
@@ -476,8 +486,11 @@ mod tests {
             field_len_delim(4, &[s(1, "cue1"), s(1, "cue2")].concat()),
         ]
         .concat();
-        let second =
-            [field_len_delim(1, &field_varint(1, 7)), field_len_delim(2, &s(1, "Other"))].concat();
+        let second = [
+            field_len_delim(1, &field_varint(1, 7)),
+            field_len_delim(2, &s(1, "Other")),
+        ]
+        .concat();
         let state = [
             field_len_delim(1, &step),
             field_len_delim(1, &second),
@@ -499,7 +512,11 @@ mod tests {
         let position = [
             field_len_delim(
                 1,
-                &[field_len_delim(1, &distance(300, "300 m", 1)), field_varint(2, 25)].concat(),
+                &[
+                    field_len_delim(1, &distance(300, "300 m", 1)),
+                    field_varint(2, 25),
+                ]
+                .concat(),
             ),
             field_len_delim(
                 2,

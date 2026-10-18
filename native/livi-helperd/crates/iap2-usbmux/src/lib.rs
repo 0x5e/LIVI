@@ -1,5 +1,3 @@
-// USB access for CarPlay: selects the phone's CarPlay configuration without a role switch.
-
 pub const APPLE_VID: u16 = 0x05ac;
 pub const CP_CONFIG: u8 = 6;
 

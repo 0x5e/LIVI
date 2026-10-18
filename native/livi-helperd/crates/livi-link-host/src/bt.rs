@@ -1,6 +1,3 @@
-//! `btd` on the dongle serves its controller's HCI packets over TCP, `/dev/vhci` hands them to
-//! BlueZ.
-
 use std::fs::{File, OpenOptions};
 use std::io::{Read, Write};
 use std::net::TcpStream;
@@ -13,15 +10,11 @@ use crate::link;
 
 const VHCI: &str = "/dev/vhci";
 const RFKILL: &str = "/sys/class/rfkill";
-/// Packet type of the driver's own messages, which are not controller traffic.
 const VENDOR_PKT: u8 = 0xff;
-/// Vendor packet plus opcode 0, which asks the driver for a primary adapter.
 const CREATE_PRIMARY: [u8; 2] = [VENDOR_PKT, 0x00];
-/// Enough for the largest ACL packet the controller will hand over.
 const PACKET_MAX: usize = 4096;
 const POLL_MS: i32 = 200;
 const RETRY: Duration = Duration::from_secs(5);
-/// A dongle still booting takes no connection, so the connect gives up soon and is retried.
 const CONNECT_TIMEOUT: Duration = Duration::from_secs(3);
 
 pub fn attach(
@@ -42,7 +35,6 @@ pub fn attach(
 
 #[derive(Debug)]
 pub enum TunnelError {
-    /// Most hosts never have a dongle, so this is no fault.
     NoDongle(std::io::Error),
     Failed(String),
 }
@@ -56,19 +48,21 @@ impl std::fmt::Display for TunnelError {
     }
 }
 
-/// The bool says whether an adapter was made.
 pub fn tunnel(on_adapter: &(impl Fn(u16) + Sync)) -> Result<bool, TunnelError> {
     let stream = livi_net::connect((link::LINK_NAME, livi_net::port::HCI), CONNECT_TIMEOUT)
         .map_err(TunnelError::NoDongle)?;
     let failed = TunnelError::Failed;
-    stream.set_nodelay(true).map_err(|e| failed(format!("nodelay: {e}")))?;
+    stream
+        .set_nodelay(true)
+        .map_err(|e| failed(format!("nodelay: {e}")))?;
     notice_loss(&stream);
     let mut dev = OpenOptions::new()
         .read(true)
         .write(true)
         .open(VHCI)
         .map_err(|e| failed(format!("{VHCI}: {e}")))?;
-    dev.write_all(&CREATE_PRIMARY).map_err(|e| failed(format!("{VHCI}: no adapter: {e}")))?;
+    dev.write_all(&CREATE_PRIMARY)
+        .map_err(|e| failed(format!("{VHCI}: no adapter: {e}")))?;
     let made = AtomicBool::new(false);
     pump(dev, stream, &|index| {
         made.store(true, Ordering::Relaxed);
@@ -78,7 +72,6 @@ pub fn tunnel(on_adapter: &(impl Fn(u16) + Sync)) -> Result<bool, TunnelError> {
     Ok(made.load(Ordering::Relaxed))
 }
 
-/// An unplugged dongle sends no goodbye, so a silent or unanswered tunnel ends after 3 s.
 fn notice_loss(stream: &TcpStream) {
     for (level, name, value) in [
         (libc::SOL_SOCKET, libc::SO_KEEPALIVE, 1),
@@ -103,7 +96,6 @@ fn notice_loss(stream: &TcpStream) {
     }
 }
 
-/// Each packet goes out behind a 2-byte big-endian length.
 fn pump(dev: File, stream: TcpStream, named: &(impl Fn(u16) + Sync)) {
     let (Ok(out), Ok(reader)) = (stream.try_clone(), dev.try_clone()) else {
         eprintln!("[bt] cannot split the tunnel");
@@ -119,7 +111,6 @@ fn pump(dev: File, stream: TcpStream, named: &(impl Fn(u16) + Sync)) {
     });
 }
 
-/// The read waits in slices so the tunnel can end while the device is quiet.
 fn out_bound(dev: File, out: &Mutex<TcpStream>, stop: &AtomicBool, named: &impl Fn(u16)) {
     let mut buf = [0u8; PACKET_MAX];
     while !stop.load(Ordering::Relaxed) {
@@ -134,7 +125,6 @@ fn out_bound(dev: File, out: &Mutex<TcpStream>, stop: &AtomicBool, named: &impl 
                 return;
             }
         };
-        // The driver's own note that the adapter exists, carrying its index. It is not HCI.
         if buf[0] == VENDOR_PKT {
             if n >= 4 {
                 let index = u16::from_le_bytes([buf[2], buf[3]]);
@@ -151,7 +141,6 @@ fn out_bound(dev: File, out: &Mutex<TcpStream>, stop: &AtomicBool, named: &impl 
     }
 }
 
-/// Both directions may have a packet for the dongle, so a frame goes out whole.
 fn send(out: &Mutex<TcpStream>, pkt: &[u8]) -> std::io::Result<()> {
     let mut frame = Vec::with_capacity(2 + pkt.len());
     frame.extend_from_slice(&(pkt.len() as u16).to_be_bytes());
@@ -159,7 +148,6 @@ fn send(out: &Mutex<TcpStream>, pkt: &[u8]) -> std::io::Result<()> {
     out.lock().unwrap().write_all(&frame)
 }
 
-/// A fresh adapter comes up soft blocked, and BlueZ does not power a blocked one.
 fn unblock(index: u16) {
     let want = format!("hci{index}");
     let Ok(entries) = std::fs::read_dir(RFKILL) else {
@@ -197,7 +185,6 @@ fn in_bound(mut dev: File, stream: &TcpStream, out: &Mutex<TcpStream>) {
             eprintln!("[bt] receive: {e}");
             return;
         }
-        // The answer to our own order, the local stack never asked for it.
         if own_orders > 0 && answers(&buf[..n], WRITE_VOICE_SETTING) {
             own_orders -= 1;
             continue;
@@ -236,13 +223,10 @@ fn fit_to_vhci(pkt: &mut [u8]) -> Option<Vec<u8>> {
     if pkt.len() < 9 || pkt[6] != 0 {
         return None;
     }
-    // Hides SCO flow control. Over vhci the kernel turns it on, but this controller keeps no
-    // count and the call uplink runs dry.
     if answers(pkt, READ_LOCAL_COMMANDS) && pkt.len() > SYNC_FLOWCTL.0 {
         pkt[SYNC_FLOWCTL.0] &= !SYNC_FLOWCTL.1;
         return None;
     }
-    // Linux only ever reads the setting, and this controller starts out at 8 bit.
     if answers(pkt, READ_VOICE_SETTING) && pkt[7..9] != VOICE_16BIT.to_le_bytes() {
         pkt[7..9].copy_from_slice(&VOICE_16BIT.to_le_bytes());
         let mut order = vec![COMMAND];
@@ -255,7 +239,11 @@ fn fit_to_vhci(pkt: &mut [u8]) -> Option<Vec<u8>> {
 }
 
 fn readable(fd: RawFd, ms: i32) -> bool {
-    let mut p = libc::pollfd { fd, events: libc::POLLIN, revents: 0 };
+    let mut p = libc::pollfd {
+        fd,
+        events: libc::POLLIN,
+        revents: 0,
+    };
     unsafe { libc::poll(&raw mut p, 1, ms) > 0 }
 }
 
@@ -276,7 +264,12 @@ mod tests {
         let mut pkt = complete(0x1002, &[0xff; 64]);
         assert_eq!(fit_to_vhci(&mut pkt), None);
         assert_eq!(pkt[7 + 10], 0xef);
-        assert!(pkt[7..].iter().enumerate().all(|(i, b)| i == 10 || *b == 0xff));
+        assert!(
+            pkt[7..]
+                .iter()
+                .enumerate()
+                .all(|(i, b)| i == 10 || *b == 0xff)
+        );
     }
 
     #[test]

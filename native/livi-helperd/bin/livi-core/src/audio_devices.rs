@@ -16,7 +16,6 @@ const LIST_TIMEOUT: Duration = Duration::from_secs(4);
 const PAIRED_TIMEOUT: Duration = Duration::from_secs(2);
 const SETTLE: Duration = Duration::from_millis(250);
 const RESTART_DELAY: Duration = Duration::from_secs(2);
-/// Class of device major 0x04: headphones, speakers, car kits.
 const BT_MAJOR_AUDIO: u32 = 0x04;
 
 #[derive(Debug, Clone, Copy, PartialEq)]
@@ -43,17 +42,22 @@ fn prop<'a>(block: &[&'a str], key: &str) -> Option<&'a str> {
     block.iter().find_map(|line| {
         let rest = line.trim_start().strip_prefix(key)?.trim_start();
         let value = rest.strip_prefix([':', '='])?.trim();
-        let value = value.strip_prefix('"').and_then(|v| v.strip_suffix('"')).unwrap_or(value);
+        let value = value
+            .strip_prefix('"')
+            .and_then(|v| v.strip_suffix('"'))
+            .unwrap_or(value);
         (!value.is_empty()).then_some(value)
     })
 }
 
-/// The sample launch line names the device, e.g. `pulsesink device=alsa_output.x` or on macOS
-/// `osxaudiosink unique-id=53`.
 fn launch_id(block: &[&str]) -> Option<String> {
-    let line = block.iter().find_map(|l| l.find("gst-launch-1.0").map(|at| &l[at..]))?;
+    let line = block
+        .iter()
+        .find_map(|l| l.find("gst-launch-1.0").map(|at| &l[at..]))?;
     let bytes = line.as_bytes();
-    let starts = line.match_indices("device=").chain(line.match_indices("unique-id="));
+    let starts = line
+        .match_indices("device=")
+        .chain(line.match_indices("unique-id="));
     let (at, key) = starts
         .filter(|(at, _)| {
             *at == 0 || !(bytes[at - 1].is_ascii_alphanumeric() || bytes[at - 1] == b'_')
@@ -62,7 +66,9 @@ fn launch_id(block: &[&str]) -> Option<String> {
     let value = &line[at + key.len()..];
     let id = match value.chars().next()? {
         q @ ('"' | '\'') => value[1..].split(q).next()?,
-        _ => value.split(|c: char| c.is_whitespace() || c == '"' || c == '\'').next()?,
+        _ => value
+            .split(|c: char| c.is_whitespace() || c == '"' || c == '\'')
+            .next()?,
     };
     (!id.is_empty()).then(|| id.to_string())
 }
@@ -81,37 +87,56 @@ fn parse(stdout: &str, kind: Kind) -> Vec<AudioDevice> {
         if !prop(block, "class").is_some_and(|c| c.contains(kind.class())) {
             continue;
         }
-        // A monitor source is the loopback of a sink, not something that records.
         if kind == Kind::Source && prop(block, "device.class") == Some("monitor") {
             continue;
         }
         let id = launch_id(block).or_else(|| {
-            ["unique-id", "device.name", "node.name", "alsa.card_name", "name"]
-                .iter()
-                .find_map(|k| prop(block, k))
-                .map(str::to_string)
-        });
-        let Some(id) = id else { continue };
-        let name = ["name", "device.description", "node.description", "alsa.long_card_name"]
+            [
+                "unique-id",
+                "device.name",
+                "node.name",
+                "alsa.card_name",
+                "name",
+            ]
             .iter()
             .find_map(|k| prop(block, k))
             .map(str::to_string)
-            .unwrap_or_else(|| id.clone());
+        });
+        let Some(id) = id else { continue };
+        let name = [
+            "name",
+            "device.description",
+            "node.description",
+            "alsa.long_card_name",
+        ]
+        .iter()
+        .find_map(|k| prop(block, k))
+        .map(str::to_string)
+        .unwrap_or_else(|| id.clone());
         let is_default = prop(block, "default").is_some_and(|v| v.eq_ignore_ascii_case("true"))
             || matches!(prop(block, "is-default"), Some("true" | "true (gboolean)"))
             || prop(block, "node.is-default") == Some("true");
         if !devices.iter().any(|d| d.id == id) {
-            devices.push(AudioDevice { id, name, is_default, offline: false });
+            devices.push(AudioDevice {
+                id,
+                name,
+                is_default,
+                offline: false,
+            });
         }
     }
     devices
 }
 
-/// PipeWire writes the address with underscores for outputs, with colons for inputs.
 fn bluez_mac(id: &str) -> Option<String> {
-    let rest = ["bluez_output.", "bluez_input.", "bluez_sink.", "bluez_source."]
-        .iter()
-        .find_map(|p| id.strip_prefix(p))?;
+    let rest = [
+        "bluez_output.",
+        "bluez_input.",
+        "bluez_sink.",
+        "bluez_source.",
+    ]
+    .iter()
+    .find_map(|p| id.strip_prefix(p))?;
     let mac = rest.get(..17)?;
     mac.chars()
         .all(|c| c.is_ascii_hexdigit() || c == '_' || c == ':')
@@ -154,7 +179,9 @@ fn monitor(gst: Option<&Path>) -> Command {
     if let Some(root) = gst {
         cmd.envs(gst_env(root));
     }
-    cmd.stdin(Stdio::null()).stderr(Stdio::null()).kill_on_drop(true);
+    cmd.stdin(Stdio::null())
+        .stderr(Stdio::null())
+        .kill_on_drop(true);
     cmd
 }
 
@@ -173,7 +200,9 @@ async fn paired_audio() -> Vec<Paired> {
     let Ok(answer) = devices::shared("list_paired".into(), PAIRED_TIMEOUT).await else {
         return Vec::new();
     };
-    let Some(list) = answer.get("devices").and_then(|d| d.as_array()) else { return Vec::new() };
+    let Some(list) = answer.get("devices").and_then(|d| d.as_array()) else {
+        return Vec::new();
+    };
     list.iter()
         .filter(|d| {
             let class = d.get("class").and_then(|c| c.as_u64()).unwrap_or(0) as u32;
@@ -181,8 +210,14 @@ async fn paired_audio() -> Vec<Paired> {
         })
         .filter_map(|d| {
             let mac = d.get("mac")?.as_str()?.to_string();
-            let name = d.get("name").and_then(|n| n.as_str()).filter(|n| !n.is_empty());
-            Some(Paired { name: name.unwrap_or(&mac).to_string(), mac })
+            let name = d
+                .get("name")
+                .and_then(|n| n.as_str())
+                .filter(|n| !n.is_empty());
+            Some(Paired {
+                name: name.unwrap_or(&mac).to_string(),
+                mac,
+            })
         })
         .collect()
 }
@@ -197,10 +232,13 @@ async fn refresh(hub: &Hub, gst: Option<&Path>) {
     });
 }
 
-/// "Device found:", "Device added:", "Device removed:"
 fn topology_changed(line: &str) -> bool {
-    let Some(rest) = line.trim().strip_prefix("Device") else { return false };
-    let Some(word) = rest.strip_suffix(':') else { return false };
+    let Some(rest) = line.trim().strip_prefix("Device") else {
+        return false;
+    };
+    let Some(word) = rest.strip_suffix(':') else {
+        return false;
+    };
     rest.starts_with(char::is_whitespace) && {
         let word = word.trim();
         !word.is_empty() && !word.contains(char::is_whitespace)
@@ -209,9 +247,14 @@ fn topology_changed(line: &str) -> bool {
 
 async fn watch(hub: &Hub, gst: Option<&Path>) -> bool {
     let mut cmd = monitor(gst);
-    cmd.args(["-f", Kind::Sink.class(), Kind::Source.class()]).stdout(Stdio::piped());
-    let Ok(mut child) = cmd.spawn() else { return false };
-    let Some(out) = child.stdout.take() else { return true };
+    cmd.args(["-f", Kind::Sink.class(), Kind::Source.class()])
+        .stdout(Stdio::piped());
+    let Ok(mut child) = cmd.spawn() else {
+        return false;
+    };
+    let Some(out) = child.stdout.take() else {
+        return true;
+    };
     let mut lines = BufReader::new(out).lines();
     let mut pending = false;
     loop {
@@ -290,21 +333,36 @@ mod tests {
         let props = "Device found:\n\tclass : Audio/Source\n\t\tnode.name = in.usb\n\
             \t\tnode.is-default = true\n";
         let found = parse(props, Kind::Source);
-        assert_eq!((found[0].id.as_str(), found[0].name.as_str()), ("in.usb", "in.usb"));
+        assert_eq!(
+            (found[0].id.as_str(), found[0].name.as_str()),
+            ("in.usb", "in.usb")
+        );
         assert!(found[0].is_default);
         let monitor = "Device found:\n\tname : Monitor of X\n\tclass : Audio/Source\n\
             \t\tdevice.class = monitor\n";
         assert!(parse(monitor, Kind::Source).is_empty());
-        assert_eq!(launch_id(&["gst-launch-1.0 ! sink audio-device=x"]).as_deref(), Some("x"));
+        assert_eq!(
+            launch_id(&["gst-launch-1.0 ! sink audio-device=x"]).as_deref(),
+            Some("x")
+        );
         assert_eq!(launch_id(&["gst-launch-1.0 ! sink my_device=x"]), None);
     }
 
     #[test]
     fn bluetooth_shows_once_per_device_and_paired_ones_wait_offline() {
         let paired = [
-            Paired { mac: "AA:BB:CC:DD:EE:FF".into(), name: "Headset".into() },
-            Paired { mac: "11:22:33:44:55:66".into(), name: "Car Kit".into() },
-            Paired { mac: "77:88:99:AA:BB:CC".into(), name: "built-in audio analog stereo".into() },
+            Paired {
+                mac: "AA:BB:CC:DD:EE:FF".into(),
+                name: "Headset".into(),
+            },
+            Paired {
+                mac: "11:22:33:44:55:66".into(),
+                name: "Car Kit".into(),
+            },
+            Paired {
+                mac: "77:88:99:AA:BB:CC".into(),
+                name: "built-in audio analog stereo".into(),
+            },
         ];
         let sinks = with_paired(parse(SINKS, Kind::Sink), &paired, Kind::Sink);
         assert_eq!(

@@ -1,6 +1,3 @@
-//! The bootstrap and the rescue system listen on :2323, a running LIVI Link on :23. The shell has
-//! no usable prompt, so the output is taken from between two markers.
-
 use std::io::{Read, Write};
 use std::net::{Ipv6Addr, Shutdown, SocketAddr, SocketAddrV6, TcpStream, ToSocketAddrs};
 use std::sync::Mutex;
@@ -15,20 +12,20 @@ pub const PUSH_PORT: u16 = 5610;
 const BEGIN: &str = "__LIVI_B__";
 const END: &str = "__LIVI_E__";
 const STATUS: &str = "__LIVI_RC__";
-/// Reading a whole partition back for its md5 is the longest of these.
 const REMOTE_TIMEOUT: Duration = Duration::from_secs(120);
 const WRITE_TIMEOUT: Duration = Duration::from_secs(300);
 const CONNECT_TIMEOUT: Duration = Duration::from_secs(5);
 const READ_SLICE: Duration = Duration::from_millis(500);
 
 pub struct Shell {
-    // A dongle reached over the vendor's Wi-Fi comes back on USB once our kernel runs.
     host: Mutex<String>,
 }
 
 impl Shell {
     pub fn new(host: &str) -> Self {
-        Self { host: Mutex::new(host.to_string()) }
+        Self {
+            host: Mutex::new(host.to_string()),
+        }
     }
 
     pub fn host(&self) -> String {
@@ -55,7 +52,8 @@ impl Shell {
         let port = self.shell_port();
         let mut s = TcpStream::connect_timeout(&self.socket_addr(port)?, CONNECT_TIMEOUT)
             .map_err(|e| format!("connect {}:{port}: {e}", self.host()))?;
-        s.set_read_timeout(Some(READ_SLICE)).map_err(|e| e.to_string())?;
+        s.set_read_timeout(Some(READ_SLICE))
+            .map_err(|e| e.to_string())?;
 
         sleep(Duration::from_millis(300));
         let mut buf = [0u8; 65536];
@@ -67,12 +65,11 @@ impl Shell {
         }
         sleep(Duration::from_millis(200));
 
-        // No echo, no PS1/PS2, and a newline before the end marker (output may lack one), so both
-        // markers land on lines of their own.
         let script = format!(
             "stty -echo 2>/dev/null; PS1=; PS2=\necho {BEGIN}\n{{\n{cmd}\n}} 2>&1\nprintf '\\n%s\\n' {END}\n"
         );
-        s.write_all(script.as_bytes()).map_err(|e| format!("send command: {e}"))?;
+        s.write_all(script.as_bytes())
+            .map_err(|e| format!("send command: {e}"))?;
 
         let deadline = Instant::now() + timeout;
         let mut acc: Vec<u8> = Vec::new();
@@ -110,7 +107,9 @@ impl Shell {
     }
 
     pub fn md5(&self, path: &str) -> Option<String> {
-        let out = self.sh(&format!("md5sum {path} 2>/dev/null | cut -d' ' -f1")).ok()?;
+        let out = self
+            .sh(&format!("md5sum {path} 2>/dev/null | cut -d' ' -f1"))
+            .ok()?;
         let out = out.trim();
         (out.len() >= 32).then(|| out[out.len() - 32..].to_string())
     }
@@ -120,7 +119,11 @@ impl Shell {
     }
 
     fn shell_port(&self) -> u16 {
-        if self.port_open(TELNET_PORT) { TELNET_PORT } else { LIVI_TELNET_PORT }
+        if self.port_open(TELNET_PORT) {
+            TELNET_PORT
+        } else {
+            LIVI_TELNET_PORT
+        }
     }
 
     pub fn port_open(&self, port: u16) -> bool {
@@ -130,7 +133,6 @@ impl Shell {
             .is_some()
     }
 
-    /// The copy on flash is renamed last, so a half-written file never carries the final name.
     pub fn push(&self, data: &[u8], remote: &str, port: u16, want: &str) -> Result<(), String> {
         let tmp = format!("/tmp/livi-push.{port}");
         let mut last = String::new();
@@ -149,7 +151,6 @@ impl Shell {
                     continue;
                 }
             }
-            // Give the device time to flush what it received before hashing it.
             sleep(Duration::from_millis(500) + Duration::from_secs_f64(data.len() as f64 / 4e6));
             if self.md5(&tmp).as_deref() != Some(want) {
                 last = format!("attempt {attempt}: md5 mismatch in /tmp");
@@ -176,7 +177,8 @@ impl Shell {
         let mut c = TcpStream::connect_timeout(&self.socket_addr(port)?, Duration::from_secs(8))
             .map_err(|e| format!("connect: {e}"))?;
         c.write_all(data).map_err(|e| format!("send: {e}"))?;
-        c.shutdown(Shutdown::Write).map_err(|e| format!("shutdown: {e}"))?;
+        c.shutdown(Shutdown::Write)
+            .map_err(|e| format!("shutdown: {e}"))?;
         Ok(())
     }
 }
@@ -184,8 +186,9 @@ impl Shell {
 impl crate::dongle::Remote for Shell {
     fn run(&mut self, cmd: &str) -> Result<String, String> {
         let out = Shell::run(self, &format!("{cmd}\necho {STATUS}$?"), REMOTE_TIMEOUT)?;
-        let (body, rc) =
-            out.rsplit_once(STATUS).ok_or_else(|| format!("`{cmd}` left no exit status"))?;
+        let (body, rc) = out
+            .rsplit_once(STATUS)
+            .ok_or_else(|| format!("`{cmd}` left no exit status"))?;
         let body = body.trim_end().to_string();
         match rc.trim() {
             "0" => Ok(body),
@@ -196,7 +199,6 @@ impl crate::dongle::Remote for Shell {
     fn write_mtd(&mut self, node: &str, data: &[u8]) -> Result<(), String> {
         let port = PUSH_PORT;
         let done = format!("/tmp/livi-write.{port}");
-        // `head -c` ends the pipe after the last byte, whether or not nc notices the end.
         self.sh(&format!(
             "pkill -f 'nc -l -p {port}' 2>/dev/null; rm -f {done}; \
              setsid sh -c 'nc -l -p {port} | head -c {len} | dd of={node} bs=64k conv=fsync 2>/dev/null; sync; touch {done}' >/dev/null 2>&1 &",
@@ -212,34 +214,46 @@ impl crate::dongle::Remote for Shell {
             }
             sleep(Duration::from_secs(1));
         }
-        Err(format!("writing {node} did not finish within {WRITE_TIMEOUT:?}"))
+        Err(format!(
+            "writing {node} did not finish within {WRITE_TIMEOUT:?}"
+        ))
     }
 }
 
-/// `fe80::…%iface`, a link-local address on the interface named after the `%`. Not every system's
-/// resolver takes the interface name, so it is turned into its index here.
 fn scoped(host: &str, port: u16, index_of: impl Fn(&str) -> Option<u32>) -> Option<SocketAddr> {
     let (ip, iface) = host.split_once('%')?;
     let ip: Ipv6Addr = ip.parse().ok()?;
-    Some(SocketAddr::V6(SocketAddrV6::new(ip, port, 0, index_of(iface)?)))
+    Some(SocketAddr::V6(SocketAddrV6::new(
+        ip,
+        port,
+        0,
+        index_of(iface)?,
+    )))
 }
 
 fn sysfs_ifindex(iface: &str) -> Option<u32> {
-    std::fs::read_to_string(format!("/sys/class/net/{iface}/ifindex")).ok()?.trim().parse().ok()
+    std::fs::read_to_string(format!("/sys/class/net/{iface}/ifindex"))
+        .ok()?
+        .trim()
+        .parse()
+        .ok()
 }
 
-/// Lower-case hex, as `md5sum` prints it.
 pub fn md5_hex(data: &[u8]) -> String {
     use md5::{Digest, Md5};
-    Md5::digest(data).iter().map(|b| format!("{b:02x}")).collect()
+    Md5::digest(data)
+        .iter()
+        .map(|b| format!("{b:02x}"))
+        .collect()
 }
 
 fn would_block(e: &std::io::Error) -> bool {
-    matches!(e.kind(), std::io::ErrorKind::WouldBlock | std::io::ErrorKind::TimedOut)
+    matches!(
+        e.kind(),
+        std::io::ErrorKind::WouldBlock | std::io::ErrorKind::TimedOut
+    )
 }
 
-/// Telnet IAC DO (253) is refused with WONT (252), WILL (251) with DONT (254). NULs are telnet
-/// line endings.
 fn strip_iac(data: &[u8]) -> (Vec<u8>, Vec<u8>) {
     let (mut out, mut refuse) = (Vec::new(), Vec::new());
     let mut i = 0;
@@ -264,13 +278,22 @@ fn strip_iac(data: &[u8]) -> (Vec<u8>, Vec<u8>) {
 
 fn lines(buf: &[u8]) -> Vec<String> {
     let (clean, _) = strip_iac(buf);
-    String::from_utf8_lossy(&clean).replace('\r', "").split('\n').map(str::to_string).collect()
+    String::from_utf8_lossy(&clean)
+        .replace('\r', "")
+        .split('\n')
+        .map(str::to_string)
+        .collect()
 }
 
 fn between(lines: &[String]) -> Option<String> {
     let begin = lines.iter().position(|l| l == BEGIN)?;
     let end = begin + 1 + lines[begin + 1..].iter().position(|l| l == END)?;
-    Some(lines[begin + 1..end].join("\n").trim_matches('\n').to_string())
+    Some(
+        lines[begin + 1..end]
+            .join("\n")
+            .trim_matches('\n')
+            .to_string(),
+    )
 }
 
 #[cfg(test)]
@@ -282,7 +305,10 @@ mod tests {
         let sh = Shell::new("192.168.50.2");
         sh.move_to(DEFAULT_HOST);
         assert_eq!(sh.host(), DEFAULT_HOST);
-        assert_eq!(sh.socket_addr(TELNET_PORT).unwrap().to_string(), "10.10.10.1:2323");
+        assert_eq!(
+            sh.socket_addr(TELNET_PORT).unwrap().to_string(),
+            "10.10.10.1:2323"
+        );
     }
 
     #[test]

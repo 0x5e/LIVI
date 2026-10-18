@@ -1,13 +1,8 @@
-//! The service records we answer for, and the one question we ask a phone: which RFCOMM channel
-//! a service of it sits on.
-
 pub const PDU_MAX: usize = 1024;
 
-/// Wireless iAP.
 pub const IAP_UUID: [u8; 16] = [
     0x00, 0x00, 0x00, 0x00, 0xde, 0xca, 0xfa, 0xde, 0xde, 0xca, 0xde, 0xaf, 0xde, 0xca, 0xca, 0xff,
 ];
-/// Wireless iAP the other way round, offered by the phone.
 pub const IAP_CLIENT_UUID: [u8; 16] = [
     0x00, 0x00, 0x00, 0x00, 0xde, 0xca, 0xfa, 0xde, 0xde, 0xca, 0xde, 0xaf, 0xde, 0xca, 0xca, 0xfe,
 ];
@@ -25,7 +20,9 @@ const HANDS_FREE_FEATURES: u16 = 0x009c;
 
 pub const fn full_uuid(id: u16) -> [u8; 16] {
     let [hi, lo] = id.to_be_bytes();
-    [0, 0, hi, lo, 0x00, 0x00, 0x10, 0x00, 0x80, 0x00, 0x00, 0x80, 0x5f, 0x9b, 0x34, 0xfb]
+    [
+        0, 0, hi, lo, 0x00, 0x00, 0x10, 0x00, 0x80, 0x00, 0x00, 0x80, 0x5f, 0x9b, 0x34, 0xfb,
+    ]
 }
 
 #[derive(Clone, Copy, PartialEq)]
@@ -63,7 +60,6 @@ pub static ANDROID_AUTO: Record = Record {
     name: "Android Auto Wireless",
     profile: Profile::SerialPort,
 };
-/// The phone connects here after pairing, and only then opens Android Auto.
 pub static HANDS_FREE_UNIT: Record = Record {
     handle: 0x0001_0004,
     uuid: full_uuid(HANDS_FREE),
@@ -72,7 +68,6 @@ pub static HANDS_FREE_UNIT: Record = Record {
     profile: Profile::HandsFree,
 };
 
-/// A phone that finds a service's record uses it, so each is listed only while it is offered.
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
 pub enum Service {
     CarPlay,
@@ -91,7 +86,6 @@ impl Service {
         }
     }
 
-    /// What the name list a phone sees before connecting carries.
     pub fn uuids(self) -> Vec<[u8; 16]> {
         match self {
             Service::CarPlay => vec![IAP_UUID, IAP_CLIENT_UUID, CARPLAY_UUID],
@@ -101,7 +95,9 @@ impl Service {
     }
 
     pub fn of_channel(channel: u8) -> Option<Service> {
-        Service::ALL.into_iter().find(|s| s.records().iter().any(|r| r.channel == channel))
+        Service::ALL
+            .into_iter()
+            .find(|s| s.records().iter().any(|r| r.channel == channel))
     }
 }
 
@@ -120,7 +116,6 @@ const RSP_ERROR: u8 = 0x01;
 const ERROR_SYNTAX: u16 = 0x0003;
 const ATTR_PROTOCOLS: u16 = 0x0004;
 
-/// One request from a phone, answered from the records on offer.
 pub fn answer(req: &[u8], offered: &[&Record]) -> Vec<u8> {
     if req.len() < 5 {
         return error(0, ERROR_SYNTAX);
@@ -136,7 +131,6 @@ pub fn answer(req: &[u8], offered: &[&Record]) -> Vec<u8> {
     }
 }
 
-/// Asks for the protocol list of every record carrying the service.
 pub fn ask_channel(tid: u16, service: &[u8]) -> Vec<u8> {
     let mut params = seq(service);
     params.extend_from_slice(&u16::MAX.to_be_bytes());
@@ -145,12 +139,14 @@ pub fn ask_channel(tid: u16, service: &[u8]) -> Vec<u8> {
     packet(REQ_SEARCH_ATTRIBUTE, tid, &params)
 }
 
-/// The channel is the uint8 right behind the RFCOMM UUID in the answer.
 pub fn channel_in(reply: &[u8]) -> Option<u8> {
     if reply.first() != Some(&RSP_SEARCH_ATTRIBUTE) {
         return None;
     }
-    reply.windows(5).find(|w| w[..4] == [0x19, 0x00, 0x03, 0x08]).map(|w| w[4])
+    reply
+        .windows(5)
+        .find(|w| w[..4] == [0x19, 0x00, 0x03, 0x08])
+        .map(|w| w[4])
 }
 
 pub fn uuid_of(id: u16) -> Vec<u8> {
@@ -257,7 +253,6 @@ fn record(record: &Record, attrs: &[u8]) -> Vec<u8> {
     seq(&out)
 }
 
-/// Attribute ids have to stay in ascending order.
 fn attributes(record: &Record) -> Vec<(u16, Vec<u8>)> {
     let protocol = seq(&[
         seq(&uuid16(UUID_L2CAP)),
@@ -271,7 +266,9 @@ fn attributes(record: &Record) -> Vec<(u16, Vec<u8>)> {
         ),
         Profile::HandsFree => (
             seq(&[uuid16(HANDS_FREE), uuid16(GENERIC_AUDIO)].concat()),
-            seq(&seq(&[uuid16(HANDS_FREE), uint16(HANDS_FREE_VERSION)].concat())),
+            seq(&seq(
+                &[uuid16(HANDS_FREE), uint16(HANDS_FREE_VERSION)].concat()
+            )),
         ),
     };
     let mut out = vec![
@@ -337,14 +334,16 @@ fn element(body: &[u8]) -> Option<(&[u8], &[u8])> {
         3 => (8, 1),
         4 => (16, 1),
         5 => (usize::from(*body.get(1)?), 2),
-        6 => (usize::from(u16::from_be_bytes([*body.get(1)?, *body.get(2)?])), 3),
+        6 => (
+            usize::from(u16::from_be_bytes([*body.get(1)?, *body.get(2)?])),
+            3,
+        ),
         _ => (
             u32::from_be_bytes([*body.get(1)?, *body.get(2)?, *body.get(3)?, *body.get(4)?])
                 as usize,
             5,
         ),
     };
-    // A nil element carries no payload.
     let len = if head >> 3 == 0 { 0 } else { len };
     let end = from.checked_add(len)?;
     if end > body.len() {
@@ -416,7 +415,10 @@ mod tests {
     const ALL: [u8; 5] = [0x0a, 0x00, 0x00, 0xff, 0xff];
 
     fn every() -> Vec<&'static Record> {
-        Service::ALL.into_iter().flat_map(Service::records).collect()
+        Service::ALL
+            .into_iter()
+            .flat_map(Service::records)
+            .collect()
     }
 
     #[test]
@@ -432,7 +434,9 @@ mod tests {
     fn only_records_on_offer_are_found() {
         let search = |offered: &[&Record], pattern: &[u8]| {
             let req = packet(REQ_SERVICE_SEARCH, 1, &[seq(pattern), vec![0, 10]].concat());
-            answer(&req, offered).windows(4).any(|w| w == CARPLAY.handle.to_be_bytes())
+            answer(&req, offered)
+                .windows(4)
+                .any(|w| w == CARPLAY.handle.to_be_bytes())
         };
         assert!(search(&every(), &uuid128(&CARPLAY_UUID)));
         assert!(!search(&[&HANDS_FREE_UNIT], &uuid128(&CARPLAY_UUID)));

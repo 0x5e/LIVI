@@ -12,7 +12,6 @@ pub mod api {
     use napi::bindgen_prelude::Buffer;
     use napi_derive::napi;
 
-    /// The pointer Electron's getNativeWindowHandle hands over.
     fn window_handle(buf: &Buffer) -> usize {
         let bytes: &[u8] = buf.as_ref();
         bytes
@@ -32,7 +31,6 @@ pub mod api {
         }
     }
 
-    /// None once the window closed.
     #[napi]
     pub fn set_window(screen: String, handle: Option<Buffer>) {
         crate::screens::set_window(&screen, handle.as_ref().map_or(0, window_handle));

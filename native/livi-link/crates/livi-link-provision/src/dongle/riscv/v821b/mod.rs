@@ -19,7 +19,6 @@ pub struct HardwareInfo {
 }
 
 impl HardwareInfo {
-    /// Gates flashing `V821B_LFWB`, so any other hardware stops at the bind-shell.
     pub fn looks_like_v821b_aic8800d80(&self) -> bool {
         let rv32 = self.cpuinfo_head.contains("rv32");
         let mtd_layout = self.proc_mtd.matches("mtd").count() >= 8;
@@ -32,16 +31,26 @@ pub fn verify_hardware(sh: &mut BindShell) -> Result<HardwareInfo, String> {
     let cpuinfo_head = sh.run("head -20 /proc/cpuinfo")?;
     let proc_mtd = sh.run("cat /proc/mtd")?;
     let aic_modules = sh.run("ls /sys/module 2>/dev/null | grep -i aic8800 || true")?;
-    Ok(HardwareInfo { cpuinfo_head, proc_mtd, aic_modules })
+    Ok(HardwareInfo {
+        cpuinfo_head,
+        proc_mtd,
+        aic_modules,
+    })
 }
 
 pub fn backup_stock(sh: &mut BindShell, out_dir: &Path) -> Result<std::path::PathBuf, String> {
     std::fs::create_dir_all(out_dir).map_err(|e| format!("mkdir {out_dir:?}: {e}"))?;
 
     println!("pulling mtd1 ({} B)…", MTD1_SIZE);
-    let mtd1 = sh.stream_out("dd if=/dev/mtdblock1 bs=64k 2>/dev/null; sleep 1", MTD1_SIZE)?;
+    let mtd1 = sh.stream_out(
+        "dd if=/dev/mtdblock1 bs=64k 2>/dev/null; sleep 1",
+        MTD1_SIZE,
+    )?;
     println!("pulling mtd3 ({} B)…", MTD3_SIZE);
-    let mtd3 = sh.stream_out("dd if=/dev/mtdblock3 bs=64k 2>/dev/null; sleep 1", MTD3_SIZE)?;
+    let mtd3 = sh.stream_out(
+        "dd if=/dev/mtdblock3 bs=64k 2>/dev/null; sleep 1",
+        MTD3_SIZE,
+    )?;
 
     let out_path = out_dir.join(format!("v821b_stock_{}.lfwb", lfwb::stamp()));
     let bundle = lfwb::pack(&[(1, &mtd1), (3, &mtd3)]);
@@ -62,7 +71,7 @@ pub fn stream_in_selftest(sh: &mut BindShell, size: usize) -> Result<(), String>
 pub fn flash_embedded(sh: &mut BindShell) -> Result<(), String> {
     if V821B_LFWB.is_empty() {
         return Err(
-            "no LIVI Link firmware baked in — this is a local dev build without CI assets".into()
+            "no LIVI Link firmware baked in — this is a local dev build without CI assets".into(),
         );
     }
     flash_lfwb_bytes(sh, V821B_LFWB)
@@ -72,7 +81,6 @@ fn flash_lfwb_bytes(sh: &mut BindShell, bytes: &[u8]) -> Result<(), String> {
     write_bundle(sh, bytes)?;
     println!("sync + reboot");
     sh.run("sync")?;
-    // The dongle drops the shell as it goes down, so the result is ignored.
     let _ = sh.run("reboot -f &");
     Ok(())
 }
@@ -83,7 +91,10 @@ pub fn write_bundle<R: Remote>(sh: &mut R, bytes: &[u8]) -> Result<(), String> {
     let mtd3 = lfwb::image(&images, 3).ok_or("no mtd3 payload in bundle")?;
     for (what, data, slot) in [("mtd1", mtd1, MTD1_SIZE), ("mtd3", mtd3, MTD3_SIZE)] {
         if data.len() as u64 > slot {
-            return Err(format!("{what} image is {} B, its slot holds {slot} B", data.len()));
+            return Err(format!(
+                "{what} image is {} B, its slot holds {slot} B",
+                data.len()
+            ));
         }
     }
 
@@ -109,7 +120,14 @@ mod tests {
         fn run(&mut self, cmd: &str) -> Result<String, String> {
             let (_, data) = self.written.last().ok_or("read before any write")?;
             assert!(cmd.contains("md5sum"), "unexpected command {cmd}");
-            Ok(format!("{}  -", if self.lost { md5_hex(b"") } else { md5_hex(data) }))
+            Ok(format!(
+                "{}  -",
+                if self.lost {
+                    md5_hex(b"")
+                } else {
+                    md5_hex(data)
+                }
+            ))
         }
 
         fn write_mtd(&mut self, node: &str, data: &[u8]) -> Result<(), String> {
@@ -137,7 +155,10 @@ mod tests {
 
     #[test]
     fn a_write_the_chip_dropped_is_an_error() {
-        let mut sh = Fake { lost: true, ..Fake::default() };
+        let mut sh = Fake {
+            lost: true,
+            ..Fake::default()
+        };
         let err =
             write_bundle(&mut sh, &lfwb::pack(&[(1, b"kernel"), (3, b"rootfs")])).unwrap_err();
         assert!(err.contains("did not take the write"), "{err}");

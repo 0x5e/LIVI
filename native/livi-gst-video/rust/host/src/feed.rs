@@ -1,7 +1,3 @@
-//! The socket helpers stream media into. Every connection carries records for
-//! the sink on the main loop, like the screen receiver does it. A session and a
-//! call bridge can be connected at the same time.
-
 use std::cell::RefCell;
 use std::io::Read;
 use std::os::fd::{AsRawFd, RawFd};
@@ -74,7 +70,6 @@ fn watch_client(fd: RawFd, generation: u64, clients: Clients, sink: Sink) {
                         None
                     }
                 }
-                // already gone
                 None => return glib::ControlFlow::Break,
             }
         };

@@ -19,7 +19,6 @@ pub struct UiSupervisor {
 }
 
 impl UiSupervisor {
-    /// Without `display` the UI opens on the desktop.
     pub fn start(
         cmd: UiCmd,
         core_socket: PathBuf,
@@ -65,7 +64,6 @@ fn command(cmd: &UiCmd, core_socket: &Path, ui: Option<&Ui>) -> Command {
     };
     c.env("LIVI_CORE_SOCKET", core_socket);
     if let Some(ui) = ui {
-        // A UI that still saw the desktop's X server would open its window there.
         c.env("WAYLAND_DISPLAY", &ui.wayland_display)
             .env("XDG_SESSION_TYPE", "wayland")
             .env("LIVI_COMPOSITOR", "1")
@@ -75,8 +73,9 @@ fn command(cmd: &UiCmd, core_socket: &Path, ui: Option<&Ui>) -> Command {
             None => c.env_remove("LIVI_RENDER_NODE"),
         };
     }
-    // Its own group, so stopping a shell line stops what it started too.
-    crate::child::with_lifeline(&mut c).process_group(0).kill_on_drop(true);
+    crate::child::with_lifeline(&mut c)
+        .process_group(0)
+        .kill_on_drop(true);
     c
 }
 
@@ -152,7 +151,10 @@ mod tests {
         c.as_std()
             .get_envs()
             .map(|(k, v)| {
-                (k.to_string_lossy().into_owned(), v.map(|v| v.to_string_lossy().into_owned()))
+                (
+                    k.to_string_lossy().into_owned(),
+                    v.map(|v| v.to_string_lossy().into_owned()),
+                )
             })
             .collect()
     }
@@ -163,8 +165,14 @@ mod tests {
 
     #[test]
     fn inside_the_compositor_the_ui_gets_its_display() {
-        let cmd = UiCmd::Exec { bin: PathBuf::from("/a/livi-ui"), args: vec!["--x".into()] };
-        let ui = Ui { wayland_display: "wayland-2".into(), render_node: None };
+        let cmd = UiCmd::Exec {
+            bin: PathBuf::from("/a/livi-ui"),
+            args: vec!["--x".into()],
+        };
+        let ui = Ui {
+            wayland_display: "wayland-2".into(),
+            render_node: None,
+        };
         let c = command(&cmd, Path::new("/run/livi/core.sock"), Some(&ui));
         let args: Vec<&OsStr> = c.as_std().get_args().collect();
         assert_eq!(args, ["--x", "--ozone-platform=wayland"]);
@@ -173,7 +181,10 @@ mod tests {
         assert_eq!(get(&env, "LIVI_COMPOSITOR"), Some(Some("1".into())));
         assert_eq!(get(&env, "DISPLAY"), Some(None));
         assert_eq!(get(&env, "LIVI_RENDER_NODE"), Some(None));
-        assert_eq!(get(&env, "LIVI_CORE_SOCKET"), Some(Some("/run/livi/core.sock".into())));
+        assert_eq!(
+            get(&env, "LIVI_CORE_SOCKET"),
+            Some(Some("/run/livi/core.sock".into()))
+        );
     }
 
     #[test]
@@ -188,7 +199,9 @@ mod tests {
     }
 
     async fn quits(notify: &Notify) -> bool {
-        tokio::time::timeout(Duration::from_secs(5), notify.notified()).await.is_ok()
+        tokio::time::timeout(Duration::from_secs(5), notify.notified())
+            .await
+            .is_ok()
     }
 
     #[tokio::test]
@@ -230,7 +243,10 @@ mod tests {
         );
         let early = tokio::time::timeout(Duration::from_millis(200), quit.notified()).await;
         assert!(early.is_err());
-        let _ = display_tx.send(Some(Ui { wayland_display: "w".into(), render_node: None }));
+        let _ = display_tx.send(Some(Ui {
+            wayland_display: "w".into(),
+            render_node: None,
+        }));
         assert!(quits(&quit).await);
         ui.stop().await;
     }
@@ -245,6 +261,8 @@ mod tests {
             quit.clone(),
         );
         tokio::time::sleep(Duration::from_millis(200)).await;
-        tokio::time::timeout(Duration::from_secs(5), ui.stop()).await.unwrap();
+        tokio::time::timeout(Duration::from_secs(5), ui.stop())
+            .await
+            .unwrap();
     }
 }

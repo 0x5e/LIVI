@@ -1,5 +1,3 @@
-//! Every timestamp sent to the phone has to come from the steered clock.
-
 use std::time::{Instant, SystemTime, UNIX_EPOCH};
 
 const PT_REQUEST: u8 = 210;
@@ -8,14 +6,14 @@ const NTP_EPOCH_OFFSET: u64 = 2_208_988_800;
 const TWO32: f64 = 4_294_967_296.0;
 const STEP_THRESHOLD_SEC: f64 = 0.128;
 const SLEW_GAIN: f64 = 1.0 / 8.0;
-/// A sample is used only when it has the lowest round trip of this window.
 const DELAY_WINDOW: usize = 8;
-/// Answers collected before the lowest round trip among them counts.
 const PICK_COUNT: u32 = 2;
 pub const PACKET_LEN: usize = 32;
 
 pub fn ntp64_now() -> u64 {
-    let since = SystemTime::now().duration_since(UNIX_EPOCH).unwrap_or_default();
+    let since = SystemTime::now()
+        .duration_since(UNIX_EPOCH)
+        .unwrap_or_default();
     let sec = since.as_secs() + NTP_EPOCH_OFFSET;
     let frac = (u64::from(since.subsec_nanos()) << 32) / 1_000_000_000;
     (sec << 32) | frac
@@ -197,7 +195,10 @@ mod tests {
         }
         assert!(clock.synced());
         let ahead = ntp_to_ns(clock.synced_ntp()) - ntp_to_ns(ntp64_now());
-        assert!((ahead - skew).abs() < 50_000_000, "clock is {ahead} ns ahead");
+        assert!(
+            (ahead - skew).abs() < 50_000_000,
+            "clock is {ahead} ns ahead"
+        );
     }
 
     #[test]

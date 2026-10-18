@@ -1,21 +1,16 @@
-//! Android Auto calls ride Bluetooth hands-free, which the helper owns.
-
 use std::collections::{HashMap, HashSet};
 use std::time::Duration;
 
 use tokio::time::Instant;
 
 pub const KEEP_EVERY: Duration = Duration::from_secs(30);
-/// A phone that brings the link up itself does it within this, Android's own pace.
 const NUDGE_GAP: Duration = Duration::from_secs(120);
 
 #[derive(Debug, Clone, PartialEq)]
 pub enum Io {
     Call(bool),
-    /// The helper keeps the access point from these phones.
     WiredPhones(Vec<String>),
     Nudge(String),
-    /// Answered with `Back::Phones`.
     FindPhones,
 }
 
@@ -28,9 +23,7 @@ pub enum Back {
 pub struct HandsFree {
     pub bt_by_instance: HashMap<String, String>,
     pub serial_by_instance: HashMap<String, String>,
-    /// The helper serves one phone at a time.
     link_up: bool,
-    /// Per phone, only so a change is logged once.
     links: HashMap<String, bool>,
     kept: HashSet<String>,
     nudged: HashMap<String, Instant>,
@@ -49,7 +42,10 @@ impl HandsFree {
 
     fn log_link(&mut self, mac: &str, up: bool, by: &str) {
         if self.links.insert(mac.to_string(), up) != Some(up) {
-            println!("[core] HFP link {mac}: {} ({by})", if up { "up" } else { "down" });
+            println!(
+                "[core] HFP link {mac}: {} ({by})",
+                if up { "up" } else { "down" }
+            );
         }
     }
 
@@ -73,14 +69,17 @@ impl HandsFree {
         if up || self.call {
             return None;
         }
-        if self.nudged.get(mac).is_some_and(|at| now.duration_since(*at) < NUDGE_GAP) {
+        if self
+            .nudged
+            .get(mac)
+            .is_some_and(|at| now.duration_since(*at) < NUDGE_GAP)
+        {
             return None;
         }
         self.nudged.insert(mac.to_string(), now);
         Some(Io::Nudge(mac.to_string()))
     }
 
-    /// A helper that came back starts with an empty list.
     pub fn wired(&mut self, ids: impl IntoIterator<Item = String>, again: bool) -> Option<Io> {
         let mut list: Vec<String> = ids.into_iter().map(|id| id.to_uppercase()).collect();
         list.sort();
@@ -106,7 +105,10 @@ mod tests {
         let mac = "aa:00:00:00:00:01";
         assert_eq!(hf.check(mac, true, t0), Some(Io::Nudge(mac.into())));
         assert_eq!(hf.check(mac, true, t0 + KEEP_EVERY), None);
-        assert_eq!(hf.check(mac, true, t0 + NUDGE_GAP), Some(Io::Nudge(mac.into())));
+        assert_eq!(
+            hf.check(mac, true, t0 + NUDGE_GAP),
+            Some(Io::Nudge(mac.into()))
+        );
 
         hf.on_link(true, Some("AA:00:00:00:00:01"));
         assert_eq!(hf.check(mac, true, t0 + NUDGE_GAP * 3), None);
@@ -114,7 +116,10 @@ mod tests {
         hf.call = true;
         assert_eq!(hf.check(mac, true, t0 + NUDGE_GAP * 3), None);
         hf.call = false;
-        assert_eq!(hf.check(mac, true, t0 + NUDGE_GAP * 3), Some(Io::Nudge(mac.into())));
+        assert_eq!(
+            hf.check(mac, true, t0 + NUDGE_GAP * 3),
+            Some(Io::Nudge(mac.into()))
+        );
 
         assert_eq!(hf.check(mac, false, t0 + NUDGE_GAP * 9), None);
         assert!(hf.kept().is_empty());
@@ -130,6 +135,9 @@ mod tests {
         assert_eq!(hf.wired(list(), false), Some(sent.clone()));
         assert_eq!(hf.wired(list(), false), None);
         assert_eq!(hf.wired(list(), true), Some(sent));
-        assert_eq!(hf.wired(Vec::new(), false), Some(Io::WiredPhones(Vec::new())));
+        assert_eq!(
+            hf.wired(Vec::new(), false),
+            Some(Io::WiredPhones(Vec::new()))
+        );
     }
 }

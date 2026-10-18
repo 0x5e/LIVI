@@ -44,14 +44,15 @@ async fn installed(p: &Privileged, rule: &str) -> bool {
     Path::new(GUARD).exists() && (sudo_grants(GUARD).await || p.marker_holds(MARKER, rule))
 }
 
-/// A watcher outside core brings the monitors back once core is gone, however it ends.
 pub async fn start(p: Privileged) {
     if !cfg!(target_os = "linux") {
         return;
     }
     let rule = rule(&username());
     if !installed(&p, &rule).await && !crate::power::owns_host() && monitors_present() {
-        if p.helper_installs("install-gvfs-guard", &[("script", SCRIPT), ("rule", &rule)]).await {
+        if p.helper_installs("install-gvfs-guard", &[("script", SCRIPT), ("rule", &rule)])
+            .await
+        {
             p.write_marker(MARKER, &rule);
         } else {
             eprintln!("[gvfs] the phone guard is not installed, run the LIVI install script");
@@ -60,7 +61,6 @@ pub async fn start(p: Privileged) {
     if !Path::new(GUARD).exists() {
         return;
     }
-    // A guard left from a crash is healed first.
     if !(sudo(&[GUARD, "restore"]).await && sudo(&[GUARD, "disable"]).await) {
         eprintln!("[gvfs] the phone monitors stay, the guard did not run");
         return;
@@ -94,7 +94,9 @@ mod tests {
     #[test]
     fn the_rule_lets_only_the_guard_run() {
         let r = rule("u");
-        assert!(r.contains(&format!("Cmnd_Alias LIVI_GVFS = {GUARD} disable, {GUARD} restore")));
+        assert!(r.contains(&format!(
+            "Cmnd_Alias LIVI_GVFS = {GUARD} disable, {GUARD} restore"
+        )));
         assert!(r.ends_with("u ALL=(root) NOPASSWD: LIVI_GVFS\n"));
         assert!(SCRIPT.starts_with("#!/bin/bash\n"));
     }

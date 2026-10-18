@@ -50,14 +50,9 @@ pub enum FromCore {
         state: Box<State>,
     },
     /// Sent instead of the welcome, then core closes the connection.
-    Refused {
-        reason: String,
-    },
+    Refused { reason: String },
     /// Follows the state of `rev - 1`, anything else means resync.
-    Patch {
-        rev: u64,
-        ops: Vec<PatchOp>,
-    },
+    Patch { rev: u64, ops: Vec<PatchOp> },
     Reply {
         id: u32,
         #[serde(default, skip_serializing_if = "Option::is_none")]
@@ -65,13 +60,9 @@ pub enum FromCore {
         error: Option<String>,
     },
     /// 0 to 1 per band, only to clients that asked. Never part of the state.
-    Spectrum {
-        bands: Vec<f32>,
-    },
+    Spectrum { bands: Vec<f32> },
     /// The telemetry asked for a page once, never part of the state.
-    OpenPage {
-        path: String,
-    },
+    OpenPage { path: String },
 }
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize, TS)]
@@ -194,7 +185,9 @@ mod tests {
     fn action_on_the_wire() {
         let msg = ToCore::Action {
             id: 7,
-            action: Action::SetConfig { patch: json!({ "huVolume": 1.0 }) },
+            action: Action::SetConfig {
+                patch: json!({ "huVolume": 1.0 }),
+            },
         };
         let wire = json!({ "type": "action", "id": 7, "action": { "kind": "setConfig", "patch": { "huVolume": 1.0 } } });
         assert_eq!(serde_json::to_value(&msg).unwrap(), wire);
@@ -203,14 +196,23 @@ mod tests {
 
     #[test]
     fn unit_variants_carry_only_their_tag() {
-        assert_eq!(serde_json::to_value(ToCore::Resync).unwrap(), json!({ "type": "resync" }));
-        assert_eq!(serde_json::to_value(Action::Quit).unwrap(), json!({ "kind": "quit" }));
+        assert_eq!(
+            serde_json::to_value(ToCore::Resync).unwrap(),
+            json!({ "type": "resync" })
+        );
+        assert_eq!(
+            serde_json::to_value(Action::Quit).unwrap(),
+            json!({ "kind": "quit" })
+        );
     }
 
     #[test]
     fn reply_leaves_out_a_missing_error() {
         let ok = FromCore::Reply { id: 3, error: None };
-        assert_eq!(serde_json::to_value(&ok).unwrap(), json!({ "type": "reply", "id": 3 }));
+        assert_eq!(
+            serde_json::to_value(&ok).unwrap(),
+            json!({ "type": "reply", "id": 3 })
+        );
         assert_eq!(
             serde_json::from_value::<FromCore>(json!({ "type": "reply", "id": 3 })).unwrap(),
             ok
@@ -220,8 +222,13 @@ mod tests {
     #[test]
     fn the_spectrum_goes_both_ways_in_its_own_messages() {
         let ask = ToCore::Spectrum { on: true };
-        assert_eq!(serde_json::to_value(&ask).unwrap(), json!({ "type": "spectrum", "on": true }));
-        let frame = FromCore::Spectrum { bands: vec![0.5, 1.0] };
+        assert_eq!(
+            serde_json::to_value(&ask).unwrap(),
+            json!({ "type": "spectrum", "on": true })
+        );
+        let frame = FromCore::Spectrum {
+            bands: vec![0.5, 1.0],
+        };
         let wire = json!({ "type": "spectrum", "bands": [0.5, 1.0] });
         assert_eq!(serde_json::to_value(&frame).unwrap(), wire);
         assert_eq!(serde_json::from_value::<FromCore>(wire).unwrap(), frame);

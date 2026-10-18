@@ -1,5 +1,3 @@
-//! What a radio offers an access point, as nl80211 describes it.
-
 use crate::{Band, Channel};
 
 const BAND_ATTR_HT_CAPA: u16 = 4;
@@ -16,12 +14,8 @@ const EXT_FEATURE_SAE_OFFLOAD_AP: usize = 51;
 #[derive(Clone, Debug, Default, PartialEq, Eq)]
 pub struct Radio {
     pub bands: Vec<BandOffer>,
-    /// WMM power save: a dozing phone collects its frames when it asks.
     pub ap_uapsd: bool,
-    /// hostapd runs SAE itself, which needs a radio that leaves the access point's
-    /// authentication to it.
     pub ap_sae: bool,
-    /// The firmware runs SAE for the access point.
     pub sae_offload: bool,
 }
 
@@ -30,10 +24,8 @@ pub struct BandOffer {
     pub band: Band,
     pub ht: Option<u16>,
     pub vht: Option<u32>,
-    /// The HE PHY capabilities an access point gets.
     pub he: Option<Vec<u8>>,
     pub eht: bool,
-    /// The channel numbers an access point may start on.
     pub channels: Vec<u32>,
 }
 
@@ -75,7 +67,11 @@ pub fn radio(iface: &str) -> Option<Radio> {
     let family = family_id(&fd).ok()?;
     let mut wanted = attr(ATTR_SPLIT_WIPHY_DUMP, &[]);
     wanted.extend(attr(ATTR_WIPHY, &index.to_ne_bytes()));
-    let payloads = call(&fd, &message(family, NL80211_CMD_GET_WIPHY, NLM_F_DUMP, &wanted)).ok()?;
+    let payloads = call(
+        &fd,
+        &message(family, NL80211_CMD_GET_WIPHY, NLM_F_DUMP, &wanted),
+    )
+    .ok()?;
     Some(radio_in(&payloads, index))
 }
 
@@ -84,7 +80,6 @@ pub fn radio(_iface: &str) -> Option<Radio> {
     None
 }
 
-/// A split dump spreads the radio over several messages.
 fn radio_in(payloads: &[Vec<u8>], index: u32) -> Radio {
     use crate::{ATTR_WIPHY, ATTR_WIPHY_BANDS, Attrs};
     let mut radio = Radio::default();
@@ -108,20 +103,22 @@ fn radio_in(payloads: &[Vec<u8>], index: u32) -> Radio {
                 ATTR_DEVICE_AP_SME => device_sme = true,
                 ATTR_EXT_FEATURES => {
                     let bit = EXT_FEATURE_SAE_OFFLOAD_AP;
-                    radio.sae_offload =
-                        value.get(bit / 8).is_some_and(|b| b & (1 << (bit % 8)) != 0);
+                    radio.sae_offload = value
+                        .get(bit / 8)
+                        .is_some_and(|b| b & (1 << (bit % 8)) != 0);
                 }
                 _ => {}
             }
         }
     }
     radio.ap_sae = !device_sme;
-    radio.bands.retain(|b| b.ht.is_some() || b.he.is_some() || !b.channels.is_empty());
+    radio
+        .bands
+        .retain(|b| b.ht.is_some() || b.he.is_some() || !b.channels.is_empty());
     radio.bands.sort_by_key(|b| b.band);
     radio
 }
 
-/// `enum nl80211_band`.
 fn band_of(nl_band: u16) -> Option<Band> {
     match nl_band {
         0 => Some(Band::Ghz24),
@@ -137,7 +134,9 @@ fn band_in(offer: &mut BandOffer, attrs: &[u8]) {
         match kind {
             BAND_ATTR_FREQS => {
                 for (_, f) in Attrs(value) {
-                    let Some(f) = frequency(f).filter(|f| f.flags == "ok") else { continue };
+                    let Some(f) = frequency(f).filter(|f| f.flags == "ok") else {
+                        continue;
+                    };
                     if let Some(ch) = Channel::of_freq(f.freq).filter(|c| c.band == offer.band) {
                         offer.channels.push(ch.number);
                     }
@@ -159,7 +158,6 @@ fn band_in(offer: &mut BandOffer, attrs: &[u8]) {
     offer.channels.dedup();
 }
 
-/// Only the access point's own capabilities count.
 fn iftype_in(offer: &mut BandOffer, entry: &[u8]) {
     use crate::{Attrs, IFTYPE_AP};
     let mut ap = false;
@@ -228,8 +226,10 @@ mod tests {
 
     #[test]
     fn a_split_dump_adds_up_to_one_radio() {
-        let six =
-            attr(ATTR_WIPHY_BANDS, &attr(3, &attr(BAND_ATTR_FREQS, &attr(0, &freq(6135, false)))));
+        let six = attr(
+            ATTR_WIPHY_BANDS,
+            &attr(3, &attr(BAND_ATTR_FREQS, &attr(0, &freq(6135, false)))),
+        );
         let payloads = [
             wiphy(0, &mt7925_5ghz()),
             wiphy(0, &six),
@@ -263,7 +263,10 @@ mod tests {
     #[test]
     fn a_client_only_he_radio_offers_an_access_point_no_he() {
         let mut band = attr(BAND_ATTR_HT_CAPA, &0x0062u16.to_ne_bytes());
-        band.extend(attr(BAND_ATTR_IFTYPE_DATA, &attr(0, &iftype_entry(2, &[0x4c], true))));
+        band.extend(attr(
+            BAND_ATTR_IFTYPE_DATA,
+            &attr(0, &iftype_entry(2, &[0x4c], true)),
+        ));
         let radio = radio_in(&[wiphy(0, &attr(ATTR_WIPHY_BANDS, &attr(0, &band)))], 0);
         let two = radio.band(Band::Ghz24).unwrap();
         assert_eq!(two.ht, Some(0x0062));

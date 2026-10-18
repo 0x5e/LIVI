@@ -129,11 +129,17 @@ impl HostState {
     }
 
     pub fn window_for_screen(&mut self, screen_idx: usize) -> Option<&mut HostWindow> {
-        self.windows.iter_mut().find(|(i, _)| *i == screen_idx).map(|(_, w)| w)
+        self.windows
+            .iter_mut()
+            .find(|(i, _)| *i == screen_idx)
+            .map(|(_, w)| w)
     }
 
     pub fn screen_for_surface(&self, surface: &CWlSurface) -> Option<usize> {
-        self.windows.iter().find(|(_, w)| w.window.wl_surface() == surface).map(|(i, _)| *i)
+        self.windows
+            .iter()
+            .find(|(_, w)| w.window.wl_surface() == surface)
+            .map(|(i, _)| *i)
     }
 }
 
@@ -186,11 +192,18 @@ impl EGLNativeDisplay for HostNativeDisplay {
 
 fn render_node(display: &EGLDisplay) -> Option<std::path::PathBuf> {
     let device = EGLDevice::device_for_display(display).ok()?;
-    device.render_device_path().or_else(|_| device.drm_device_path()).ok()
+    device
+        .render_device_path()
+        .or_else(|_| device.drm_device_path())
+        .ok()
 }
 
 fn syncobj_device(path: &std::path::Path) -> Option<DrmDeviceFd> {
-    let file = std::fs::OpenOptions::new().read(true).write(true).open(path).ok()?;
+    let file = std::fs::OpenOptions::new()
+        .read(true)
+        .write(true)
+        .open(path)
+        .ok()?;
     let fd = DrmDeviceFd::new(DeviceFd::from(std::os::fd::OwnedFd::from(file)));
     supports_syncobj_eventfd(&fd).then_some(fd)
 }
@@ -212,7 +225,12 @@ pub fn init(state: &mut LiviState, handle: &LoopHandle<'static, LiviState>) {
         unsafe { EGLDisplay::new(HostNativeDisplay(display_ptr)) }.expect("EGLDisplay");
     let egl_context = EGLContext::new_with_config(
         &egl_display,
-        GlAttributes { version: (2, 0), profile: None, debug: false, vsync: false },
+        GlAttributes {
+            version: (2, 0),
+            profile: None,
+            debug: false,
+            vsync: false,
+        },
         smithay::backend::egl::context::PixelFormatRequirements::_8_bit(),
     )
     .expect("EGLContext");
@@ -221,7 +239,12 @@ pub fn init(state: &mut LiviState, handle: &LoopHandle<'static, LiviState>) {
             EGLContext::new_shared_with_config(
                 &egl_display,
                 &egl_context,
-                GlAttributes { version: (2, 0), profile: None, debug: false, vsync: false },
+                GlAttributes {
+                    version: (2, 0),
+                    profile: None,
+                    debug: false,
+                    vsync: false,
+                },
                 smithay::backend::egl::context::PixelFormatRequirements::_8_bit(),
             )
             .expect("shared EGLContext"),
@@ -234,13 +257,17 @@ pub fn init(state: &mut LiviState, handle: &LoopHandle<'static, LiviState>) {
     let formats = renderer.dmabuf_formats();
     let feedback = state.render_node.as_deref().and_then(|node| {
         let dev = std::os::unix::fs::MetadataExt::rdev(&std::fs::metadata(node).ok()?);
-        DmabufFeedbackBuilder::new(dev, formats.clone()).build().ok()
+        DmabufFeedbackBuilder::new(dev, formats.clone())
+            .build()
+            .ok()
     });
     let _global = match &feedback {
         Some(feedback) => state
             .dmabuf_state
             .create_global_with_default_feedback::<LiviState>(&state.display_handle, feedback),
-        None => state.dmabuf_state.create_global::<LiviState>(&state.display_handle, formats),
+        None => state
+            .dmabuf_state
+            .create_global::<LiviState>(&state.display_handle, formats),
     };
 
     match state.render_node.as_deref().and_then(syncobj_device) {
@@ -351,12 +378,16 @@ pub fn open_screen(state: &mut LiviState, screen_idx: usize) {
 }
 
 pub fn close_screen(state: &mut LiviState, screen_idx: usize) {
-    let Some(pos) = state.host.windows.iter().position(|(i, _)| *i == screen_idx) else {
+    let Some(pos) = state
+        .host
+        .windows
+        .iter()
+        .position(|(i, _)| *i == screen_idx)
+    else {
         return;
     };
     state.host.windows.remove(pos);
     if let Some(output) = state.screens[screen_idx].output.take() {
-        // Retract the wl_output global from inner clients.
         drop(output);
     }
     if screen_idx == 0 {
@@ -387,13 +418,18 @@ fn ensure_server_output(state: &mut LiviState, screen_idx: usize) {
     );
     let _global = output.create_global::<LiviState>(&state.display_handle);
     output.change_current_state(
-        Some(smithay::output::Mode { size: (s.width, s.height).into(), refresh: 60_000 }),
+        Some(smithay::output::Mode {
+            size: (s.width, s.height).into(),
+            refresh: 60_000,
+        }),
         Some(smithay::utils::Transform::Normal),
         None,
         Some((s.x, 0).into()),
     );
-    output
-        .set_preferred(smithay::output::Mode { size: (s.width, s.height).into(), refresh: 60_000 });
+    output.set_preferred(smithay::output::Mode {
+        size: (s.width, s.height).into(),
+        refresh: 60_000,
+    });
     s.output = Some(output);
 }
 
@@ -415,13 +451,20 @@ pub fn minimize(state: &mut LiviState, screen_idx: usize) {
 }
 
 fn grab_seat(state: &LiviState) -> Option<CWlSeat> {
-    state.host.host_seat.clone().or_else(|| state.host.sctk_seats.as_ref()?.seats().next())
+    state
+        .host
+        .host_seat
+        .clone()
+        .or_else(|| state.host.sctk_seats.as_ref()?.seats().next())
 }
 
 pub fn begin_move(state: &mut LiviState, screen_idx: usize) {
     let serial = state.host.last_pointer_serial;
     let seat = grab_seat(state);
-    log::debug!("deco move: screen={screen_idx} serial={serial} seat={}", seat.is_some());
+    log::debug!(
+        "deco move: screen={screen_idx} serial={serial} seat={}",
+        seat.is_some()
+    );
     if let (Some(w), Some(seat)) = (state.host.window_for_screen(screen_idx), seat) {
         w.window.move_(&seat, serial);
         if let Some(conn) = state.host.conn.as_ref() {
@@ -462,8 +505,14 @@ pub fn damage_all(state: &mut LiviState) {
 
 pub fn panel_mm(state: &LiviState, screen_idx: usize) -> Option<(i32, i32)> {
     let outputs = state.host.sctk_outputs.as_ref()?;
-    let output =
-        state.host.windows.iter().find(|(i, _)| *i == screen_idx)?.1.host_output.as_ref()?;
+    let output = state
+        .host
+        .windows
+        .iter()
+        .find(|(i, _)| *i == screen_idx)?
+        .1
+        .host_output
+        .as_ref()?;
     let info = outputs.info(output)?;
     let (w, h) = info.physical_size;
     if w <= 0 || h <= 0 {
@@ -475,12 +524,15 @@ pub fn panel_mm(state: &LiviState, screen_idx: usize) -> Option<(i32, i32)> {
     );
     let mm = if turned { (h, w) } else { (w, h) };
     let screen = state.screens.get(screen_idx)?;
-    let logical = info.logical_size.filter(|&(w, h)| w > 0 && h > 0).or_else(|| {
-        let (w, h) = info.modes.iter().find(|m| m.current)?.dimensions;
-        let scale = info.scale_factor.max(1);
-        let (w, h) = if turned { (h, w) } else { (w, h) };
-        (w > 0 && h > 0).then_some((w / scale, h / scale))
-    });
+    let logical = info
+        .logical_size
+        .filter(|&(w, h)| w > 0 && h > 0)
+        .or_else(|| {
+            let (w, h) = info.modes.iter().find(|m| m.current)?.dimensions;
+            let scale = info.scale_factor.max(1);
+            let (w, h) = if turned { (h, w) } else { (w, h) };
+            (w > 0 && h > 0).then_some((w / scale, h / scale))
+        });
     match logical {
         Some(output) => Some(share_of_panel(mm, (screen.width, screen.height), output)),
         None => Some(mm),
@@ -490,7 +542,10 @@ pub fn panel_mm(state: &LiviState, screen_idx: usize) -> Option<(i32, i32)> {
 fn share_of_panel(mm: (i32, i32), window: (i32, i32), output: (i32, i32)) -> (i32, i32) {
     let scale =
         |mm: i32, px: i32, of: i32| ((mm as i64 * px as i64 + of as i64 / 2) / of as i64) as i32;
-    (scale(mm.0, window.0, output.0), scale(mm.1, window.1, output.1))
+    (
+        scale(mm.0, window.0, output.0),
+        scale(mm.1, window.1, output.1),
+    )
 }
 
 #[cfg(test)]
@@ -555,12 +610,18 @@ mod tests {
 
     #[test]
     fn a_window_gets_the_millimetres_of_the_part_it_covers() {
-        assert_eq!(share_of_panel((600, 340), (1280, 752), (2560, 1440)), (300, 178));
+        assert_eq!(
+            share_of_panel((600, 340), (1280, 752), (2560, 1440)),
+            (300, 178)
+        );
     }
 
     #[test]
     fn a_fullscreen_window_keeps_the_whole_panel() {
-        assert_eq!(share_of_panel((600, 340), (2560, 1440), (2560, 1440)), (600, 340));
+        assert_eq!(
+            share_of_panel((600, 340), (2560, 1440), (2560, 1440)),
+            (600, 340)
+        );
     }
 }
 
@@ -661,8 +722,12 @@ impl SctkOutputHandler for LiviState {
 
 impl WindowHandler for LiviState {
     fn request_close(&mut self, _: &Connection, _: &QueueHandle<Self>, window: &Window) {
-        // A host window was closed directly -> ask its UI to close too.
-        let Some(idx) = self.host.windows.iter().position(|(_, w)| &w.window == window) else {
+        let Some(idx) = self
+            .host
+            .windows
+            .iter()
+            .position(|(_, w)| &w.window == window)
+        else {
             return;
         };
         let screen_idx = self.host.windows[idx].0;
@@ -677,13 +742,29 @@ impl WindowHandler for LiviState {
         configure: WindowConfigure,
         _serial: u32,
     ) {
-        let Some(pos) = self.host.windows.iter().position(|(_, w)| &w.window == window) else {
+        let Some(pos) = self
+            .host
+            .windows
+            .iter()
+            .position(|(_, w)| &w.window == window)
+        else {
             return;
         };
         let screen_idx = self.host.windows[pos].0;
-        let cur = (self.host.windows[pos].1.width, self.host.windows[pos].1.height);
-        let w = configure.new_size.0.map(|v| v.get() as i32).unwrap_or(cur.0);
-        let h = configure.new_size.1.map(|v| v.get() as i32).unwrap_or(cur.1);
+        let cur = (
+            self.host.windows[pos].1.width,
+            self.host.windows[pos].1.height,
+        );
+        let w = configure
+            .new_size
+            .0
+            .map(|v| v.get() as i32)
+            .unwrap_or(cur.0);
+        let h = configure
+            .new_size
+            .1
+            .map(|v| v.get() as i32)
+            .unwrap_or(cur.1);
         let host_fullscreen = configure.is_fullscreen();
         let _ = configure.decoration_mode == DecorationMode::Server;
         let floating = !(host_fullscreen
@@ -724,8 +805,12 @@ pub fn fit_aspect(size: (i32, i32), inset: i32, aspect: (i32, i32)) -> (i32, i32
 }
 
 pub fn refit(state: &mut LiviState, screen_idx: usize) {
-    let Some(aspect) = state.screens[screen_idx].aspect else { return };
-    let Some(w) = state.host.window_for_screen(screen_idx) else { return };
+    let Some(aspect) = state.screens[screen_idx].aspect else {
+        return;
+    };
+    let Some(w) = state.host.window_for_screen(screen_idx) else {
+        return;
+    };
     if !w.configured || !w.floating {
         return;
     }
@@ -734,7 +819,9 @@ pub fn refit(state: &mut LiviState, screen_idx: usize) {
 }
 
 fn resize_host_window(state: &mut LiviState, screen_idx: usize, (w, h): (i32, i32)) {
-    let Some(hw) = state.host.window_for_screen(screen_idx) else { return };
+    let Some(hw) = state.host.window_for_screen(screen_idx) else {
+        return;
+    };
     if (w, h) != (hw.width, hw.height) {
         hw.egl_surface.resize(w, h, 0, 0);
         hw.width = w;
@@ -768,7 +855,10 @@ pub fn apply_settled_resizes(state: &mut LiviState) {
             state.screens[idx].applied_height = h;
             if let Some(output) = &state.screens[idx].output {
                 output.change_current_state(
-                    Some(smithay::output::Mode { size: (w, h).into(), refresh: 60_000 }),
+                    Some(smithay::output::Mode {
+                        size: (w, h).into(),
+                        refresh: 60_000,
+                    }),
                     None,
                     None,
                     None,
@@ -808,19 +898,25 @@ impl SctkSeatHandler for LiviState {
         let seats = self.host.sctk_seats.as_mut().unwrap();
         match capability {
             Capability::Pointer => {
-                let surface = self.host.sctk_compositor.as_ref().map(|c| c.create_surface(qh));
+                let surface = self
+                    .host
+                    .sctk_compositor
+                    .as_ref()
+                    .map(|c| c.create_surface(qh));
                 self.host.pointer =
-                    surface.zip(self.host.shm.as_ref()).and_then(|(surface, shm)| {
-                        seats
-                            .get_pointer_with_theme::<_, ()>(
-                                qh,
-                                &seat,
-                                shm.wl_shm(),
-                                surface,
-                                ThemeSpec::System,
-                            )
-                            .ok()
-                    });
+                    surface
+                        .zip(self.host.shm.as_ref())
+                        .and_then(|(surface, shm)| {
+                            seats
+                                .get_pointer_with_theme::<_, ()>(
+                                    qh,
+                                    &seat,
+                                    shm.wl_shm(),
+                                    surface,
+                                    ThemeSpec::System,
+                                )
+                                .ok()
+                        });
                 self.seat.add_pointer();
             }
             Capability::Keyboard => {
@@ -889,15 +985,28 @@ impl PointerHandler for LiviState {
                         crate::input::pointer_motion(self, time);
                     }
                 }
-                PointerEventKind::Press { time, button, serial } => {
+                PointerEventKind::Press {
+                    time,
+                    button,
+                    serial,
+                } => {
                     self.host.last_pointer_serial = serial;
                     crate::input::pointer_button(self, time, button, true);
                 }
-                PointerEventKind::Release { time, button, serial } => {
+                PointerEventKind::Release {
+                    time,
+                    button,
+                    serial,
+                } => {
                     self.host.last_pointer_serial = serial;
                     crate::input::pointer_button(self, time, button, false);
                 }
-                PointerEventKind::Axis { time, vertical, horizontal, .. } => {
+                PointerEventKind::Axis {
+                    time,
+                    vertical,
+                    horizontal,
+                    ..
+                } => {
                     crate::input::pointer_axis(self, time, horizontal.absolute, vertical.absolute);
                 }
             }
@@ -1071,7 +1180,11 @@ pub fn cursor_requested(host: &mut HostState, want: Option<CursorIcon>) {
 }
 
 fn shown_cursor(host: &HostState) -> Option<CursorIcon> {
-    if host.pointer_on_deco { Some(CursorIcon::Default) } else { host.cursor }
+    if host.pointer_on_deco {
+        Some(CursorIcon::Default)
+    } else {
+        host.cursor
+    }
 }
 
 smithay_client_toolkit::delegate_dispatch2!(LiviState);
@@ -1082,7 +1195,9 @@ pub fn request_frame(state: &mut LiviState, screen_idx: usize) {
     if let (Some(w), Some(qh)) = (state.host.window_for_screen(screen_idx), qh)
         && !w.frame_pending
     {
-        w.window.wl_surface().frame(&qh, FrameCallbackData(w.window.wl_surface().clone()));
+        w.window
+            .wl_surface()
+            .frame(&qh, FrameCallbackData(w.window.wl_surface().clone()));
         w.frame_pending = true;
     }
 }
@@ -1098,8 +1213,9 @@ pub fn send_frame_callbacks(state: &mut LiviState) {
             (),
             |_, _, _| smithay::wayland::compositor::TraversalAction::DoChildren(()),
             |_surf, states, _| {
-                let mut guard =
-                    states.cached_state.get::<smithay::wayland::compositor::SurfaceAttributes>();
+                let mut guard = states
+                    .cached_state
+                    .get::<smithay::wayland::compositor::SurfaceAttributes>();
                 for cb in guard.current().frame_callbacks.drain(..) {
                     cb.done(time_ms);
                 }

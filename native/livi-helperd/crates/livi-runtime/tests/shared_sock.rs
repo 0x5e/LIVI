@@ -35,7 +35,11 @@ async fn listening(path: &str) {
 async fn request(path: &str, line: &str) -> String {
     let stream = UnixStream::connect(path).await.unwrap();
     let mut reader = BufReader::new(stream);
-    reader.get_mut().write_all(format!("{line}\n").as_bytes()).await.unwrap();
+    reader
+        .get_mut()
+        .write_all(format!("{line}\n").as_bytes())
+        .await
+        .unwrap();
     let mut resp = String::new();
     reader.read_line(&mut resp).await.unwrap();
     resp.trim().to_string()
@@ -50,7 +54,10 @@ async fn every_phone_leaves_the_dongles_access_point() {
     });
     listening(&path).await;
 
-    assert_eq!(request(&path, "deauth-ap").await, "{\"ok\":true,\"count\":2}");
+    assert_eq!(
+        request(&path, "deauth-ap").await,
+        "{\"ok\":true,\"count\":2}"
+    );
 
     server.abort();
     let _ = std::fs::remove_file(&path);
@@ -73,11 +80,22 @@ async fn the_player_state_and_the_events_reach_their_ends() {
     });
     listening(&path).await;
 
-    assert!(request(&path, "playback-status playing").await.contains("\"ok\":true"));
-    assert!(request(&path, "playback-status rewinding").await.contains("\"ok\":false"));
+    assert!(
+        request(&path, "playback-status playing")
+            .await
+            .contains("\"ok\":true")
+    );
+    assert!(
+        request(&path, "playback-status rewinding")
+            .await
+            .contains("\"ok\":false")
+    );
     assert_eq!(*states.lock().unwrap(), vec!["playing".to_string()]);
-    // No BlueZ without a bus, and nothing the socket does not know.
-    assert!(request(&path, "list_paired").await.contains("bluetooth unavailable"));
+    assert!(
+        request(&path, "list_paired")
+            .await
+            .contains("bluetooth unavailable")
+    );
     assert!(request(&path, "bogus").await.contains("unknown command"));
 
     let stream = UnixStream::connect(&path).await.unwrap();

@@ -34,30 +34,38 @@ pub fn bundle(target: &str) -> Option<&'static [u8]> {
     (!bytes.is_empty()).then_some(bytes)
 }
 
-/// The dongle writes and verifies every changed image before it answers, hence the long timeout.
 pub fn update(host: &str, bundle: &[u8]) -> Result<String, String> {
     let mut reply = ureq::post(&format!("http://{host}/api/flash"))
         .header("Content-Type", "application/octet-stream")
         .config()
         .timeout_global(Some(Duration::from_secs(900)))
-        // A refusal still carries the dongle's reason in its body.
         .http_status_as_error(false)
         .build()
         .send(bundle)
         .map_err(|e| format!("upload: {e}"))?;
-    let body = reply.body_mut().read_to_string().map_err(|e| format!("reply: {e}"))?;
+    let body = reply
+        .body_mut()
+        .read_to_string()
+        .map_err(|e| format!("reply: {e}"))?;
     answer(&body)
 }
 
 pub fn refused(error: &str) -> Option<u8> {
-    error.strip_prefix("image type ")?.split_once(" is not for this dongle")?.0.parse().ok()
+    error
+        .strip_prefix("image type ")?
+        .split_once(" is not for this dongle")?
+        .0
+        .parse()
+        .ok()
 }
 
-/// The rest of the bundle brings the firmware that accepts the dropped type.
 pub fn without(bundle: &[u8], typ: u8) -> Result<Vec<u8>, String> {
     let images = super::lfwb::unpack(bundle)?;
-    let rest: Vec<(u8, &[u8])> =
-        images.iter().filter(|(t, _)| *t != typ).map(|(t, data)| (*t, data.as_slice())).collect();
+    let rest: Vec<(u8, &[u8])> = images
+        .iter()
+        .filter(|(t, _)| *t != typ)
+        .map(|(t, data)| (*t, data.as_slice()))
+        .collect();
     if rest.is_empty() {
         return Err(format!("the bundle holds nothing but image type {typ}"));
     }
@@ -67,7 +75,12 @@ pub fn without(bundle: &[u8], typ: u8) -> Result<Vec<u8>, String> {
 fn answer(body: &str) -> Result<String, String> {
     let json: serde_json::Value =
         serde_json::from_str(body).map_err(|_| format!("the dongle answered {body:?}"))?;
-    let text = |key: &str| json.get(key).and_then(|v| v.as_str()).unwrap_or_default().to_string();
+    let text = |key: &str| {
+        json.get(key)
+            .and_then(|v| v.as_str())
+            .unwrap_or_default()
+            .to_string()
+    };
     if json.get("ok").and_then(|v| v.as_bool()) == Some(true) {
         Ok(text("message"))
     } else {
@@ -94,7 +107,10 @@ mod tests {
 
     #[test]
     fn a_refused_image_type_is_read_from_the_error() {
-        assert_eq!(refused("image type 2 is not for this dongle, nothing written"), Some(2));
+        assert_eq!(
+            refused("image type 2 is not for this dongle, nothing written"),
+            Some(2)
+        );
         assert_eq!(refused("image type 12 is not for this dongle"), Some(12));
         assert_eq!(refused("bundle magic mismatch"), None);
     }

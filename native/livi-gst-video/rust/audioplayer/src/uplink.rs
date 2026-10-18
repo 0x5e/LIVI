@@ -1,8 +1,3 @@
-//! Capture for the CarPlay microphone stream.
-//!
-//! One pipeline captures, converts and, for a wireless phone, encodes to Opus.
-//! Every buffer that reaches the appsink is sealed and sent to the phone.
-
 use gstreamer as gst;
 use gstreamer_app as gst_app;
 
@@ -12,33 +7,26 @@ use std::net::{IpAddr, SocketAddr, SocketAddrV6, UdpSocket};
 use std::sync::Mutex;
 use std::sync::atomic::{AtomicBool, Ordering};
 
-/// What the phone negotiated for its microphone stream.
 pub struct UplinkConfig {
     pub codec: UplinkCodec,
     pub payload_type: u8,
     pub sample_rate: u32,
     pub channels: u8,
-    /// Opus target bitrate, tiered by sample rate.
     pub bitrate: u32,
-    /// Packet duration, which also sets the timestamp step.
     pub frame_ms: u32,
     pub key: [u8; 32],
     pub device: Option<String>,
-    /// Where the sealed packets go.
     pub phone: String,
     pub port: u16,
     pub label: String,
 }
 
 impl UplinkConfig {
-    /// Samples one packet carries.
     pub fn samples_per_packet(&self) -> u32 {
         (self.sample_rate * self.frame_ms).div_ceil(1000)
     }
 }
 
-/// The socket the phone listens on. A link-local IPv6 brings its interface after `%`, without
-/// it the packets have no way out.
 fn phone_target(phone: &str, port: u16) -> Option<SocketAddr> {
     let (host, interface) = match phone.split_once('%') {
         Some((host, interface)) => (host, interface.parse().ok()?),
@@ -53,10 +41,13 @@ fn phone_target(phone: &str, port: u16) -> Option<SocketAddr> {
 pub(crate) const SOURCE_NAME: &str = "audio-source";
 
 pub(crate) fn source_device_property() -> &'static str {
-    if cfg!(target_os = "macos") { "unique-id" } else { "device" }
+    if cfg!(target_os = "macos") {
+        "unique-id"
+    } else {
+        "device"
+    }
 }
 
-/// The capture chain. Opus is encoded here, PCM leaves as raw samples.
 pub fn pipeline_desc(cfg: &UplinkConfig) -> String {
     let source = if cfg!(target_os = "macos") {
         format!("osxaudiosrc name={SOURCE_NAME}")
@@ -67,9 +58,6 @@ pub fn pipeline_desc(cfg: &UplinkConfig) -> String {
     let rate = cfg.sample_rate;
     let channels = cfg.channels;
     match cfg.codec {
-        // rtpopuspay gives the frame CarPlay expects and drops the OpusHead and
-        // OpusTags buffers opusenc emits first. The 12-byte RTP header is
-        // stripped in the callback.
         UplinkCodec::Opus => format!(
             "{source} ! audioconvert ! audioresample ! \
              audio/x-raw,rate={rate},channels={channels} ! \
@@ -108,12 +96,23 @@ impl Uplink {
             source.set_property(source_device_property(), device.as_str());
         }
 
-        let sink = pipeline.by_name("out")?.downcast::<gst_app::AppSink>().ok()?;
+        let sink = pipeline
+            .by_name("out")?
+            .downcast::<gst_app::AppSink>()
+            .ok()?;
         let Some(target) = phone_target(&cfg.phone, cfg.port) else {
-            eprintln!("[cp_mic:{}] no address to reach the phone: {}", cfg.label, cfg.phone);
+            eprintln!(
+                "[cp_mic:{}] no address to reach the phone: {}",
+                cfg.label, cfg.phone
+            );
             return None;
         };
-        let socket = UdpSocket::bind(if target.is_ipv4() { "0.0.0.0:0" } else { "[::]:0" }).ok()?;
+        let socket = UdpSocket::bind(if target.is_ipv4() {
+            "0.0.0.0:0"
+        } else {
+            "[::]:0"
+        })
+        .ok()?;
         let label = cfg.label.clone();
         let send_failed = AtomicBool::new(false);
         let send = move |pkt: &[u8]| {
@@ -188,9 +187,7 @@ impl Drop for Uplink {
     }
 }
 
-/// The capture chain alone: raw samples in the given format, to a callback.
 pub fn capture_desc(sample_rate: u32, channels: u8) -> String {
-    // See pipeline_desc(): device is set post-parse by PcmCapture::new, not embedded here.
     let source = if cfg!(target_os = "macos") {
         format!("osxaudiosrc name={SOURCE_NAME}")
     } else {
@@ -203,7 +200,6 @@ pub fn capture_desc(sample_rate: u32, channels: u8) -> String {
     )
 }
 
-/// A microphone tap: every captured buffer goes to the callback as raw S16LE samples.
 pub struct PcmCapture {
     pipeline: gst::Pipeline,
 }
@@ -229,7 +225,10 @@ impl PcmCapture {
             let source = pipeline.by_name(SOURCE_NAME)?;
             source.set_property(source_device_property(), device);
         }
-        let sink = pipeline.by_name("out")?.downcast::<gst_app::AppSink>().ok()?;
+        let sink = pipeline
+            .by_name("out")?
+            .downcast::<gst_app::AppSink>()
+            .ok()?;
         sink.set_callbacks(
             gst_app::AppSinkCallbacks::builder()
                 .new_sample(move |sink| {
@@ -263,15 +262,12 @@ impl Drop for PcmCapture {
     }
 }
 
-/// A microphone tap that streams its samples as feed records into a unix socket
-/// someone listens on: the helper, for the phone's mic channel or a call.
 pub struct SocketTap {
     capture: PcmCapture,
     sock: std::os::unix::net::UnixStream,
 }
 
 impl SocketTap {
-    /// Ends the capture and closes the socket.
     pub fn stop(&self) {
         self.hang_up();
         self.capture.stop()
@@ -319,7 +315,10 @@ impl SocketTap {
             }
         })?;
         capture.start();
-        Some(Self { capture, sock: closer })
+        Some(Self {
+            capture,
+            sock: closer,
+        })
     }
 }
 
@@ -334,7 +333,6 @@ mod tests {
     use super::*;
     use livi_audio_uplink::UplinkCodec;
 
-    // A real macOS unique-id built from a class-compliant USB descriptor.
     const NASTY: &str = "AppleUSBAudioEngine:Unknown Manufacturer:USB PnP Audio Device:131200:1";
 
     fn cfg(codec: UplinkCodec, device: Option<String>) -> UplinkConfig {
@@ -354,16 +352,20 @@ mod tests {
     }
 
     fn desc_carries_no_device(desc: &str) {
-        assert!(desc.contains(&format!("name={SOURCE_NAME}")), "desc = {desc}");
+        assert!(
+            desc.contains(&format!("name={SOURCE_NAME}")),
+            "desc = {desc}"
+        );
         assert!(!desc.contains("unique-id="), "desc = {desc}");
         assert!(!desc.contains(" device="), "desc = {desc}");
-        assert!(!desc.contains(NASTY), "device string leaked into desc: {desc}");
+        assert!(
+            !desc.contains(NASTY),
+            "device string leaked into desc: {desc}"
+        );
     }
 
     #[test]
     fn pipeline_desc_never_carries_the_device_string() {
-        // Any device value would be at risk of being split by gst_parse_launch (spaces,
-        // quotes, backslashes). It goes through set_property in Uplink::new instead.
         desc_carries_no_device(&pipeline_desc(&cfg(UplinkCodec::Pcm, Some(NASTY.into()))));
         desc_carries_no_device(&pipeline_desc(&cfg(UplinkCodec::Opus, Some(NASTY.into()))));
     }
@@ -376,7 +378,10 @@ mod tests {
     #[test]
     fn the_phone_is_reached_on_its_interface() {
         let link_local = phone_target("fe80::fe:6721:d43e:f866%41", 56505).unwrap();
-        assert_eq!(link_local, "[fe80::fe:6721:d43e:f866%41]:56505".parse().unwrap());
+        assert_eq!(
+            link_local,
+            "[fe80::fe:6721:d43e:f866%41]:56505".parse().unwrap()
+        );
         assert_eq!(phone_target("10.0.0.3", 1), "10.0.0.3:1".parse().ok());
         assert_eq!(phone_target("fe80::2%wlan0", 1), None);
         assert_eq!(phone_target("phone", 1), None);

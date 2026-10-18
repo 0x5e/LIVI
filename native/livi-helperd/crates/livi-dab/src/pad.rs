@@ -1,6 +1,3 @@
-// Programme associated data inside the DAB+ access units. Only the dynamic
-// label is read, the slideshow next to it carries ads.
-
 use std::collections::BTreeMap;
 
 use crate::charset;
@@ -10,8 +7,6 @@ const SUBFIELD_LEN: [usize; 8] = [4, 6, 8, 12, 16, 24, 32, 48];
 const APP_DLS_START: u8 = 2;
 const APP_DLS_CONT: u8 = 3;
 
-/// The PAD bytes of an access unit: the data stream element that opens the
-/// raw data block.
 pub fn pad_of_unit(au: &[u8]) -> Option<&[u8]> {
     if au.len() < 2 || au[0] >> 5 != 4 {
         return None;
@@ -38,7 +33,6 @@ impl PadDecoder {
         Self::default()
     }
 
-    /// The label once it is complete and new.
     pub fn process(&mut self, pad: &[u8]) -> Vec<String> {
         let mut events = Vec::new();
         if pad.len() < 2 {
@@ -70,7 +64,9 @@ impl PadDecoder {
                         fields.push((ci & 0x1f, SUBFIELD_LEN[(ci >> 5) as usize]));
                     }
                     for (app, len) in fields {
-                        let Some(data) = xpad.get(i..i + len) else { break };
+                        let Some(data) = xpad.get(i..i + len) else {
+                            break;
+                        };
                         self.subfield(app, data, &mut events);
                         i += len;
                     }
@@ -140,16 +136,21 @@ impl PadDecoder {
         } else {
             (group[1] >> 4) & 0x07
         };
-        self.dls_segments.insert(number, group[2..total - 2].to_vec());
+        self.dls_segments
+            .insert(number, group[2..total - 2].to_vec());
         if last {
             self.dls_segments.insert(0x80 | number, Vec::new());
         }
-        let Some(&end) = self.dls_segments.keys().find(|&&k| k & 0x80 != 0) else { return };
+        let Some(&end) = self.dls_segments.keys().find(|&&k| k & 0x80 != 0) else {
+            return;
+        };
         let end = end & 0x7f;
         if !(0..=end).all(|n| self.dls_segments.contains_key(&n)) {
             return;
         }
-        let bytes: Vec<u8> = (0..=end).flat_map(|n| self.dls_segments[&n].clone()).collect();
+        let bytes: Vec<u8> = (0..=end)
+            .flat_map(|n| self.dls_segments[&n].clone())
+            .collect();
         let text = charset::decode(self.dls_charset, &bytes);
         if !text.is_empty() && self.label.as_deref() != Some(text.as_str()) {
             self.label = Some(text.clone());
@@ -159,7 +160,11 @@ impl PadDecoder {
 }
 
 fn continuation(app: u8) -> u8 {
-    if app == APP_DLS_START { APP_DLS_CONT } else { app }
+    if app == APP_DLS_START {
+        APP_DLS_CONT
+    } else {
+        app
+    }
 }
 
 #[cfg(test)]
@@ -173,7 +178,6 @@ mod tests {
         v
     }
 
-    /// Wraps X-PAD subfields the way the access unit carries them.
     fn pad(fields: &[(u8, &[u8])]) -> Vec<u8> {
         let mut x = Vec::new();
         for (app, data) in fields {

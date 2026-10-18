@@ -6,7 +6,13 @@ use iap2_csm::{CsmMessage, Error, frame_header};
 fn missing_required_param_errors() {
     let frame = [0x40, 0x40, 0x00, 0x06, 0x4E, 0x0D];
     let err = WirelessCarPlayUpdate::decode(&frame).unwrap_err();
-    assert_eq!(err, Error::MissingParam { message: "WirelessCarPlayUpdate", param: "status" });
+    assert_eq!(
+        err,
+        Error::MissingParam {
+            message: "WirelessCarPlayUpdate",
+            param: "status"
+        }
+    );
 }
 
 #[test]
@@ -40,12 +46,21 @@ fn empty_scalar_payload_decodes_as_none() {
 fn wrong_msg_id_errors() {
     let frame = [0x40, 0x40, 0x00, 0x06, 0xA1, 0x00];
     let err = WirelessCarPlayUpdate::decode(&frame).unwrap_err();
-    assert_eq!(err, Error::WrongMsgId { expected: 0x4E0D, got: 0xA100 });
+    assert_eq!(
+        err,
+        Error::WrongMsgId {
+            expected: 0x4E0D,
+            got: 0xA100
+        }
+    );
 }
 
 #[test]
 fn bad_start_marker_errors() {
-    assert_eq!(frame_header(&[0x40, 0x41, 0x00, 0x06, 0xA1, 0x00]), Err(Error::Header));
+    assert_eq!(
+        frame_header(&[0x40, 0x41, 0x00, 0x06, 0xA1, 0x00]),
+        Err(Error::Header)
+    );
 }
 
 #[test]
@@ -61,5 +76,8 @@ fn empty_list_is_omitted() {
         asset: None,
         supports_mutual_authentication: None,
     };
-    assert_eq!(m.encode(), vec![0x40, 0x40, 0x00, 0x0A, 0x43, 0x01, 0x00, 0x04, 0x00, 0x00]);
+    assert_eq!(
+        m.encode(),
+        vec![0x40, 0x40, 0x00, 0x0A, 0x43, 0x01, 0x00, 0x04, 0x00, 0x00]
+    );
 }

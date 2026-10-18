@@ -75,7 +75,11 @@ enum Do {
     Keyframe,
     Home,
     Media(MediaControl),
-    Volume { kind: AudioKind, level: f64, ramp_ms: u32 },
+    Volume {
+        kind: AudioKind,
+        level: f64,
+        ramp_ms: u32,
+    },
     VideoActive(bool),
     Close,
 }
@@ -318,7 +322,10 @@ fn bound(b: &KeyBindings, code: &str) -> Option<Key> {
         (&b.voice_assistant, Key::VoiceAssistant),
         (&b.voice_assistant_release, Key::VoiceAssistantRelease),
     ];
-    table.into_iter().find(|(c, _)| !c.is_empty() && c.as_str() == code).map(|(_, key)| key)
+    table
+        .into_iter()
+        .find(|(c, _)| !c.is_empty() && c.as_str() == code)
+        .map(|(_, key)| key)
 }
 
 fn reversing(telemetry: &Map<String, Value>) -> Option<bool> {
@@ -358,7 +365,10 @@ fn registry_ids(ids: &Ids) -> devices::Ids {
 }
 
 fn knob(state: KnobState) -> StackCmd {
-    StackCmd::Knob { state, momentary: true }
+    StackCmd::Knob {
+        state,
+        momentary: true,
+    }
 }
 
 pub struct Drivers {
@@ -430,7 +440,12 @@ pub enum UiCommand {
 }
 
 fn kept_cluster(cfg: &Config, theme: Theme) -> Cluster {
-    Cluster::new(theme, &cfg.cluster_layout, &cfg.cluster_palettes, &cfg.dashboard_layouts)
+    Cluster::new(
+        theme,
+        &cfg.cluster_layout,
+        &cfg.cluster_palettes,
+        &cfg.dashboard_layouts,
+    )
 }
 
 pub struct UiAsks {
@@ -498,7 +513,10 @@ pub fn ui_channels(wants: PerScreen<Front>) -> (UiSenders, UiAsks, DongleAsks, U
             dab: Some(dab_rx),
             dab_from_phone: dab_tx,
         },
-        DongleAsks { radios: dongle_rx, link_speed_viewers: viewers_rx },
+        DongleAsks {
+            radios: dongle_rx,
+            link_speed_viewers: viewers_rx,
+        },
         update_rx,
     )
 }
@@ -513,8 +531,16 @@ impl Projection {
         devices: Devices,
         wants: PerScreen<Front>,
     ) -> Self {
-        let Drivers { cp, aa, aa_crop, phone_io, phone_back, telemetry, settings, themes } =
-            drivers;
+        let Drivers {
+            cp,
+            aa,
+            aa_crop,
+            phone_io,
+            phone_back,
+            telemetry,
+            settings,
+            themes,
+        } = drivers;
         let cfg = hub.config();
         cp.send(CpCmd::InitialNightMode(night_mode(cfg.appearance_mode)));
         let cluster_on = shows_cluster(&wants);
@@ -574,7 +600,10 @@ impl Projection {
     ) {
         let mut created = Some(self.plane.player_created());
         let mut cluster_created = Some(self.clusters.player_created());
-        let mut back = self.phone_back.take().unwrap_or_else(|| mpsc::unbounded_channel().1);
+        let mut back = self
+            .phone_back
+            .take()
+            .unwrap_or_else(|| mpsc::unbounded_channel().1);
         let mut themes = std::mem::replace(&mut self.theme_ready.1, mpsc::unbounded_channel().1);
         self.follow_theme(&self.config_seen.clone());
         self.activity = Some(asks.activity);
@@ -668,10 +697,27 @@ impl Projection {
         match link {
             Link::Cp(id) => match what {
                 Do::Keyframe => self.cp.stack(id, StackCmd::Keyframe),
-                Do::Home => self.cp.stack(id, knob(KnobState { home: true, ..Default::default() })),
+                Do::Home => self.cp.stack(
+                    id,
+                    knob(KnobState {
+                        home: true,
+                        ..Default::default()
+                    }),
+                ),
                 Do::Media(control) => self.cp.stack(id, StackCmd::Media(media_index(control))),
-                Do::Volume { kind, level, ramp_ms } => {
-                    self.cp.stack(id, StackCmd::StreamVolume { kind, level, ramp_ms });
+                Do::Volume {
+                    kind,
+                    level,
+                    ramp_ms,
+                } => {
+                    self.cp.stack(
+                        id,
+                        StackCmd::StreamVolume {
+                            kind,
+                            level,
+                            ramp_ms,
+                        },
+                    );
                 }
                 Do::VideoActive(on) => {
                     self.cp.stack(id, StackCmd::VideoActive(on));
@@ -683,12 +729,21 @@ impl Projection {
                 Do::Keyframe => self.aa.session(id, SessionCmd::Keyframe),
                 Do::Home => self.aa.session(id, SessionCmd::Command(Command::Home)),
                 Do::Media(control) => {
-                    self.aa.session(id, SessionCmd::Command(media_command(control)));
+                    self.aa
+                        .session(id, SessionCmd::Command(media_command(control)));
                 }
-                Do::Volume { kind, level, ramp_ms } => {
+                Do::Volume {
+                    kind,
+                    level,
+                    ramp_ms,
+                } => {
                     self.aa.session(
                         id,
-                        SessionCmd::StreamVolume { kind: aa_kind(kind), level, ramp_ms },
+                        SessionCmd::StreamVolume {
+                            kind: aa_kind(kind),
+                            level,
+                            ramp_ms,
+                        },
                     );
                 }
                 Do::VideoActive(on) => self.aa.session(id, SessionCmd::VideoActive(on)),
@@ -710,17 +765,32 @@ impl Projection {
 
     fn on_event(&mut self, ev: CpEvent) {
         match ev {
-            CpEvent::Connected { id, wired, controller_id } => {
-                let ids = Ids { controller_id, ..Default::default() };
+            CpEvent::Connected {
+                id,
+                wired,
+                controller_id,
+            } => {
+                let ids = Ids {
+                    controller_id,
+                    ..Default::default()
+                };
                 let index = self.upsert(Link::Cp(id), transport(wired), &ids);
                 self.auto_activate(index);
                 if let Some(layout) = self.phone_layout() {
                     self.cp.stack(id, StackCmd::ClusterLayout(layout));
                 }
             }
-            CpEvent::Presence { id, wired, presence } => self.presence(id, wired, presence),
+            CpEvent::Presence {
+                id,
+                wired,
+                presence,
+            } => self.presence(id, wired, presence),
             CpEvent::Disconnected { id } => self.close_by_link(Link::Cp(id)),
-            CpEvent::AudioActive { id, profile, active } => {
+            CpEvent::AudioActive {
+                id,
+                profile,
+                active,
+            } => {
                 println!(
                     "[core] CarPlay audio {} {}",
                     profile.label,
@@ -736,12 +806,21 @@ impl Projection {
                     self.attend(Attention::Call, active);
                 }
             }
-            CpEvent::Duck { id, level, duration_ms } => {
-                self.on_duck(Link::Cp(id), level, duration_ms)
-            }
-            CpEvent::HelperPresence(HelperPresence::Wifi { wifi_mac, ip, connected }) => {
-                let ids =
-                    devices::Ids { wifi_mac: opt(&wifi_mac), ip: opt(&ip), ..Default::default() };
+            CpEvent::Duck {
+                id,
+                level,
+                duration_ms,
+            } => self.on_duck(Link::Cp(id), level, duration_ms),
+            CpEvent::HelperPresence(HelperPresence::Wifi {
+                wifi_mac,
+                ip,
+                connected,
+            }) => {
+                let ids = devices::Ids {
+                    wifi_mac: opt(&wifi_mac),
+                    ip: opt(&ip),
+                    ..Default::default()
+                };
                 self.devices.registry.note_wifi(&ids, connected);
                 if !connected {
                     self.close_on_transport(&session_ids(&ids), Transport::Wifi);
@@ -774,7 +853,10 @@ impl Projection {
                 self.devices.page(targets, true);
             }
             CpEvent::HelperPresence(HelperPresence::DeviceGone { usb_udid }) => {
-                let ids = Ids { usb_udid: opt(&usb_udid), ..Default::default() };
+                let ids = Ids {
+                    usb_udid: opt(&usb_udid),
+                    ..Default::default()
+                };
                 self.close_on_transport(&ids, Transport::Usb);
             }
             CpEvent::HostUiRequested { id } => {
@@ -784,7 +866,10 @@ impl Projection {
                 }
             }
             CpEvent::SpeechActive { id, active } => {
-                println!("[core] CarPlay Siri {}", if active { "active" } else { "done" });
+                println!(
+                    "[core] CarPlay Siri {}",
+                    if active { "active" } else { "done" }
+                );
                 if self.is_active(Link::Cp(id)) {
                     self.attend(Attention::VoiceAssistant, active);
                 }
@@ -806,10 +891,16 @@ impl Projection {
                 let _ = self.telemetry.send(serde_json::json!({ CLIMATE: climate }));
             }
             CpEvent::NotificationClosed { .. } => {
-                let _ = self.telemetry.send(serde_json::json!({ NOTIFICATION: { "open": false } }));
+                let _ = self
+                    .telemetry
+                    .send(serde_json::json!({ NOTIFICATION: { "open": false } }));
             }
             CpEvent::Volume { name, level, .. } => {
-                let to = if name == "volume" { &self.telemetry } else { &self.settings };
+                let to = if name == "volume" {
+                    &self.telemetry
+                } else {
+                    &self.settings
+                };
                 let _ = to.send(serde_json::json!({ name: level }));
             }
             CpEvent::Cluster { id, choice } => {
@@ -832,7 +923,14 @@ impl Projection {
 
     fn presence(&mut self, id: SessionId, wired: bool, presence: Presence) {
         match presence {
-            Presence::Device { bt_mac, wifi_mac, ip, usb_udid, name, model } => {
+            Presence::Device {
+                bt_mac,
+                wifi_mac,
+                ip,
+                usb_udid,
+                name,
+                model,
+            } => {
                 let ids = Ids {
                     bt_mac: opt(&bt_mac),
                     wifi_mac: if wired { None } else { opt(&wifi_mac) },
@@ -870,7 +968,12 @@ impl Projection {
                     self.auto_activate(index);
                 }
             }
-            Presence::Status { battery_level, battery_charging, signal_strength, carrier_name } => {
+            Presence::Status {
+                battery_level,
+                battery_charging,
+                signal_strength,
+                carrier_name,
+            } => {
                 let Some(ids) = self
                     .sessions
                     .iter()
@@ -940,7 +1043,9 @@ impl Projection {
     }
 
     fn metadata(&mut self, link: Link, event: &Value) {
-        let Some(entry) = self.by_link(link) else { return };
+        let Some(entry) = self.by_link(link) else {
+            return;
+        };
         let text = |key: &str| event.get(key).and_then(Value::as_str).map(str::to_string);
         let num = |key: &str| event.get(key).and_then(Value::as_f64);
         let code = |key: &str| num(key).map(|v| v as u32);
@@ -1000,9 +1105,10 @@ impl Projection {
                         *field = Some(v);
                     }
                 }
-                for (field, key) in
-                    [(&mut np.duration_ms, "durationMs"), (&mut np.elapsed_ms, "elapsedMs")]
-                {
+                for (field, key) in [
+                    (&mut np.duration_ms, "durationMs"),
+                    (&mut np.elapsed_ms, "elapsedMs"),
+                ] {
                     if let Some(v) = num(key) {
                         *field = Some(v);
                     }
@@ -1029,7 +1135,9 @@ impl Projection {
     }
 
     fn activate(&mut self, index: u32) {
-        let Some(target) = self.sessions.iter().position(|s| s.index == index) else { return };
+        let Some(target) = self.sessions.iter().position(|s| s.index == index) else {
+            return;
+        };
         if self.sessions[target].active {
             return;
         }
@@ -1105,9 +1213,13 @@ impl Projection {
     }
 
     fn close_by_link(&mut self, link: Link) {
-        let Some(i) = self.sessions.iter().position(|s| s.link == link) else { return };
+        let Some(i) = self.sessions.iter().position(|s| s.link == link) else {
+            return;
+        };
         let closed = self.sessions.remove(i);
-        self.devices.registry.clear_presence(&registry_ids(&closed.device));
+        self.devices
+            .registry
+            .clear_presence(&registry_ids(&closed.device));
         if self.sessions.is_empty() {
             self.next_index = 1;
             if let Some(done) = self.bye.take() {
@@ -1187,7 +1299,10 @@ impl Projection {
             .filter(|s| matches!(s.link, Link::Aa(_)) && s.transport == Transport::Usb)
             .flat_map(|s| {
                 let d = &s.device;
-                [&d.instance_id, &d.bt_mac, &d.usb_serial].into_iter().flatten().cloned()
+                [&d.instance_id, &d.bt_mac, &d.usb_serial]
+                    .into_iter()
+                    .flatten()
+                    .cloned()
             })
             .collect();
         if let Some(io) = self.hands_free.wired(ids, again) {
@@ -1199,7 +1314,11 @@ impl Projection {
         if self.reverse_camera() {
             return Front::Camera;
         }
-        let wants = if self.attention.is_some() { Front::Projection } else { self.wants.main };
+        let wants = if self.attention.is_some() {
+            Front::Projection
+        } else {
+            self.wants.main
+        };
         match wants {
             Front::Projection if self.active().is_some() => Front::Projection,
             Front::Projection => Front::Livi,
@@ -1252,7 +1371,10 @@ impl Projection {
     fn camera_follows(&mut self, before: bool) {
         let now = self.reverse_camera();
         if now != before {
-            println!("[core] reversing camera {}", if now { "in front" } else { "gone" });
+            println!(
+                "[core] reversing camera {}",
+                if now { "in front" } else { "gone" }
+            );
             self.publish();
         }
     }
@@ -1299,7 +1421,10 @@ impl Projection {
         let on_cable = |mac: &str| {
             self.sessions.iter().any(|s| {
                 s.transport == Transport::Usb
-                    && s.device.bt_mac.as_deref().is_some_and(|m| m.eq_ignore_ascii_case(mac))
+                    && s.device
+                        .bt_mac
+                        .as_deref()
+                        .is_some_and(|m| m.eq_ignore_ascii_case(mac))
             })
         };
         devices::reconnect_targets(
@@ -1341,10 +1466,15 @@ impl Projection {
     }
 
     fn forget_device(&mut self, id: &str) {
-        let Some(gone) = self.devices.registry.forget(id) else { return };
+        let Some(gone) = self.devices.registry.forget(id) else {
+            return;
+        };
         if let Some(i) = self.by_identity(&session_ids(&gone.ids())) {
             let session = self.sessions[i].link;
-            println!("[core] forget {id} ends session #{}", self.sessions[i].index);
+            println!(
+                "[core] forget {id} ends session #{}",
+                self.sessions[i].index
+            );
             let (cp, aa) = (self.cp.clone(), self.aa.clone());
             tokio::spawn(async move {
                 tokio::time::sleep(FORGET_GRACE).await;
@@ -1376,7 +1506,10 @@ impl Projection {
             .active()
             .map(|s| (s.now_playing.clone(), s.navigation.clone()))
             .unwrap_or_default();
-        written_out(&mut navigation, nav_text::Language::of(&self.config_seen.language));
+        written_out(
+            &mut navigation,
+            nav_text::Language::of(&self.config_seen.language),
+        );
         self.hub.update(|s| {
             s.front.main = main;
             s.front.cluster = cluster;
@@ -1394,16 +1527,29 @@ impl Projection {
     }
 
     fn level(&self, kind: AudioKind) -> f64 {
-        let duck = if kind == AudioKind::Media { self.duck_level } else { 1.0 };
+        let duck = if kind == AudioKind::Media {
+            self.duck_level
+        } else {
+            1.0
+        };
         self.levels.get(kind) * duck
     }
 
     fn push_level(&self, kind: AudioKind, ramp_ms: u32) {
-        self.to_active(Do::Volume { kind, level: self.level(kind), ramp_ms });
+        self.to_active(Do::Volume {
+            kind,
+            level: self.level(kind),
+            ramp_ms,
+        });
     }
 
     fn push_all_levels(&self) {
-        for kind in [AudioKind::Media, AudioKind::Alert, AudioKind::Speech, AudioKind::Call] {
+        for kind in [
+            AudioKind::Media,
+            AudioKind::Alert,
+            AudioKind::Speech,
+            AudioKind::Call,
+        ] {
             self.push_level(kind, 0);
         }
     }
@@ -1433,7 +1579,11 @@ impl Projection {
         Some(ui_sync::Layout {
             id: layout.id.clone(),
             palette: self.cluster.palette.clone(),
-            active: layout.zones.iter().map(|z| (z.id.clone(), z.component.clone())).collect(),
+            active: layout
+                .zones
+                .iter()
+                .map(|z| (z.id.clone(), z.component.clone()))
+                .collect(),
         })
     }
 
@@ -1450,8 +1600,11 @@ impl Projection {
             return;
         }
         self.theme_asked = configured.clone();
-        let (dir, id, ready) =
-            (self.themes.clone(), configured.clone(), self.theme_ready.0.clone());
+        let (dir, id, ready) = (
+            self.themes.clone(),
+            configured.clone(),
+            self.theme_ready.0.clone(),
+        );
         tokio::spawn(async move {
             match theme_catalog::fetch(&dir, &id).await {
                 Ok(theme) => {
@@ -1472,7 +1625,9 @@ impl Projection {
 
     fn arrange_dashboard(&self, slots: Option<BTreeMap<String, LayoutSlot>>) {
         if let Some(slots) = slots {
-            let _ = self.settings.send(serde_json::json!({ "dashboardLayouts": slots }));
+            let _ = self
+                .settings
+                .send(serde_json::json!({ "dashboardLayouts": slots }));
         }
     }
 
@@ -1519,8 +1674,10 @@ impl Projection {
             self.apply_when_idle();
         }
         if telemetry != self.telemetry_seen {
-            self.cp_telemetry.follow(&self.telemetry_seen, &telemetry, &self.cp);
-            self.aa_telemetry.follow(&self.telemetry_seen, &telemetry, &self.aa);
+            self.cp_telemetry
+                .follow(&self.telemetry_seen, &telemetry, &self.cp);
+            self.aa_telemetry
+                .follow(&self.telemetry_seen, &telemetry, &self.aa);
             if let Some(reversing) = reversing(&telemetry) {
                 self.reversing = reversing;
             }
@@ -1531,7 +1688,12 @@ impl Projection {
 
     fn on_config(&mut self, cfg: &Config) {
         let next = Levels::from(cfg);
-        for kind in [AudioKind::Media, AudioKind::Alert, AudioKind::Speech, AudioKind::Call] {
+        for kind in [
+            AudioKind::Media,
+            AudioKind::Alert,
+            AudioKind::Speech,
+            AudioKind::Call,
+        ] {
             let (prev, to) = (self.levels.get(kind), next.get(kind).clamp(0.0, 1.0));
             if (prev - to).abs() < 0.0001 {
                 continue;
@@ -1544,7 +1706,8 @@ impl Projection {
             }
             self.push_level(kind, if prev > to { RAMP_DOWN_MS } else { RAMP_UP_MS });
         }
-        self.cp.send(CpCmd::InitialNightMode(night_mode(cfg.appearance_mode)));
+        self.cp
+            .send(CpCmd::InitialNightMode(night_mode(cfg.appearance_mode)));
         self.bindings = cfg.bindings.clone();
         self.stream_volumes_to_phone();
     }
@@ -1573,7 +1736,10 @@ impl Projection {
 
     fn input(&mut self, input: Input) {
         match input {
-            Input::Pointer { screen: Screen::Main, points } => self.pointer(&points),
+            Input::Pointer {
+                screen: Screen::Main,
+                points,
+            } => self.pointer(&points),
             Input::Pointer { .. } => {}
             Input::Key { code, down } => self.key(&code, down),
         }
@@ -1610,7 +1776,12 @@ impl Projection {
                             Phase::Move => TouchAction::Move,
                             Phase::Up | Phase::Cancel => TouchAction::Up,
                         };
-                        TouchItem { id: p.id, x, y, action }
+                        TouchItem {
+                            id: p.id,
+                            x,
+                            y,
+                            action,
+                        }
                     })
                     .collect();
                 self.aa.session(id, SessionCmd::MultiTouch(touches));
@@ -1626,7 +1797,9 @@ impl Projection {
     }
 
     fn key(&mut self, code: &str, down: bool) {
-        let Some(key) = bound(&self.bindings, code) else { return };
+        let Some(key) = bound(&self.bindings, code) else {
+            return;
+        };
         if key == Key::ClusterLayout {
             if down && self.cluster.step(1) {
                 self.cluster_changed();
@@ -1654,15 +1827,30 @@ impl Projection {
     fn cp_key(&self, id: SessionId, key: Key) {
         let none = KnobState::default();
         let cmd = match key {
-            Key::Left => knob(KnobState { x: -KNOB_DEFLECT, ..none }),
-            Key::Right => knob(KnobState { x: KNOB_DEFLECT, ..none }),
-            Key::Up => knob(KnobState { y: -KNOB_DEFLECT, ..none }),
-            Key::Down => knob(KnobState { y: KNOB_DEFLECT, ..none }),
+            Key::Left => knob(KnobState {
+                x: -KNOB_DEFLECT,
+                ..none
+            }),
+            Key::Right => knob(KnobState {
+                x: KNOB_DEFLECT,
+                ..none
+            }),
+            Key::Up => knob(KnobState {
+                y: -KNOB_DEFLECT,
+                ..none
+            }),
+            Key::Down => knob(KnobState {
+                y: KNOB_DEFLECT,
+                ..none
+            }),
             Key::SelectDown | Key::KnobDown => StackCmd::KnobSelect(true),
             Key::SelectUp | Key::KnobUp => StackCmd::KnobSelect(false),
             Key::Back => knob(KnobState { back: true, ..none }),
             Key::Home => knob(KnobState { home: true, ..none }),
-            Key::KnobLeft => knob(KnobState { wheel: -1.0, ..none }),
+            Key::KnobLeft => knob(KnobState {
+                wheel: -1.0,
+                ..none
+            }),
             Key::KnobRight => knob(KnobState { wheel: 1.0, ..none }),
             Key::PlayPause => StackCmd::Media(media_button::PLAY_PAUSE),
             Key::Play => StackCmd::Media(media_button::PLAY),
@@ -1751,7 +1939,12 @@ impl Projection {
 
     fn on_aa(&mut self, ev: AaEvent) {
         match ev {
-            AaEvent::Spawned { id, wired, usb_serial, .. } => {
+            AaEvent::Spawned {
+                id,
+                wired,
+                usb_serial,
+                ..
+            } => {
                 self.aa_spawned.insert(id, (wired, usb_serial));
             }
             AaEvent::Connected { id } => {
@@ -1761,8 +1954,10 @@ impl Projection {
                     "[core] Android Auto projects over {}",
                     if wired { "usb" } else { "wifi" }
                 );
-                let ids =
-                    Ids { usb_serial: usb_serial.filter(|s| !s.is_empty()), ..Default::default() };
+                let ids = Ids {
+                    usb_serial: usb_serial.filter(|s| !s.is_empty()),
+                    ..Default::default()
+                };
                 let index = self.upsert(Link::Aa(id), transport(wired), &ids);
                 self.auto_activate(index);
                 self.ensure_aa_links();
@@ -1770,14 +1965,23 @@ impl Projection {
             }
             AaEvent::HelperConnected => self.push_wired(true),
             AaEvent::Helper(ev) => self.on_aa_helper(&ev),
-            AaEvent::Device { id, name, model, instance_id, ip } => {
+            AaEvent::Device {
+                id,
+                name,
+                model,
+                instance_id,
+                ip,
+            } => {
                 self.on_aa_device(id, name, model, instance_id, ip);
             }
             AaEvent::Status { id, status } => {
                 let link = Link::Aa(id);
                 let ids = match self.sessions.iter().find(|s| s.link == link) {
                     Some(s) => registry_ids(&s.device),
-                    None => devices::Ids { ip: opt(&status.ip), ..Default::default() },
+                    None => devices::Ids {
+                        ip: opt(&status.ip),
+                        ..Default::default()
+                    },
                 };
                 if status.battery_level.is_some() {
                     self.hands_free.battery_precise = true;
@@ -1794,7 +1998,9 @@ impl Projection {
                 self.aa_spawned.remove(&id);
                 self.close_by_link(Link::Aa(id));
             }
-            AaEvent::Audio { id, stream, active, .. } => {
+            AaEvent::Audio {
+                id, stream, active, ..
+            } => {
                 if active && self.is_active(Link::Aa(id)) {
                     self.push_level(cp_kind(AaKind::of(stream)), 0);
                 }
@@ -1802,7 +2008,11 @@ impl Projection {
                     self.activity(|a| a.stream(cp_kind(AaKind::of(stream)), active));
                 }
             }
-            AaEvent::Duck { id, level, duration_ms } => {
+            AaEvent::Duck {
+                id,
+                level,
+                duration_ms,
+            } => {
                 self.on_duck(Link::Aa(id), level, duration_ms);
             }
             AaEvent::HostUiRequested { id } => {
@@ -1815,7 +2025,9 @@ impl Projection {
             AaEvent::Navigation { id, navigation } => self.aa_navigation(id, navigation),
             AaEvent::NavigationImage { id, image } => {
                 let link = Link::Aa(id);
-                let Some(entry) = self.by_link(link) else { return };
+                let Some(entry) = self.by_link(link) else {
+                    return;
+                };
                 entry.navigation.image = (!image.is_empty()).then(|| STANDARD.encode(&image));
                 if self.is_active(link) {
                     self.publish();
@@ -1826,7 +2038,11 @@ impl Projection {
     }
 
     fn on_aa_helper(&mut self, ev: &Value) {
-        let text = |key: &str| ev.get(key).and_then(Value::as_str).filter(|v| !v.is_empty());
+        let text = |key: &str| {
+            ev.get(key)
+                .and_then(Value::as_str)
+                .filter(|v| !v.is_empty())
+        };
         let up = ev.get("up").and_then(Value::as_bool) == Some(true);
         match text("event") {
             Some("sco") => self.call_audio(up),
@@ -1838,19 +2054,31 @@ impl Projection {
                 if self.hands_free.battery_precise || pct.is_none() {
                     return;
                 }
-                let ids = devices::Ids { bt_mac: Some(mac.to_string()), ..Default::default() };
-                let status = devices::Status { battery_level: pct, ..Default::default() };
+                let ids = devices::Ids {
+                    bt_mac: Some(mac.to_string()),
+                    ..Default::default()
+                };
+                let status = devices::Status {
+                    battery_level: pct,
+                    ..Default::default()
+                };
                 self.devices.registry.note_status(&ids, &status);
                 self.publish();
             }
             Some("aa-device") => {
-                let Some(instance) = text("instanceId") else { return };
+                let Some(instance) = text("instanceId") else {
+                    return;
+                };
                 if let Some(mac) = text("btMac") {
-                    self.hands_free.bt_by_instance.insert(instance.into(), mac.into());
+                    self.hands_free
+                        .bt_by_instance
+                        .insert(instance.into(), mac.into());
                     self.keep_link(mac);
                 }
                 if let Some(serial) = text("usbSerial") {
-                    self.hands_free.serial_by_instance.insert(instance.into(), serial.into());
+                    self.hands_free
+                        .serial_by_instance
+                        .insert(instance.into(), serial.into());
                 }
             }
             _ => {}
@@ -1883,14 +2111,24 @@ impl Projection {
         let instance_id = opt(&instance);
         let lookup =
             |by: &HashMap<String, String>| instance_id.as_ref().and_then(|i| by.get(i)).cloned();
-        let bt_mac = if wired { None } else { lookup(&self.hands_free.bt_by_instance) };
+        let bt_mac = if wired {
+            None
+        } else {
+            lookup(&self.hands_free.bt_by_instance)
+        };
         let usb_serial = self
             .aa_spawned
             .get(&id)
             .and_then(|(_, serial)| serial.clone())
             .filter(|s| !s.is_empty())
             .or_else(|| lookup(&self.hands_free.serial_by_instance));
-        let ids = Ids { bt_mac, usb_serial, instance_id, ip: opt(&ip), ..Default::default() };
+        let ids = Ids {
+            bt_mac,
+            usb_serial,
+            instance_id,
+            ip: opt(&ip),
+            ..Default::default()
+        };
         let seen = Seen {
             ids: registry_ids(&ids),
             name: opt(&name),
@@ -1925,15 +2163,20 @@ impl Projection {
                 .collect();
             for instance in unnamed {
                 if let Some(instance) = &instance {
-                    self.hands_free.bt_by_instance.insert(instance.clone(), mac.clone());
+                    self.hands_free
+                        .bt_by_instance
+                        .insert(instance.clone(), mac.clone());
                 }
                 let ids = devices::Ids {
                     bt_mac: Some(mac.clone()),
                     instance_id: instance,
                     ..Default::default()
                 };
-                let seen =
-                    Seen { ids, protocol: Some(Protocol::Androidauto), ..Default::default() };
+                let seen = Seen {
+                    ids,
+                    protocol: Some(Protocol::Androidauto),
+                    ..Default::default()
+                };
                 self.devices.registry.note_device(&seen);
             }
             self.publish();
@@ -1956,16 +2199,25 @@ impl Projection {
     }
 
     fn check_link(&mut self, mac: &str) {
-        let wanted = self.hands_free.bt_by_instance.values().any(|m| m.eq_ignore_ascii_case(mac))
+        let wanted = self
+            .hands_free
+            .bt_by_instance
+            .values()
+            .any(|m| m.eq_ignore_ascii_case(mac))
             || self.sessions.iter().any(|s| matches!(s.link, Link::Aa(_)));
-        if let Some(io) = self.hands_free.check(mac, wanted, tokio::time::Instant::now()) {
+        if let Some(io) = self
+            .hands_free
+            .check(mac, wanted, tokio::time::Instant::now())
+        {
             let _ = self.phone_io.send(io);
         }
     }
 
     fn aa_now_playing(&mut self, id: AaId, from: AaNowPlaying) {
         let link = Link::Aa(id);
-        let Some(entry) = self.by_link(link) else { return };
+        let Some(entry) = self.by_link(link) else {
+            return;
+        };
         let np = &mut entry.now_playing;
         for (field, value) in [
             (&mut np.title, from.title),
@@ -1996,10 +2248,15 @@ impl Projection {
 
     fn aa_navigation(&mut self, id: AaId, from: AaNavigation) {
         let link = Link::Aa(id);
-        let Some(entry) = self.by_link(link) else { return };
+        let Some(entry) = self.by_link(link) else {
+            return;
+        };
         let image = entry.navigation.image.take();
         entry.navigation = if from.active == Some(false) {
-            Navigation { active: Some(false), ..Default::default() }
+            Navigation {
+                active: Some(false),
+                ..Default::default()
+            }
         } else {
             Navigation {
                 active: from.active,
@@ -2024,7 +2281,9 @@ impl Projection {
 }
 
 fn written_out(nav: &mut Navigation, language: nav_text::Language) {
-    nav.maneuver_text = nav.maneuver_type.and_then(|code| nav_text::maneuver(code, language));
+    nav.maneuver_text = nav
+        .maneuver_type
+        .and_then(|code| nav_text::maneuver(code, language));
     nav.maneuver_distance_text = nav.remain_distance.and_then(nav_text::distance);
     nav.destination_distance_text = nav.distance_to_destination.and_then(nav_text::distance);
     nav.time_left_text = nav.time_to_destination.and_then(nav_text::time_left);
@@ -2047,7 +2306,11 @@ async fn until(deadline: Option<tokio::time::Instant>) {
 }
 
 fn transport(wired: bool) -> Transport {
-    if wired { Transport::Usb } else { Transport::Wifi }
+    if wired {
+        Transport::Usb
+    } else {
+        Transport::Wifi
+    }
 }
 
 #[cfg(test)]
@@ -2075,7 +2338,11 @@ mod tests {
     }
 
     fn livi() -> PerScreen<Front> {
-        PerScreen { main: Front::Livi, cluster: Front::Livi, aux: Front::Livi }
+        PerScreen {
+            main: Front::Livi,
+            cluster: Front::Livi,
+            aux: Front::Livi,
+        }
     }
 
     impl Rig {
@@ -2128,8 +2395,21 @@ mod tests {
                 livi(),
             );
             assert_eq!(aa.try_recv(), Ok(AaCmd::ClusterActive(false)));
-            let mut rig = Self { dir, hub, p, cmds, aa, crop, io, telemetry, patches };
-            assert_eq!(rig.drain(), [CpCmd::InitialNightMode(None), CpCmd::ClusterActive(false)]);
+            let mut rig = Self {
+                dir,
+                hub,
+                p,
+                cmds,
+                aa,
+                crop,
+                io,
+                telemetry,
+                patches,
+            };
+            assert_eq!(
+                rig.drain(),
+                [CpCmd::InitialNightMode(None), CpCmd::ClusterActive(false)]
+            );
             rig
         }
 
@@ -2158,7 +2438,11 @@ mod tests {
         }
 
         fn connect(&mut self, id: SessionId, wired: bool) {
-            self.p.on_event(CpEvent::Connected { id, wired, controller_id: None });
+            self.p.on_event(CpEvent::Connected {
+                id,
+                wired,
+                controller_id: None,
+            });
         }
 
         fn device(&mut self, id: SessionId, wired: bool, bt: &str, wifi: &str) {
@@ -2177,7 +2461,10 @@ mod tests {
         }
 
         fn want(&mut self, front: Front) {
-            self.p.asked(PerScreen { main: front, ..livi() });
+            self.p.asked(PerScreen {
+                main: front,
+                ..livi()
+            });
         }
 
         fn front(&self) -> Front {
@@ -2217,7 +2504,14 @@ mod tests {
     }
 
     fn volume(id: SessionId, kind: AudioKind, level: f64, ramp_ms: u32) -> CpCmd {
-        stack(id, StackCmd::StreamVolume { kind, level, ramp_ms })
+        stack(
+            id,
+            StackCmd::StreamVolume {
+                kind,
+                level,
+                ramp_ms,
+            },
+        )
     }
 
     fn stream_volumes(music: f64, nav: f64, call: f64, voice: f64) -> CpCmd {
@@ -2231,11 +2525,17 @@ mod tests {
     }
 
     fn home() -> StackCmd {
-        knob(KnobState { home: true, ..Default::default() })
+        knob(KnobState {
+            home: true,
+            ..Default::default()
+        })
     }
 
     fn press(code: &str) -> Input {
-        Input::Key { code: code.into(), down: true }
+        Input::Key {
+            code: code.into(),
+            down: true,
+        }
     }
 
     #[tokio::test]
@@ -2332,7 +2632,10 @@ mod tests {
         assert_eq!(rig.p.sessions.len(), 1);
         assert_eq!(rig.p.sessions[0].link, Link::Cp(8));
         assert!(rig.drain().contains(&CpCmd::Close { id: 7 }));
-        let pos = rig.p.by_identity(&Ids { usb_udid: Some("u".into()), ..Default::default() });
+        let pos = rig.p.by_identity(&Ids {
+            usb_udid: Some("u".into()),
+            ..Default::default()
+        });
         assert_eq!(pos, None);
     }
 
@@ -2341,11 +2644,23 @@ mod tests {
         let mut rig = Rig::new();
         rig.connect(1, true);
         rig.drain();
-        rig.p.on_event(CpEvent::Duck { id: 1, level: 0.5, duration_ms: 300 });
+        rig.p.on_event(CpEvent::Duck {
+            id: 1,
+            level: 0.5,
+            duration_ms: 300,
+        });
         assert_eq!(rig.drain(), [volume(1, AudioKind::Media, 0.475, 300)]);
-        rig.p.on_event(CpEvent::Duck { id: 1, level: 1.0, duration_ms: 100 });
+        rig.p.on_event(CpEvent::Duck {
+            id: 1,
+            level: 1.0,
+            duration_ms: 100,
+        });
         assert_eq!(rig.drain(), [volume(1, AudioKind::Media, 0.95, 100)]);
-        rig.p.on_event(CpEvent::Duck { id: 9, level: 0.1, duration_ms: 0 });
+        rig.p.on_event(CpEvent::Duck {
+            id: 9,
+            level: 0.1,
+            duration_ms: 0,
+        });
         assert!(rig.drain().is_empty());
 
         let mut cfg = defaults();
@@ -2362,10 +2677,21 @@ mod tests {
                 stream_volumes(cfg.audio_volume, 0.5, 1.0, cfg.voice_assistant_volume),
             ]
         );
-        let media = AudioProfile { kind: AudioKind::Call, label: "telephony".into() };
-        rig.p.on_event(CpEvent::AudioActive { id: 1, profile: media.clone(), active: true });
+        let media = AudioProfile {
+            kind: AudioKind::Call,
+            label: "telephony".into(),
+        };
+        rig.p.on_event(CpEvent::AudioActive {
+            id: 1,
+            profile: media.clone(),
+            active: true,
+        });
         assert_eq!(rig.drain(), [volume(1, AudioKind::Call, 1.0, 0)]);
-        rig.p.on_event(CpEvent::AudioActive { id: 1, profile: media, active: false });
+        rig.p.on_event(CpEvent::AudioActive {
+            id: 1,
+            profile: media,
+            active: false,
+        });
         assert!(rig.drain().is_empty());
         assert_eq!(night_mode(AppearanceMode::Day), Some(false));
     }
@@ -2390,8 +2716,18 @@ mod tests {
         let touch = Input::Pointer {
             screen: Screen::Main,
             points: vec![
-                Point { id: 0, x: 0.25, y: 1.5, phase: Phase::Down },
-                Point { id: 1, x: 0.5, y: 0.5, phase: Phase::Up },
+                Point {
+                    id: 0,
+                    x: 0.25,
+                    y: 1.5,
+                    phase: Phase::Down,
+                },
+                Point {
+                    id: 1,
+                    x: 0.5,
+                    y: 0.5,
+                    phase: Phase::Up,
+                },
             ],
         };
         rig.p.input(touch.clone());
@@ -2406,15 +2742,34 @@ mod tests {
                 stack(
                     1,
                     StackCmd::Touches(vec![
-                        Touch { x: 0.25, y: 1.0, down: true },
-                        Touch { x: 0.5, y: 0.5, down: false },
+                        Touch {
+                            x: 0.25,
+                            y: 1.0,
+                            down: true
+                        },
+                        Touch {
+                            x: 0.5,
+                            y: 0.5,
+                            down: false
+                        },
                     ])
                 )
             ]
         );
-        rig.p.input(Input::Pointer { screen: Screen::Main, points: vec![] });
-        let dash = Point { id: 0, x: 0.5, y: 0.5, phase: Phase::Down };
-        rig.p.input(Input::Pointer { screen: Screen::Cluster, points: vec![dash] });
+        rig.p.input(Input::Pointer {
+            screen: Screen::Main,
+            points: vec![],
+        });
+        let dash = Point {
+            id: 0,
+            x: 0.5,
+            y: 0.5,
+            phase: Phase::Down,
+        };
+        rig.p.input(Input::Pointer {
+            screen: Screen::Cluster,
+            points: vec![dash],
+        });
         rig.p.keyframe();
         assert_eq!(rig.drain(), [stack(1, StackCmd::Keyframe)]);
     }
@@ -2429,11 +2784,17 @@ mod tests {
 
         rig.p.input(press("KeyN"));
         assert_eq!(rig.drain(), [stack(1, StackCmd::Media(media_button::NEXT))]);
-        assert!(radio.try_recv().is_err(), "the phone keeps the keys while it is the source");
+        assert!(
+            radio.try_recv().is_err(),
+            "the phone keeps the keys while it is the source"
+        );
 
         rig.hub.update(|s| s.dab.active = true);
         rig.p.input(press("KeyP"));
-        rig.p.input(Input::Key { code: "KeyP".into(), down: false });
+        rig.p.input(Input::Key {
+            code: "KeyP".into(),
+            down: false,
+        });
         rig.p.input(press("KeyN"));
         assert!(rig.drain().is_empty(), "nothing reaches the phone");
         assert_eq!(radio.try_recv(), Ok(crate::dab::DabAsk::Resume));
@@ -2449,10 +2810,21 @@ mod tests {
         rig.connect(1, true);
         rig.drain();
 
-        for code in ["ArrowLeft", "Digit1", "KeyN", "KeyA", "KeyV", "KeyH", "KeyQ"] {
+        for code in [
+            "ArrowLeft",
+            "Digit1",
+            "KeyN",
+            "KeyA",
+            "KeyV",
+            "KeyH",
+            "KeyQ",
+        ] {
             rig.p.input(press(code));
         }
-        rig.p.input(Input::Key { code: "KeyV".into(), down: false });
+        rig.p.input(Input::Key {
+            code: "KeyV".into(),
+            down: false,
+        });
         assert_eq!(
             rig.drain(),
             [
@@ -2488,13 +2860,43 @@ mod tests {
         rig.p.on_config(&cfg);
         rig.drain();
         for (code, cmd) in [
-            ("ArrowLeft", knob(KnobState { x: -KNOB_DEFLECT, ..none })),
-            ("ArrowRight", knob(KnobState { x: KNOB_DEFLECT, ..none })),
-            ("ArrowUp", knob(KnobState { y: -KNOB_DEFLECT, ..none })),
-            ("ArrowDown", knob(KnobState { y: KNOB_DEFLECT, ..none })),
+            (
+                "ArrowLeft",
+                knob(KnobState {
+                    x: -KNOB_DEFLECT,
+                    ..none
+                }),
+            ),
+            (
+                "ArrowRight",
+                knob(KnobState {
+                    x: KNOB_DEFLECT,
+                    ..none
+                }),
+            ),
+            (
+                "ArrowUp",
+                knob(KnobState {
+                    y: -KNOB_DEFLECT,
+                    ..none
+                }),
+            ),
+            (
+                "ArrowDown",
+                knob(KnobState {
+                    y: KNOB_DEFLECT,
+                    ..none
+                }),
+            ),
             ("Backspace", knob(KnobState { back: true, ..none })),
             ("KeyH", home()),
-            ("KeyJ", knob(KnobState { wheel: -1.0, ..none })),
+            (
+                "KeyJ",
+                knob(KnobState {
+                    wheel: -1.0,
+                    ..none
+                }),
+            ),
             ("KeyK", knob(KnobState { wheel: 1.0, ..none })),
             ("KeyU", StackCmd::KnobSelect(false)),
             ("KeyI", StackCmd::KnobSelect(true)),
@@ -2529,22 +2931,33 @@ mod tests {
         cfg.dashboard_layouts = [("livi.navMini".to_string(), off)].into_iter().collect();
         rig.p.on_state(cfg, Map::new());
         let shown = rig.hub.watch().borrow().cluster.shown.clone();
-        assert_eq!(shown, ["livi.navFull", "livi.clusterFull", "livi.clusterOnly"]);
+        assert_eq!(
+            shown,
+            ["livi.navFull", "livi.clusterFull", "livi.clusterOnly"]
+        );
 
-        rig.p.arrange_dashboard(rig.p.cluster.moved("livi.clusterOnly", -1));
+        rig.p
+            .arrange_dashboard(rig.p.cluster.moved("livi.clusterOnly", -1));
         let patch = rig.patches.try_recv().unwrap();
         assert_eq!(
             patch["dashboardLayouts"]["livi.clusterOnly"],
             serde_json::json!({ "on": true, "pos": 3 })
         );
-        rig.p.arrange_dashboard(rig.p.cluster.moved("livi.clusterOnly", 9));
-        assert!(rig.patches.try_recv().is_err(), "nothing to write past the end");
+        rig.p
+            .arrange_dashboard(rig.p.cluster.moved("livi.clusterOnly", 9));
+        assert!(
+            rig.patches.try_recv().is_err(),
+            "nothing to write past the end"
+        );
     }
 
     #[tokio::test]
     async fn a_kept_car_maker_theme_runs_the_cluster() {
         let mut rig = Rig::new();
-        let theme = Theme { id: "ABC:7:19.0".into(), ..livi_theme() };
+        let theme = Theme {
+            id: "ABC:7:19.0".into(),
+            ..livi_theme()
+        };
         std::fs::create_dir_all(rig.dir.0.join("themes")).unwrap();
         let kept = serde_json::to_string(&theme).unwrap();
         std::fs::write(rig.dir.0.join("themes/ABC-7.json"), kept).unwrap();
@@ -2552,14 +2965,24 @@ mod tests {
 
         rig.settings(|c| c.car_play_theme = "ABC:7:19.0".into());
         assert_eq!(running(&rig), "ABC:7:19.0");
-        rig.p.theme_fetched(Theme { id: "XYZ:1".into(), ..livi_theme() });
-        assert_eq!(running(&rig), "ABC:7:19.0", "a theme fetched for another id is dropped");
+        rig.p.theme_fetched(Theme {
+            id: "XYZ:1".into(),
+            ..livi_theme()
+        });
+        assert_eq!(
+            running(&rig),
+            "ABC:7:19.0",
+            "a theme fetched for another id is dropped"
+        );
         let palettes = vec![livi_core_proto::theme::Palette {
             id: "default".into(),
             accent_dark: "#ffffffff".into(),
             accent_light: "#000000ff".into(),
         }];
-        rig.p.theme_fetched(Theme { palettes: palettes.clone(), ..theme });
+        rig.p.theme_fetched(Theme {
+            palettes: palettes.clone(),
+            ..theme
+        });
         assert_eq!(rig.hub.watch().borrow().cluster.theme.palettes, palettes);
 
         rig.settings(|c| c.car_play_theme = String::new());
@@ -2572,7 +2995,10 @@ mod tests {
         rig.connect(1, true);
         rig.drain();
         rig.p.input(press("KeyT"));
-        assert!(rig.drain().is_empty(), "the phone draws no theme, it gets no layout");
+        assert!(
+            rig.drain().is_empty(),
+            "the phone draws no theme, it gets no layout"
+        );
         rig.settings(|c| c.car_play_theme = "livi".into());
         rig.drain();
         let cluster = |rig: &Rig| rig.hub.watch().borrow().cluster.clone();
@@ -2582,15 +3008,25 @@ mod tests {
         });
         assert_eq!(cluster(&rig).layout, "livi.clusterFull");
         let dark = PhoneChoice::Appearance(Appearance::Dark);
-        rig.p.on_event(CpEvent::Cluster { id: 1, choice: dark });
+        rig.p.on_event(CpEvent::Cluster {
+            id: 1,
+            choice: dark,
+        });
         assert_eq!(cluster(&rig).appearance, AppearancePreference::Dark);
-        assert!(rig.drain().is_empty(), "the phone's own choice goes nowhere");
+        assert!(
+            rig.drain().is_empty(),
+            "the phone's own choice goes nowhere"
+        );
 
         rig.p.on_event(CpEvent::Cluster {
             id: 9,
             choice: PhoneChoice::Layout("livi.navMini".into()),
         });
-        assert_eq!(cluster(&rig).layout, "livi.clusterFull", "only the session in front counts");
+        assert_eq!(
+            cluster(&rig).layout,
+            "livi.clusterFull",
+            "only the session in front counts"
+        );
 
         rig.p.input(press("KeyT"));
         assert_eq!(cluster(&rig).layout, "livi.clusterOnly");
@@ -2646,19 +3082,22 @@ mod tests {
             },
         });
         rig.drain();
-        rig.p.on_event(CpEvent::HelperPresence(HelperPresence::Wifi {
-            wifi_mac: "CC:DD".into(),
-            ip: String::new(),
-            connected: false,
-        }));
+        rig.p
+            .on_event(CpEvent::HelperPresence(HelperPresence::Wifi {
+                wifi_mac: "CC:DD".into(),
+                ip: String::new(),
+                connected: false,
+            }));
         assert_eq!(rig.drain(), [CpCmd::Close { id: 1 }]);
-        rig.p.on_event(CpEvent::HelperPresence(HelperPresence::DeviceGone {
-            usb_udid: "u2".into(),
-        }));
+        rig.p
+            .on_event(CpEvent::HelperPresence(HelperPresence::DeviceGone {
+                usb_udid: "u2".into(),
+            }));
         assert_eq!(rig.drain(), [CpCmd::Close { id: 2 }]);
-        rig.p.on_event(CpEvent::HelperPresence(HelperPresence::DeviceGone {
-            usb_udid: "zz".into(),
-        }));
+        rig.p
+            .on_event(CpEvent::HelperPresence(HelperPresence::DeviceGone {
+                usb_udid: "zz".into(),
+            }));
         rig.p.on_event(CpEvent::HelperConnected);
         assert!(rig.drain().is_empty());
     }
@@ -2670,37 +3109,72 @@ mod tests {
         rig.drain();
         assert_eq!(rig.front(), Front::Livi);
 
-        rig.p.on_event(CpEvent::Call { id: 1, phase: CallPhase::Ringing });
+        rig.p.on_event(CpEvent::Call {
+            id: 1,
+            phase: CallPhase::Ringing,
+        });
         assert_eq!(rig.front(), Front::Projection);
-        rig.p.asked(PerScreen { cluster: Front::Cluster, ..livi() });
+        rig.p.asked(PerScreen {
+            cluster: Front::Cluster,
+            ..livi()
+        });
         assert_eq!(rig.front(), Front::Projection);
         rig.p.asked(PerScreen {
             main: Front::Projection,
             cluster: Front::Cluster,
             aux: Front::Livi,
         });
-        assert_eq!(rig.drain(), [CpCmd::ClusterActive(true), stack(1, StackCmd::Keyframe)]);
+        assert_eq!(
+            rig.drain(),
+            [CpCmd::ClusterActive(true), stack(1, StackCmd::Keyframe)]
+        );
 
-        rig.p.on_event(CpEvent::SpeechActive { id: 1, active: true });
-        rig.p.on_event(CpEvent::Call { id: 1, phase: CallPhase::Ended });
+        rig.p.on_event(CpEvent::SpeechActive {
+            id: 1,
+            active: true,
+        });
+        rig.p.on_event(CpEvent::Call {
+            id: 1,
+            phase: CallPhase::Ended,
+        });
         assert_eq!(rig.front(), Front::Projection);
-        rig.p.on_event(CpEvent::SpeechActive { id: 1, active: false });
+        rig.p.on_event(CpEvent::SpeechActive {
+            id: 1,
+            active: false,
+        });
         assert_eq!(rig.front(), Front::Livi);
         rig.want(Front::Livi);
         assert_eq!(rig.front(), Front::Livi);
 
-        let call = AudioProfile { kind: AudioKind::Call, label: "telephony".into() };
-        rig.p.on_event(CpEvent::AudioActive { id: 1, profile: call.clone(), active: true });
+        let call = AudioProfile {
+            kind: AudioKind::Call,
+            label: "telephony".into(),
+        };
+        rig.p.on_event(CpEvent::AudioActive {
+            id: 1,
+            profile: call.clone(),
+            active: true,
+        });
         assert_eq!(rig.front(), Front::Projection);
         rig.want(Front::Projection);
         rig.want(Front::Livi);
         assert_eq!(rig.front(), Front::Livi);
-        rig.p.on_event(CpEvent::AudioActive { id: 1, profile: call, active: false });
+        rig.p.on_event(CpEvent::AudioActive {
+            id: 1,
+            profile: call,
+            active: false,
+        });
         assert_eq!(rig.front(), Front::Livi);
 
         rig.want(Front::Projection);
-        rig.p.on_event(CpEvent::Call { id: 1, phase: CallPhase::Active });
-        rig.p.on_event(CpEvent::Call { id: 1, phase: CallPhase::Ended });
+        rig.p.on_event(CpEvent::Call {
+            id: 1,
+            phase: CallPhase::Active,
+        });
+        rig.p.on_event(CpEvent::Call {
+            id: 1,
+            phase: CallPhase::Ended,
+        });
         assert_eq!(rig.front(), Front::Projection);
     }
 
@@ -2709,15 +3183,24 @@ mod tests {
         let mut rig = Rig::new();
         rig.connect(1, false);
         rig.device(2, false, "AA:BB", "cc:dd");
-        rig.p.on_event(CpEvent::Call { id: 2, phase: CallPhase::Ringing });
-        rig.p.on_event(CpEvent::SpeechActive { id: 2, active: true });
+        rig.p.on_event(CpEvent::Call {
+            id: 2,
+            phase: CallPhase::Ringing,
+        });
+        rig.p.on_event(CpEvent::SpeechActive {
+            id: 2,
+            active: true,
+        });
         assert_eq!(rig.front(), Front::Livi);
         rig.want(Front::Projection);
         rig.p.on_event(CpEvent::HostUiRequested { id: 2 });
         assert_eq!(rig.front(), Front::Projection);
 
         rig.want(Front::Livi);
-        rig.p.on_event(CpEvent::SpeechActive { id: 1, active: true });
+        rig.p.on_event(CpEvent::SpeechActive {
+            id: 1,
+            active: true,
+        });
         assert_eq!(rig.front(), Front::Projection);
         rig.p.on_event(CpEvent::Disconnected { id: 1 });
         assert_eq!(rig.front(), Front::Livi);
@@ -2738,7 +3221,10 @@ mod tests {
     async fn a_closed_notification_lands_in_the_telemetry() {
         let mut rig = Rig::new();
         rig.p.on_event(CpEvent::NotificationClosed { id: 1 });
-        assert_eq!(rig.telemetry.try_recv(), Ok(json!({ "notification": { "open": false } })));
+        assert_eq!(
+            rig.telemetry.try_recv(),
+            Ok(json!({ "notification": { "open": false } }))
+        );
     }
 
     #[tokio::test]
@@ -2751,7 +3237,10 @@ mod tests {
             json!({ "type": "nowplaying", "title": "One", "artist": "A", "appName": "Music",
                     "durationMs": 1000, "elapsedMs": 10, "playing": 1 }),
         );
-        rig.meta(1, json!({ "type": "nowplaying", "elapsedMs": 20, "playing": 0, "album": 5 }));
+        rig.meta(
+            1,
+            json!({ "type": "nowplaying", "elapsedMs": 20, "playing": 0, "album": 5 }),
+        );
         rig.meta(1, json!({ "type": "albumart", "dataB64": "AAAA" }));
         rig.meta(1, json!({ "type": "albumart", "dataB64": "" }));
         rig.meta(2, json!({ "type": "nowplaying", "title": "Two" }));
@@ -2791,8 +3280,14 @@ mod tests {
                     "remainDistance": 200, "maneuverType": 1, "turnSide": 0,
                     "junctionType": 1, "turnAngle": -90, "etaEpoch": 1_800_000_000 }),
         );
-        rig.meta(1, json!({ "type": "navigation", "remainDistance": 150, "etaEpoch": 0 }));
-        rig.meta(2, json!({ "type": "navigation", "status": 1, "roadName": "Elsewhere" }));
+        rig.meta(
+            1,
+            json!({ "type": "navigation", "remainDistance": 150, "etaEpoch": 0 }),
+        );
+        rig.meta(
+            2,
+            json!({ "type": "navigation", "status": 1, "roadName": "Elsewhere" }),
+        );
         assert_eq!(
             rig.navigation(),
             Navigation {
@@ -2819,9 +3314,15 @@ mod tests {
         let mut cfg = rig.hub.config();
         cfg.language = "de".into();
         rig.p.on_state(cfg, Map::new());
-        assert_eq!(rig.navigation().maneuver_text.as_deref(), Some("Links abbiegen"));
+        assert_eq!(
+            rig.navigation().maneuver_text.as_deref(),
+            Some("Links abbiegen")
+        );
 
-        rig.meta(1, json!({ "type": "navigation", "status": 0, "roadName": "Last" }));
+        rig.meta(
+            1,
+            json!({ "type": "navigation", "status": 0, "roadName": "Last" }),
+        );
         assert_eq!(
             rig.navigation(),
             Navigation {
@@ -2840,11 +3341,21 @@ mod tests {
     #[tokio::test]
     async fn the_cluster_streams_while_a_screen_shows_it() {
         let mut rig = Rig::new();
-        rig.p.asked(PerScreen { cluster: Front::Cluster, ..livi() });
-        rig.p.asked(PerScreen { main: Front::Cluster, cluster: Front::Cluster, aux: Front::Livi });
+        rig.p.asked(PerScreen {
+            cluster: Front::Cluster,
+            ..livi()
+        });
+        rig.p.asked(PerScreen {
+            main: Front::Cluster,
+            cluster: Front::Cluster,
+            aux: Front::Livi,
+        });
         assert_eq!(rig.drain(), [CpCmd::ClusterActive(true)]);
         assert_eq!(rig.hub.watch().borrow().front.cluster, Front::Cluster);
-        rig.p.asked(PerScreen { cluster: Front::Cluster, ..livi() });
+        rig.p.asked(PerScreen {
+            cluster: Front::Cluster,
+            ..livi()
+        });
         rig.p.asked(livi());
         assert_eq!(rig.drain(), [CpCmd::ClusterActive(false)]);
     }
@@ -2869,7 +3380,9 @@ mod tests {
 
     async fn restarted(rig: &Rig) -> bool {
         let restart = rig.p.helper_restart.clone();
-        tokio::time::timeout(Duration::from_millis(50), restart.notified()).await.is_ok()
+        tokio::time::timeout(Duration::from_millis(50), restart.notified())
+            .await
+            .is_ok()
     }
 
     #[tokio::test]
@@ -2924,7 +3437,10 @@ mod tests {
             (list[0].id.as_str(), list[0].status),
             ("aa:bb:cc:dd:ee:02", DeviceStatus::Available)
         );
-        assert_eq!((list[0].session, list[0].last_transport.as_deref()), (Some(2), Some("wifi")));
+        assert_eq!(
+            (list[0].session, list[0].last_transport.as_deref()),
+            (Some(2), Some("wifi"))
+        );
 
         rig.p.on_event(CpEvent::Presence {
             id: 2,
@@ -2938,24 +3454,29 @@ mod tests {
         });
         assert_eq!(listed(&rig)[0].battery_level, Some(50.0));
 
-        rig.p.on_event(CpEvent::HelperPresence(HelperPresence::Device {
-            ids: DeviceIds {
-                bt_mac: Some("aa:bb:cc:dd:ee:03".into()),
-                usb_udid: Some("u3".into()),
-                name: Some("Cable".into()),
-                ..Default::default()
-            },
-        }));
-        let cable = listed(&rig).into_iter().find(|d| d.name.as_deref() == Some("Cable")).unwrap();
+        rig.p
+            .on_event(CpEvent::HelperPresence(HelperPresence::Device {
+                ids: DeviceIds {
+                    bt_mac: Some("aa:bb:cc:dd:ee:03".into()),
+                    usb_udid: Some("u3".into()),
+                    name: Some("Cable".into()),
+                    ..Default::default()
+                },
+            }));
+        let cable = listed(&rig)
+            .into_iter()
+            .find(|d| d.name.as_deref() == Some("Cable"))
+            .unwrap();
         assert_eq!(
             (cable.status, cable.last_transport.as_deref()),
             (DeviceStatus::Offline, Some("usb"))
         );
-        rig.p.on_event(CpEvent::HelperPresence(HelperPresence::Wifi {
-            wifi_mac: "cc:dd:ee:ff:00:02".into(),
-            ip: "10.0.0.2".into(),
-            connected: true,
-        }));
+        rig.p
+            .on_event(CpEvent::HelperPresence(HelperPresence::Wifi {
+                wifi_mac: "cc:dd:ee:ff:00:02".into(),
+                ip: "10.0.0.2".into(),
+                connected: true,
+            }));
 
         rig.p.select_device("aa:bb:cc:dd:ee:02");
         assert!(rig.p.sessions[1].active);
@@ -2971,11 +3492,12 @@ mod tests {
 
         rig.p.on_event(CpEvent::Disconnected { id: 2 });
         rig.p.on_event(CpEvent::HelperConnected);
-        rig.p.on_event(CpEvent::HelperPresence(HelperPresence::Wifi {
-            wifi_mac: "cc:dd:ee:ff:00:09".into(),
-            ip: String::new(),
-            connected: false,
-        }));
+        rig.p
+            .on_event(CpEvent::HelperPresence(HelperPresence::Wifi {
+                wifi_mac: "cc:dd:ee:ff:00:09".into(),
+                ip: String::new(),
+                connected: false,
+            }));
     }
 
     #[tokio::test]
@@ -2993,12 +3515,17 @@ mod tests {
         assert_eq!(rig.front(), Front::Livi);
 
         rig.connect(1, true);
-        rig.p.on_event(CpEvent::Call { id: 1, phase: CallPhase::Ringing });
+        rig.p.on_event(CpEvent::Call {
+            id: 1,
+            phase: CallPhase::Ringing,
+        });
         assert_eq!(rig.front(), Front::Projection);
-        rig.p.on_state(cfg.clone(), car(json!({ "gear": "D", "reverse": true })));
+        rig.p
+            .on_state(cfg.clone(), car(json!({ "gear": "D", "reverse": true })));
         assert_eq!(rig.front(), Front::Camera, "the camera goes over a call");
         rig.want(Front::Livi);
-        rig.p.on_state(cfg.clone(), car(json!({ "gear": "D", "reverse": false })));
+        rig.p
+            .on_state(cfg.clone(), car(json!({ "gear": "D", "reverse": false })));
         assert_eq!(
             rig.front(),
             Front::Projection,
@@ -3020,11 +3547,17 @@ mod tests {
         rig.p.on_event(CpEvent::HostUiRequested { id: 1 });
         assert_eq!(rig.front(), Front::Livi);
 
-        rig.p.on_event(CpEvent::SpeechActive { id: 1, active: true });
+        rig.p.on_event(CpEvent::SpeechActive {
+            id: 1,
+            active: true,
+        });
         assert_eq!(rig.front(), Front::Projection);
         rig.p.on_event(CpEvent::HostUiRequested { id: 1 });
         assert_eq!(rig.front(), Front::Livi);
-        rig.p.on_event(CpEvent::SpeechActive { id: 1, active: false });
+        rig.p.on_event(CpEvent::SpeechActive {
+            id: 1,
+            active: false,
+        });
         assert_eq!(rig.front(), Front::Livi);
     }
 
@@ -3033,25 +3566,38 @@ mod tests {
         let mut rig = Rig::new();
         let cfg = rig.p.config_seen.clone();
         let snap = |v: Value| v.as_object().cloned().unwrap_or_default();
-        rig.p.on_state(cfg.clone(), snap(json!({ "nightMode": true, "ts": 1 })));
-        rig.p.on_state(cfg.clone(), snap(json!({ "nightMode": true, "ts": 2 })));
-        assert_eq!(rig.drain(), [CpCmd::NightMode(true), CpCmd::ClusterNightMode(true)]);
+        rig.p
+            .on_state(cfg.clone(), snap(json!({ "nightMode": true, "ts": 1 })));
+        rig.p
+            .on_state(cfg.clone(), snap(json!({ "nightMode": true, "ts": 2 })));
+        assert_eq!(
+            rig.drain(),
+            [CpCmd::NightMode(true), CpCmd::ClusterNightMode(true)]
+        );
 
         let mut day = cfg.clone();
         day.appearance_mode = AppearanceMode::Day;
-        rig.p.on_state(day, snap(json!({ "nightMode": true, "ts": 2 })));
+        rig.p
+            .on_state(day, snap(json!({ "nightMode": true, "ts": 2 })));
         let levels = stream_volumes(
             cfg.audio_volume,
             cfg.nav_volume,
             cfg.call_volume,
             cfg.voice_assistant_volume,
         );
-        assert_eq!(rig.drain(), [CpCmd::InitialNightMode(Some(false)), levels.clone()]);
+        assert_eq!(
+            rig.drain(),
+            [CpCmd::InitialNightMode(Some(false)), levels.clone()]
+        );
 
         rig.p.on_event(CpEvent::Spawned { id: 1 });
         assert_eq!(
             rig.drain(),
-            [CpCmd::NightMode(true), CpCmd::ClusterNightMode(true), levels],
+            [
+                CpCmd::NightMode(true),
+                CpCmd::ClusterNightMode(true),
+                levels
+            ],
             "a new session hears the volumes"
         );
     }
@@ -3067,7 +3613,12 @@ mod tests {
     impl Rig {
         fn aa_connect(&mut self, id: AaId, wired: bool) {
             let usb_serial = wired.then(|| format!("serial{id}"));
-            self.p.on_aa(AaEvent::Spawned { id, wired, usb_serial, peer: String::new() });
+            self.p.on_aa(AaEvent::Spawned {
+                id,
+                wired,
+                usb_serial,
+                peer: String::new(),
+            });
             self.p.on_aa(AaEvent::Connected { id });
         }
     }
@@ -3083,13 +3634,26 @@ mod tests {
         assert!(sent.contains(&aa(5, SessionCmd::Keyframe)));
         assert!(sent.iter().any(|c| matches!(
             c,
-            AaCmd::Session { id: 5, cmd: SessionCmd::StreamVolume { kind: AaKind::Media, .. } }
+            AaCmd::Session {
+                id: 5,
+                cmd: SessionCmd::StreamVolume {
+                    kind: AaKind::Media,
+                    ..
+                }
+            }
         )));
         assert!(rig.drain().is_empty());
 
         rig.want(Front::Projection);
-        assert_eq!(rig.aa_drain(), [command(5, Command::Home), aa(5, SessionCmd::Keyframe)]);
-        rig.p.on_aa(AaEvent::Duck { id: 5, level: 0.2, duration_ms: 300 });
+        assert_eq!(
+            rig.aa_drain(),
+            [command(5, Command::Home), aa(5, SessionCmd::Keyframe)]
+        );
+        rig.p.on_aa(AaEvent::Duck {
+            id: 5,
+            level: 0.2,
+            duration_ms: 300,
+        });
         rig.p.on_aa(AaEvent::Audio {
             id: 5,
             stream: livi_aa_stack::channels::audio::AudioChannelType::Speech,
@@ -3103,11 +3667,19 @@ mod tests {
             [
                 AaCmd::Session {
                     id: 5,
-                    cmd: SessionCmd::StreamVolume { kind: AaKind::Media, ramp_ms: 300, .. }
+                    cmd: SessionCmd::StreamVolume {
+                        kind: AaKind::Media,
+                        ramp_ms: 300,
+                        ..
+                    }
                 },
                 AaCmd::Session {
                     id: 5,
-                    cmd: SessionCmd::StreamVolume { kind: AaKind::Alert, ramp_ms: 0, .. }
+                    cmd: SessionCmd::StreamVolume {
+                        kind: AaKind::Alert,
+                        ramp_ms: 0,
+                        ..
+                    }
                 }
             ]
         ));
@@ -3131,8 +3703,14 @@ mod tests {
 
         rig.p.activate_next();
         assert_eq!(rig.sessions(), (Some(Protocol::Androidauto), 2, 2));
-        assert!(rig.drain().contains(&stack(1, StackCmd::VideoActive(false))));
-        assert!(rig.aa_drain().contains(&aa(5, SessionCmd::VideoActive(true))));
+        assert!(
+            rig.drain()
+                .contains(&stack(1, StackCmd::VideoActive(false)))
+        );
+        assert!(
+            rig.aa_drain()
+                .contains(&aa(5, SessionCmd::VideoActive(true)))
+        );
 
         rig.p.on_aa(AaEvent::Disconnected { id: 5 });
         assert_eq!(rig.sessions(), (Some(Protocol::Carplay), 1, 1));
@@ -3157,9 +3735,24 @@ mod tests {
         rig.p.input(Input::Pointer {
             screen: Screen::Main,
             points: vec![
-                Point { id: 3, x: 0.5, y: 0.0, phase: Phase::Down },
-                Point { id: 4, x: 1.0, y: 1.0, phase: Phase::Cancel },
-                Point { id: 5, x: 0.0, y: 0.5, phase: Phase::Move },
+                Point {
+                    id: 3,
+                    x: 0.5,
+                    y: 0.0,
+                    phase: Phase::Down,
+                },
+                Point {
+                    id: 4,
+                    x: 1.0,
+                    y: 1.0,
+                    phase: Phase::Cancel,
+                },
+                Point {
+                    id: 5,
+                    x: 0.0,
+                    y: 0.5,
+                    phase: Phase::Move,
+                },
             ],
         });
         assert_eq!(
@@ -3167,21 +3760,58 @@ mod tests {
             [aa(
                 5,
                 SessionCmd::MultiTouch(vec![
-                    TouchItem { id: 3, x: 0.5, y: 60.0 / 720.0, action: TouchAction::Down },
-                    TouchItem { id: 4, x: 1.0, y: 660.0 / 720.0, action: TouchAction::Up },
-                    TouchItem { id: 5, x: 0.0, y: 360.0 / 720.0, action: TouchAction::Move },
+                    TouchItem {
+                        id: 3,
+                        x: 0.5,
+                        y: 60.0 / 720.0,
+                        action: TouchAction::Down
+                    },
+                    TouchItem {
+                        id: 4,
+                        x: 1.0,
+                        y: 660.0 / 720.0,
+                        action: TouchAction::Up
+                    },
+                    TouchItem {
+                        id: 5,
+                        x: 0.0,
+                        y: 360.0 / 720.0,
+                        action: TouchAction::Move
+                    },
                 ])
             )]
         );
 
         rig.p.input(press("KeyV"));
-        rig.p.input(Input::Key { code: "KeyV".into(), down: false });
-        rig.p.input(Input::Key { code: "KeyN".into(), down: false });
-        for code in ["Digit7", "Digit0", "KeyQ", "ArrowLeft", "ArrowRight", "ArrowUp", "ArrowDown"]
-        {
+        rig.p.input(Input::Key {
+            code: "KeyV".into(),
+            down: false,
+        });
+        rig.p.input(Input::Key {
+            code: "KeyN".into(),
+            down: false,
+        });
+        for code in [
+            "Digit7",
+            "Digit0",
+            "KeyQ",
+            "ArrowLeft",
+            "ArrowRight",
+            "ArrowUp",
+            "ArrowDown",
+        ] {
             rig.p.input(press(code));
         }
-        for code in ["Backspace", "KeyH", "KeyP", "KeyN", "KeyB", "KeyA", "KeyR", "KeyS"] {
+        for code in [
+            "Backspace",
+            "KeyH",
+            "KeyP",
+            "KeyN",
+            "KeyB",
+            "KeyA",
+            "KeyR",
+            "KeyS",
+        ] {
             rig.p.input(press(code));
         }
         rig.p.media(MediaControl::Pause);
@@ -3227,7 +3857,10 @@ mod tests {
             artwork: Some(vec![1, 2, 3]),
             ..Default::default()
         };
-        rig.p.on_aa(AaEvent::NowPlaying { id: 5, now_playing: first });
+        rig.p.on_aa(AaEvent::NowPlaying {
+            id: 5,
+            now_playing: first,
+        });
         let update = AaNowPlaying {
             elapsed_ms: Some(5_000),
             album: Some("Album".into()),
@@ -3235,16 +3868,28 @@ mod tests {
             artwork: Some(Vec::new()),
             ..Default::default()
         };
-        rig.p.on_aa(AaEvent::NowPlaying { id: 5, now_playing: update });
+        rig.p.on_aa(AaEvent::NowPlaying {
+            id: 5,
+            now_playing: update,
+        });
         let np = rig.now_playing();
-        assert_eq!((np.title.as_deref(), np.album.as_deref()), (Some("Song"), Some("Album")));
+        assert_eq!(
+            (np.title.as_deref(), np.album.as_deref()),
+            (Some("Song"), Some("Album"))
+        );
         assert_eq!(
             (np.duration_ms, np.elapsed_ms, np.playing),
             (Some(200_000.0), Some(5_000.0), Some(true))
         );
-        assert_eq!((np.artwork.as_deref(), np.app.as_deref()), (Some("AQID"), Some("Music")));
+        assert_eq!(
+            (np.artwork.as_deref(), np.app.as_deref()),
+            (Some("AQID"), Some("Music"))
+        );
 
-        rig.p.on_aa(AaEvent::NavigationImage { id: 5, image: vec![9] });
+        rig.p.on_aa(AaEvent::NavigationImage {
+            id: 5,
+            image: vec![9],
+        });
         let guidance = AaNavigation {
             active: Some(true),
             app_name: Some("Maps".into()),
@@ -3259,7 +3904,10 @@ mod tests {
             eta: Some("21:58".into()),
             ..Default::default()
         };
-        rig.p.on_aa(AaEvent::Navigation { id: 5, navigation: guidance });
+        rig.p.on_aa(AaEvent::Navigation {
+            id: 5,
+            navigation: guidance,
+        });
         let nav = rig.navigation();
         assert_eq!(nav.maneuver_type, Some(ManeuverType::LeftTurn as u32));
         assert_eq!(
@@ -3270,18 +3918,45 @@ mod tests {
             (nav.eta_text.as_deref(), nav.app_name.as_deref()),
             (Some("21:58"), Some("Maps"))
         );
-        assert_eq!((nav.image.as_deref(), nav.time_to_destination), (Some("CQ=="), Some(600.0)));
+        assert_eq!(
+            (nav.image.as_deref(), nav.time_to_destination),
+            (Some("CQ=="), Some(600.0))
+        );
 
-        rig.p.on_aa(AaEvent::NavigationImage { id: 5, image: Vec::new() });
+        rig.p.on_aa(AaEvent::NavigationImage {
+            id: 5,
+            image: Vec::new(),
+        });
         assert_eq!(rig.navigation().image, None);
-        let ended =
-            AaNavigation { active: Some(false), road_name: Some("x".into()), ..Default::default() };
-        rig.p.on_aa(AaEvent::Navigation { id: 5, navigation: ended });
-        assert_eq!(rig.navigation(), Navigation { active: Some(false), ..Default::default() });
+        let ended = AaNavigation {
+            active: Some(false),
+            road_name: Some("x".into()),
+            ..Default::default()
+        };
+        rig.p.on_aa(AaEvent::Navigation {
+            id: 5,
+            navigation: ended,
+        });
+        assert_eq!(
+            rig.navigation(),
+            Navigation {
+                active: Some(false),
+                ..Default::default()
+            }
+        );
 
-        rig.p.on_aa(AaEvent::NowPlaying { id: 7, now_playing: AaNowPlaying::default() });
-        rig.p.on_aa(AaEvent::Navigation { id: 7, navigation: AaNavigation::default() });
-        rig.p.on_aa(AaEvent::NavigationImage { id: 7, image: vec![1] });
+        rig.p.on_aa(AaEvent::NowPlaying {
+            id: 7,
+            now_playing: AaNowPlaying::default(),
+        });
+        rig.p.on_aa(AaEvent::Navigation {
+            id: 7,
+            navigation: AaNavigation::default(),
+        });
+        rig.p.on_aa(AaEvent::NavigationImage {
+            id: 7,
+            image: vec![1],
+        });
     }
 
     #[tokio::test]
@@ -3290,11 +3965,24 @@ mod tests {
         let (tx, seen) = watch::channel(Activity::default());
         rig.p.activity = Some(tx);
         rig.connect(1, true);
-        let nav = AudioProfile { kind: AudioKind::Alert, label: "alert".into() };
-        rig.p.on_event(CpEvent::AudioActive { id: 1, profile: nav, active: true });
-        rig.p.on_event(CpEvent::Call { id: 1, phase: CallPhase::Ringing });
+        let nav = AudioProfile {
+            kind: AudioKind::Alert,
+            label: "alert".into(),
+        };
+        rig.p.on_event(CpEvent::AudioActive {
+            id: 1,
+            profile: nav,
+            active: true,
+        });
+        rig.p.on_event(CpEvent::Call {
+            id: 1,
+            phase: CallPhase::Ringing,
+        });
         assert!(seen.borrow().nav_announcing && seen.borrow().speech && seen.borrow().phone);
-        rig.p.on_event(CpEvent::Call { id: 1, phase: CallPhase::Ended });
+        rig.p.on_event(CpEvent::Call {
+            id: 1,
+            phase: CallPhase::Ended,
+        });
         assert!(!seen.borrow().phone);
 
         rig.p.on_event(CpEvent::Disconnected { id: 1 });
@@ -3316,7 +4004,12 @@ mod tests {
         let mut rig = Rig::new();
         let (done, heard) = oneshot::channel();
         rig.p.goodbye(done);
-        assert_eq!(tokio::time::timeout(Duration::from_secs(5), heard).await.unwrap(), Ok(()));
+        assert_eq!(
+            tokio::time::timeout(Duration::from_secs(5), heard)
+                .await
+                .unwrap(),
+            Ok(())
+        );
 
         rig.connect(1, true);
         rig.aa_connect(5, false);
@@ -3330,7 +4023,12 @@ mod tests {
         tokio::time::sleep(Duration::from_millis(50)).await;
         assert!(heard.try_recv().is_err());
         rig.p.on_aa(AaEvent::Disconnected { id: 5 });
-        assert_eq!(tokio::time::timeout(Duration::from_secs(5), heard).await.unwrap(), Ok(()));
+        assert_eq!(
+            tokio::time::timeout(Duration::from_secs(5), heard)
+                .await
+                .unwrap(),
+            Ok(())
+        );
     }
 
     #[tokio::test]
@@ -3345,11 +4043,23 @@ mod tests {
         let (conn, _) = helper.accept().await.unwrap();
         let (rd, mut wr) = conn.into_split();
         let mut line = String::new();
-        tokio::io::BufReader::new(rd).read_line(&mut line).await.unwrap();
+        tokio::io::BufReader::new(rd)
+            .read_line(&mut line)
+            .await
+            .unwrap();
         assert_eq!(line, "reconnect-targets []\n");
         wr.write_all(b"{\"ok\":true}\n").await.unwrap();
-        assert_eq!(tokio::time::timeout(Duration::from_secs(5), heard).await.unwrap(), Ok(()));
-        assert!(tokio::time::timeout(Duration::from_millis(200), helper.accept()).await.is_err());
+        assert_eq!(
+            tokio::time::timeout(Duration::from_secs(5), heard)
+                .await
+                .unwrap(),
+            Ok(())
+        );
+        assert!(
+            tokio::time::timeout(Duration::from_millis(200), helper.accept())
+                .await
+                .is_err()
+        );
     }
 
     #[tokio::test]
@@ -3367,7 +4077,10 @@ mod tests {
                 let (conn, _) = helper.accept().await.unwrap();
                 let (rd, mut wr) = conn.into_split();
                 let mut line = String::new();
-                tokio::io::BufReader::new(rd).read_line(&mut line).await.unwrap();
+                tokio::io::BufReader::new(rd)
+                    .read_line(&mut line)
+                    .await
+                    .unwrap();
                 wr.write_all(b"{\"ok\":true}\n").await.unwrap();
                 if line.starts_with("seek ") {
                     return line;
@@ -3423,22 +4136,36 @@ mod tests {
 
         rig.p.on_aa(aa_device(5, "Pixel 9", "inst5"));
         let phone = &listed(&rig)[0];
-        assert_eq!((phone.id.as_str(), phone.model.as_deref()), (mac, Some("Pixel 9")));
-        assert_eq!((phone.protocol, phone.session), (Some(Protocol::Androidauto), Some(1)));
+        assert_eq!(
+            (phone.id.as_str(), phone.model.as_deref()),
+            (mac, Some("Pixel 9"))
+        );
+        assert_eq!(
+            (phone.protocol, phone.session),
+            (Some(Protocol::Androidauto), Some(1))
+        );
 
         let battery = |pct: u32| {
             helper(json!({ "event": "phone-battery", "mac": "AA:00:00:00:00:05", "pct": pct }))
         };
         rig.p.on_aa(battery(60));
         assert_eq!(listed(&rig)[0].battery_level, Some(60.0));
-        let status =
-            PhoneStatus { battery_level: Some(73), signal_strength: Some(3), ..Default::default() };
+        let status = PhoneStatus {
+            battery_level: Some(73),
+            signal_strength: Some(3),
+            ..Default::default()
+        };
         rig.p.on_aa(AaEvent::Status { id: 5, status });
         rig.p.on_aa(battery(40));
         let phone = &listed(&rig)[0];
-        assert_eq!((phone.battery_level, phone.signal_strength), (Some(73.0), Some(3.0)));
+        assert_eq!(
+            (phone.battery_level, phone.signal_strength),
+            (Some(73.0), Some(3.0))
+        );
 
-        rig.p.on_aa(helper(json!({ "event": "hfp", "up": true, "mac": "AA:00:00:00:00:05" })));
+        rig.p.on_aa(helper(
+            json!({ "event": "hfp", "up": true, "mac": "AA:00:00:00:00:05" }),
+        ));
         rig.p.keep_links();
         assert!(rig.io_drain().is_empty());
         rig.p.on_aa(helper(json!({ "event": "hfp", "up": false })));
@@ -3452,7 +4179,10 @@ mod tests {
     async fn the_helper_hears_which_android_auto_phones_are_on_the_cable() {
         let mut rig = Rig::new();
         rig.aa_connect(5, true);
-        assert_eq!(rig.io_drain(), [Io::WiredPhones(vec!["SERIAL5".into()]), Io::FindPhones]);
+        assert_eq!(
+            rig.io_drain(),
+            [Io::WiredPhones(vec!["SERIAL5".into()]), Io::FindPhones]
+        );
         rig.p.on_aa(aa_device(5, "Pixel", "inst5"));
         let both = vec!["INST5".to_string(), "SERIAL5".into()];
         assert_eq!(rig.io_drain(), [Io::WiredPhones(both.clone())]);
@@ -3470,13 +4200,22 @@ mod tests {
         assert_eq!(listed(&rig)[0].id, "inst5");
         rig.io_drain();
 
-        rig.p.on_back(Back::Phones(vec!["AA:00:00:00:00:07".into()]));
-        let named = rig.p.hands_free.bt_by_instance.get("inst5").map(String::as_str);
+        rig.p
+            .on_back(Back::Phones(vec!["AA:00:00:00:00:07".into()]));
+        let named = rig
+            .p
+            .hands_free
+            .bt_by_instance
+            .get("inst5")
+            .map(String::as_str);
         assert_eq!(named, Some("AA:00:00:00:00:07"));
         assert_eq!(rig.io_drain(), [Io::Nudge("aa:00:00:00:00:07".into())]);
         assert_eq!(listed(&rig)[0].id, "aa:00:00:00:00:07");
 
-        rig.p.on_back(Back::Phones(vec!["AA:00:00:00:00:08".into(), "AA:00:00:00:00:09".into()]));
+        rig.p.on_back(Back::Phones(vec![
+            "AA:00:00:00:00:08".into(),
+            "AA:00:00:00:00:09".into(),
+        ]));
         assert_eq!(rig.p.hands_free.bt_by_instance.len(), 1);
         assert_eq!(rig.io_drain().len(), 2);
     }

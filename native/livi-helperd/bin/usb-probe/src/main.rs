@@ -1,10 +1,3 @@
-// Enumerate USB devices, open one, list every configuration with its interfaces, optionally
-// claim each interface of the active one.
-// Cross-platform nusb groundwork for talking to a CDC device (the STM bridge).
-//   usb-probe               list every device
-//   usb-probe cafe          only VID cafe, dump its interfaces
-//   usb-probe cafe --claim  also claim/release each interface
-
 use nusb::{DeviceInfo, MaybeFuture};
 use std::process::ExitCode;
 
@@ -18,8 +11,9 @@ fn main() -> ExitCode {
         eprintln!("[usb-probe] list_devices failed");
         return ExitCode::FAILURE;
     };
-    let devices: Vec<DeviceInfo> =
-        list.filter(|d| vid.is_none_or(|v| d.vendor_id() == v)).collect();
+    let devices: Vec<DeviceInfo> = list
+        .filter(|d| vid.is_none_or(|v| d.vendor_id() == v))
+        .collect();
     if devices.is_empty() {
         eprintln!("[usb-probe] no matching device");
         return ExitCode::FAILURE;
@@ -39,9 +33,13 @@ fn main() -> ExitCode {
             println!("[usb-probe]   open failed");
             continue;
         };
-        let Ok(cfg) = device.active_configuration() else { continue };
-        let mut ifaces: Vec<u8> =
-            cfg.interface_alt_settings().map(|d| d.interface_number()).collect();
+        let Ok(cfg) = device.active_configuration() else {
+            continue;
+        };
+        let mut ifaces: Vec<u8> = cfg
+            .interface_alt_settings()
+            .map(|d| d.interface_number())
+            .collect();
         ifaces.sort_unstable();
         ifaces.dedup();
         let active = cfg.configuration_value();

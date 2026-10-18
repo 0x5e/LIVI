@@ -1,5 +1,3 @@
-//! The settings file, shared with the Electron app.
-
 use std::fs;
 use std::io;
 use std::path::{Path, PathBuf};
@@ -8,9 +6,7 @@ use livi_core_proto::config::Config;
 pub use livi_core_proto::config::defaults;
 use serde_json::{Map, Value};
 
-/// carName is the Wi-Fi AP, Bluetooth and head-unit name.
 pub const CAR_NAME_MAX: usize = 20;
-/// What hostapd accepts as a WPA passphrase.
 const WIFI_PASSWORD_LEN: std::ops::RangeInclusive<usize> = 8..=63;
 const OMIT_WHEN_EMPTY: [&str; 3] = ["carplayIcon120", "carplayIcon180", "carplayIcon256"];
 
@@ -32,7 +28,9 @@ impl ConfigFile {
 
     pub fn load(&self, host: &HostFacts) -> Config {
         let source = [&self.path, &self.backup].into_iter().find(|p| p.exists());
-        let file = source.and_then(|p| read_json(p)).unwrap_or(Value::Object(Map::new()));
+        let file = source
+            .and_then(|p| read_json(p))
+            .unwrap_or(Value::Object(Map::new()));
         if source == Some(&self.backup) {
             println!("[core] config restored from the backup mirror");
         }
@@ -85,7 +83,10 @@ fn read_json(path: &Path) -> Option<Value> {
     match serde_json::from_str(&text) {
         Ok(v) => Some(v),
         Err(e) => {
-            eprintln!("[core] {} is no valid JSON, using the defaults: {e}", path.display());
+            eprintln!(
+                "[core] {} is no valid JSON, using the defaults: {e}",
+                path.display()
+            );
             None
         }
     }
@@ -104,7 +105,11 @@ fn for_file(config: &Config) -> Value {
     let mut value = serde_json::to_value(config).unwrap_or(Value::Null);
     if let Value::Object(map) = &mut value {
         for key in OMIT_WHEN_EMPTY {
-            if map.get(key).and_then(Value::as_str).is_some_and(|s| s.trim().is_empty()) {
+            if map
+                .get(key)
+                .and_then(Value::as_str)
+                .is_some_and(|s| s.trim().is_empty())
+            {
                 map.remove(key);
             }
         }
@@ -112,10 +117,11 @@ fn for_file(config: &Config) -> Value {
     value
 }
 
-/// Keys of earlier releases under their current names.
 fn current_names(file: &Value) -> Value {
     let mut file = file.clone();
-    let Value::Object(top) = &mut file else { return file };
+    let Value::Object(top) = &mut file else {
+        return file;
+    };
     for (old, new) in [
         ("dashScreenBounds", "clusterScreenBounds"),
         ("dashScreenActive", "clusterScreenActive"),
@@ -139,7 +145,10 @@ fn current_names(file: &Value) -> Value {
             })
         };
         let screens = ["main", "cluster", "aux"].map(|s| (s.to_string(), Value::Bool(on(s))));
-        top.insert("dashboard".to_string(), Value::Object(screens.into_iter().collect()));
+        top.insert(
+            "dashboard".to_string(),
+            Value::Object(screens.into_iter().collect()),
+        );
     }
     file
 }
@@ -152,9 +161,10 @@ fn rename(map: &mut Map<String, Value>, old: &str, new: &str) {
     }
 }
 
-/// Every phone handles 1280x720.
 fn fit_720p(width: u32, height: u32) -> (u32, u32) {
-    let scale = (1280.0 / f64::from(width)).min(720.0 / f64::from(height)).min(1.0);
+    let scale = (1280.0 / f64::from(width))
+        .min(720.0 / f64::from(height))
+        .min(1.0);
     let even = |v: u32| 2 * (f64::from(v) * scale / 2.0).round() as u32;
     (even(width), even(height))
 }
@@ -192,7 +202,9 @@ fn merge(file: &Value, defaults: &Config) -> Config {
 }
 
 fn keep_typed(input: &Value, schema: &Value) -> Value {
-    let Value::Object(schema) = schema else { return schema.clone() };
+    let Value::Object(schema) = schema else {
+        return schema.clone();
+    };
     let source = input.as_object();
     let mut out = Map::new();
     for (key, def) in schema {
@@ -218,9 +230,13 @@ fn same_type(a: &Value, b: &Value) -> bool {
 }
 
 pub fn apply_patch(current: &Config, patch: &Value) -> Result<Config, String> {
-    let Value::Object(patch) = patch else { return Err("the patch is no object".into()) };
+    let Value::Object(patch) = patch else {
+        return Err("the patch is no object".into());
+    };
     let mut value = serde_json::to_value(current).map_err(|e| e.to_string())?;
-    let Value::Object(fields) = &mut value else { return Err("config is no object".into()) };
+    let Value::Object(fields) = &mut value else {
+        return Err("config is no object".into());
+    };
     for (key, v) in patch {
         match (key.as_str(), v) {
             (_, Value::Null) => {
@@ -239,7 +255,10 @@ pub fn apply_patch(current: &Config, patch: &Value) -> Result<Config, String> {
     let next: Config = serde_json::from_value(value).map_err(|e| format!("rejected: {e}"))?;
 
     let written = serde_json::to_value(&next).map_err(|e| e.to_string())?;
-    if let Some(unknown) = patch.iter().find(|(k, v)| !v.is_null() && written.get(*k).is_none()) {
+    if let Some(unknown) = patch
+        .iter()
+        .find(|(k, v)| !v.is_null() && written.get(*k).is_none())
+    {
         return Err(format!("unknown setting {}", unknown.0));
     }
     if next.wifi_password != current.wifi_password
@@ -280,7 +299,10 @@ pub mod tests {
     }
 
     fn file_in(dir: &TempDir) -> ConfigFile {
-        ConfigFile::new(dir.0.join("LIVI/config.json"), dir.0.join("backup/config.json"))
+        ConfigFile::new(
+            dir.0.join("LIVI/config.json"),
+            dir.0.join("backup/config.json"),
+        )
     }
 
     fn written(dir: &TempDir, rel: &str) -> Value {
@@ -301,10 +323,16 @@ pub mod tests {
     #[test]
     fn a_fresh_install_takes_the_host_name_and_the_panel() {
         let dir = TempDir::new();
-        let host = HostFacts { car_name: Some("golf".into()), panel_px: Some((1920, 1200)) };
+        let host = HostFacts {
+            car_name: Some("golf".into()),
+            panel_px: Some((1920, 1200)),
+        };
         let config = file_in(&dir).load(&host);
         assert_eq!(config.car_name, "golf");
-        assert_eq!((config.projection_width, config.projection_height), (1152, 720));
+        assert_eq!(
+            (config.projection_width, config.projection_height),
+            (1152, 720)
+        );
         assert_eq!((config.cluster_width, config.cluster_height), (1152, 720));
     }
 
@@ -330,16 +358,33 @@ pub mod tests {
         fs::create_dir_all(dir.0.join("LIVI")).unwrap();
         fs::write(dir.0.join("LIVI/config.json"), file.to_string()).unwrap();
 
-        let host = HostFacts { car_name: None, panel_px: None };
+        let host = HostFacts {
+            car_name: None,
+            panel_px: None,
+        };
         let config = file_in(&dir).load(&host);
         assert!(config.cluster_screen_active);
-        assert_eq!((config.cluster_screen_width, config.cluster_screen_height), (1024, 480));
+        assert_eq!(
+            (config.cluster_screen_width, config.cluster_screen_height),
+            (1024, 480)
+        );
         assert_eq!(config.cluster_screen_bounds.map(|b| b.width), Some(1211));
-        assert_eq!(config.kiosk, PerScreen { main: false, cluster: true, aux: false });
+        assert_eq!(
+            config.kiosk,
+            PerScreen {
+                main: false,
+                cluster: true,
+                aux: false
+            }
+        );
         assert!(config.media.cluster);
         assert_eq!(
             config.dashboard,
-            PerScreen { main: true, cluster: true, aux: true },
+            PerScreen {
+                main: true,
+                cluster: true,
+                aux: true
+            },
             "a screen keeps the dashboard when any of the four was on there"
         );
 
@@ -367,18 +412,34 @@ pub mod tests {
         fs::create_dir_all(dir.0.join("LIVI")).unwrap();
         fs::write(dir.0.join("LIVI/config.json"), file.to_string()).unwrap();
 
-        let host = HostFacts { car_name: Some("ignored".into()), panel_px: Some((800, 480)) };
+        let host = HostFacts {
+            car_name: Some("ignored".into()),
+            panel_px: Some((800, 480)),
+        };
         let config = file_in(&dir).load(&host);
         assert_eq!(config.car_name, "Bulli");
         assert_eq!(config.hu_volume, 0.95);
         assert_eq!(config.wifi_channel, 36);
-        assert_eq!(config.kiosk, PerScreen { main: true, cluster: false, aux: false });
+        assert_eq!(
+            config.kiosk,
+            PerScreen {
+                main: true,
+                cluster: false,
+                aux: false
+            }
+        );
         assert_eq!(config.ev_connector_types, Some(Vec::new()));
-        assert_eq!((config.projection_width, config.projection_height), (800, 480));
+        assert_eq!(
+            (config.projection_width, config.projection_height),
+            (800, 480)
+        );
 
         let live = written(&dir, "LIVI/config.json");
         assert!(live.get("dongleEra").is_none());
-        assert!(live.get("lastKnownGps").is_none(), "the last position lives in state/gps.json");
+        assert!(
+            live.get("lastKnownGps").is_none(),
+            "the last position lives in state/gps.json"
+        );
     }
 
     #[test]
@@ -388,17 +449,26 @@ pub mod tests {
         fs::write(dir.0.join("LIVI/config.json"), "{ nope").unwrap();
         assert_eq!(file_in(&dir).load(&HostFacts::default()), defaults());
 
-        fs::write(dir.0.join("LIVI/config.json"), json!({ "wifiPassword": "short" }).to_string())
-            .unwrap();
-        assert_eq!(file_in(&dir).load(&HostFacts::default()).wifi_password, "12345678");
+        fs::write(
+            dir.0.join("LIVI/config.json"),
+            json!({ "wifiPassword": "short" }).to_string(),
+        )
+        .unwrap();
+        assert_eq!(
+            file_in(&dir).load(&HostFacts::default()).wifi_password,
+            "12345678"
+        );
     }
 
     #[test]
     fn a_missing_file_is_restored_from_the_mirror() {
         let dir = TempDir::new();
         fs::create_dir_all(dir.0.join("backup")).unwrap();
-        fs::write(dir.0.join("backup/config.json"), json!({ "carName": "Restored" }).to_string())
-            .unwrap();
+        fs::write(
+            dir.0.join("backup/config.json"),
+            json!({ "carName": "Restored" }).to_string(),
+        )
+        .unwrap();
         let config = file_in(&dir).load(&HostFacts::default());
         assert_eq!(config.car_name, "Restored");
         assert_eq!(written(&dir, "LIVI/config.json")["carName"], "Restored");
@@ -410,7 +480,11 @@ pub mod tests {
         let file = file_in(&dir);
         file.load(&HostFacts::default());
         let path = dir.0.join("LIVI/config.json");
-        fs::write(&path, serde_json::to_string(&for_file(&defaults())).unwrap()).unwrap();
+        fs::write(
+            &path,
+            serde_json::to_string(&for_file(&defaults())).unwrap(),
+        )
+        .unwrap();
         let before = fs::read_to_string(&path).unwrap();
         file.load(&HostFacts::default());
         assert_eq!(fs::read_to_string(&path).unwrap(), before);

@@ -1,6 +1,3 @@
-//! The vendor's update package for a dongle project, with our hook in the `customer` partition so
-//! the dongle opens our bind-shell after the stock web updater has flashed it.
-
 use std::io::{Cursor, Read};
 use std::path::{Path, PathBuf};
 use std::sync::OnceLock;
@@ -10,10 +7,8 @@ use backhand::{FilesystemReader, FilesystemWriter, InnerNode, NodeHeader};
 
 use crate::dongle::arm::imx6ul::shell::md5_hex;
 
-/// For a machine that cannot reach the vendor's server.
 pub const OTA_FILE_ENV: &str = "LIVI_LINK_OTA";
 
-/// The update package is masked with this, byte `i` with `KEY[i % 256]`.
 const KEY_HEX: &str = concat!(
     "1269544837f0d56e927e26c3e525c5ee2a968b51ab10f2a9dc1d1b54b2a0a4b5",
     "faf8fd31e9d2a07b50c63e36eb03246613bfb73fc0a9e89cc704f079a4952e9e",
@@ -34,8 +29,6 @@ const SCRIPT_PATH: &str = "/app/lyLink.sh";
 const SHELL_PATH: &str = "/app/livi-link-shell";
 const HOOK_MARKER: &str = "# LIVI-LINK-SHELL-HOOK:";
 
-/// Runs from the vendor's boot script. The report in the web root lets a dongle whose shell does
-/// not start be inspected over HTTP.
 const SHELL_HOOK: &str = "
 # LIVI-LINK-SHELL-HOOK: bind shell on 2323 for the LIVI Link provisioning tool.
 if [ ! -f /tmp/.livi_link_shell_started ]; then
@@ -98,12 +91,11 @@ fn key() -> &'static [u8; 256] {
 
 fn mask(data: &[u8]) -> Vec<u8> {
     let key = key();
-    data.iter().enumerate().map(|(i, b)| b ^ key[i & 0xff]).collect()
+    data.iter()
+        .enumerate()
+        .map(|(i, b)| b ^ key[i & 0xff])
+        .collect()
 }
-
-// ---------------------------------------------------------------------------------------------
-// The archive inside: cpio with a text header ("newc"), members sw-description, kernel, customer.
-// ---------------------------------------------------------------------------------------------
 
 #[derive(Clone)]
 struct Entry {
@@ -121,8 +113,9 @@ fn read_entries(archive: &[u8]) -> Result<Vec<Entry>, String> {
     let mut entries = Vec::new();
     let mut at = 0;
     loop {
-        let header =
-            archive.get(at..at + CPIO_HEADER).ok_or("the update ends in the middle of a header")?;
+        let header = archive
+            .get(at..at + CPIO_HEADER)
+            .ok_or("the update ends in the middle of a header")?;
         let magic: [u8; 6] = header[..6].try_into().map_err(|_| "short header")?;
         if !magic.starts_with(b"07070") {
             return Err("the update is not a cpio archive".into());
@@ -146,7 +139,12 @@ fn read_entries(archive: &[u8]) -> Result<Vec<Entry>, String> {
             .ok_or_else(|| format!("the update ends in the middle of {name}"))?
             .to_vec();
         let last = name == "TRAILER!!!";
-        entries.push(Entry { magic, fields, name, data });
+        entries.push(Entry {
+            magic,
+            fields,
+            name,
+            data,
+        });
         if last {
             return Ok(entries);
         }
@@ -167,7 +165,10 @@ fn write_entries(entries: &[Entry]) -> Vec<u8> {
         fields[6] = entry.data.len() as u32;
         fields[11] = name.len() as u32;
         fields[12] = if &entry.magic == CPIO_CRC_MAGIC {
-            entry.data.iter().fold(0u32, |sum, b| sum.wrapping_add(u32::from(*b)))
+            entry
+                .data
+                .iter()
+                .fold(0u32, |sum, b| sum.wrapping_add(u32::from(*b)))
         } else {
             0
         };
@@ -200,14 +201,15 @@ impl Ota {
         if stated != md5_hex(body) {
             return Err("the update image is damaged (its checksum does not match)".into());
         }
-        Ok(Self { entries: read_entries(body)? })
+        Ok(Self {
+            entries: read_entries(body)?,
+        })
     }
 
     fn part(&self, name: &str) -> Option<&Entry> {
         self.entries.iter().find(|e| e.name == name)
     }
 
-    /// The dongle's updater refuses a package of another project.
     pub fn project(&self) -> Option<String> {
         let text = String::from_utf8_lossy(&self.part("sw-description")?.data).into_owned();
         let line = text.lines().find(|l| l.contains("ly_project_name"))?;
@@ -215,7 +217,9 @@ impl Ota {
     }
 
     pub fn arch(&self) -> Result<Arch, String> {
-        let customer = self.part("customer").ok_or("the update has no customer partition")?;
+        let customer = self
+            .part("customer")
+            .ok_or("the update has no customer partition")?;
         let fs = FilesystemReader::from_reader(Cursor::new(&customer.data[..]))
             .map_err(|e| format!("customer partition: {e}"))?;
         for node in fs.files() {
@@ -238,7 +242,9 @@ impl Ota {
     }
 
     pub fn with_shell(&self, shell: &[u8]) -> Result<Vec<u8>, String> {
-        let customer = self.part("customer").ok_or("the update has no customer partition")?;
+        let customer = self
+            .part("customer")
+            .ok_or("the update has no customer partition")?;
         let fs = FilesystemReader::from_reader(Cursor::new(&customer.data[..]))
             .map_err(|e| format!("customer partition: {e}"))?;
         let script = read_text(&fs, SCRIPT_PATH).ok_or_else(|| {
@@ -259,12 +265,19 @@ impl Ota {
             writer.push_file(
                 bytes,
                 SHELL_PATH,
-                NodeHeader { permissions: 0o755, uid: 0, gid: 0, mtime: 0 },
+                NodeHeader {
+                    permissions: 0o755,
+                    uid: 0,
+                    gid: 0,
+                    mtime: 0,
+                },
             )
         }
         .map_err(|e| format!("{SHELL_PATH}: {e}"))?;
         let mut squashfs = Cursor::new(Vec::new());
-        writer.write(&mut squashfs).map_err(|e| format!("customer partition: {e}"))?;
+        writer
+            .write(&mut squashfs)
+            .map_err(|e| format!("customer partition: {e}"))?;
 
         let mut entries = self.entries.clone();
         if let Some(entry) = entries.iter_mut().find(|e| e.name == "customer") {
@@ -300,8 +313,6 @@ fn hooked(script: &str) -> String {
     format!("{shebang}\n{SHELL_HOOK}{rest}")
 }
 
-/// `appver` is `<date>.<project>.<market>`, e.g. `26060818.7115.2`. The vendor keeps a bucket per
-/// market and a folder per project.
 fn origin_and_folder(appver: &str) -> Option<(String, String)> {
     let mut fields = appver.split('.');
     let (_date, project, market) = (fields.next()?, fields.next()?, fields.next()?);
@@ -313,7 +324,10 @@ fn origin_and_folder(appver: &str) -> Option<(String, String)> {
     } else {
         ("cpbox", "oss-cn-shenzhen")
     };
-    Some((format!("https://{bucket}.{region}.aliyuncs.com"), project.to_string()))
+    Some((
+        format!("https://{bucket}.{region}.aliyuncs.com"),
+        project.to_string(),
+    ))
 }
 
 pub fn version_url(appver: &str) -> Option<String> {
@@ -323,9 +337,14 @@ pub fn version_url(appver: &str) -> Option<String> {
 fn image_url(version_json: &str, origin: &str) -> Result<String, String> {
     let json: serde_json::Value =
         serde_json::from_str(version_json).map_err(|e| format!("version.json: {e}"))?;
-    let url = json.get("url").and_then(|u| u.as_str()).ok_or("version.json names no update")?;
+    let url = json
+        .get("url")
+        .and_then(|u| u.as_str())
+        .ok_or("version.json names no update")?;
     if !url.starts_with(&format!("{origin}/")) {
-        return Err(format!("version.json points to {url}, which is not the vendor's server"));
+        return Err(format!(
+            "version.json points to {url}, which is not the vendor's server"
+        ));
     }
     Ok(url.to_string())
 }
@@ -347,7 +366,6 @@ fn get(url: &str, limit: u64) -> Result<Vec<u8>, String> {
     Ok(body)
 }
 
-/// A computer on the dongle's Wi-Fi has no internet, so the error says how to get online.
 pub fn fetch(appver: &str, cache: &Path) -> Result<Vec<u8>, String> {
     if let Ok(path) = std::env::var(OTA_FILE_ENV) {
         println!("== using the update image {path}");
@@ -396,7 +414,11 @@ pub fn shell_image(appver: &str, project: &str, cache: &Path) -> Result<Vec<u8>,
     let ota = Ota::open(&bytes)?;
     match ota.project() {
         Some(p) if p == project => {}
-        Some(p) => return Err(format!("that update is for project {p}, this dongle is {project}")),
+        Some(p) => {
+            return Err(format!(
+                "that update is for project {p}, this dongle is {project}"
+            ));
+        }
         None => return Err("the update names no project".into()),
     }
     let arch = ota.arch()?;
@@ -411,20 +433,29 @@ pub fn shell_image(appver: &str, project: &str, cache: &Path) -> Result<Vec<u8>,
 mod tests {
     use super::*;
 
-    /// `machine` is the ELF machine, 40 ARM, 243 RISC-V.
     fn fake_package(project: &str, machine: u16) -> Vec<u8> {
         let mut program = vec![0u8; 64];
         program[..4].copy_from_slice(b"\x7fELF");
-        program[4] = 1; // 32 bit
-        program[5] = 1; // little endian
+        program[4] = 1;
+        program[5] = 1;
         program[18..20].copy_from_slice(&machine.to_le_bytes());
 
-        let header = NodeHeader { permissions: 0o755, uid: 0, gid: 0, mtime: 0 };
+        let header = NodeHeader {
+            permissions: 0o755,
+            uid: 0,
+            gid: 0,
+            mtime: 0,
+        };
         let mut fs = FilesystemWriter::default();
         fs.push_dir_all("/app", header).unwrap();
-        fs.push_file(Cursor::new(b"#!/bin/sh\necho vendor boot\n".to_vec()), SCRIPT_PATH, header)
+        fs.push_file(
+            Cursor::new(b"#!/bin/sh\necho vendor boot\n".to_vec()),
+            SCRIPT_PATH,
+            header,
+        )
+        .unwrap();
+        fs.push_file(Cursor::new(program), "/app/lylink", header)
             .unwrap();
-        fs.push_file(Cursor::new(program), "/app/lylink", header).unwrap();
         let mut squashfs = Cursor::new(Vec::new());
         fs.write(&mut squashfs).unwrap();
 
@@ -512,25 +543,37 @@ mod tests {
         let patched = Ota::open(&base.with_shell(Arch::Arm.shell()).unwrap()).unwrap();
         assert_eq!(patched.project().as_deref(), Some("ly7115"));
         assert_eq!(patched.arch(), Ok(Arch::Arm));
-        assert_eq!(file_in(&patched, SHELL_PATH).as_deref(), Some(Arch::Arm.shell()));
+        assert_eq!(
+            file_in(&patched, SHELL_PATH).as_deref(),
+            Some(Arch::Arm.shell())
+        );
         let script = String::from_utf8(file_in(&patched, SCRIPT_PATH).unwrap()).unwrap();
         assert_eq!(script.matches(HOOK_MARKER).count(), 1);
         assert!(script.starts_with("#!/bin/sh\n"));
         assert!(script.ends_with("echo vendor boot\n"));
-        assert_eq!(patched.part("kernel").unwrap().data, base.part("kernel").unwrap().data);
+        assert_eq!(
+            patched.part("kernel").unwrap().data,
+            base.part("kernel").unwrap().data
+        );
         assert!(file_in(&patched, "/app/lylink").is_some());
     }
 
     #[test]
     fn patching_a_patched_package_does_not_stack_a_second_hook() {
         let once = Ota::open(
-            &Ota::open(&fake_package("ly7115", 40)).unwrap().with_shell(Arch::Arm.shell()).unwrap(),
+            &Ota::open(&fake_package("ly7115", 40))
+                .unwrap()
+                .with_shell(Arch::Arm.shell())
+                .unwrap(),
         )
         .unwrap();
         let twice = Ota::open(&once.with_shell(Arch::Arm.shell()).unwrap()).unwrap();
         let script = String::from_utf8(file_in(&twice, SCRIPT_PATH).unwrap()).unwrap();
         assert_eq!(script.matches(HOOK_MARKER).count(), 1);
-        assert_eq!(file_in(&twice, SHELL_PATH).as_deref(), Some(Arch::Arm.shell()));
+        assert_eq!(
+            file_in(&twice, SHELL_PATH).as_deref(),
+            Some(Arch::Arm.shell())
+        );
     }
 
     #[test]

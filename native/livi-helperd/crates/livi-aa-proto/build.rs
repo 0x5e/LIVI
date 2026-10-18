@@ -11,5 +11,7 @@ fn main() {
         .collect();
     files.sort();
     let fds = protox::compile(&files, [root]).expect("the proto tree compiles");
-    prost_build::Config::new().compile_fds(fds).expect("prost generates the messages");
+    prost_build::Config::new()
+        .compile_fds(fds)
+        .expect("prost generates the messages");
 }

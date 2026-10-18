@@ -1,23 +1,13 @@
-//! The CarPlay microphone stream.
-//!
-//! Captured audio is encoded, sealed and sent to the phone as RTP. The header
-//! is 12 bytes, SSRC 0, and the packet carries the ciphertext, a 16-byte tag
-//! and the 8-byte nonce counter, little endian. The timestamp counts samples
-//! per packet, not the encoder's own clock.
-
 use livi_crypto_node::seal_impl;
 
 pub const RTP_HEADER_LEN: usize = 12;
 
-/// How the captured samples travel. Wireless CarPlay negotiates Opus, a wired
-/// phone takes the samples as they are.
 #[derive(Clone, Copy, PartialEq, Eq, Debug)]
 pub enum UplinkCodec {
     Opus,
     Pcm,
 }
 
-/// Counts the sequence, timestamp and nonce one stream has sent.
 #[derive(Default)]
 pub struct Counters {
     pub seq: u16,
@@ -25,7 +15,6 @@ pub struct Counters {
     pub nonce: u64,
 }
 
-/// The RTP header of the next packet.
 pub fn rtp_header(payload_type: u8, seq: u16, timestamp: u32) -> [u8; RTP_HEADER_LEN] {
     let mut header = [0u8; RTP_HEADER_LEN];
     header[0] = 0x80;
@@ -35,8 +24,6 @@ pub fn rtp_header(payload_type: u8, seq: u16, timestamp: u32) -> [u8; RTP_HEADER
     header
 }
 
-/// One packet ready for the phone: header, sealed body, nonce. `samples` is how
-/// far the timestamp moves on afterwards.
 pub fn seal_packet(
     key: &[u8; 32],
     payload_type: u8,
@@ -61,7 +48,6 @@ pub fn seal_packet(
     Some(packet)
 }
 
-/// Samples travel big endian, so a PCM body is byte-swapped before sealing.
 pub fn to_wire_pcm(pcm_le: &[u8]) -> Vec<u8> {
     let mut out = pcm_le.to_vec();
     for pair in out.as_chunks_mut::<2>().0 {
@@ -117,7 +103,11 @@ mod tests {
 
     #[test]
     fn the_sequence_wraps_at_sixteen_bits() {
-        let mut c = Counters { seq: 0xffff, timestamp: 0, nonce: 0 };
+        let mut c = Counters {
+            seq: 0xffff,
+            timestamp: 0,
+            nonce: 0,
+        };
 
         seal_packet(&KEY, 97, &mut c, b"a", 0).unwrap();
 
@@ -126,7 +116,10 @@ mod tests {
 
     #[test]
     fn every_second_byte_leads_on_the_wire() {
-        assert_eq!(to_wire_pcm(&[0x01, 0x02, 0x03, 0x04]), vec![0x02, 0x01, 0x04, 0x03]);
+        assert_eq!(
+            to_wire_pcm(&[0x01, 0x02, 0x03, 0x04]),
+            vec![0x02, 0x01, 0x04, 0x03]
+        );
     }
 
     #[test]

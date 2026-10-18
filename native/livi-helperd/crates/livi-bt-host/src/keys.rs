@@ -1,5 +1,3 @@
-//! The link keys of the phones we bonded with, a line each: address, key, key type.
-
 use std::collections::BTreeMap;
 use std::path::PathBuf;
 
@@ -14,7 +12,10 @@ fn unhex(text: &str) -> Option<Vec<u8>> {
     if !text.len().is_multiple_of(2) {
         return None;
     }
-    (0..text.len()).step_by(2).map(|i| u8::from_str_radix(text.get(i..i + 2)?, 16).ok()).collect()
+    (0..text.len())
+        .step_by(2)
+        .map(|i| u8::from_str_radix(text.get(i..i + 2)?, 16).ok())
+        .collect()
 }
 
 fn hex(bytes: &[u8]) -> String {
@@ -61,7 +62,6 @@ impl Keys {
         }
     }
 
-    /// Written aside first, so a crash never leaves half a file.
     fn save(&self) {
         let text: String = self
             .keys
@@ -78,7 +78,10 @@ impl Keys {
             std::fs::rename(&aside, &self.path)
         });
         if let Err(e) = written {
-            eprintln!("[bt] could not keep the link keys in {}: {e}", self.path.display());
+            eprintln!(
+                "[bt] could not keep the link keys in {}: {e}",
+                self.path.display()
+            );
         }
     }
 }

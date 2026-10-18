@@ -1,6 +1,3 @@
-// Fast information channel: three FIBs per 2304 coded bits, each FIB holds
-// FIGs that describe the ensemble, its sub-channels, services and labels.
-
 use std::collections::BTreeMap;
 
 use crate::charset;
@@ -8,19 +5,12 @@ use crate::fec::{Puncturing, crc16_ok, descramble, pack, viterbi};
 
 const FIC_BLOCK_BITS: usize = 2304;
 const FIB_BYTES: usize = 32;
-/// Component type of DAB+ audio in FIG 0/2.
 pub const ASCTY_DAB_PLUS: u8 = 63;
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum Protection {
-    /// Option 0 is EEP-A, 1 is EEP-B, level 0..=3 for 1..=4.
-    Eep {
-        option: u8,
-        level: u8,
-    },
-    Uep {
-        index: u8,
-    },
+    Eep { option: u8, level: u8 },
+    Uep { index: u8 },
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -34,26 +24,22 @@ pub struct Subchannel {
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub struct Component {
     pub subchannel: u8,
-    /// Audio service component type, 63 for DAB+.
     pub ascty: u8,
     pub primary: bool,
 }
 
-/// A packet mode component of a service, by its id within the ensemble.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub struct PacketRef {
     pub scid: u16,
     pub primary: bool,
 }
 
-/// Where a packet mode component travels.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub struct PacketComponent {
     pub subchannel: u8,
     pub address: u16,
 }
 
-/// User application type of the service and programme information.
 pub const UA_SPI: u16 = 0x007;
 
 #[derive(Clone, Debug, Default, PartialEq, Eq)]
@@ -63,14 +49,16 @@ pub struct Service {
     pub short_label: Option<String>,
     pub components: Vec<Component>,
     pub packets: Vec<PacketRef>,
-    /// User application types of the primary component.
     pub user_apps: Vec<u16>,
 }
 
 impl Service {
     pub fn dab_plus_subchannel(&self) -> Option<u8> {
-        let mut audio: Vec<&Component> =
-            self.components.iter().filter(|c| c.ascty == ASCTY_DAB_PLUS).collect();
+        let mut audio: Vec<&Component> = self
+            .components
+            .iter()
+            .filter(|c| c.ascty == ASCTY_DAB_PLUS)
+            .collect();
         audio.sort_by_key(|c| !c.primary);
         audio.first().map(|c| c.subchannel)
     }
@@ -86,13 +74,15 @@ pub struct Ensemble {
 }
 
 impl Ensemble {
-    /// The sub-channel and packet address of the service and programme information.
     pub fn spi(&self) -> Option<(Subchannel, u16)> {
-        self.services.values().filter(|s| s.user_apps.contains(&UA_SPI)).find_map(|s| {
-            let primary = s.packets.iter().find(|p| p.primary).or(s.packets.first())?;
-            let pc = self.packet_components.get(&primary.scid)?;
-            Some((*self.subchannels.get(&pc.subchannel)?, pc.address))
-        })
+        self.services
+            .values()
+            .filter(|s| s.user_apps.contains(&UA_SPI))
+            .find_map(|s| {
+                let primary = s.packets.iter().find(|p| p.primary).or(s.packets.first())?;
+                let pc = self.packet_components.get(&primary.scid)?;
+                Some((*self.subchannels.get(&pc.subchannel)?, pc.address))
+            })
     }
 
     pub fn dab_plus_services(&self) -> impl Iterator<Item = (&Service, &Subchannel)> {
@@ -119,14 +109,15 @@ impl Default for FicDecoder {
 impl FicDecoder {
     pub fn new() -> Self {
         Self {
-            puncturing: Puncturing { runs: vec![(21, 16), (3, 15)] },
+            puncturing: Puncturing {
+                runs: vec![(21, 16), (3, 15)],
+            },
             ensemble: Ensemble::default(),
             fibs_ok: 0,
             fibs_bad: 0,
         }
     }
 
-    /// The FIC soft bits of one transmission frame.
     pub fn process(&mut self, soft: &[i8]) {
         for block in soft.as_chunks::<FIC_BLOCK_BITS>().0 {
             let mut bits = viterbi(&self.puncturing.depuncture(block));
@@ -152,7 +143,9 @@ pub fn parse_fib(e: &mut Ensemble, fib: &[u8]) {
         }
         let kind = header >> 5;
         let len = (header & 0x1f) as usize;
-        let Some(body) = fib.get(i + 1..i + 1 + len) else { break };
+        let Some(body) = fib.get(i + 1..i + 1 + len) else {
+            break;
+        };
         match kind {
             0 => fig0(e, body),
             1 => fig1(e, body),
@@ -163,7 +156,9 @@ pub fn parse_fib(e: &mut Ensemble, fib: &[u8]) {
 }
 
 fn fig0(e: &mut Ensemble, body: &[u8]) {
-    let Some((&head, data)) = body.split_first() else { return };
+    let Some((&head, data)) = body.split_first() else {
+        return;
+    };
     let next_config = head & 0x80 != 0;
     let other_ensemble = head & 0x40 != 0;
     let long_sid = head & 0x20 != 0;
@@ -196,13 +191,19 @@ fn fig0_1(e: &mut Ensemble, mut d: &[u8]) {
             let size = (((d[2] & 0x03) as u16) << 8) | d[3] as u16;
             (Protection::Eep { option, level }, size, 4)
         };
-        e.subchannels.insert(id, Subchannel { id, start, size, protection });
+        e.subchannels.insert(
+            id,
+            Subchannel {
+                id,
+                start,
+                size,
+                protection,
+            },
+        );
         d = &d[used..];
     }
 }
 
-/// Sub-channel size in CUs for the short form; only the size matters here,
-/// UEP audio is classic DAB which LIVI does not play.
 fn uep_size(index: u8) -> u16 {
     const SIZES: [u16; 64] = [
         16, 21, 24, 29, 35, 24, 29, 35, 42, 52, 29, 35, 42, 52, 32, 42, 48, 58, 70, 40, 52, 58, 70,
@@ -239,7 +240,10 @@ fn fig0_2(e: &mut Ensemble, mut d: &[u8], long_sid: bool) {
                 _ => {}
             }
         }
-        let service = e.services.entry(id).or_insert_with(|| Service { id, ..Default::default() });
+        let service = e.services.entry(id).or_insert_with(|| Service {
+            id,
+            ..Default::default()
+        });
         service.components = components;
         service.packets = packets;
         d = &d[need..];
@@ -276,7 +280,10 @@ fn fig0_13(e: &mut Ensemble, mut d: &[u8], long_sid: bool) {
             return;
         }
         if scids == 0 {
-            let s = e.services.entry(id).or_insert_with(|| Service { id, ..Default::default() });
+            let s = e.services.entry(id).or_insert_with(|| Service {
+                id,
+                ..Default::default()
+            });
             s.user_apps = apps;
         }
         d = &d[i..];
@@ -284,7 +291,9 @@ fn fig0_13(e: &mut Ensemble, mut d: &[u8], long_sid: bool) {
 }
 
 fn fig1(e: &mut Ensemble, body: &[u8]) {
-    let Some((&head, data)) = body.split_first() else { return };
+    let Some((&head, data)) = body.split_first() else {
+        return;
+    };
     let charset = head >> 4;
     let other_ensemble = head & 0x08 != 0;
     if other_ensemble {
@@ -299,7 +308,9 @@ fn fig1(e: &mut Ensemble, body: &[u8]) {
     if data.len() < id_len + 18 {
         return;
     }
-    let id = data[..id_len].iter().fold(0u32, |a, &b| (a << 8) | b as u32);
+    let id = data[..id_len]
+        .iter()
+        .fold(0u32, |a, &b| (a << 8) | b as u32);
     let raw = &data[id_len..id_len + 16];
     let flags = u16::from_be_bytes([data[id_len + 16], data[id_len + 17]]);
     let label = charset::decode(charset, raw);
@@ -313,7 +324,10 @@ fn fig1(e: &mut Ensemble, body: &[u8]) {
     if ext == 0 {
         e.label = Some(label);
     } else {
-        let s = e.services.entry(id).or_insert_with(|| Service { id, ..Default::default() });
+        let s = e.services.entry(id).or_insert_with(|| Service {
+            id,
+            ..Default::default()
+        });
         s.label = Some(label);
         s.short_label = Some(short);
     }
@@ -326,11 +340,8 @@ mod tests {
     #[test]
     fn parses_subchannel_service_and_label() {
         let mut e = Ensemble::default();
-        // FIG 0/1: subch 5 at CU 84, EEP-3A, 72 CUs.
         let mut fib = vec![0x05, 0x01, 0x14, 0x54, 0x88, 0x48];
-        // FIG 0/2: SId 0xD3A1, one component, DAB+ on subch 5, primary.
         fib.extend_from_slice(&[0x06, 0x02, 0xd3, 0xa1, 0x01, 0x3f, 0x16]);
-        // FIG 1/1 label "SWR3".
         let mut label = vec![0x35, 0x01, 0xd3, 0xa1];
         label.extend_from_slice(b"SWR3            ");
         label.extend_from_slice(&[0xf0, 0x00]);
@@ -341,7 +352,13 @@ mod tests {
         let sub = e.subchannels[&5];
         assert_eq!(sub.start, 84);
         assert_eq!(sub.size, 72);
-        assert_eq!(sub.protection, Protection::Eep { option: 0, level: 2 });
+        assert_eq!(
+            sub.protection,
+            Protection::Eep {
+                option: 0,
+                level: 2
+            }
+        );
         let s = &e.services[&0xd3a1];
         assert_eq!(s.label.as_deref(), Some("SWR3"));
         assert_eq!(s.short_label.as_deref(), Some("SWR3"));
@@ -352,21 +369,31 @@ mod tests {
     #[test]
     fn finds_the_spi_data_service() {
         let mut e = Ensemble::default();
-        // FIG 0/1: subch 30 at CU 470, EEP-3A, 18 CUs.
         let mut fib = vec![0x05, 0x01, 0x79, 0xd6, 0x88, 0x12];
-        // FIG 0/2 with 32 bit SIds: E0D110BC, one packet component SCId 0x0A5, primary.
         fib.extend_from_slice(&[0x08, 0x22, 0xe0, 0xd1, 0x10, 0xbc, 0x01, 0xc2, 0x96]);
-        // FIG 0/3: SCId 0x0A5, data groups, DSCTy 60, subch 30, address 1.
         fib.extend_from_slice(&[0x06, 0x03, 0x0a, 0x50, 0x3c, 0x78, 0x01]);
-        // FIG 0/13 with 32 bit SIds: SCIdS 0, one app, SPI with two profile bytes.
-        fib.extend_from_slice(&[0x0a, 0x2d, 0xe0, 0xd1, 0x10, 0xbc, 0x01, 0x00, 0xe2, 0x01, 0x02]);
+        fib.extend_from_slice(&[
+            0x0a, 0x2d, 0xe0, 0xd1, 0x10, 0xbc, 0x01, 0x00, 0xe2, 0x01, 0x02,
+        ]);
         fib.push(0xff);
         parse_fib(&mut e, &fib);
 
         let s = &e.services[&0xe0d1_10bc];
-        assert_eq!(s.packets, [PacketRef { scid: 0x0a5, primary: true }]);
+        assert_eq!(
+            s.packets,
+            [PacketRef {
+                scid: 0x0a5,
+                primary: true
+            }]
+        );
         assert_eq!(s.user_apps, [UA_SPI]);
-        assert_eq!(e.packet_components[&0x0a5], PacketComponent { subchannel: 30, address: 1 });
+        assert_eq!(
+            e.packet_components[&0x0a5],
+            PacketComponent {
+                subchannel: 30,
+                address: 1
+            }
+        );
         let (sub, address) = e.spi().unwrap();
         assert_eq!((sub.id, sub.start, sub.size, address), (30, 470, 18, 1));
     }

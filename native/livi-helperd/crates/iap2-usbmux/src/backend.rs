@@ -1,5 +1,3 @@
-// The phone on this machine's usbfs.
-
 use crate::pipe::{MuxPipes, PhoneInfo};
 
 pub use local::{ensure_carplay_config, find_iphones, open_pipes, restore_default_config};
@@ -36,7 +34,6 @@ mod local {
     }
 }
 
-// No usbfs here, so no phone on this path.
 #[cfg(not(target_os = "linux"))]
 mod local {
     use super::*;

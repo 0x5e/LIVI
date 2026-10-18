@@ -1,6 +1,3 @@
-//! The reader thread ends soon after the port is dropped, so a device opened
-//! again never has a second reader.
-
 use std::fs::{File, OpenOptions};
 use std::io::{self, Read, Write};
 use std::os::fd::AsRawFd;
@@ -9,7 +6,6 @@ use std::path::Path;
 
 use tokio::sync::mpsc;
 
-/// How often a silent reader looks whether the port is still wanted.
 const WAKE_MS: i32 = 250;
 
 pub type Chunk = Result<Vec<u8>, String>;
@@ -24,7 +20,6 @@ impl Port {
         if !Path::new(device).exists() {
             return Err(format!("{device} not found"));
         }
-        // Not blocking, so a port waiting for its carrier cannot hold the open.
         let file = OpenOptions::new()
             .read(true)
             .write(true)
@@ -45,7 +40,10 @@ impl Port {
 
     #[cfg(test)]
     pub fn fake(chunks: mpsc::UnboundedReceiver<Chunk>) -> Self {
-        Self { file: OpenOptions::new().write(true).open("/dev/null").unwrap(), chunks }
+        Self {
+            file: OpenOptions::new().write(true).open("/dev/null").unwrap(),
+            chunks,
+        }
     }
 }
 
@@ -70,7 +68,10 @@ fn speed(baud_rate: u32) -> Option<libc::speed_t> {
 
 fn raw_mode(file: &File, baud_rate: u32) -> io::Result<()> {
     let speed = speed(baud_rate).ok_or_else(|| {
-        io::Error::new(io::ErrorKind::InvalidInput, format!("{baud_rate} baud is not supported"))
+        io::Error::new(
+            io::ErrorKind::InvalidInput,
+            format!("{baud_rate} baud is not supported"),
+        )
     })?;
     let fd = file.as_raw_fd();
     // SAFETY: an all-zero termios is valid, tcgetattr fills it.
@@ -91,19 +92,30 @@ fn raw_mode(file: &File, baud_rate: u32) -> io::Result<()> {
 
 fn read_chunks(mut reader: File, device: &str, tx: &mpsc::UnboundedSender<Chunk>) {
     let mut buf = [0u8; 4096];
-    let mut poll = libc::pollfd { fd: reader.as_raw_fd(), events: libc::POLLIN, revents: 0 };
+    let mut poll = libc::pollfd {
+        fd: reader.as_raw_fd(),
+        events: libc::POLLIN,
+        revents: 0,
+    };
     while !tx.is_closed() {
         // SAFETY: poll gets one valid pollfd.
         let ready = unsafe { libc::poll(&mut poll, 1, WAKE_MS) };
         if ready == 0 {
             continue;
         }
-        let read = if ready < 0 { Err(io::Error::last_os_error()) } else { reader.read(&mut buf) };
+        let read = if ready < 0 {
+            Err(io::Error::last_os_error())
+        } else {
+            reader.read(&mut buf)
+        };
         let chunk = match read {
             Ok(0) => Err(format!("{device} closed")),
             Ok(n) => Ok(buf[..n].to_vec()),
             Err(e)
-                if matches!(e.kind(), io::ErrorKind::WouldBlock | io::ErrorKind::Interrupted) =>
+                if matches!(
+                    e.kind(),
+                    io::ErrorKind::WouldBlock | io::ErrorKind::Interrupted
+                ) =>
             {
                 continue;
             }

@@ -12,7 +12,6 @@ use tokio::sync::Notify;
 const RESOLVE_INTERVAL: Duration = Duration::from_millis(500);
 const WATCH_RETRY: Duration = Duration::from_secs(2);
 
-/// CarPlay over the cable keeps the phone's Bluetooth to the accessory disconnected.
 #[cfg(target_os = "linux")]
 pub fn drop_dongle_link(mac: String) {
     tokio::task::spawn_blocking(move || {
@@ -33,7 +32,6 @@ pub fn dongle_on_cable(state: Arc<HelperState>) -> OnCable {
     }))
 }
 
-/// LIVI ends a CarPlay session as soon as its phone leaves the access point.
 pub async fn relay_stations(bcast: Broadcaster) {
     loop {
         let events = bcast.clone();
@@ -66,7 +64,6 @@ impl LinkPresence {
         })
     }
 
-    /// The MFi chip is on this machine: nothing to wait for.
     #[cfg(target_os = "linux")]
     pub fn always() -> Arc<Self> {
         let link = Self::new();
@@ -130,7 +127,10 @@ impl LinkPresence {
             if !up {
                 continue;
             }
-            println!("[helperd] LIVI Link up: {} resolves", livi_link_host::link::LINK_NAME);
+            println!(
+                "[helperd] LIVI Link up: {} resolves",
+                livi_link_host::link::LINK_NAME
+            );
             on_up();
             self.set_present(true);
             self.wait_for(|l| !l.on_bus.load(Ordering::SeqCst)).await;

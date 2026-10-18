@@ -9,7 +9,6 @@ pub fn wlan_mac(iface: &str) -> Option<String> {
         .filter(|s| !s.is_empty())
 }
 
-// macOS has no /sys; take the hardware address from getifaddrs' AF_LINK entry.
 #[cfg(target_os = "macos")]
 pub fn wlan_mac(iface: &str) -> Option<String> {
     let want = std::ffi::CString::new(iface).ok()?;
@@ -37,8 +36,9 @@ pub fn wlan_mac(iface: &str) -> Option<String> {
             continue;
         }
         let base = sdl.sdl_nlen as usize;
-        let mac: Vec<String> =
-            (0..6).map(|i| format!("{:02X}", sdl.sdl_data[base + i] as u8)).collect();
+        let mac: Vec<String> = (0..6)
+            .map(|i| format!("{:02X}", sdl.sdl_data[base + i] as u8))
+            .collect();
         out = Some(mac.join(":"));
         break;
     }
@@ -58,8 +58,6 @@ pub fn wlan_link_local(iface: &str) -> Option<String> {
         .map(|t| t.split('/').next().unwrap_or(t).to_string())
 }
 
-// Reads the interface's fe80 address from getifaddrs; the scope id BSD embeds in bytes 2-3
-// of a link-local sockaddr (KAME) is zeroed.
 #[cfg(target_os = "macos")]
 pub fn wlan_link_local(iface: &str) -> Option<String> {
     let want = std::ffi::CString::new(iface).ok()?;
@@ -95,12 +93,10 @@ pub fn wlan_link_local(iface: &str) -> Option<String> {
     out
 }
 
-/// Local interface sharing a /24 with `peer` ("host" or "host:port").
 pub fn iface_facing(peer: &str) -> Option<String> {
     facing(peer).map(|(name, _)| name)
 }
 
-/// The IPv4 address of `iface`.
 pub fn ipv4_of(iface: &str) -> Option<std::net::Ipv4Addr> {
     first_ipv4(|name, _| name == iface).map(|(_, addr)| addr)
 }
@@ -119,7 +115,6 @@ fn facing(peer: &str) -> Option<(String, std::net::Ipv4Addr)> {
     first_ipv4(|_, own| u32::from(own) & 0xffff_ff00 == subnet)
 }
 
-/// The first interface IPv4 address `wanted` accepts.
 fn first_ipv4(
     wanted: impl Fn(&str, std::net::Ipv4Addr) -> bool,
 ) -> Option<(String, std::net::Ipv4Addr)> {
@@ -158,7 +153,11 @@ mod tests {
 
     #[test]
     fn the_loopback_interface_has_its_address() {
-        let lo = if cfg!(target_os = "macos") { "lo0" } else { "lo" };
+        let lo = if cfg!(target_os = "macos") {
+            "lo0"
+        } else {
+            "lo"
+        };
         assert_eq!(ipv4_of(lo), Some(std::net::Ipv4Addr::LOCALHOST));
         assert_eq!(ipv4_of("no-such-iface"), None);
     }

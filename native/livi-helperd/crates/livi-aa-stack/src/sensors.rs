@@ -1,5 +1,3 @@
-//! Each sensor goes out as a SensorBatchNotification holding just that sensor.
-
 use livi_aa_proto::{
     CarLocation, CurrentGear, DrivingStatus, EngineRpm, EnvironmentConditions, FuelLevel,
     LightStates, NightMode, Odometer, ParkingBrake, SensorBatchNotification, TirePressures,
@@ -26,21 +24,16 @@ pub enum Sensor {
         range_km: Option<i32>,
         low_fuel_warning: Option<bool>,
     },
-    /// Millimetres per second.
     Speed(i32),
-    /// Revolutions per minute times 1000.
     Rpm(i32),
-    /// 0 neutral, 1 to 10 manual, 100 drive, 101 park, 102 reverse.
     Gear(i32),
     NightMode(bool),
     ParkingBrake(bool),
-    /// Head light 1 off, 2 on, 3 high. Turn indicator 1 none, 2 left, 3 right.
     Light {
         head_light: Option<i32>,
         hazard_lights: Option<bool>,
         turn_indicator: Option<i32>,
     },
-    /// Temperature in milli-degrees, pressure in pascal.
     Environment {
         temperature_e3: Option<i32>,
         pressure_e3: Option<i32>,
@@ -49,12 +42,9 @@ pub enum Sensor {
         total_km_e1: i32,
         trip_km_e1: Option<i32>,
     },
-    /// The restriction bits, 0 unrestricted.
     DrivingStatus(i32),
-    /// Kilopascal times 100, front left, front right, rear left, rear right.
     TirePressure([i32; 4]),
     Gps(GpsFix),
-    /// The phone's maps read the minimum usable capacity as the current level.
     VehicleEnergyModel {
         capacity_wh: i64,
         current_wh: i64,
@@ -81,8 +71,6 @@ fn location(fix: GpsFix) -> Option<CarLocation> {
     })
 }
 
-/// Google Maps reads this with its own energy model, wider than the one Android Auto knows and
-/// passes on unread, so it is written by hand.
 fn vehicle_energy_model(
     capacity_wh: i64,
     current_wh: i64,
@@ -127,23 +115,32 @@ fn vehicle_energy_model(
 pub fn batch(sensor: &Sensor) -> Option<Vec<u8>> {
     let mut b = SensorBatchNotification::default();
     match *sensor {
-        Sensor::Fuel { level_percent, range_km, low_fuel_warning } => {
-            b.fuel_levels.push(FuelLevel {
-                level_percent: Some(level_percent),
-                range_km,
-                energy_is_low: low_fuel_warning,
-            })
-        }
+        Sensor::Fuel {
+            level_percent,
+            range_km,
+            low_fuel_warning,
+        } => b.fuel_levels.push(FuelLevel {
+            level_percent: Some(level_percent),
+            range_km,
+            energy_is_low: low_fuel_warning,
+        }),
         Sensor::Speed(speed) => {
-            b.speeds.push(VehicleSpeed { speed_m_per_s_e3: speed, ..Default::default() });
+            b.speeds.push(VehicleSpeed {
+                speed_m_per_s_e3: speed,
+                ..Default::default()
+            });
         }
         Sensor::Rpm(rpm_e3) => b.engine_rpms.push(EngineRpm { rpm_e3 }),
         Sensor::Gear(gear) => b.gears.push(CurrentGear { gear }),
-        Sensor::NightMode(night) => {
-            b.night_modes.push(NightMode { night_mode_active: Some(night) })
-        }
+        Sensor::NightMode(night) => b.night_modes.push(NightMode {
+            night_mode_active: Some(night),
+        }),
         Sensor::ParkingBrake(engaged) => b.parking_brakes.push(ParkingBrake { engaged }),
-        Sensor::Light { head_light, hazard_lights, turn_indicator } => {
+        Sensor::Light {
+            head_light,
+            hazard_lights,
+            turn_indicator,
+        } => {
             if head_light.is_none() && hazard_lights.is_none() && turn_indicator.is_none() {
                 return None;
             }
@@ -153,7 +150,10 @@ pub fn batch(sensor: &Sensor) -> Option<Vec<u8>> {
                 hazard_lights_on: hazard_lights,
             });
         }
-        Sensor::Environment { temperature_e3, pressure_e3 } => {
+        Sensor::Environment {
+            temperature_e3,
+            pressure_e3,
+        } => {
             if temperature_e3.is_none() && pressure_e3.is_none() {
                 return None;
             }
@@ -163,15 +163,21 @@ pub fn batch(sensor: &Sensor) -> Option<Vec<u8>> {
                 ..Default::default()
             });
         }
-        Sensor::Odometer { total_km_e1, trip_km_e1 } => {
-            b.odometers.push(Odometer { odometer_km_e1: total_km_e1, trip_km_e1 });
+        Sensor::Odometer {
+            total_km_e1,
+            trip_km_e1,
+        } => {
+            b.odometers.push(Odometer {
+                odometer_km_e1: total_km_e1,
+                trip_km_e1,
+            });
         }
         Sensor::DrivingStatus(restrictions) => {
             b.driving_statuses.push(DrivingStatus { restrictions })
         }
-        Sensor::TirePressure(pressures) => {
-            b.tire_pressures.push(TirePressures { pressures_e2: pressures.to_vec() })
-        }
+        Sensor::TirePressure(pressures) => b.tire_pressures.push(TirePressures {
+            pressures_e2: pressures.to_vec(),
+        }),
         Sensor::Gps(fix) => b.locations.push(location(fix)?),
         Sensor::VehicleEnergyModel {
             capacity_wh,
@@ -200,8 +206,14 @@ mod tests {
 
     #[test]
     fn batches_carry_the_sensor_type_as_field() {
-        assert_eq!(batch(&Sensor::NightMode(true)), Some(vec![0x52, 0x02, 0x08, 0x01]));
-        assert_eq!(batch(&Sensor::DrivingStatus(0)), Some(vec![0x6a, 0x02, 0x08, 0x00]));
+        assert_eq!(
+            batch(&Sensor::NightMode(true)),
+            Some(vec![0x52, 0x02, 0x08, 0x01])
+        );
+        assert_eq!(
+            batch(&Sensor::DrivingStatus(0)),
+            Some(vec![0x6a, 0x02, 0x08, 0x00])
+        );
         assert_eq!(
             batch(&Sensor::Fuel {
                 level_percent: 50,
@@ -211,10 +223,20 @@ mod tests {
             Some(vec![0x32, 0x07, 0x08, 0x32, 0x10, 0xac, 0x02, 0x18, 0x00])
         );
         assert_eq!(
-            batch(&Sensor::Light { head_light: None, hazard_lights: None, turn_indicator: None }),
+            batch(&Sensor::Light {
+                head_light: None,
+                hazard_lights: None,
+                turn_indicator: None
+            }),
             None
         );
-        assert_eq!(batch(&Sensor::Environment { temperature_e3: None, pressure_e3: None }), None);
+        assert_eq!(
+            batch(&Sensor::Environment {
+                temperature_e3: None,
+                pressure_e3: None
+            }),
+            None
+        );
         let gps = GpsFix {
             lat_deg: 48.1,
             lng_deg: f64::NAN,
@@ -241,6 +263,9 @@ mod tests {
         assert_eq!(&bytes[..2], [0x92, 0x01], "sensor type 18");
         let decoded = SensorBatchNotification::decode(bytes.as_slice()).unwrap();
         assert_eq!(decoded.tire_pressures.len(), 1);
-        assert_eq!(decoded.tire_pressures[0].pressures_e2, [24_000, 24_500, 23_000, 23_100]);
+        assert_eq!(
+            decoded.tire_pressures[0].pressures_e2,
+            [24_000, 24_500, 23_000, 23_100]
+        );
     }
 }

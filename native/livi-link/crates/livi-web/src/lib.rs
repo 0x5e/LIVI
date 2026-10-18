@@ -3,33 +3,26 @@ use std::sync::OnceLock;
 #[derive(Default)]
 pub struct Flash {
     pub mtd: Vec<MtdSlot>,
-    /// Shell command after a verified write. The dongle only reboots when it succeeds.
     pub check: Option<String>,
 }
 
-/// `size` is the partition's, a larger image would run into the next one.
 pub struct MtdSlot {
     pub typ: u8,
     pub node: String,
     pub magic: Vec<u8>,
     pub size: u64,
-    /// For a partition whose bootloader does not take the image as it is.
     pub stage: Option<Stage>,
     pub before_write: Option<fn() -> Result<(), String>>,
 }
 
-/// Takes the image and what the partition holds now.
 pub type Stage = fn(&[u8], &[u8]) -> Result<Vec<u8>, String>;
 
 pub struct WebCaps {
     pub model: String,
-    /// The directory under assets/livi-link this dongle's firmware is published in.
     pub target: String,
     pub port: u16,
     pub wifi_iface: String,
-    /// Its MAC stands in as the dongle's address.
     pub host_iface: String,
-    /// The file where mfid notes the MFi coprocessor it found.
     pub mfi: String,
     pub bt: String,
     pub led: bool,
@@ -48,7 +41,8 @@ const BUILD: &str = match option_env!("LIVI_BUILD") {
 
 static CAPS: OnceLock<WebCaps> = OnceLock::new();
 fn caps() -> &'static WebCaps {
-    CAPS.get().expect("livi_web::run must be called before any handler")
+    CAPS.get()
+        .expect("livi_web::run must be called before any handler")
 }
 
 pub fn run(caps: WebCaps) -> i32 {
@@ -71,7 +65,6 @@ use std::time::Duration;
 
 use livi_wifid::radio::{self, Radio};
 
-// Lives under web/ because the Mac↔build-host sync skips every assets/ directory.
 const INDEX_HTML: &str = include_str!("../web/index.html");
 
 fn serve_forever() -> std::io::Result<()> {
@@ -125,7 +118,7 @@ fn read_request(sock: &TcpStream) -> Option<(String, String, u64, Option<Vec<u8>
         let n = reader.read_line(&mut line).ok()?;
         if n <= 2 {
             break;
-        } // empty CRLF terminates headers
+        }
         let lower = line.to_ascii_lowercase();
         if let Some(v) = lower.strip_prefix("content-length:") {
             content_length = v.trim().parse().unwrap_or(0);
@@ -181,7 +174,11 @@ fn route(
 }
 
 fn caps_json() -> String {
-    format!(r#"{{"flash":{{"mtd":{}}},"led":{}}}"#, !caps().flash.mtd.is_empty(), caps().led)
+    format!(
+        r#"{{"flash":{{"mtd":{}}},"led":{}}}"#,
+        !caps().flash.mtd.is_empty(),
+        caps().led
+    )
 }
 
 fn flash_dispatch(
@@ -195,10 +192,13 @@ fn flash_dispatch(
     if data.starts_with(BUNDLE_MAGIC) {
         return flash_bundle(&c.flash, body, clen);
     }
-    (S_400, T_JSON, err_json("not a LIVI Link firmware bundle (.lfwb)"))
+    (
+        S_400,
+        T_JSON,
+        err_json("not a LIVI Link firmware bundle (.lfwb)"),
+    )
 }
 
-// The .lfwb layout is defined by scripts/livi-link/common/pack-bundle.sh.
 const BUNDLE_MAGIC: &[u8; 4] = b"LFWB";
 const BUNDLE_VERSION: u8 = 1;
 const BUNDLE_HDR_LEN: usize = 8;
@@ -227,15 +227,27 @@ fn flash_bundle(
         return (S_400, T_JSON, err_json("bundle too small for header"));
     }
     if data[4] != BUNDLE_VERSION {
-        return (S_400, T_JSON, err_json(&format!("bundle version {} not supported", data[4])));
+        return (
+            S_400,
+            T_JSON,
+            err_json(&format!("bundle version {} not supported", data[4])),
+        );
     }
     let count = data[5] as usize;
     if count == 0 || count > 8 {
-        return (S_400, T_JSON, err_json(&format!("bundle image count {} out of range", count)));
+        return (
+            S_400,
+            T_JSON,
+            err_json(&format!("bundle image count {} out of range", count)),
+        );
     }
     let descs_end = BUNDLE_HDR_LEN + count * BUNDLE_DESC_LEN;
     if data.len() < descs_end {
-        return (S_400, T_JSON, err_json("bundle truncated in descriptor table"));
+        return (
+            S_400,
+            T_JSON,
+            err_json("bundle truncated in descriptor table"),
+        );
     }
 
     let mut descs: Vec<ImageDesc> = Vec::with_capacity(count);
@@ -252,10 +264,19 @@ fn flash_bundle(
             return (
                 S_400,
                 T_JSON,
-                err_json(&format!("bundle payload short for image {} (type {})", i, typ)),
+                err_json(&format!(
+                    "bundle payload short for image {} (type {})",
+                    i, typ
+                )),
             );
         }
-        descs.push(ImageDesc { typ, _flags: flags, length, crc32: crc, payload_offset: cursor });
+        descs.push(ImageDesc {
+            typ,
+            _flags: flags,
+            length,
+            crc32: crc,
+            payload_offset: cursor,
+        });
         cursor += length as usize;
     }
 
@@ -273,15 +294,16 @@ fn flash_bundle(
         }
     }
 
-    // Every image is checked before the first write, so a bundle this dongle cannot take in full
-    // never leaves the flash half rewritten.
     let mut staged: Vec<(&MtdSlot, Option<Vec<u8>>)> = Vec::with_capacity(descs.len());
     for d in descs.iter() {
         let Some(slot) = f.mtd.iter().find(|s| s.typ == d.typ) else {
             return (
                 S_400,
                 T_JSON,
-                err_json(&format!("image type {} is not for this dongle, nothing written", d.typ)),
+                err_json(&format!(
+                    "image type {} is not for this dongle, nothing written",
+                    d.typ
+                )),
             );
         };
         let slice = &data[d.payload_offset..d.payload_offset + d.length as usize];
@@ -338,7 +360,6 @@ fn flash_bundle(
         let image = staged.as_deref().unwrap_or(slice);
         let len = image.len();
         let path = format!("/dev/{node}");
-        // Read back through the character device, the block device answers from the page cache.
         let raw = raw_mtd(node);
         write_progress(node, 0, len, "compare");
         let same = flash_matches(&raw, image).unwrap_or(false);
@@ -381,14 +402,21 @@ fn flash_bundle(
 
     if wrote_any && let Err(e) = post_write_check(f) {
         write_progress("bundle", data.len(), data.len(), "error");
-        return (S_500, T_JSON, err_json(&format!("{}, but {e}", report.join(", "))));
+        return (
+            S_500,
+            T_JSON,
+            err_json(&format!("{}, but {e}", report.join(", "))),
+        );
     }
     write_progress("bundle", data.len(), data.len(), "done");
     if wrote_any {
-        // Green only once every image is verified and the check has passed.
         led_flash_done();
         reboot_after(Duration::from_millis(500));
-        (S_200, T_JSON, ok_json(&format!("{}, rebooting", report.join(", "))))
+        (
+            S_200,
+            T_JSON,
+            ok_json(&format!("{}, rebooting", report.join(", "))),
+        )
     } else {
         led_flash_clear();
         (S_200, T_JSON, ok_json("Up-to-date"))
@@ -408,11 +436,6 @@ fn post_write_check(f: &Flash) -> Result<(), String> {
 
 const LED_DIR: &str = "/tmp/livi/led";
 
-// LED states during a flash, one file each under /tmp/livi/led:
-//   flash-mode  red/blue alternating until the last image is verified
-//   flash-done  steady green, all verified, safe to unplug or reboot
-//   flash-error steady red, a write or its check failed, do not unplug or reboot
-// A reboot clears the tmpfs. On a board that cannot reboot yet, the state stays until unplugged.
 fn led_flash_set(state: Option<&str>) {
     let _ = fs::create_dir_all(LED_DIR);
     for f in ["flash-mode", "flash-done", "flash-error"] {
@@ -449,7 +472,6 @@ fn flash_matches(path: &str, expected: &[u8]) -> std::io::Result<bool> {
     Ok(crc32(&buf) == crc32(expected))
 }
 
-/// IEEE CRC-32 (poly 0xEDB88320), the one zlib computes.
 fn crc32(data: &[u8]) -> u32 {
     let mut crc = 0xFFFF_FFFFu32;
     for &b in data {
@@ -468,8 +490,10 @@ fn crc32(data: &[u8]) -> u32 {
 
 fn write_chunked(path: &str, data: &[u8], node: &str) -> std::io::Result<()> {
     use std::os::unix::fs::OpenOptionsExt;
-    let mut f = fs::OpenOptions::new().write(true).custom_flags(libc::O_SYNC).open(path)?;
-    // 64 KiB gives about 50 progress updates for 3 MiB, cheap next to the NOR erase and program.
+    let mut f = fs::OpenOptions::new()
+        .write(true)
+        .custom_flags(libc::O_SYNC)
+        .open(path)?;
     let chunk = 64 * 1024;
     let mut written = 0usize;
     for slice in data.chunks(chunk) {
@@ -486,12 +510,14 @@ fn write_chunked(path: &str, data: &[u8], node: &str) -> std::io::Result<()> {
 
 fn write_progress(node: &str, written: usize, total: usize, phase: &str) {
     let _ = fs::create_dir_all("/tmp/livi");
-    let _ = fs::write("/tmp/livi/flash-progress", format!("{node}:{written}:{total}:{phase}\n"));
+    let _ = fs::write(
+        "/tmp/livi/flash-progress",
+        format!("{node}:{written}:{total}:{phase}\n"),
+    );
 }
 
 fn flash_status_json() -> String {
     let raw = fs::read_to_string("/tmp/livi/flash-progress").unwrap_or_default();
-    // Format: node:written:total:phase
     let parts: Vec<&str> = raw.trim().split(':').collect();
     if parts.len() != 4 {
         return r#"{"phase":"idle","node":"","written":0,"total":0}"#.to_string();
@@ -549,19 +575,19 @@ fn reboot_after(delay: Duration) {
 }
 
 fn bt_json() -> String {
-    // The AIC driver has no sysfs `address` file, so the MAC falls back to what livi-bt-up
-    // cached in /tmp/livi/bt-mac.
     let bt = caps().bt.as_str();
     let mut mac = read_trim(&format!("/sys/class/bluetooth/{bt}/address"));
     if mac.is_empty() {
         mac = read_trim("/tmp/livi/bt-mac");
     }
     let mut name = read_trim(&format!("/sys/class/bluetooth/{bt}/name"));
-    // accessoryd gives the controller the AP name, so the hostapd config has it when sysfs does not.
     if name.is_empty() {
         name = livi_wifid::server::ap_name_from(
             std::path::Path::new(HOSTAPD_BASE),
-            &[std::path::Path::new(HOSTAPD_LIVE[0]), std::path::Path::new(HOSTAPD_LIVE[1])],
+            &[
+                std::path::Path::new(HOSTAPD_LIVE[0]),
+                std::path::Path::new(HOSTAPD_LIVE[1]),
+            ],
         )
         .unwrap_or_default();
     }
@@ -602,7 +628,10 @@ fn wifi_json() -> String {
     if ssid.is_empty() {
         let cfg = livi_wifid::server::ap_config_from(
             std::path::Path::new(HOSTAPD_BASE),
-            &[std::path::Path::new(HOSTAPD_LIVE[0]), std::path::Path::new(HOSTAPD_LIVE[1])],
+            &[
+                std::path::Path::new(HOSTAPD_LIVE[0]),
+                std::path::Path::new(HOSTAPD_LIVE[1]),
+            ],
         );
         if let Some(cfg) = cfg {
             for line in cfg.lines() {
@@ -676,20 +705,17 @@ fn err_json(msg: &str) -> Vec<u8> {
     format!(r#"{{"ok":false,"error":"{}"}}"#, js(msg)).into_bytes()
 }
 
-// /etc is read-only. livid seeds this tmpfs copy from /etc/livi/led.toml at boot.
 const LED_CFG: &str = "/tmp/livi/led.toml";
 const LED_PID: &str = "/tmp/livi/livi-ledd.pid";
 
 fn led_json() -> String {
-    // livi-ledd's default, the web UI accent #4dd0e1.
     let mut r = 0x4du8;
     let mut g = 0xd0u8;
     let mut b = 0xe1u8;
-    let mut brightness = 20u8; // 0-100 %
+    let mut brightness = 20u8;
     if let Ok(s) = fs::read_to_string(LED_CFG) {
         for line in s.lines() {
             let line = line.trim();
-            // Only whole-line comments, a `#` inside a value is part of it.
             if line.is_empty() || line.starts_with('#') {
                 continue;
             }
@@ -714,7 +740,10 @@ fn led_json() -> String {
             }
         }
     }
-    format!(r##"{{"status_color":"#{:02x}{:02x}{:02x}","brightness":{}}}"##, r, g, b, brightness)
+    format!(
+        r##"{{"status_color":"#{:02x}{:02x}{:02x}","brightness":{}}}"##,
+        r, g, b, brightness
+    )
 }
 
 fn set_led(body: Option<&[u8]>) -> (&'static str, &'static str, Vec<u8>) {
@@ -725,7 +754,6 @@ fn set_led(body: Option<&[u8]>) -> (&'static str, &'static str, Vec<u8>) {
         return (S_400, T_JSON, err_json("body not UTF-8"));
     };
 
-    // Form encoding (status_color=%23aabbcc&brightness=50) or a small JSON subset.
     let mut status: Option<(u8, u8, u8)> = None;
     let mut brightness: Option<u8> = None;
 
@@ -755,13 +783,13 @@ fn set_led(body: Option<&[u8]>) -> (&'static str, &'static str, Vec<u8>) {
     let cur_status = json_str(&existing, "status_color")
         .and_then(|v| parse_rgb(&v))
         .unwrap_or((0x4d, 0xd0, 0xe1));
-    let cur_bri =
-        json_num(&existing, "brightness").and_then(|v| v.parse::<u8>().ok()).unwrap_or(20);
+    let cur_bri = json_num(&existing, "brightness")
+        .and_then(|v| v.parse::<u8>().ok())
+        .unwrap_or(20);
 
     let (r, g, b) = status.unwrap_or(cur_status);
     let bri = brightness.unwrap_or(cur_bri);
 
-    // The page never sends white_balance, a hand-tuned value must survive a save.
     let cur_wb = fs::read_to_string(LED_CFG)
         .ok()
         .and_then(|s| {
@@ -789,7 +817,6 @@ fn set_led(body: Option<&[u8]>) -> (&'static str, &'static str, Vec<u8>) {
         return (S_500, T_JSON, err_json(&format!("write {LED_CFG}: {e}")));
     }
     kick_ledd();
-    // The page debounces, so these flash writes stay rare.
     persist_config();
     (S_200, T_JSON, ok_json("led config updated"))
 }
@@ -823,7 +850,6 @@ fn set_update(body: Option<&[u8]>) -> (&'static str, &'static str, Vec<u8>) {
     (S_200, T_JSON, ok_json("update channel saved"))
 }
 
-/// Switches through wifid, so the page and a host take the same path.
 fn switch_radio(body: Option<&[u8]>, radio: Radio) -> (&'static str, &'static str, Vec<u8>) {
     let Some(s) = body.and_then(|b| std::str::from_utf8(b).ok()) else {
         return (S_400, T_JSON, err_json("empty body"));
@@ -853,11 +879,14 @@ fn wifid(command: &str) -> Result<(), String> {
     let addr = SocketAddr::from(([127, 0, 0, 1], livi_net::port::CONTROL));
     let mut stream = TcpStream::connect_timeout(&addr, Duration::from_secs(2))
         .map_err(|e| format!("wifid: {e}"))?;
-    // Bringing the AP or hci0 up takes a while.
     let _ = stream.set_read_timeout(Some(Duration::from_secs(30)));
-    stream.write_all(format!("{command}\n").as_bytes()).map_err(|e| format!("wifid: {e}"))?;
+    stream
+        .write_all(format!("{command}\n").as_bytes())
+        .map_err(|e| format!("wifid: {e}"))?;
     let mut line = String::new();
-    BufReader::new(stream).read_line(&mut line).map_err(|e| format!("wifid: {e}"))?;
+    BufReader::new(stream)
+        .read_line(&mut line)
+        .map_err(|e| format!("wifid: {e}"))?;
     match line.trim() {
         "ok" => Ok(()),
         other => Err(other.strip_prefix("error ").unwrap_or(other).to_string()),
@@ -877,7 +906,6 @@ fn kick_ledd() {
 }
 
 fn persist_config() {
-    // Not awaited, the flash write is slow.
     let _ = Command::new("/usr/bin/livid")
         .arg("config")
         .arg("save")
@@ -902,7 +930,11 @@ fn parse_rgb(s: &str) -> Option<(u8, u8, u8)> {
     if parts.len() != 3 {
         return None;
     }
-    Some((parts[0].parse().ok()?, parts[1].parse().ok()?, parts[2].parse().ok()?))
+    Some((
+        parts[0].parse().ok()?,
+        parts[1].parse().ok()?,
+        parts[2].parse().ok()?,
+    ))
 }
 
 fn json_str(hay: &str, key: &str) -> Option<String> {
@@ -923,7 +955,9 @@ fn json_num(hay: &str, key: &str) -> Option<String> {
     let after = &hay[i + needle.len()..];
     let colon = after.find(':')?;
     let rest = after[colon + 1..].trim_start();
-    let end = rest.find(|c: char| !c.is_ascii_digit()).unwrap_or(rest.len());
+    let end = rest
+        .find(|c: char| !c.is_ascii_digit())
+        .unwrap_or(rest.len());
     if end == 0 {
         return None;
     }
@@ -950,17 +984,26 @@ fn url_decode(s: &str) -> String {
 }
 
 fn read_trim(path: &str) -> String {
-    fs::read_to_string(path).map(|s| s.trim().to_string()).unwrap_or_default()
+    fs::read_to_string(path)
+        .map(|s| s.trim().to_string())
+        .unwrap_or_default()
 }
 
 fn fmt_uptime(s: &str) -> String {
-    let secs =
-        s.split_whitespace().next().and_then(|v| v.parse::<f64>().ok()).unwrap_or(0.0) as u64;
+    let secs = s
+        .split_whitespace()
+        .next()
+        .and_then(|v| v.parse::<f64>().ok())
+        .unwrap_or(0.0) as u64;
     let d = secs / 86400;
     let h = (secs % 86400) / 3600;
     let m = (secs % 3600) / 60;
     let s = secs % 60;
-    if d > 0 { format!("{d}d {h:02}:{m:02}:{s:02}") } else { format!("{h:02}:{m:02}:{s:02}") }
+    if d > 0 {
+        format!("{d}d {h:02}:{m:02}:{s:02}")
+    } else {
+        format!("{h:02}:{m:02}:{s:02}")
+    }
 }
 
 fn fmt_meminfo() -> String {
@@ -969,9 +1012,17 @@ fn fmt_meminfo() -> String {
     if let Ok(s) = fs::read_to_string("/proc/meminfo") {
         for line in s.lines() {
             if let Some(rest) = line.strip_prefix("MemTotal:") {
-                total_kb = rest.split_whitespace().next().and_then(|v| v.parse().ok()).unwrap_or(0);
+                total_kb = rest
+                    .split_whitespace()
+                    .next()
+                    .and_then(|v| v.parse().ok())
+                    .unwrap_or(0);
             } else if let Some(rest) = line.strip_prefix("MemAvailable:") {
-                avail_kb = rest.split_whitespace().next().and_then(|v| v.parse().ok()).unwrap_or(0);
+                avail_kb = rest
+                    .split_whitespace()
+                    .next()
+                    .and_then(|v| v.parse().ok())
+                    .unwrap_or(0);
             }
         }
     }
@@ -980,7 +1031,11 @@ fn fmt_meminfo() -> String {
 
 fn mem_text(total_kb: u64, avail_kb: u64) -> String {
     let mb = |kb: u64| (kb + 512) / 1024;
-    format!("{} MB used / {} MB total", mb(total_kb.saturating_sub(avail_kb)), mb(total_kb))
+    format!(
+        "{} MB used / {} MB total",
+        mb(total_kb.saturating_sub(avail_kb)),
+        mb(total_kb)
+    )
 }
 
 fn js(s: &str) -> String {

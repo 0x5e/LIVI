@@ -1,5 +1,3 @@
-// CarPlay mDNS: publishes the AirPlay receiver and browses the phone's _carplay-ctrl.
-// Browse/resolve run on avahi on Linux and on dns-sd on macOS.
 #![cfg_attr(target_os = "macos", allow(dead_code))]
 
 use std::io::{Read, Write};
@@ -26,7 +24,6 @@ pub struct Bonjour {
     seen: Arc<Mutex<std::collections::HashMap<String, (String, u16)>>>,
 }
 
-/// What the record carries besides the accessory id.
 #[derive(Clone)]
 struct Record {
     airplay_port: u16,
@@ -35,12 +32,8 @@ struct Record {
     pi: String,
 }
 
-/// The accessory id the last session start handed the phone. The record follows it, because a
-/// phone that runs CarPlay over Wi-Fi moves to the cable only when it finds the same accessory
-/// there.
 static NAMED: LazyLock<watch::Sender<Option<String>>> = LazyLock::new(|| watch::Sender::new(None));
 
-/// Called with the id each session start hands the phone.
 pub fn named(device_id: &str) {
     NAMED.send_if_modified(|named| {
         let changed = named.as_deref() != Some(device_id);
@@ -51,10 +44,11 @@ pub fn named(device_id: &str) {
     });
 }
 
-/// The accessory id as the number a CarPlay Control request carries.
 fn receiver_id(device_id: &str) -> Option<u64> {
     let hex = device_id.replace(':', "");
-    (hex.len() == 12).then(|| u64::from_str_radix(&hex, 16).ok()).flatten()
+    (hex.len() == 12)
+        .then(|| u64::from_str_radix(&hex, 16).ok())
+        .flatten()
 }
 
 fn txt_records(device_id: &str, source_version: &str, pk: &str, pi: &str) -> Vec<String> {
@@ -75,10 +69,12 @@ fn txt_records(device_id: &str, source_version: &str, pk: &str, pi: &str) -> Vec
     txt
 }
 
-/// The publisher this platform uses, and the pattern that finds a stale one.
-const PUBLISHER: &str = if cfg!(target_os = "macos") { "dns-sd" } else { "avahi-publish-service" };
+const PUBLISHER: &str = if cfg!(target_os = "macos") {
+    "dns-sd"
+} else {
+    "avahi-publish-service"
+};
 
-/// Ends processes an earlier run left behind that match `pattern`.
 fn reap(pattern: &str) {
     let _ = std::process::Command::new(crate::sys::tool("pkill"))
         .args(["-f", pattern])
@@ -87,12 +83,9 @@ fn reap(pattern: &str) {
         .status();
 }
 
-/// The dns-sd processes running for us. They do not end when we do, so `stop` ends them, and
-/// `None` afterwards keeps new ones from starting.
 #[cfg(target_os = "macos")]
 static DNS_SD: Mutex<Option<Vec<u32>>> = Mutex::new(Some(Vec::new()));
 
-/// Ends every dns-sd this helper started, on the way out.
 #[cfg(target_os = "macos")]
 pub fn stop() {
     for pid in DNS_SD.lock().unwrap().take().unwrap_or_default() {
@@ -102,25 +95,23 @@ pub fn stop() {
 
 impl Drop for Bonjour {
     fn drop(&mut self) {
-        // The child does not go when we do, so it is sent on its way.
         if let Some(mut publisher) = self.publisher.lock().unwrap().take() {
             let _ = publisher.start_kill();
         }
     }
 }
 
-/// Announces the receiver under `device_id`.
 fn publish(record: &Record, device_id: &str) -> std::io::Result<Child> {
     let txt = txt_records(device_id, &record.source_version, &record.pk, &record.pi);
     let port = record.airplay_port.to_string();
-    // macOS advertises through mDNSResponder (dns-sd); Linux through avahi.
     #[cfg(target_os = "macos")]
     {
         let mut args = vec!["-R", "LIVI", AIRPLAY_SERVICE, ".", port.as_str()];
         args.extend(txt.iter().map(String::as_str));
-        // Started under the lock, so `stop` either ends it or it is never started.
         let mut running = DNS_SD.lock().unwrap();
-        let pids = running.as_mut().ok_or_else(|| io_err("the helper is stopping"))?;
+        let pids = running
+            .as_mut()
+            .ok_or_else(|| io_err("the helper is stopping"))?;
         let publisher = Command::new(crate::sys::tool("dns-sd"))
             .args(&args)
             .stdout(Stdio::null())
@@ -141,7 +132,6 @@ fn publish(record: &Record, device_id: &str) -> std::io::Result<Child> {
     }
 }
 
-/// Ends a publisher and waits for it, so the next one does not meet its name still taken.
 async fn retire(mut publisher: Child) {
     #[cfg(target_os = "macos")]
     if let (Some(pid), Some(pids)) = (publisher.id(), DNS_SD.lock().unwrap().as_mut()) {
@@ -159,13 +149,15 @@ impl Bonjour {
         pi: String,
         bcast: Broadcaster,
     ) -> std::io::Result<Self> {
-        // A helper that was killed leaves its publisher behind, and every restart would add
-        // another announcement of the same service. Clear those before adding ours.
         reap(&format!("{PUBLISHER}.*{AIRPLAY_SERVICE}"));
-        // Its browse too, which never ends on its own.
         #[cfg(target_os = "macos")]
         reap(&format!("dns-sd.*{CARPLAY_CTRL}"));
-        let record = Record { airplay_port, source_version: source_version.clone(), pk, pi };
+        let record = Record {
+            airplay_port,
+            source_version: source_version.clone(),
+            pk,
+            pi,
+        };
         let publisher = publish(&record, &device_id)?;
         println!("[cp] published {AIRPLAY_SERVICE} port={airplay_port} deviceid={device_id}");
 
@@ -181,7 +173,6 @@ impl Bonjour {
         Ok(bonjour)
     }
 
-    /// Publishes again whenever a session start names the accessory differently.
     fn follow(&self, record: Record) {
         let (publisher, device_id) = (self.publisher.clone(), self.device_id.clone());
         let mut named = NAMED.subscribe();
@@ -218,8 +209,12 @@ impl Bonjour {
             loop {
                 #[cfg(target_os = "macos")]
                 {
-                    let (d, s, b, sn) =
-                        (device_id.clone(), source_version.clone(), bcast.clone(), seen.clone());
+                    let (d, s, b, sn) = (
+                        device_id.clone(),
+                        source_version.clone(),
+                        bcast.clone(),
+                        seen.clone(),
+                    );
                     let _ = tokio::task::spawn_blocking(move || macos_browse_once(&d, &s, &b, &sn))
                         .await;
                 }
@@ -268,7 +263,10 @@ async fn browse_once(
         if !fresh {
             continue;
         }
-        println!("[cp] found phone {CARPLAY_CTRL} at {}:{}", ep.address, ep.port);
+        println!(
+            "[cp] found phone {CARPLAY_CTRL} at {}:{}",
+            ep.address, ep.port
+        );
         if let Some(mac) = &ep.phone_bt {
             let ip = ep.address.split('%').next().unwrap_or(&ep.address);
             bcast.push_json(format!(
@@ -318,7 +316,12 @@ fn parse_resolved(line: &str) -> Option<Endpoint> {
         .find_map(|t| t.strip_prefix("id="))
         .map(|s| s.trim().to_lowercase());
 
-    Some(Endpoint { iface, address, port, phone_bt })
+    Some(Endpoint {
+        iface,
+        address,
+        port,
+        phone_bt,
+    })
 }
 
 fn connect_probe(ep: &Endpoint, device_id: &str, source_version: &str) {
@@ -328,8 +331,11 @@ fn connect_probe(ep: &Endpoint, device_id: &str, source_version: &str) {
     };
     let host = ep.address.split('%').next().unwrap_or(&ep.address);
     let is_v6 = ep.address.contains(':');
-    let host_hdr =
-        if is_v6 { format!("[{host}]:{}", ep.port) } else { format!("{host}:{}", ep.port) };
+    let host_hdr = if is_v6 {
+        format!("[{host}]:{}", ep.port)
+    } else {
+        format!("{host}:{}", ep.port)
+    };
     let req = format!(
         "GET /ctrl-int/1/connect HTTP/1.1\r\nHost: {host_hdr}\r\nUser-Agent: AirPlay/{source_version}\r\nAirPlay-Receiver-Device-ID: {mac_int}\r\nConnection: close\r\n\r\n"
     );
@@ -353,8 +359,16 @@ fn connect_probe(ep: &Endpoint, device_id: &str, source_version: &str) {
 fn probe_attempt(ep: &Endpoint, host: &str, is_v6: bool, req: &[u8]) -> std::io::Result<String> {
     let (domain, addr): (Domain, SocketAddr) = if is_v6 {
         let ip: Ipv6Addr = host.parse().map_err(|_| io_err("bad v6"))?;
-        let scope = ep.address.split('%').nth(1).and_then(nametoindex).unwrap_or(0);
-        (Domain::IPV6, SocketAddr::V6(SocketAddrV6::new(ip, ep.port, 0, scope)))
+        let scope = ep
+            .address
+            .split('%')
+            .nth(1)
+            .and_then(nametoindex)
+            .unwrap_or(0);
+        (
+            Domain::IPV6,
+            SocketAddr::V6(SocketAddrV6::new(ip, ep.port, 0, scope)),
+        )
     } else {
         let ip: Ipv4Addr = host.parse().map_err(|_| io_err("bad v4"))?;
         (Domain::IPV4, SocketAddr::V4(SocketAddrV4::new(ip, ep.port)))
@@ -390,9 +404,6 @@ fn io_err(msg: &str) -> std::io::Error {
     std::io::Error::other(msg)
 }
 
-// --- macOS browse via dns-sd: one pass finds the phone's _carplay-ctrl instances, resolves
-// each to a link-local and connect-probes it. ---
-
 #[cfg(target_os = "macos")]
 fn macos_browse_once(
     device_id: &Mutex<String>,
@@ -418,7 +429,10 @@ fn macos_browse_once(
         if !fresh {
             continue;
         }
-        println!("[cp] found phone {CARPLAY_CTRL} at {}:{}", ep.address, ep.port);
+        println!(
+            "[cp] found phone {CARPLAY_CTRL} at {}:{}",
+            ep.address, ep.port
+        );
         if let Some(mac) = &ep.phone_bt {
             let ip = ep.address.split('%').next().unwrap_or(&ep.address);
             bcast.push_json(format!(
@@ -430,13 +444,11 @@ fn macos_browse_once(
     }
 }
 
-/// Run `dns-sd <args>` for `secs` seconds, then terminate it and return the output lines.
 #[cfg(target_os = "macos")]
 fn dns_sd_run(args: &[&str], secs: u64) -> Vec<String> {
     use std::io::BufRead;
     use std::process::{Command, Stdio};
     let mut out = Vec::new();
-    // Started under the lock, so `stop` either ends it or it is never started.
     let mut child = {
         let mut running = DNS_SD.lock().unwrap();
         let Some(pids) = running.as_mut() else {
@@ -459,7 +471,10 @@ fn dns_sd_run(args: &[&str], secs: u64) -> Vec<String> {
             std::thread::sleep(Duration::from_secs(secs));
             unsafe { libc::kill(pid as i32, libc::SIGTERM) };
         });
-        for line in std::io::BufReader::new(stdout).lines().map_while(Result::ok) {
+        for line in std::io::BufReader::new(stdout)
+            .lines()
+            .map_while(Result::ok)
+        {
             out.push(line);
         }
     }
@@ -477,7 +492,6 @@ fn dns_sd_browse(service: &str) -> Vec<String> {
         if !line.contains(" Add ") {
             continue;
         }
-        // "... Add <flags> <if> <domain> _carplay-ctrl._tcp. <Instance Name>"
         if let Some(pos) = line.find("_tcp.") {
             let inst = line[pos + "_tcp.".len()..].trim().to_string();
             if !inst.is_empty() && !names.contains(&inst) {
@@ -496,16 +510,19 @@ fn dns_sd_resolve(instance: &str) -> Option<Endpoint> {
     let mut phone_bt = None;
     for line in dns_sd_run(&["-L", instance, CARPLAY_CTRL], 3) {
         if let Some(pos) = line.find("can be reached at ") {
-            // "<host>.:<port> (interface N)"
-            let token =
-                line[pos + "can be reached at ".len()..].split_whitespace().next().unwrap_or("");
+            let token = line[pos + "can be reached at ".len()..]
+                .split_whitespace()
+                .next()
+                .unwrap_or("");
             if let Some(colon) = token.rfind(':') {
                 host = token[..colon].trim_end_matches('.').to_string();
                 port = token[colon + 1..].parse().unwrap_or(0);
             }
         }
         if phone_bt.is_none()
-            && let Some(id) = line.split(&['"', ' '][..]).find_map(|t| t.strip_prefix("id="))
+            && let Some(id) = line
+                .split(&['"', ' '][..])
+                .find_map(|t| t.strip_prefix("id="))
         {
             phone_bt = Some(id.trim().to_lowercase());
         }
@@ -513,16 +530,23 @@ fn dns_sd_resolve(instance: &str) -> Option<Endpoint> {
     if host.is_empty() || port == 0 {
         return None;
     }
-    // getaddrinfo resolves the .local name (via mDNSResponder) to the phone's link-local.
     let sa = format!("{host}:{port}")
         .to_socket_addrs()
         .ok()?
         .find(|a| matches!(a, SocketAddr::V6(v6) if (v6.ip().segments()[0] & 0xffc0) == 0xfe80))?;
     let SocketAddr::V6(v6) = sa else { return None };
     let iface = ifname_from_index(v6.scope_id()).unwrap_or_default();
-    let address =
-        if iface.is_empty() { v6.ip().to_string() } else { format!("{}%{}", v6.ip(), iface) };
-    Some(Endpoint { iface, address, port, phone_bt })
+    let address = if iface.is_empty() {
+        v6.ip().to_string()
+    } else {
+        format!("{}%{}", v6.ip(), iface)
+    };
+    Some(Endpoint {
+        iface,
+        address,
+        port,
+        phone_bt,
+    })
 }
 
 #[cfg(target_os = "macos")]
@@ -535,7 +559,10 @@ fn ifname_from_index(idx: u32) -> Option<String> {
     if p.is_null() {
         return None;
     }
-    unsafe { std::ffi::CStr::from_ptr(p) }.to_str().ok().map(|s| s.to_string())
+    unsafe { std::ffi::CStr::from_ptr(p) }
+        .to_str()
+        .ok()
+        .map(|s| s.to_string())
 }
 
 #[cfg(test)]

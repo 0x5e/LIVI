@@ -76,7 +76,9 @@ pub struct ThemeDisplays {
 }
 
 fn num(v: i64) -> Value {
-    u64::try_from(v).map(Value::Int).unwrap_or(Value::Real(v as f64))
+    u64::try_from(v)
+        .map(Value::Int)
+        .unwrap_or(Value::Real(v as f64))
 }
 
 fn resource(id: u64) -> Value {
@@ -92,7 +94,10 @@ fn resource(id: u64) -> Value {
 
 fn modes() -> Value {
     dict([
-        ("resources", Value::Array(vec![resource(RESOURCE_SCREEN), resource(RESOURCE_AUDIO)])),
+        (
+            "resources",
+            Value::Array(vec![resource(RESOURCE_SCREEN), resource(RESOURCE_AUDIO)]),
+        ),
         (
             "appStates",
             Value::Array(vec![
@@ -155,7 +160,12 @@ fn audio_formats(entertainment_rate: u32) -> Value {
         f(100, "alert", pcm | opus, None),
         f(100, "media", pcm_media, None),
         f(100, "telephony", pcm_mono | opus, Some(pcm_mono | opus)),
-        f(100, "speechRecognition", pcm_mono | opus, Some(pcm_mono | opus)),
+        f(
+            100,
+            "speechRecognition",
+            pcm_mono | opus,
+            Some(pcm_mono | opus),
+        ),
         f(101, "default", pcm | opus, None),
         f(102, "media", aac_lc, None),
     ])
@@ -186,7 +196,10 @@ fn area(d: &DisplayConfig) -> Option<Value> {
         view.push(("viewAreaStatusBarEdge".to_string(), Value::Int(edge)));
     }
     view.push(("viewAreaTransitionControl".to_string(), Value::Bool(false)));
-    view.push(("viewAreaSupportsFocusTransfer".to_string(), Value::Bool(false)));
+    view.push((
+        "viewAreaSupportsFocusTransfer".to_string(),
+        Value::Bool(false),
+    ));
     Some(Value::Dict(view))
 }
 
@@ -197,8 +210,9 @@ pub fn mm_at_dpi(pixels: i64, dpi: f64) -> i64 {
 }
 
 fn display(d: &DisplayConfig, kind: u64, uuid: &str) -> Value {
-    let width_physical =
-        d.width_physical_mm.unwrap_or_else(|| mm_at_dpi(d.width_pixels, FALLBACK_DPI));
+    let width_physical = d
+        .width_physical_mm
+        .unwrap_or_else(|| mm_at_dpi(d.width_pixels, FALLBACK_DPI));
     let height_physical = d.height_physical_mm.unwrap_or_else(|| {
         let h = width_physical as f64 * d.height_pixels as f64 / d.width_pixels.max(1) as f64;
         (hid::round_half_up(h) as i64).max(1)
@@ -222,9 +236,15 @@ fn display(d: &DisplayConfig, kind: u64, uuid: &str) -> Value {
         ("cornerMasks".to_string(), Value::Bool(false)),
         ("adjacentViewAreas".to_string(), Value::Array(Vec::new())),
         ("uiAppearanceMode".to_string(), Value::Int(APPEARANCE_DARK)),
-        ("uiAppearanceSetting".to_string(), Value::Int(APPEARANCE_AUTOMATIC)),
+        (
+            "uiAppearanceSetting".to_string(),
+            Value::Int(APPEARANCE_AUTOMATIC),
+        ),
         ("mapAppearanceMode".to_string(), Value::Int(APPEARANCE_DARK)),
-        ("mapAppearanceSetting".to_string(), Value::Int(APPEARANCE_AUTOMATIC)),
+        (
+            "mapAppearanceSetting".to_string(),
+            Value::Int(APPEARANCE_AUTOMATIC),
+        ),
     ];
     if let Some(view) = area(d) {
         entry.push(("viewAreas".to_string(), Value::Array(vec![view])));
@@ -260,22 +280,34 @@ pub fn build(cfg: &InfoConfig) -> Value {
     };
 
     let mut info = vec![
-        ("sourceVersion".to_string(), Value::String(cfg.source_version.clone())),
+        (
+            "sourceVersion".to_string(),
+            Value::String(cfg.source_version.clone()),
+        ),
         ("features".to_string(), Value::Int(features)),
         ("statusFlags".to_string(), Value::Int(4)),
         ("model".to_string(), Value::String("LIVI".into())),
         ("manufacturer".to_string(), Value::String("LIVI".into())),
         ("deviceID".to_string(), Value::String(cfg.device_id.clone())),
-        ("bluetoothIDs".to_string(), Value::Array(vec![Value::String(cfg.bt_mac.clone())])),
+        (
+            "bluetoothIDs".to_string(),
+            Value::Array(vec![Value::String(cfg.bt_mac.clone())]),
+        ),
         ("name".to_string(), Value::String(cfg.device_name.clone())),
-        ("rightHandDrive".to_string(), Value::Bool(cfg.right_hand_drive)),
+        (
+            "rightHandDrive".to_string(),
+            Value::Bool(cfg.right_hand_drive),
+        ),
         ("keepAliveLowPower".to_string(), Value::Bool(false)),
         ("keepAliveSendStatsAsBody".to_string(), Value::Bool(false)),
         ("modes".to_string(), modes()),
     ];
     if !cfg.disable_audio_output {
         info.push(("audioLatencies".to_string(), audio_latencies()));
-        info.push(("audioFormats".to_string(), audio_formats(cfg.entertainment_sample_rate)));
+        info.push((
+            "audioFormats".to_string(),
+            audio_formats(cfg.entertainment_sample_rate),
+        ));
     }
     info.push((
         "extendedFeatures".to_string(),
@@ -301,7 +333,10 @@ pub fn build(cfg: &InfoConfig) -> Value {
     info.push(("hidDevices".to_string(), Value::Array(hid_devices)));
     if !cfg.icons.is_empty() {
         info.push(("oemIconVisible".to_string(), Value::Bool(true)));
-        info.push(("oemIconLabel".to_string(), Value::String(cfg.oem_label.clone())));
+        info.push((
+            "oemIconLabel".to_string(),
+            Value::String(cfg.oem_label.clone()),
+        ));
         let icons = cfg
             .icons
             .iter()
@@ -323,7 +358,9 @@ pub fn build(cfg: &InfoConfig) -> Value {
 }
 
 pub fn add_display_panels(info: &mut Value, theme_displays: Option<&ThemeDisplays>) {
-    let Some(displays) = info.get("displays").and_then(Value::as_array) else { return };
+    let Some(displays) = info.get("displays").and_then(Value::as_array) else {
+        return;
+    };
     let size = |d: &Value, k: &str| d.get(k).cloned().unwrap_or(Value::Int(0));
     let panel = |d: &Value, uid: &str, streams: Vec<&str>, instruments: bool, plugin: bool| {
         let video = streams
@@ -354,9 +391,15 @@ pub fn add_display_panels(info: &mut Value, theme_displays: Option<&ThemeDisplay
             ("initialVideoStreams".to_string(), Value::Array(video)),
         ];
         if plugin {
-            let composed = streams.iter().map(|uuid| Value::String((*uuid).into())).collect();
-            let plugin_uid =
-                if streams.is_empty() { format!("{CLUSTER_UID}-plugin") } else { uid.to_string() };
+            let composed = streams
+                .iter()
+                .map(|uuid| Value::String((*uuid).into()))
+                .collect();
+            let plugin_uid = if streams.is_empty() {
+                format!("{CLUSTER_UID}-plugin")
+            } else {
+                uid.to_string()
+            };
             let plugin = dict([
                 ("uid", Value::String(plugin_uid)),
                 ("videoStreams", Value::Array(composed)),
@@ -381,8 +424,16 @@ pub fn add_display_panels(info: &mut Value, theme_displays: Option<&ThemeDisplay
         .collect();
     let themed_cluster = theme_displays.is_some() && displays.iter().any(is_alt);
     if !themed_cluster {
-        let Some(sized) = displays.iter().find(|d| is_alt(d)).or(displays.first()) else { return };
-        panels.push(panel(sized, &format!("{CLUSTER_UID}-panel"), Vec::new(), true, true));
+        let Some(sized) = displays.iter().find(|d| is_alt(d)).or(displays.first()) else {
+            return;
+        };
+        panels.push(panel(
+            sized,
+            &format!("{CLUSTER_UID}-panel"),
+            Vec::new(),
+            true,
+            true,
+        ));
     }
     if let Value::Dict(entries) = info {
         entries.push(("displayPanels".to_string(), Value::Array(panels)));
@@ -405,7 +456,12 @@ pub(crate) mod tests {
                 height_pixels: 720,
                 fps: Some(60),
                 view_area: Some(Insets::default()),
-                safe_area: Some(Insets { top: 0, bottom: 0, left: 10, right: 10 }),
+                safe_area: Some(Insets {
+                    top: 0,
+                    bottom: 0,
+                    left: 10,
+                    right: 10,
+                }),
                 safe_area_draw_outside: Some(true),
                 ..Default::default()
             },
@@ -428,10 +484,19 @@ pub(crate) mod tests {
             for key in ["uiAppearanceMode", "mapAppearanceMode"] {
                 assert_eq!(main.get(key), Some(&Value::Int(APPEARANCE_DARK)), "{key}");
             }
-            assert_eq!(main.get("uiAppearanceSetting"), Some(&Value::Int(APPEARANCE_AUTOMATIC)));
-            (main.get("widthPhysical").cloned(), main.get("heightPhysical").cloned())
+            assert_eq!(
+                main.get("uiAppearanceSetting"),
+                Some(&Value::Int(APPEARANCE_AUTOMATIC))
+            );
+            (
+                main.get("widthPhysical").cloned(),
+                main.get("heightPhysical").cloned(),
+            )
         };
-        assert_eq!(size(&sample()), (Some(Value::Int(163)), Some(Value::Int(92))));
+        assert_eq!(
+            size(&sample()),
+            (Some(Value::Int(163)), Some(Value::Int(92)))
+        );
         let mut wide = sample();
         wide.main.width_pixels = 1920;
         wide.main.height_pixels = 1080;
@@ -472,7 +537,10 @@ pub(crate) mod tests {
         assert_eq!(main.get("heightPhysical"), Some(&Value::Int(92)));
         assert_eq!(main.get("properties"), Some(&Value::Array(Vec::new())));
         assert!(main.get("displayPlugins").is_none());
-        let stream = &main.get("initialVideoStreams").and_then(Value::as_array).unwrap()[0];
+        let stream = &main
+            .get("initialVideoStreams")
+            .and_then(Value::as_array)
+            .unwrap()[0];
         assert_eq!(stream.get("uuid").and_then(Value::as_str), Some(MAIN_UUID));
 
         let cluster = &panels[1];
@@ -483,15 +551,26 @@ pub(crate) mod tests {
         assert_eq!(cluster.get("widthPixels"), Some(&Value::Int(1280)));
         assert_eq!(
             cluster.get("properties"),
-            Some(&Value::Array(vec![Value::String("showsInstruments".into())]))
+            Some(&Value::Array(vec![Value::String(
+                "showsInstruments".into()
+            )]))
         );
-        assert_eq!(cluster.get("initialVideoStreams"), Some(&Value::Array(Vec::new())));
-        let plugins = cluster.get("displayPlugins").and_then(Value::as_array).unwrap();
+        assert_eq!(
+            cluster.get("initialVideoStreams"),
+            Some(&Value::Array(Vec::new()))
+        );
+        let plugins = cluster
+            .get("displayPlugins")
+            .and_then(Value::as_array)
+            .unwrap();
         assert_eq!(
             plugins[0].get("uid").and_then(Value::as_str),
             Some(format!("{CLUSTER_UID}-plugin").as_str())
         );
-        assert_eq!(plugins[0].get("videoStreams"), Some(&Value::Array(Vec::new())));
+        assert_eq!(
+            plugins[0].get("videoStreams"),
+            Some(&Value::Array(Vec::new()))
+        );
     }
 
     #[test]
@@ -511,12 +590,20 @@ pub(crate) mod tests {
             alt.get("uid").and_then(Value::as_str),
             Some(format!("{ALT_UUID}-panel").as_str())
         );
-        assert!(alt.get("displayPlugins").is_none(), "a plug-in would black out the cluster");
+        assert!(
+            alt.get("displayPlugins").is_none(),
+            "a plug-in would black out the cluster"
+        );
         assert_eq!(
             alt.get("properties"),
-            Some(&Value::Array(vec![Value::String("showsInstruments".into())]))
+            Some(&Value::Array(vec![Value::String(
+                "showsInstruments".into()
+            )]))
         );
-        let stream = &alt.get("initialVideoStreams").and_then(Value::as_array).unwrap()[0];
+        let stream = &alt
+            .get("initialVideoStreams")
+            .and_then(Value::as_array)
+            .unwrap()[0];
         assert_eq!(stream.get("uuid").and_then(Value::as_str), Some(ALT_UUID));
 
         let virtual_panel = &panels[2];
@@ -525,13 +612,25 @@ pub(crate) mod tests {
             Some(format!("{CLUSTER_UID}-panel").as_str())
         );
         assert_eq!(virtual_panel.get("widthPixels"), Some(&Value::Int(800)));
-        assert_eq!(virtual_panel.get("initialVideoStreams"), Some(&Value::Array(Vec::new())));
-        let plugins = virtual_panel.get("displayPlugins").and_then(Value::as_array).unwrap();
-        assert_eq!(plugins[0].get("videoStreams"), Some(&Value::Array(Vec::new())));
+        assert_eq!(
+            virtual_panel.get("initialVideoStreams"),
+            Some(&Value::Array(Vec::new()))
+        );
+        let plugins = virtual_panel
+            .get("displayPlugins")
+            .and_then(Value::as_array)
+            .unwrap();
+        assert_eq!(
+            plugins[0].get("videoStreams"),
+            Some(&Value::Array(Vec::new()))
+        );
     }
 
     fn names() -> ThemeDisplays {
-        ThemeDisplays { main: "Center_Display".into(), cluster: "Cluster_Display".into() }
+        ThemeDisplays {
+            main: "Center_Display".into(),
+            cluster: "Cluster_Display".into(),
+        }
     }
 
     #[test]
@@ -545,15 +644,26 @@ pub(crate) mod tests {
         assert_eq!(uuid(&displays[0]).as_deref(), Some("Center_Display"));
         assert_eq!(uuid(&displays[1]).as_deref(), Some("Cluster_Display"));
         let hid = info.get("hidDevices").and_then(Value::as_array).unwrap();
-        let knob =
-            hid.iter().find(|d| d.get("name").and_then(Value::as_str) == Some("LIVI Cluster Knob"));
+        let knob = hid
+            .iter()
+            .find(|d| d.get("name").and_then(Value::as_str) == Some("LIVI Cluster Knob"));
         assert_eq!(
-            knob.and_then(|k| k.get("displayUUID")).and_then(Value::as_str),
+            knob.and_then(|k| k.get("displayUUID"))
+                .and_then(Value::as_str),
             Some("Cluster_Display")
         );
         let plain = build(&sample());
-        assert_eq!(plain.get("hidDevices").and_then(Value::as_array).map(|a| a.len()), Some(4));
-        assert_eq!(display_uuids(&sample()), (MAIN_UUID.to_string(), ALT_UUID.to_string()));
+        assert_eq!(
+            plain
+                .get("hidDevices")
+                .and_then(Value::as_array)
+                .map(|a| a.len()),
+            Some(4)
+        );
+        assert_eq!(
+            display_uuids(&sample()),
+            (MAIN_UUID.to_string(), ALT_UUID.to_string())
+        );
     }
 
     #[test]
@@ -564,11 +674,18 @@ pub(crate) mod tests {
         add_display_panels(&mut info, Some(&names()));
         let panels = info.get("displayPanels").and_then(Value::as_array).unwrap();
         let uid = |p: &Value| p.get("uid").and_then(Value::as_str).map(str::to_string);
-        assert_eq!(panels.len(), 2, "the cluster carries the plug-in, no extra panel");
+        assert_eq!(
+            panels.len(),
+            2,
+            "the cluster carries the plug-in, no extra panel"
+        );
         assert_eq!(uid(&panels[0]).as_deref(), Some("Center_Display"));
         assert!(panels[0].get("displayPlugins").is_none());
         assert_eq!(uid(&panels[1]).as_deref(), Some("Cluster_Display"));
-        let plugin = &panels[1].get("displayPlugins").and_then(Value::as_array).unwrap()[0];
+        let plugin = &panels[1]
+            .get("displayPlugins")
+            .and_then(Value::as_array)
+            .unwrap()[0];
         assert_eq!(uid(plugin).as_deref(), Some("Cluster_Display"));
         assert_eq!(
             plugin.get("videoStreams"),
@@ -589,7 +706,10 @@ pub(crate) mod tests {
 
     #[test]
     fn a_display_without_uuid_or_sizes_still_yields_a_cluster() {
-        let mut info = dict([("displays", Value::Array(vec![dict([("type", Value::Int(110))])]))]);
+        let mut info = dict([(
+            "displays",
+            Value::Array(vec![dict([("type", Value::Int(110))])]),
+        )]);
         add_display_panels(&mut info, None);
         let panels = info.get("displayPanels").and_then(Value::as_array).unwrap();
         assert_eq!(panels.len(), 1);
@@ -613,8 +733,11 @@ pub(crate) mod tests {
     #[test]
     fn speech_mode_minus_one_goes_out_as_a_real() {
         let info = build(&sample());
-        let states =
-            info.get("modes").and_then(|m| m.get("appStates")).and_then(Value::as_array).unwrap();
+        let states = info
+            .get("modes")
+            .and_then(|m| m.get("appStates"))
+            .and_then(Value::as_array)
+            .unwrap();
         assert_eq!(states[1].get("speechMode"), Some(&Value::Real(-1.0)));
     }
 }

@@ -14,15 +14,24 @@ const RECONNECT_EVERY: Duration = Duration::from_millis(500);
 
 pub fn env(cfg: &Config, ctrl: &Path) -> Vec<(String, String)> {
     let mut env = vec![
-        ("LIVI_OUTPUT_APP_ID".to_string(), "dev.f-io.livi".to_string()),
-        ("LIVI_COMPOSITOR_CTRL".to_string(), ctrl.display().to_string()),
+        (
+            "LIVI_OUTPUT_APP_ID".to_string(),
+            "dev.f-io.livi".to_string(),
+        ),
+        (
+            "LIVI_COMPOSITOR_CTRL".to_string(),
+            ctrl.display().to_string(),
+        ),
         ("LIVI_SCREENS".to_string(), "main,cluster,aux".to_string()),
         ("RUST_BACKTRACE".to_string(), "1".to_string()),
     ];
     let kiosk = cfg.kiosk.main || std::env::var("LIVI_KIOSK").is_ok_and(|v| v == "1");
     if cfg.main_screen_width > 0 && cfg.main_screen_height > 0 {
         let h = cfg.main_screen_height + if kiosk { 0 } else { TITLEBAR_H };
-        env.push(("LIVI_OUTPUT_SIZE".to_string(), format!("{}x{h}", cfg.main_screen_width)));
+        env.push((
+            "LIVI_OUTPUT_SIZE".to_string(),
+            format!("{}x{h}", cfg.main_screen_width),
+        ));
     }
     env
 }
@@ -36,9 +45,12 @@ pub fn start(bin: &Path, cfg: &Config, ctrl: &Path, log: &Path) -> Option<tokio:
         .map(std::fs::create_dir_all)
         .and_then(|_| std::fs::File::create(log).ok())
     {
-        Some(f) => {
-            (f.try_clone().map(Stdio::from).unwrap_or_else(|_| Stdio::inherit()), Stdio::from(f))
-        }
+        Some(f) => (
+            f.try_clone()
+                .map(Stdio::from)
+                .unwrap_or_else(|_| Stdio::inherit()),
+            Stdio::from(f),
+        ),
         None => (Stdio::inherit(), Stdio::inherit()),
     };
     let mut cmd = tokio::process::Command::new(bin);
@@ -150,13 +162,18 @@ impl CompositorControl {
 
     pub fn aspect(&self, role: &str, size: Option<(u32, u32)>) {
         let (w, h) = size.filter(|(w, h)| *w > 0 && *h > 0).unwrap_or((0, 0));
-        let _ =
-            self.tx.send(Cmd::State(format!("aspect:{role}"), format!("aspect {role} {w} {h}\n")));
+        let _ = self.tx.send(Cmd::State(
+            format!("aspect:{role}"),
+            format!("aspect {role} {w} {h}\n"),
+        ));
     }
 
     pub fn backdrop(&self, hex: &str) {
         let (r, g, b) = rgb(hex);
-        let _ = self.tx.send(Cmd::State("__backdrop__".into(), format!("backdrop {r} {g} {b}\n")));
+        let _ = self.tx.send(Cmd::State(
+            "__backdrop__".into(),
+            format!("backdrop {r} {g} {b}\n"),
+        ));
     }
 
     pub fn gamma(&self, gamma: f64, contrast: f64, r: f64, g: f64, b: f64) {
@@ -183,7 +200,11 @@ fn rgb(hex: &str) -> (u8, u8, u8) {
 }
 
 pub fn backdrop_hex(cfg: &Config) -> String {
-    let pick = if cfg.dark_mode { &cfg.background_color_dark } else { &cfg.background_color_light };
+    let pick = if cfg.dark_mode {
+        &cfg.background_color_dark
+    } else {
+        &cfg.background_color_light
+    };
     match pick.as_deref().filter(|c| !c.is_empty()) {
         Some(c) => c.to_string(),
         None if cfg.dark_mode => "#000000".into(),
@@ -247,7 +268,9 @@ impl Actor {
     }
 
     async fn try_connect(&mut self, lines_tx: &mpsc::UnboundedSender<Option<String>>) {
-        let Ok(stream) = UnixStream::connect(&self.path).await else { return };
+        let Ok(stream) = UnixStream::connect(&self.path).await else {
+            return;
+        };
         let (rd, wr) = stream.into_split();
         self.writer = Some(wr);
         let tx = lines_tx.clone();
@@ -320,7 +343,11 @@ impl Actor {
             }
             Some("panel") => {
                 let parts: Vec<&str> = words.collect();
-                let nums: Vec<u32> = parts.iter().skip(1).filter_map(|s| s.parse().ok()).collect();
+                let nums: Vec<u32> = parts
+                    .iter()
+                    .skip(1)
+                    .filter_map(|s| s.parse().ok())
+                    .collect();
                 if let ([role, ..], [w_mm, h_mm, w_px, h_px]) = (parts.as_slice(), nums.as_slice())
                 {
                     let panel = Panel {
@@ -336,17 +363,23 @@ impl Actor {
                 }
             }
             Some("ui") => {
-                let (Some(display), node) = (words.next(), words.next()) else { return };
+                let (Some(display), node) = (words.next(), words.next()) else {
+                    return;
+                };
                 let render_node = node.filter(|n| *n != "-").map(str::to_string);
-                self.ui
-                    .send_replace(Some(Ui { wayland_display: display.to_string(), render_node }));
+                self.ui.send_replace(Some(Ui {
+                    wayland_display: display.to_string(),
+                    render_node,
+                }));
             }
             _ => {}
         }
     }
 
     async fn flush(&mut self) {
-        let Some(writer) = self.writer.as_mut() else { return };
+        let Some(writer) = self.writer.as_mut() else {
+            return;
+        };
         let mut out = self.outbox.concat();
         for (_, line) in &self.state {
             out.push_str(line);
@@ -386,8 +419,10 @@ mod tests {
     impl FakeCompositor {
         async fn accept(
             &self,
-        ) -> (BufReader<tokio::net::unix::OwnedReadHalf>, tokio::net::unix::OwnedWriteHalf)
-        {
+        ) -> (
+            BufReader<tokio::net::unix::OwnedReadHalf>,
+            tokio::net::unix::OwnedWriteHalf,
+        ) {
             let (s, _) = tokio::time::timeout(Duration::from_secs(5), self.listener.accept())
                 .await
                 .unwrap()
@@ -399,14 +434,20 @@ mod tests {
 
     async fn line(rd: &mut BufReader<tokio::net::unix::OwnedReadHalf>) -> String {
         let mut s = String::new();
-        tokio::time::timeout(Duration::from_secs(5), rd.read_line(&mut s)).await.unwrap().unwrap();
+        tokio::time::timeout(Duration::from_secs(5), rd.read_line(&mut s))
+            .await
+            .unwrap()
+            .unwrap();
         s
     }
 
     fn setup(dir: &TempDir) -> (FakeCompositor, CompositorControl) {
         let path = dir.0.join("ctrl");
         let listener = UnixListener::bind(&path).unwrap();
-        (FakeCompositor { listener }, CompositorControl::connect(path))
+        (
+            FakeCompositor { listener },
+            CompositorControl::connect(path),
+        )
     }
 
     #[tokio::test]
@@ -439,7 +480,10 @@ mod tests {
         tokio::time::sleep(Duration::from_millis(100)).await;
         assert!(!second.is_finished());
         wr.write_all(b"bound main\n").await.unwrap();
-        tokio::time::timeout(Duration::from_secs(5), second).await.unwrap().unwrap();
+        tokio::time::timeout(Duration::from_secs(5), second)
+            .await
+            .unwrap()
+            .unwrap();
         assert_eq!(line(&mut rd).await, "claim cluster-cluster\n");
         ctrl.release("cluster-cluster");
         assert_eq!(line(&mut rd).await, "unclaim cluster-cluster\n");
@@ -452,7 +496,11 @@ mod tests {
         ctrl.aspect("main", Some((1280, 720)));
         ctrl.aspect("main", Some((800, 480)));
         let (mut rd, _wr) = comp.accept().await;
-        assert_eq!(line(&mut rd).await, "aspect main 800 480\n", "only the latest shape");
+        assert_eq!(
+            line(&mut rd).await,
+            "aspect main 800 480\n",
+            "only the latest shape"
+        );
         ctrl.aspect("main", Some((0, 480)));
         assert_eq!(line(&mut rd).await, "aspect main 0 0\n");
     }
@@ -468,7 +516,10 @@ mod tests {
         wr.write_all(b"ui wayland-2 /dev/dri/renderD129\npanel main 344 194 1920 1080\n")
             .await
             .unwrap();
-        tokio::time::timeout(Duration::from_secs(5), ui.changed()).await.unwrap().unwrap();
+        tokio::time::timeout(Duration::from_secs(5), ui.changed())
+            .await
+            .unwrap()
+            .unwrap();
         assert_eq!(
             *ui.borrow(),
             Some(Ui {
@@ -477,10 +528,13 @@ mod tests {
             })
         );
         let mut panels = ctrl.panels();
-        tokio::time::timeout(Duration::from_secs(5), panels.wait_for(|p| p.contains_key("main")))
-            .await
-            .unwrap()
-            .unwrap();
+        tokio::time::timeout(
+            Duration::from_secs(5),
+            panels.wait_for(|p| p.contains_key("main")),
+        )
+        .await
+        .unwrap()
+        .unwrap();
         assert_eq!(panels.borrow()["main"].width_mm, 344);
     }
 
@@ -519,9 +573,24 @@ mod tests {
 
     #[test]
     fn physical_size_follows_the_stream_resolution() {
-        let panel = Panel { width_mm: 344, height_mm: 194, width_px: 1920, height_px: 1080 };
+        let panel = Panel {
+            width_mm: 344,
+            height_mm: 194,
+            width_px: 1920,
+            height_px: 1080,
+        };
         assert_eq!(panel_physical_mm(&panel, 1920, 1080), Some((344, 194)));
         assert_eq!(panel_physical_mm(&panel, 1280, 720), Some((254, 143)));
-        assert_eq!(panel_physical_mm(&Panel { width_mm: 0, ..panel }, 1280, 720), None);
+        assert_eq!(
+            panel_physical_mm(
+                &Panel {
+                    width_mm: 0,
+                    ..panel
+                },
+                1280,
+                720
+            ),
+            None
+        );
     }
 }

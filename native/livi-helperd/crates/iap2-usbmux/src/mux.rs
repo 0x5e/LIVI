@@ -1,6 +1,3 @@
-// usbmux over the CarPlay bulk interface: framed multiplexer with a minimal TCP on top.
-// Lockdown lives on TCP port 62078.
-
 use std::collections::HashMap;
 use std::sync::atomic::{AtomicBool, AtomicU16, Ordering};
 use std::sync::{Arc, Condvar, Mutex};
@@ -151,7 +148,6 @@ impl MuxHost {
     pub fn open(serial: &str) -> Result<Arc<Self>, String> {
         let (mut ep_out, mut ep_in) = backend::open_pipes(serial)?;
 
-        // Version handshake (protocol 2), then SETUP.
         let mut version = Vec::new();
         version.extend_from_slice(&P_VERSION.to_be_bytes());
         version.extend_from_slice(&20u32.to_be_bytes());

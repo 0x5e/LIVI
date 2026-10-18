@@ -1,6 +1,3 @@
-// Wireless Projection Protocol: the Android Auto Wi-Fi bootstrap, framed as a 4-byte
-// header (u16 length, u16 message id) plus a protobuf body.
-
 use livi_aa_proto::{
     WifiAccessPointType, WifiConnectStatusNotification, WifiInfoResponse, WifiSecurityMode,
     WifiStartRequest, WifiVersionRequest, WifiVersionResponse, WirelessSetupMessageId as Id,
@@ -18,8 +15,6 @@ pub const MSG_WIFI_START_RESPONSE: u16 = Id::WifiResponseStartBt as u16;
 pub const MSG_WIFI_PING_REQUEST: u16 = Id::WifiPingRequestBt as u16;
 pub const MSG_WIFI_PING_RESPONSE: u16 = Id::WifiPingResponseBt as u16;
 
-/// The phone refuses WPA3 alone and picks WPA3 out of the transition itself when it runs SAE,
-/// so a WPA3-only access point is told as the transition.
 fn security_mode(security: Security) -> WifiSecurityMode {
     match security {
         Security::Wpa2 => WifiSecurityMode::Wpa2Personal,
@@ -35,7 +30,6 @@ pub fn frame(msg_id: u16, body: &[u8]) -> Vec<u8> {
     out
 }
 
-/// Announces our WPP version and the frequency the access point runs on.
 pub fn wifi_version_request(channel: Channel) -> Vec<u8> {
     let request = WifiVersionRequest {
         major_version: Some(6),
@@ -46,7 +40,6 @@ pub fn wifi_version_request(channel: Channel) -> Vec<u8> {
     frame(MSG_WIFI_VERSION_REQUEST, &request.encode_to_vec())
 }
 
-/// Tells the phone where the projection listener waits once it has joined the AP.
 pub fn wifi_start_request(ip: &str, port: u16) -> Vec<u8> {
     let request = WifiStartRequest {
         ip_address: Some(ip.to_string()),
@@ -56,7 +49,6 @@ pub fn wifi_start_request(ip: &str, port: u16) -> Vec<u8> {
     frame(MSG_WIFI_START_REQUEST, &request.encode_to_vec())
 }
 
-/// The access point credentials the phone asked for.
 pub fn wifi_info_response(ssid: &str, key: &str, bssid: &str, security: Security) -> Vec<u8> {
     let response = WifiInfoResponse {
         ssid: Some(ssid.to_string()),
@@ -72,13 +64,13 @@ pub fn pong(body: &[u8]) -> Vec<u8> {
     frame(MSG_WIFI_PING_RESPONSE, body)
 }
 
-/// 0 when the phone joined the access point.
 pub fn connect_status(body: &[u8]) -> i32 {
-    WifiConnectStatusNotification::decode(body).ok().and_then(|s| s.status).unwrap_or(0)
+    WifiConnectStatusNotification::decode(body)
+        .ok()
+        .and_then(|s| s.status)
+        .unwrap_or(0)
 }
 
-/// The phone's identity from a WifiVersionResponse: the serial (same as the USB descriptor
-/// serial) and the device id.
 #[derive(Debug, Default, PartialEq, Eq)]
 pub struct Identity {
     pub instance_id: String,
@@ -86,7 +78,9 @@ pub struct Identity {
 }
 
 pub fn parse_identity(data: &[u8]) -> Identity {
-    let Ok(response) = WifiVersionResponse::decode(data) else { return Identity::default() };
+    let Ok(response) = WifiVersionResponse::decode(data) else {
+        return Identity::default();
+    };
     Identity {
         instance_id: response
             .mobile_device_identity
@@ -96,7 +90,6 @@ pub fn parse_identity(data: &[u8]) -> Identity {
     }
 }
 
-/// Splits the RFCOMM byte stream into WPP frames.
 #[derive(Default)]
 pub struct FrameReader {
     buf: Vec<u8>,
@@ -128,7 +121,6 @@ mod tests {
 
     #[test]
     fn version_request_matches_reference() {
-        // Channel 36 → 5180 MHz, the shape the phone expects.
         let f = wifi_version_request(Channel::of_number(36));
         assert_eq!(&f[..4], &[0x00, 0x07, 0x00, 0x04]);
         assert_eq!(&f[4..], &[0x08, 0x06, 0x10, 0x00, 0x20, 0xBC, 0x28]);
@@ -142,9 +134,11 @@ mod tests {
 
     #[test]
     fn the_security_goes_out_in_the_phones_numbering() {
-        for (security, mode) in
-            [(Security::Wpa2, 8), (Security::Wpa2Wpa3, 40), (Security::Wpa3, 40)]
-        {
+        for (security, mode) in [
+            (Security::Wpa2, 8),
+            (Security::Wpa2Wpa3, 40),
+            (Security::Wpa3, 40),
+        ] {
             let f = wifi_info_response("LIVI", "secret123", "aa:bb:cc:dd:ee:ff", security);
             assert!(f.ends_with(&[0x20, mode, 0x28, 0x00]), "{security}");
         }
@@ -182,7 +176,10 @@ mod tests {
 
     #[test]
     fn the_join_status_comes_out_of_its_field() {
-        let failed = WifiConnectStatusNotification { status: Some(-3), error_message_hint: None };
+        let failed = WifiConnectStatusNotification {
+            status: Some(-3),
+            error_message_hint: None,
+        };
         assert_eq!(connect_status(&failed.encode_to_vec()), -3);
         assert_eq!(connect_status(&[]), 0);
     }

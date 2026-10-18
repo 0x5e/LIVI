@@ -1,7 +1,3 @@
-// OFDM demodulation: frame sync on the null symbol, timing and integer
-// carrier offset from the phase reference symbol, fine frequency from the
-// cyclic prefix, then differential QPSK per carrier into soft bits.
-
 use std::f64::consts::TAU;
 use std::sync::Arc;
 
@@ -10,19 +6,13 @@ use rustfft::{Fft, FftPlanner};
 
 use crate::tables::*;
 
-/// FFT window starts this many samples before the end of the guard, so a
-/// little timing jitter or a pre-echo never reaches into the next symbol.
 const ADVANCE: usize = 48;
 const COARSE_SEARCH_BINS: i32 = 30;
-/// Peak over mean of the channel impulse response below which a frame does
-/// not count as synchronised.
 const MIN_PEAK_RATIO: f32 = 8.0;
 const LOST_AFTER: u32 = 5;
-/// Room kept in front of the expected PRS so the timing may move backwards.
 const MARGIN: usize = 4096;
 
 pub struct Frame {
-    /// Soft bits, positive means 0. FIC first, then the four CIFs.
     pub fic: Vec<i8>,
     pub msc: Vec<i8>,
 }
@@ -123,10 +113,11 @@ impl Demodulator {
     fn advance(&mut self, next_prs: usize) {
         let keep_from = next_prs.saturating_sub(MARGIN);
         self.buf.drain(..keep_from);
-        self.lock = Lock::Track { prs: next_prs - keep_from };
+        self.lock = Lock::Track {
+            prs: next_prs - keep_from,
+        };
     }
 
-    /// Mixes `len` samples from `start` down by the current offset into work.
     fn mixed(&self, start: usize, len: usize, phase0: f64) -> Vec<Complex32> {
         let step = -TAU * self.freq_hz / SAMPLE_RATE as f64;
         self.buf[start..start + len]
@@ -141,7 +132,8 @@ impl Demodulator {
 
     fn spectrum(&mut self, time: &[Complex32]) -> Vec<Complex32> {
         self.work.copy_from_slice(time);
-        self.fft.process_with_scratch(&mut self.work, &mut self.scratch);
+        self.fft
+            .process_with_scratch(&mut self.work, &mut self.scratch);
         self.work.clone()
     }
 
@@ -151,8 +143,6 @@ impl Demodulator {
         self.spectrum(&t)
     }
 
-    /// Integer carrier offset: the PRS phase steps from carrier to carrier
-    /// do not depend on timing, so they match only at the right shift.
     fn coarse_offset(&self, r: &[Complex32]) -> i32 {
         let mut best = (0, 0.0f32);
         for shift in -COARSE_SEARCH_BINS..=COARSE_SEARCH_BINS {
@@ -173,17 +163,23 @@ impl Demodulator {
         best.0
     }
 
-    /// Channel impulse response peak, signed sample offset and peak/mean.
     fn timing(&mut self, r: &[Complex32]) -> (i32, f32) {
         for (w, (x, p)) in self.work.iter_mut().zip(r.iter().zip(&self.prs)) {
             *w = x * p.conj();
         }
-        self.ifft.process_with_scratch(&mut self.work, &mut self.scratch);
+        self.ifft
+            .process_with_scratch(&mut self.work, &mut self.scratch);
         let pow: Vec<f32> = self.work.iter().map(|c| c.norm_sqr()).collect();
-        let (idx, peak) =
-            pow.iter().enumerate().fold((0, 0.0f32), |a, (i, &p)| if p > a.1 { (i, p) } else { a });
+        let (idx, peak) = pow
+            .iter()
+            .enumerate()
+            .fold((0, 0.0f32), |a, (i, &p)| if p > a.1 { (i, p) } else { a });
         let mean = pow.iter().sum::<f32>() / TU as f32;
-        let signed = if idx > TU / 2 { idx as i32 - TU as i32 } else { idx as i32 };
+        let signed = if idx > TU / 2 {
+            idx as i32 - TU as i32
+        } else {
+            idx as i32
+        };
         (signed - ADVANCE as i32, peak / mean.max(1e-12))
     }
 
@@ -231,7 +227,6 @@ impl Demodulator {
         Some((Frame { fic, msc }, start))
     }
 
-    /// Appends 3072 soft bits.
     fn soft_bits(&self, cur: &[Complex32], prev: &[Complex32], out: &mut Vec<i8>) {
         let d: Vec<Complex32> = self.map.iter().map(|&b| cur[b] * prev[b].conj()).collect();
         let mean = d.iter().map(|c| c.re.abs() + c.im.abs()).sum::<f32>() / (2 * CARRIERS) as f32;
@@ -245,7 +240,6 @@ impl Demodulator {
     }
 }
 
-/// Start of the lowest energy run of TNULL samples, if it is clearly a null.
 fn find_null(s: &[Complex32]) -> Option<usize> {
     let pow: Vec<f32> = s.iter().map(|c| c.norm_sqr()).collect();
     let mut win: f32 = pow[..TNULL].iter().sum();

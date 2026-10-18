@@ -12,7 +12,6 @@ pub struct Identity {
     pub theme: Option<Theme>,
 }
 
-/// The car maker theme the phone loads from catalog.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct Theme {
     pub id: String,
@@ -21,18 +20,19 @@ pub struct Theme {
 }
 
 impl Theme {
-    /// `id:version:sdk` as listed in the catalog. `44C9FA31EC:985:19.0` for example.
     pub fn parse(s: &str) -> Option<Self> {
         let mut parts = s.trim().split(':');
         let id = parts.next().filter(|id| !id.is_empty())?.to_string();
         let version = parts.next()?.parse().ok()?;
         let sdk_version = parts.next().filter(|v| !v.is_empty())?.to_string();
-        Some(Self { id, version, sdk_version })
+        Some(Self {
+            id,
+            version,
+            sdk_version,
+        })
     }
 }
 
-/// Which transport carries this session, which decides the transport components the phone
-/// is told about and how the CarPlay session is started.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum Transport {
     Wireless,
@@ -53,7 +53,6 @@ const RECEIVED: &[u16] = &[
     0xAE01, 0x4158, 0x4155, 0x4E0B, 0x4300,
 ];
 
-// Wired sessions additionally advertise that we feed the phone power.
 const POWER_SOURCE_UPDATE: u16 = 0xAE03;
 
 pub const DROPPABLE: &[&str] = &[

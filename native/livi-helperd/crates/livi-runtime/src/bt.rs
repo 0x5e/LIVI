@@ -142,7 +142,11 @@ pub struct Held(Vec<(String, Found)>);
 
 fn to_put_back(found: Found, alias: &str) -> Found {
     if found.alias == alias {
-        Found { alias: String::new(), discoverable: false, ..found }
+        Found {
+            alias: String::new(),
+            discoverable: false,
+            ..found
+        }
     } else {
         found
     }
@@ -162,13 +166,19 @@ async fn controllers(conn: &Connection) -> Result<Vec<(String, Found)>, Box<dyn 
         reply.body().deserialize()?;
     let mut out = Vec::new();
     for (path, interfaces) in objects {
-        let Some(props) = interfaces.get("org.bluez.Adapter1") else { continue };
-        let Some(name) = path.as_str().strip_prefix("/org/bluez/") else { continue };
+        let Some(props) = interfaces.get("org.bluez.Adapter1") else {
+            continue;
+        };
+        let Some(name) = path.as_str().strip_prefix("/org/bluez/") else {
+            continue;
+        };
         let value = |key: &str| props.get(key).and_then(|v| v.try_clone().ok());
         out.push((
             name.to_string(),
             Found {
-                alias: value("Alias").and_then(|v| String::try_from(v).ok()).unwrap_or_default(),
+                alias: value("Alias")
+                    .and_then(|v| String::try_from(v).ok())
+                    .unwrap_or_default(),
                 discoverable: value("Discoverable").and_then(|v| bool::try_from(v).ok())
                     == Some(true),
                 pairable: value("Pairable").and_then(|v| bool::try_from(v).ok()) == Some(true),
@@ -190,8 +200,10 @@ async fn hold(conn: &Connection, adapter: &str, alias: &str) -> Held {
             return Held::default();
         }
     };
-    let held: Vec<(String, Found)> =
-        found.into_iter().map(|(name, found)| (name, to_put_back(found, alias))).collect();
+    let held: Vec<(String, Found)> = found
+        .into_iter()
+        .map(|(name, found)| (name, to_put_back(found, alias)))
+        .collect();
     for (name, back) in &held {
         if name == adapter {
             continue;
@@ -217,7 +229,10 @@ pub async fn let_go(conn: &Connection, adapter: &str, held: &Held) {
         let path = format!("/org/bluez/{name}");
         let props = [
             ("Alias", Value::from(back.alias.as_str())),
-            ("DiscoverableTimeout", Value::from(back.discoverable_timeout)),
+            (
+                "DiscoverableTimeout",
+                Value::from(back.discoverable_timeout),
+            ),
             ("Discoverable", Value::from(back.discoverable)),
             ("Pairable", Value::from(back.pairable)),
         ];
@@ -237,7 +252,9 @@ fn refuse_other_adapter(device: &str, adapter: &str) -> zbus::fdo::Result<()> {
         "[bt] {} came in over another controller than {adapter}, turned away",
         mac_from_device_path(device)
     );
-    Err(zbus::fdo::Error::AccessDenied(format!("LIVI listens on {adapter} only")))
+    Err(zbus::fdo::Error::AccessDenied(format!(
+        "LIVI listens on {adapter} only"
+    )))
 }
 
 fn mac_from_device_path(path: &str) -> String {
@@ -276,7 +293,9 @@ pub async fn start(
     let (tx, rx) = mpsc::unbounded_channel();
 
     let ours = || adapter.to_string();
-    conn.object_server().at(AGENT_PATH, Agent { adapter: ours() }).await?;
+    conn.object_server()
+        .at(AGENT_PATH, Agent { adapter: ours() })
+        .await?;
     if wireless.carplay {
         start_carplay(&conn, adapter, tx).await?;
     }
@@ -303,7 +322,13 @@ pub async fn start(
     let held = hold(&conn, adapter, alias).await;
     set_prop(&conn, &adapter_path, "Alias", Value::from(alias)).await?;
     if wireless.any() {
-        set_prop(&conn, &adapter_path, "DiscoverableTimeout", Value::from(0u32)).await?;
+        set_prop(
+            &conn,
+            &adapter_path,
+            "DiscoverableTimeout",
+            Value::from(0u32),
+        )
+        .await?;
     }
     let _ = std::process::Command::new(crate::sys::tool("rfkill"))
         .args(["unblock", "bluetooth"])
@@ -311,7 +336,13 @@ pub async fn start(
         .stderr(std::process::Stdio::null())
         .status();
     set_prop(&conn, &adapter_path, "Powered", Value::from(true)).await?;
-    set_prop(&conn, &adapter_path, "Discoverable", Value::from(wireless.any())).await?;
+    set_prop(
+        &conn,
+        &adapter_path,
+        "Discoverable",
+        Value::from(wireless.any()),
+    )
+    .await?;
     set_prop(&conn, &adapter_path, "Pairable", Value::from(true)).await?;
 
     Ok((conn, rx, held))
@@ -323,9 +354,33 @@ async fn start_carplay(
     tx: mpsc::UnboundedSender<IncomingConn>,
 ) -> Result<(), Box<dyn Error>> {
     let ours = || adapter.to_string();
-    conn.object_server().at(IAP_SERVER_PATH, Profile { tx: tx.clone(), adapter: ours() }).await?;
-    conn.object_server().at(IAP_CLIENT_PATH, Profile { tx: tx.clone(), adapter: ours() }).await?;
-    conn.object_server().at(CARPLAY_PATH, Profile { tx, adapter: ours() }).await?;
+    conn.object_server()
+        .at(
+            IAP_SERVER_PATH,
+            Profile {
+                tx: tx.clone(),
+                adapter: ours(),
+            },
+        )
+        .await?;
+    conn.object_server()
+        .at(
+            IAP_CLIENT_PATH,
+            Profile {
+                tx: tx.clone(),
+                adapter: ours(),
+            },
+        )
+        .await?;
+    conn.object_server()
+        .at(
+            CARPLAY_PATH,
+            Profile {
+                tx,
+                adapter: ours(),
+            },
+        )
+        .await?;
 
     let mut iap_opts: HashMap<&str, Value> = HashMap::new();
     iap_opts.insert("Role", Value::from("server"));
@@ -448,7 +503,15 @@ pub async fn start_aa(
     adapter: &str,
 ) -> Result<mpsc::UnboundedReceiver<IncomingConn>, Box<dyn Error>> {
     let (tx, rx) = mpsc::unbounded_channel();
-    conn.object_server().at(AA_PATH, Profile { tx, adapter: adapter.to_string() }).await?;
+    conn.object_server()
+        .at(
+            AA_PATH,
+            Profile {
+                tx,
+                adapter: adapter.to_string(),
+            },
+        )
+        .await?;
 
     let mut opts: HashMap<&str, Value> = HashMap::new();
     opts.insert("Role", Value::from("server"));
@@ -496,7 +559,15 @@ pub async fn start_hfp(
     adapter: &str,
     hfp: crate::hfp::Hfp,
 ) -> Result<(), Box<dyn Error>> {
-    conn.object_server().at(HFP_PATH, HfpProfile { hfp, adapter: adapter.to_string() }).await?;
+    conn.object_server()
+        .at(
+            HFP_PATH,
+            HfpProfile {
+                hfp,
+                adapter: adapter.to_string(),
+            },
+        )
+        .await?;
     let mut opts: HashMap<&str, Value> = HashMap::new();
     opts.insert("Name", Value::from("HFP Hands-Free"));
     opts.insert("Role", Value::from("client"));
@@ -540,7 +611,9 @@ pub async fn start_ble_ad(
     adapter: &str,
     name: &str,
 ) -> Result<(), Box<dyn Error>> {
-    conn.object_server().at(BLE_AD_PATH, BleAd { name: name.into() }).await?;
+    conn.object_server()
+        .at(BLE_AD_PATH, BleAd { name: name.into() })
+        .await?;
     let path = format!("/org/bluez/{adapter}");
     let opts: HashMap<&str, Value> = HashMap::new();
     conn.call_method(
@@ -556,7 +629,9 @@ pub async fn start_ble_ad(
 }
 
 async fn stop_ble_ad(conn: &Connection, adapter: &str) {
-    let Ok(ad) = ObjectPath::try_from(BLE_AD_PATH) else { return };
+    let Ok(ad) = ObjectPath::try_from(BLE_AD_PATH) else {
+        return;
+    };
     let _ = conn
         .call_method(
             Some("org.bluez"),
@@ -627,16 +702,25 @@ impl MediaPlayerHandle {
             *s = status.to_string();
         }
         println!("[aa] avrcp playback status -> {status}");
-        if let Ok(iface) = self.conn.object_server().interface::<_, MprisPlayer>(PLAYER_PATH).await
+        if let Ok(iface) = self
+            .conn
+            .object_server()
+            .interface::<_, MprisPlayer>(PLAYER_PATH)
+            .await
         {
-            let _ = iface.get().await.playback_status_changed(iface.signal_emitter()).await;
+            let _ = iface
+                .get()
+                .await
+                .playback_status_changed(iface.signal_emitter())
+                .await;
         }
     }
 }
 
 impl MprisPlayer {
     fn emit(&self, command: &str) {
-        self.events.push_json(format!("{{\"event\":\"input\",\"command\":\"{command}\"}}"));
+        self.events
+            .push_json(format!("{{\"event\":\"input\",\"command\":\"{command}\"}}"));
     }
 }
 
@@ -749,7 +833,15 @@ pub async fn start_media_player(
 ) -> Result<MediaPlayerHandle, Box<dyn Error>> {
     let status = std::sync::Arc::new(std::sync::Mutex::new("Playing".to_string()));
     conn.object_server().at(PLAYER_PATH, MprisRoot).await?;
-    conn.object_server().at(PLAYER_PATH, MprisPlayer { events, status: status.clone() }).await?;
+    conn.object_server()
+        .at(
+            PLAYER_PATH,
+            MprisPlayer {
+                events,
+                status: status.clone(),
+            },
+        )
+        .await?;
 
     let mut props: HashMap<&str, Value> = HashMap::new();
     props.insert("PlaybackStatus", Value::from("Playing"));
@@ -777,7 +869,10 @@ pub async fn start_media_player(
     )
     .await?;
     println!("[aa] media player registered at {PLAYER_PATH}");
-    Ok(MediaPlayerHandle { conn: conn.clone(), status })
+    Ok(MediaPlayerHandle {
+        conn: conn.clone(),
+        status,
+    })
 }
 
 pub async fn adapter_address(conn: &Connection, adapter: &str) -> Result<[u8; 6], Box<dyn Error>> {
@@ -837,19 +932,37 @@ mod tests {
     }
 
     fn found(alias: &str, discoverable: bool) -> Found {
-        Found { alias: alias.into(), discoverable, pairable: true, discoverable_timeout: 180 }
+        Found {
+            alias: alias.into(),
+            discoverable,
+            pairable: true,
+            discoverable_timeout: 180,
+        }
     }
 
     #[test]
     fn a_controller_goes_back_the_way_it_was_found() {
-        assert_eq!(to_put_back(found("blacky", false), "LIVI blacky"), found("blacky", false));
-        assert_eq!(to_put_back(found("blacky #2", true), "LIVI blacky"), found("blacky #2", true));
+        assert_eq!(
+            to_put_back(found("blacky", false), "LIVI blacky"),
+            found("blacky", false)
+        );
+        assert_eq!(
+            to_put_back(found("blacky #2", true), "LIVI blacky"),
+            found("blacky #2", true)
+        );
     }
 
     #[test]
     fn livis_name_left_on_a_controller_goes_back_to_the_systems() {
         let back = to_put_back(found("LIVI blacky", true), "LIVI blacky");
-        assert_eq!(back, Found { alias: String::new(), discoverable: false, ..found("", true) });
+        assert_eq!(
+            back,
+            Found {
+                alias: String::new(),
+                discoverable: false,
+                ..found("", true)
+            }
+        );
     }
 
     #[test]

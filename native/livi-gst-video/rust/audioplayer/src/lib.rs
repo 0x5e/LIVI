@@ -1,10 +1,3 @@
-//! One CarPlay audio stream from its RTP packets to the sink.
-//!
-//! The packets arrive decrypted from the receiver and go into an appsrc. The
-//! jitter buffer paces them, the decoder turns them into PCM, and clocksync
-//! releases each buffer at its running time, which the phone's burst delivery
-//! needs.
-
 pub mod uplink;
 
 use gstreamer as gst;
@@ -18,29 +11,22 @@ use std::str::FromStr;
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::{Arc, Mutex, Once};
 
-/// What a stream needs to build its pipeline.
 pub struct Config {
     pub codec: Codec,
     pub payload_type: u8,
     pub clock_rate: u32,
     pub channels: u8,
-    /// Jitter buffer depth. The phone ships buffered media that far ahead.
     pub latency_ms: u32,
-    /// Voice and call streams take the short path to the sink.
     pub realtime: bool,
     pub device: Option<String>,
     pub label: String,
-    /// The AudioSpecificConfig of an AacRaw stream.
     pub codec_data: Vec<u8>,
 }
 
-/// What turns the packets into raw samples. LPCM is already raw, so it goes
-/// straight on.
 fn decoder_chain(codec: Codec) -> Option<&'static str> {
     match codec {
         Codec::Lpcm | Codec::PcmLe => None,
         Codec::Opus => Some("rtpjitterbuffer latency={latency} ! rtpopusdepay ! opusdec"),
-        // libav drops SBR on 960 sample frames, faad keeps it.
         Codec::AacRaw => Some("aacparse ! faad"),
         #[cfg(target_os = "linux")]
         Codec::AacLc => Some("rtpjitterbuffer latency={latency} ! rtpmp4gdepay ! aacparse ! faad"),
@@ -51,10 +37,12 @@ fn decoder_chain(codec: Codec) -> Option<&'static str> {
     }
 }
 
-/// The only thing about audio output that differs between the systems: which sink carries it,
-/// and what that sink calls a device.
 const fn audio_sink() -> (&'static str, &'static str) {
-    if cfg!(target_os = "macos") { ("osxaudiosink", "unique-id") } else { ("pulsesink", "device") }
+    if cfg!(target_os = "macos") {
+        ("osxaudiosink", "unique-id")
+    } else {
+        ("pulsesink", "device")
+    }
 }
 
 const SINK_NAME: &str = "audio-sink";
@@ -68,12 +56,13 @@ fn sink_chain(cfg: &Config) -> String {
     }
 }
 
-/// The whole pipeline for `cfg`. The caps go onto the appsrc afterwards, so the
-/// RFC 3640 fields keep their string types.
 pub fn pipeline_desc(cfg: &Config) -> String {
     let head = match decoder_chain(cfg.codec) {
         Some(chain) => {
-            format!("{} ! ", chain.replace("{latency}", &cfg.latency_ms.max(100).to_string()))
+            format!(
+                "{} ! ",
+                chain.replace("{latency}", &cfg.latency_ms.max(100).to_string())
+            )
         }
         None => String::new(),
     };
@@ -87,8 +76,6 @@ pub fn pipeline_desc(cfg: &Config) -> String {
     )
 }
 
-/// Access units arrive in bursts, so they carry their own timestamps: one
-/// frame apart, starting a little ahead of the clock.
 struct UnitClock {
     next: Option<gst::ClockTime>,
     frame: gst::ClockTime,
@@ -96,10 +83,10 @@ struct UnitClock {
 
 const UNIT_HEADROOM: gst::ClockTime = gst::ClockTime::from_mseconds(250);
 
-/// Frame length from the AudioSpecificConfig: core rate and 960 or 1024.
 fn unit_duration(asc: &[u8]) -> gst::ClockTime {
-    const RATES: [u64; 13] =
-        [96000, 88200, 64000, 48000, 44100, 32000, 24000, 22050, 16000, 12000, 11025, 8000, 7350];
+    const RATES: [u64; 13] = [
+        96000, 88200, 64000, 48000, 44100, 32000, 24000, 22050, 16000, 12000, 11025, 8000, 7350,
+    ];
     let (Some(&a), Some(&b)) = (asc.first(), asc.get(1)) else {
         return gst::ClockTime::from_mseconds(40);
     };
@@ -109,7 +96,6 @@ fn unit_duration(asc: &[u8]) -> gst::ClockTime {
     gst::ClockTime::from_nseconds(samples * 1_000_000_000 / rate)
 }
 
-/// Pre-fader mono samples the probe mixed down, with their rate.
 #[derive(Default)]
 struct VizAcc {
     samples: Vec<i16>,
@@ -120,7 +106,6 @@ pub struct Player {
     pipeline: gst::Pipeline,
     appsrc: gst_app::AppSrc,
     volume: gst::Element,
-    /// GStreamer glides the level along this on the pipeline clock.
     level: gst_controller::InterpolationControlSource,
     visualizer_enabled: Arc<AtomicBool>,
     visualizer: Arc<Mutex<VizAcc>>,
@@ -148,7 +133,10 @@ impl Player {
             sink.set_property(device_property, device.as_str());
         }
 
-        let appsrc = pipeline.by_name("src")?.downcast::<gst_app::AppSrc>().ok()?;
+        let appsrc = pipeline
+            .by_name("src")?
+            .downcast::<gst_app::AppSrc>()
+            .ok()?;
         let caps = match cfg.codec {
             Codec::AacRaw => aac_raw_caps(&cfg.codec_data, cfg.clock_rate, cfg.channels),
             _ => rtp_caps(cfg.codec, cfg.payload_type, cfg.clock_rate, cfg.channels),
@@ -165,7 +153,6 @@ impl Player {
 
         let visualizer_enabled = Arc::new(AtomicBool::new(false));
         let visualizer: Arc<Mutex<VizAcc>> = Default::default();
-        // Pre-fader tap: mix each buffer to mono, hold ~200ms.
         if let Some(sink_pad) = volume.static_pad("sink") {
             let enabled = visualizer_enabled.clone();
             let acc = visualizer.clone();
@@ -238,11 +225,13 @@ impl Player {
             visualizer,
             codec: cfg.codec,
             payload_type: cfg.payload_type,
-            units: Mutex::new(UnitClock { next: None, frame: unit_duration(&cfg.codec_data) }),
+            units: Mutex::new(UnitClock {
+                next: None,
+                frame: unit_duration(&cfg.codec_data),
+            }),
         })
     }
 
-    /// Toggles the tap; off clears what was held.
     pub fn set_visualizer_enabled(&self, on: bool) {
         self.visualizer_enabled.store(on, Ordering::Relaxed);
         if !on && let Ok(mut a) = self.visualizer.lock() {
@@ -250,13 +239,15 @@ impl Player {
         }
     }
 
-    /// Drains the mono samples read since the last call, with their rate.
     pub fn take_visualizer(&self) -> Option<(Vec<u8>, u32)> {
         let mut a = self.visualizer.lock().ok()?;
         if a.samples.is_empty() {
             return None;
         }
-        let bytes = core::mem::take(&mut a.samples).iter().flat_map(|s| s.to_le_bytes()).collect();
+        let bytes = core::mem::take(&mut a.samples)
+            .iter()
+            .flat_map(|s| s.to_le_bytes())
+            .collect();
         Some((bytes, a.rate))
     }
 
@@ -268,25 +259,27 @@ impl Player {
         let _ = self.pipeline.set_state(gst::State::Null);
     }
 
-    /// Feeds one decrypted RTP packet. False when the source no longer takes it.
     pub fn push_rtp(&self, rtp: &[u8]) -> bool {
         let packet = match self.codec {
             Codec::AacLc => reframe_aac(rtp, self.payload_type),
             Codec::Opus | Codec::AacRaw => rtp.to_vec(),
-            // LPCM arrives without a header the pipeline needs
             Codec::Lpcm | Codec::PcmLe => rtp[RTP_HEADER_LEN.min(rtp.len())..].to_vec(),
         };
-        self.appsrc.push_buffer(gst::Buffer::from_slice(packet)).is_ok()
+        self.appsrc
+            .push_buffer(gst::Buffer::from_slice(packet))
+            .is_ok()
     }
 
-    /// Feeds samples the main process handed over, without an RTP header.
     pub fn push_samples(&self, samples: &[u8]) -> bool {
         let mut buffer = gst::Buffer::from_slice(samples.to_vec());
         if self.codec == Codec::AacRaw
             && let Ok(mut clock) = self.units.lock()
             && let Some(b) = buffer.get_mut()
         {
-            let now = self.pipeline.current_running_time().unwrap_or(gst::ClockTime::ZERO);
+            let now = self
+                .pipeline
+                .current_running_time()
+                .unwrap_or(gst::ClockTime::ZERO);
             let pts = match clock.next {
                 Some(next) if next >= now => next,
                 _ => now + UNIT_HEADROOM,
@@ -298,7 +291,6 @@ impl Player {
         self.appsrc.push_buffer(buffer).is_ok()
     }
 
-    /// Sets the level at once, or glides to it over `ms` on the pipeline clock.
     pub fn set_volume(&self, level: f64, ms: u64) {
         let target = level.clamp(0.0, 10.0);
         let now = self.pipeline.current_running_time();
@@ -311,20 +303,20 @@ impl Player {
 
         let now = now.unwrap();
         self.level.set(now, self.volume.property::<f64>("volume"));
-        self.level.set(now + gst::ClockTime::from_mseconds(ms), target);
+        self.level
+            .set(now + gst::ClockTime::from_mseconds(ms), target);
         self.volume.set_control_binding_disabled("volume", false);
     }
 
-    /// How long sound clocksync lets through now takes to be heard: what waits in the queue, then
-    /// between where the sink writes next and what the device already played. Measured by
-    /// GStreamer itself, None while the sink plays nothing yet.
     pub fn output_delay(&self) -> Option<std::time::Duration> {
         let sink = self.pipeline.by_name(SINK_NAME)?;
         if !sink.is::<gst_audio::AudioBaseSink>() {
             return None;
         }
-        let queued =
-            self.pipeline.by_name("out").map_or(0, |q| q.property::<u64>("current-level-time"));
+        let queued = self
+            .pipeline
+            .by_name("out")
+            .map_or(0, |q| q.property::<u64>("current-level-time"));
         // SAFETY: the element is a GstAudioBaseSink, its ring buffer lives as long as the sink.
         let ring_ns = unsafe {
             let base = sink.as_ptr() as *mut gst_audio::ffi::GstAudioBaseSink;
@@ -336,7 +328,9 @@ impl Player {
             {
                 return None;
             }
-            let rate = u64::try_from((*ring).spec.info.rate).ok().filter(|r| *r > 0)?;
+            let rate = u64::try_from((*ring).spec.info.rate)
+                .ok()
+                .filter(|r| *r > 0)?;
             next.checked_sub(gst_audio::ffi::gst_audio_ring_buffer_samples_done(ring))?
                 * 1_000_000_000
                 / rate
@@ -351,7 +345,6 @@ impl Drop for Player {
     }
 }
 
-/// Initialises GStreamer once for this process.
 pub fn ensure_init() {
     static ONCE: Once = Once::new();
     ONCE.call_once(|| {
@@ -377,9 +370,10 @@ mod tests {
         }
     }
 
-    /// The elements in order, as the parser sees them.
     fn elements(desc: &str) -> Vec<String> {
-        desc.split('!').map(|p| p.split_whitespace().next().unwrap_or("").to_string()).collect()
+        desc.split('!')
+            .map(|p| p.split_whitespace().next().unwrap_or("").to_string())
+            .collect()
     }
 
     #[test]
@@ -393,7 +387,11 @@ mod tests {
                 "rtpjitterbuffer",
                 "rtpmp4gdepay",
                 "aacparse",
-                if cfg!(target_os = "linux") { "faad" } else { "avdec_aac" },
+                if cfg!(target_os = "linux") {
+                    "faad"
+                } else {
+                    "avdec_aac"
+                },
                 "audioconvert",
                 "clocksync",
                 "volume",
@@ -408,8 +406,6 @@ mod tests {
 
     #[test]
     fn the_sink_is_fed_the_same_way_on_both_systems() {
-        // Only the element differs; the buffered stream gets its reserve and nothing below
-        // clocksync paces a second time.
         let buffered = sink_chain(&cfg(Codec::AacLc, false));
         assert!(buffered.contains("sync=false"), "{buffered}");
         assert!(buffered.contains("buffer-time=300000"), "{buffered}");
@@ -471,7 +467,10 @@ mod tests {
         assert!(desc.contains(&format!("name={SINK_NAME}")), "desc = {desc}");
         assert!(!desc.contains("unique-id="), "desc = {desc}");
         assert!(!desc.contains(" device="), "desc = {desc}");
-        assert!(!desc.contains("USB PnP"), "device string leaked into desc: {desc}");
+        assert!(
+            !desc.contains("USB PnP"),
+            "device string leaked into desc: {desc}"
+        );
     }
 
     #[test]
@@ -491,9 +490,10 @@ mod tests {
 
     #[test]
     fn unit_duration_follows_the_core_rate_and_frame_length() {
-        // HE-AAC, 24 kHz core, 960 samples.
-        assert_eq!(unit_duration(&[0x13, 0x14, 0x56, 0xe5, 0x98]).mseconds(), 40);
-        // AAC LC 48 kHz, 960 samples.
+        assert_eq!(
+            unit_duration(&[0x13, 0x14, 0x56, 0xe5, 0x98]).mseconds(),
+            40
+        );
         assert_eq!(unit_duration(&[0x11, 0x94]).mseconds(), 20);
         assert_eq!(unit_duration(&[]).mseconds(), 40);
     }

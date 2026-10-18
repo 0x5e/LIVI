@@ -5,12 +5,9 @@ use std::path::{Path, PathBuf};
 use std::sync::atomic::{AtomicU32, Ordering};
 use std::time::Duration;
 
-/// Under /tmp because the root filesystem is read-only.
 pub const CTRL_DIR: &str = "/tmp/livi/hostapd";
-/// "Sending station is leaving": the phone hears it was let go and does not come back on its own.
 const LEAVING: u16 = 3;
 const REPLY: Duration = Duration::from_secs(2);
-/// How long a watch waits for an event before it checks hostapd is still the one it attached to.
 const QUIET: Duration = Duration::from_secs(5);
 
 static NEXT: AtomicU32 = AtomicU32::new(0);
@@ -21,7 +18,6 @@ pub enum Station {
     Left(String),
 }
 
-/// hostapd replies to the sender's socket path, so every client binds one of its own.
 struct Client {
     sock: UnixDatagram,
     path: PathBuf,
@@ -35,7 +31,10 @@ impl Client {
             NEXT.fetch_add(1, Ordering::Relaxed)
         ));
         let _ = std::fs::remove_file(&path);
-        let client = Self { sock: UnixDatagram::bind(&path)?, path };
+        let client = Self {
+            sock: UnixDatagram::bind(&path)?,
+            path,
+        };
         client.sock.connect(ctrl)?;
         client.sock.set_read_timeout(Some(REPLY))?;
         Ok(client)
@@ -47,7 +46,6 @@ impl Client {
         loop {
             let n = self.sock.recv(&mut buf)?;
             let text = String::from_utf8_lossy(&buf[..n]).into_owned();
-            // An attached client gets events in between, they start with their level.
             if !text.starts_with('<') {
                 return Ok(text);
             }
@@ -89,7 +87,10 @@ impl Client {
                     }
                 }
                 Err(e)
-                    if matches!(e.kind(), io::ErrorKind::WouldBlock | io::ErrorKind::TimedOut) =>
+                    if matches!(
+                        e.kind(),
+                        io::ErrorKind::WouldBlock | io::ErrorKind::TimedOut
+                    ) =>
                 {
                     self.sock.send(b"PING")?;
                     if !on(None) {
@@ -109,7 +110,10 @@ impl Drop for Client {
 }
 
 fn is_mac(text: &str) -> bool {
-    text.len() == 17 && text.split(':').all(|b| b.len() == 2 && u8::from_str_radix(b, 16).is_ok())
+    text.len() == 17
+        && text
+            .split(':')
+            .all(|b| b.len() == 2 && u8::from_str_radix(b, 16).is_ok())
 }
 
 fn first_mac(reply: &str) -> Option<String> {
@@ -127,13 +131,15 @@ pub fn deauth_all(ctrl: &Path) -> io::Result<usize> {
     for mac in &macs {
         let reply = client.request(&format!("DEAUTHENTICATE {mac} reason={LEAVING}"))?;
         if reply.trim() != "OK" {
-            eprintln!("[wifid] hostapd would not deauthenticate {mac}: {}", reply.trim());
+            eprintln!(
+                "[wifid] hostapd would not deauthenticate {mac}: {}",
+                reply.trim()
+            );
         }
     }
     Ok(macs.len())
 }
 
-/// One event line from hostapd, e.g. `<3>AP-STA-DISCONNECTED 9a:c4:e2:44:5e:0f`.
 pub fn event(text: &str) -> Option<Station> {
     let body = text.split_once('>').map_or(text, |(_, body)| body);
     let mut words = body.split_whitespace();
@@ -146,8 +152,6 @@ pub fn event(text: &str) -> Option<Station> {
     }
 }
 
-/// `on` also gets `None` after a quiet spell and ends the watch by returning false. An error means
-/// hostapd went away.
 pub fn watch(ctrl: &Path, on: impl FnMut(Option<Station>) -> bool) -> io::Result<()> {
     Client::attached(ctrl)?.listen(on)
 }
@@ -185,7 +189,9 @@ mod tests {
         let path = dir.join("wlan0");
         let _ = std::fs::remove_file(&path);
         let server = UnixDatagram::bind(&path).unwrap();
-        server.set_read_timeout(Some(Duration::from_secs(2))).unwrap();
+        server
+            .set_read_timeout(Some(Duration::from_secs(2)))
+            .unwrap();
         (path, server)
     }
 
@@ -207,7 +213,9 @@ mod tests {
                     _ => Some("OK\n".to_string()),
                 };
                 let reply = reply.unwrap_or_default();
-                server.send_to(reply.as_bytes(), from.as_pathname().unwrap()).unwrap();
+                server
+                    .send_to(reply.as_bytes(), from.as_pathname().unwrap())
+                    .unwrap();
                 heard.push(cmd);
             }
             heard

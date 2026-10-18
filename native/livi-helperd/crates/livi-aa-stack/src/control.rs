@@ -21,16 +21,13 @@ pub enum ControlEvent {
     },
     Ping(i64),
     Pong,
-    /// 0 when the focus type could not be read.
     AudioFocusRequest(u8),
     Battery {
         level: Option<u32>,
         critical: bool,
         time_remaining_s: Option<u32>,
     },
-    /// Already answered.
     Shutdown(i32),
-    /// The phone answered our goodbye.
     ShutdownComplete,
     VoiceSession(bool),
 }
@@ -41,8 +38,6 @@ fn send(out: &mut Vec<ControlOut>, flags: u8, msg_id: u16, payload: Vec<u8>) {
     out.push(Emit::Send(Frame::new(ch::CONTROL, flags, msg_id, payload)));
 }
 
-/// Focus types 1 gain, 2 and 3 transient, 4 release. States 1 gain,
-/// 2 transient, 3 loss.
 pub fn audio_focus_state(focus_type: u8) -> u8 {
     match focus_type {
         1 => 1,
@@ -83,19 +78,31 @@ impl ControlChannel {
                 if let Ok(resp) = decode::<ChannelOpenResponse>(payload, &[1])
                     && resp.status != OK
                 {
-                    eprintln!("[ControlChannel] ChannelOpenResponse status={}", resp.status);
+                    eprintln!(
+                        "[ControlChannel] ChannelOpenResponse status={}",
+                        resp.status
+                    );
                 }
             }
             ctrl_msg::CHANNEL_OPEN_REQUEST => {
                 if let Ok(req) = decode::<ChannelOpenRequest>(payload, &[1, 2]) {
-                    out.push(Emit::Event(ControlEvent::ChannelOpenRequest(req.service_id)));
+                    out.push(Emit::Event(ControlEvent::ChannelOpenRequest(
+                        req.service_id,
+                    )));
                 }
             }
             ctrl_msg::PING_REQUEST => match decode::<PingRequest>(payload, &[1]) {
                 Ok(req) => {
-                    let resp =
-                        encode(&PingResponse { timestamp_ns: req.timestamp_ns, payload: None });
-                    send(&mut out, frame_flags::ENC_SIGNAL, ctrl_msg::PING_RESPONSE, resp);
+                    let resp = encode(&PingResponse {
+                        timestamp_ns: req.timestamp_ns,
+                        payload: None,
+                    });
+                    send(
+                        &mut out,
+                        frame_flags::ENC_SIGNAL,
+                        ctrl_msg::PING_RESPONSE,
+                        resp,
+                    );
                     out.push(Emit::Event(ControlEvent::Ping(req.timestamp_ns)));
                 }
                 Err(e) => eprintln!("[ControlChannel] ping parse error: {e}"),
@@ -121,7 +128,10 @@ impl ControlChannel {
             }
             ctrl_msg::NAV_FOCUS_REQUEST => {
                 if debug() {
-                    println!("[ControlChannel] NavigationFocusRequest raw: {}", hex(payload));
+                    println!(
+                        "[ControlChannel] NavigationFocusRequest raw: {}",
+                        hex(payload)
+                    );
                 }
                 send(
                     &mut out,
@@ -168,7 +178,10 @@ impl ControlChannel {
             }
             other => {
                 if debug() {
-                    println!("[ControlChannel] unhandled msgId=0x{other:x} len={}", payload.len());
+                    println!(
+                        "[ControlChannel] unhandled msgId=0x{other:x} len={}",
+                        payload.len()
+                    );
                 }
             }
         }
@@ -176,7 +189,10 @@ impl ControlChannel {
     }
 
     pub fn handle_av_setup_request(&mut self, ch: u8, payload: &[u8]) -> Vec<ControlOut> {
-        vec![Emit::Event(ControlEvent::AvSetupRequest { ch, payload: payload.to_vec() })]
+        vec![Emit::Event(ControlEvent::AvSetupRequest {
+            ch,
+            payload: payload.to_vec(),
+        })]
     }
 
     pub fn channel_open_response(&self, status: i32) -> Frame {
@@ -210,9 +226,16 @@ impl ControlChannel {
         println!(
             "[ControlChannel] AudioFocus type={focus_type}({type_name}) -> state={state}({state_name})"
         );
-        let notification =
-            encode(&AudioFocusNotification { focus_state: i32::from(state), unsolicited: None });
-        send(out, frame_flags::ENC_SIGNAL, ctrl_msg::AUDIO_FOCUS_NOTIFICATION, notification);
+        let notification = encode(&AudioFocusNotification {
+            focus_state: i32::from(state),
+            unsolicited: None,
+        });
+        send(
+            out,
+            frame_flags::ENC_SIGNAL,
+            ctrl_msg::AUDIO_FOCUS_NOTIFICATION,
+            notification,
+        );
         out.push(Emit::Event(ControlEvent::AudioFocusRequest(focus_type)));
     }
 }
@@ -253,8 +276,14 @@ mod tests {
             )]
         );
         assert_eq!(events(out), [ControlEvent::Ping(1000)]);
-        assert!(c.handle_message(ctrl_msg::PING_REQUEST, &[0x10, 0x01]).is_empty());
-        assert_eq!(events(c.handle_message(ctrl_msg::PING_RESPONSE, &[])), [ControlEvent::Pong]);
+        assert!(
+            c.handle_message(ctrl_msg::PING_REQUEST, &[0x10, 0x01])
+                .is_empty()
+        );
+        assert_eq!(
+            events(c.handle_message(ctrl_msg::PING_RESPONSE, &[])),
+            [ControlEvent::Pong]
+        );
     }
 
     #[test]
@@ -263,7 +292,12 @@ mod tests {
         let out = c.handle_message(ctrl_msg::BYEBYE_REQUEST, &[0x08, 0x02]);
         assert_eq!(
             frames(&out),
-            [&Frame::new(ch::CONTROL, frame_flags::ENC_SIGNAL, ctrl_msg::BYEBYE_RESPONSE, [])]
+            [&Frame::new(
+                ch::CONTROL,
+                frame_flags::ENC_SIGNAL,
+                ctrl_msg::BYEBYE_RESPONSE,
+                []
+            )]
         );
         assert_eq!(events(out), [ControlEvent::Shutdown(2)]);
         let out = c.handle_message(ctrl_msg::BYEBYE_REQUEST, &[]);
@@ -303,35 +337,58 @@ mod tests {
             [ControlEvent::VoiceSession(false)]
         );
         assert_eq!(
-            events(
-                c.handle_message(ctrl_msg::BATTERY_STATUS_NOTIFICATION, &[0x08, 0x50, 0x18, 0x01])
-            ),
-            [ControlEvent::Battery { level: Some(80), critical: true, time_remaining_s: None }]
+            events(c.handle_message(
+                ctrl_msg::BATTERY_STATUS_NOTIFICATION,
+                &[0x08, 0x50, 0x18, 0x01]
+            )),
+            [ControlEvent::Battery {
+                level: Some(80),
+                critical: true,
+                time_remaining_s: None
+            }]
         );
-        assert!(c.handle_message(ctrl_msg::BATTERY_STATUS_NOTIFICATION, &[0x18, 0x01]).is_empty());
+        assert!(
+            c.handle_message(ctrl_msg::BATTERY_STATUS_NOTIFICATION, &[0x18, 0x01])
+                .is_empty()
+        );
         assert_eq!(
             events(c.handle_message(ctrl_msg::CHANNEL_OPEN_REQUEST, &[0x08, 0x00, 0x10, 0x03])),
             [ControlEvent::ChannelOpenRequest(3)]
         );
-        assert!(c.handle_message(ctrl_msg::CHANNEL_OPEN_REQUEST, &[0x10, 0x03]).is_empty());
-        assert!(c.handle_message(ctrl_msg::CHANNEL_OPEN_RESPONSE, &[0x08, 0x01]).is_empty());
+        assert!(
+            c.handle_message(ctrl_msg::CHANNEL_OPEN_REQUEST, &[0x10, 0x03])
+                .is_empty()
+        );
+        assert!(
+            c.handle_message(ctrl_msg::CHANNEL_OPEN_RESPONSE, &[0x08, 0x01])
+                .is_empty()
+        );
         assert!(c.handle_message(media_msg::SETUP, &[]).is_empty());
         assert!(c.handle_message(0x7777, &[]).is_empty());
-        let sdr = events(
-            c.handle_message(ctrl_msg::SERVICE_DISCOVERY_REQUEST, &[0x22, 0x02, b'P', b'x']),
-        );
+        let sdr = events(c.handle_message(
+            ctrl_msg::SERVICE_DISCOVERY_REQUEST,
+            &[0x22, 0x02, b'P', b'x'],
+        ));
         assert_eq!(
             sdr,
-            [ControlEvent::ServiceDiscoveryRequest(ServiceDiscoveryRequest {
-                head_unit_label: Some("Px".into()),
-                ..Default::default()
-            })]
+            [ControlEvent::ServiceDiscoveryRequest(
+                ServiceDiscoveryRequest {
+                    head_unit_label: Some("Px".into()),
+                    ..Default::default()
+                }
+            )]
         );
         let broken = events(c.handle_message(ctrl_msg::SERVICE_DISCOVERY_REQUEST, &[0x22, 0x09]));
-        assert_eq!(broken, [ControlEvent::ServiceDiscoveryRequest(Default::default())]);
+        assert_eq!(
+            broken,
+            [ControlEvent::ServiceDiscoveryRequest(Default::default())]
+        );
         assert_eq!(
             c.handle_av_setup_request(4, &[1]),
-            [Emit::Event(ControlEvent::AvSetupRequest { ch: 4, payload: vec![1] })]
+            [Emit::Event(ControlEvent::AvSetupRequest {
+                ch: 4,
+                payload: vec![1]
+            })]
         );
         assert_eq!(
             c.channel_open_response(OK),

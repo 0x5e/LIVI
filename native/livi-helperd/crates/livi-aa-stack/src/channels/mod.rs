@@ -1,5 +1,3 @@
-//! A channel hands back what goes out in the order it happens.
-
 pub mod audio;
 pub mod input;
 pub mod media_info;
@@ -18,7 +16,12 @@ pub struct Frame {
 
 impl Frame {
     pub fn new(ch: u8, flags: u8, msg_id: u16, payload: impl Into<Vec<u8>>) -> Self {
-        Self { ch, flags, msg_id, payload: payload.into() }
+        Self {
+            ch,
+            flags,
+            msg_id,
+            payload: payload.into(),
+        }
     }
 }
 

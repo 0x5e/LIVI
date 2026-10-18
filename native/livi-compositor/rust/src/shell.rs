@@ -34,14 +34,20 @@ impl CompositorHandler for LiviState {
     }
 
     fn client_compositor_state<'a>(&self, client: &'a Client) -> &'a CompositorClientState {
-        &client.get_data::<crate::state::ClientState>().unwrap().compositor_state
+        &client
+            .get_data::<crate::state::ClientState>()
+            .unwrap()
+            .compositor_state
     }
 
     fn new_surface(&mut self, surface: &WlSurface) {
-        // A buffer with an acquire point is only read once the client's GPU work on it is done.
         add_pre_commit_hook::<Self, _>(surface, |state, _dh, surface| {
             let acquire = with_states(surface, |data| {
-                data.cached_state.get::<DrmSyncobjCachedState>().pending().acquire_point.clone()
+                data.cached_state
+                    .get::<DrmSyncobjCachedState>()
+                    .pending()
+                    .acquire_point
+                    .clone()
             });
             let (Some(acquire), Some(client)) = (acquire, surface.client()) else {
                 return;
@@ -51,7 +57,9 @@ impl CompositorHandler for LiviState {
             };
             let cleared = state.loop_handle.insert_source(source, move |_, _, state| {
                 let dh = state.display_handle.clone();
-                state.client_compositor_state(&client).blocker_cleared(state, &dh);
+                state
+                    .client_compositor_state(&client)
+                    .blocker_cleared(state, &dh);
                 Ok(())
             });
             if cleared.is_ok() {
@@ -69,7 +77,11 @@ impl CompositorHandler for LiviState {
         while let Some(parent) = get_parent(&root) {
             root = parent;
         }
-        if let Some(idx) = self.toplevels.iter().position(|t| t.toplevel.wl_surface() == &root) {
+        if let Some(idx) = self
+            .toplevels
+            .iter()
+            .position(|t| t.toplevel.wl_surface() == &root)
+        {
             classify_on_initial_commit(self, idx);
             self.center_dialog_by_surface(&root);
             crate::host::damage_all(self);
@@ -106,7 +118,10 @@ fn classify_on_initial_commit(state: &mut LiviState, idx: usize) {
         state.toplevels[idx].kind = Kind::Video;
         if let Some(tag) = state.pending_video_tags.pop_front() {
             state.toplevels[idx].tag = tag.clone();
-            log::info!("bound '{tag}' (pending left: {:?})", state.pending_video_tags);
+            log::info!(
+                "bound '{tag}' (pending left: {:?})",
+                state.pending_video_tags
+            );
             crate::ctrl::send(state, &format!("bound {tag}\n"));
             drop_stale_planes(state, idx, &tag);
         }
@@ -156,7 +171,10 @@ fn classify_on_initial_commit(state: &mut LiviState, idx: usize) {
 }
 
 fn has_keyboard_focus(state: &LiviState) -> bool {
-    state.seat.get_keyboard().is_some_and(|k| k.current_focus().is_some())
+    state
+        .seat
+        .get_keyboard()
+        .is_some_and(|k| k.current_focus().is_some())
 }
 
 fn main_ui_surface(state: &LiviState) -> Option<WlSurface> {
@@ -167,7 +185,6 @@ fn main_ui_surface(state: &LiviState) -> Option<WlSurface> {
         .map(|t| t.toplevel.wl_surface().clone())
 }
 
-/// Bottom to top: cluster, main, video.
 fn video_rank(tag: &str) -> u8 {
     match tag {
         "video" => 2,
@@ -181,7 +198,12 @@ fn stack_video(state: &mut LiviState, idx: usize) {
     let at = state
         .video_order
         .iter()
-        .position(|&i| state.toplevels.get(i).is_some_and(|t| video_rank(&t.tag) > rank))
+        .position(|&i| {
+            state
+                .toplevels
+                .get(i)
+                .is_some_and(|t| video_rank(&t.tag) > rank)
+        })
         .unwrap_or(state.video_order.len());
     state.video_order.insert(at, idx);
 }
@@ -195,9 +217,11 @@ fn drop_stale_planes(state: &mut LiviState, keep: usize, tag: &str) {
     }
 }
 
-/// The claim and the plane's window travel over different sockets, so either can come first.
 pub fn bind_waiting_plane(state: &mut LiviState, tag: &str) -> bool {
-    let Some(idx) = state.toplevels.iter().rposition(|t| t.kind == Kind::Video && t.awaiting_claim)
+    let Some(idx) = state
+        .toplevels
+        .iter()
+        .rposition(|t| t.kind == Kind::Video && t.awaiting_claim)
     else {
         return false;
     };
@@ -302,7 +326,6 @@ impl XdgShellHandler for LiviState {
                 *i -= 1;
             }
         }
-        // On "restart" main() re-execs us after this.
         if was == Kind::Ui && screen_idx == 0 && self.startup_cmd.is_some() {
             log::info!("main UI toplevel gone -> shutting down");
             self.running = false;
@@ -313,9 +336,7 @@ impl XdgShellHandler for LiviState {
         crate::host::damage_all(self);
     }
 
-    fn move_request(&mut self, _surface: ToplevelSurface, _seat: WlSeat, _serial: Serial) {
-        // the host window moves, we reflow
-    }
+    fn move_request(&mut self, _surface: ToplevelSurface, _seat: WlSeat, _serial: Serial) {}
 
     fn resize_request(
         &mut self,
@@ -339,8 +360,10 @@ impl XdgShellHandler for LiviState {
         surface: ToplevelSurface,
         _output: Option<smithay::reexports::wayland_server::protocol::wl_output::WlOutput>,
     ) {
-        let Some(idx) =
-            self.toplevels.iter().position(|t| t.toplevel == surface && t.kind == Kind::Ui)
+        let Some(idx) = self
+            .toplevels
+            .iter()
+            .position(|t| t.toplevel == surface && t.kind == Kind::Ui)
         else {
             surface.send_configure();
             return;
@@ -353,12 +376,17 @@ impl XdgShellHandler for LiviState {
         });
         surface.send_pending_configure();
         crate::layout::apply_ui_layout(self, screen_idx);
-        log::info!("request_fullscreen screen '{}'", self.screens[screen_idx].role);
+        log::info!(
+            "request_fullscreen screen '{}'",
+            self.screens[screen_idx].role
+        );
     }
 
     fn unfullscreen_request(&mut self, surface: ToplevelSurface) {
-        let Some(idx) =
-            self.toplevels.iter().position(|t| t.toplevel == surface && t.kind == Kind::Ui)
+        let Some(idx) = self
+            .toplevels
+            .iter()
+            .position(|t| t.toplevel == surface && t.kind == Kind::Ui)
         else {
             surface.send_configure();
             return;
@@ -376,7 +404,6 @@ impl XdgShellHandler for LiviState {
 
 impl XdgDecorationHandler for LiviState {
     fn new_decoration(&mut self, toplevel: ToplevelSurface) {
-        // Electron's GTK client-side decoration path crashes.
         toplevel.with_pending_state(|st| {
             st.decoration_mode = Some(DecoMode::ServerSide);
         });
@@ -453,7 +480,6 @@ impl DmabufHandler for LiviState {
         dmabuf: smithay::backend::allocator::dmabuf::Dmabuf,
         notifier: ImportNotifier,
     ) {
-        // Only validated here, the texture import happens at render time.
         if crate::host::import_dmabuf(self, &dmabuf) {
             let _ = notifier.successful::<LiviState>();
         } else {

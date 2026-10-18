@@ -1,5 +1,3 @@
-// MFi authentication coprocessor: reads the accessory certificate and signs challenges.
-
 use std::time::Duration;
 
 pub const CHALLENGE_MIN: usize = 1;
@@ -35,7 +33,9 @@ impl core::fmt::Display for MfiError {
         match self {
             MfiError::Timeout(what) => write!(f, "timeout during {what}"),
             MfiError::ChallengeSize(n) => write!(f, "challenge must be 1..=128 bytes, got {n}"),
-            MfiError::AuthFailed { error_code: Some(c) } => {
+            MfiError::AuthFailed {
+                error_code: Some(c),
+            } => {
                 write!(f, "auth failed (error code 0x{c:02X})")
             }
             MfiError::AuthFailed { error_code: None } => {
@@ -52,14 +52,12 @@ impl core::fmt::Display for MfiError {
 
 impl std::error::Error for MfiError {}
 
-/// The MFi coprocessor, on a local i2c bus or behind the STM bridge.
 pub trait AuthCoprocessor {
     fn protocol_major(&mut self) -> Result<u8, MfiError>;
     fn read_certificate(&mut self) -> Result<Vec<u8>, MfiError>;
     fn generate_challenge_response(&mut self, challenge: &[u8]) -> Result<Vec<u8>, MfiError>;
 }
 
-/// No coprocessor at hand: every operation fails.
 pub struct NoCoprocessor;
 
 impl AuthCoprocessor for NoCoprocessor {
@@ -85,9 +83,7 @@ mod linux;
 #[cfg(target_os = "linux")]
 pub use linux::I2cCoprocessor;
 
-// Remote coprocessor over TCP (LIVI Link).
 pub mod ncm;
 pub use ncm::NcmCoprocessor;
 
-// Dongle-side TCP server for MFi authentication.
 pub mod server;

@@ -1,5 +1,3 @@
-//! LIVI's one guidance dictionary, the UI and the car bridge both show what core writes.
-
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum Language {
     En,
@@ -32,7 +30,6 @@ struct Words {
     unknown: &'static str,
     no_route: &'static str,
     roundabout_exit: &'static str,
-    /// By the phone's maneuver code. 28 to 46 are the roundabout exits 1 to 19.
     maneuvers: [&'static str; 54],
 }
 
@@ -41,9 +38,16 @@ const ROUNDABOUT_EXITS: std::ops::RangeInclusive<u32> = 28..=46;
 pub fn maneuver(code: u32, language: Language) -> Option<String> {
     let words = language.words();
     if ROUNDABOUT_EXITS.contains(&code) {
-        return Some(format!("{} {}", words.roundabout_exit, code - ROUNDABOUT_EXITS.start() + 1));
+        return Some(format!(
+            "{} {}",
+            words.roundabout_exit,
+            code - ROUNDABOUT_EXITS.start() + 1
+        ));
     }
-    words.maneuvers.get(code as usize).map(|text| (*text).to_string())
+    words
+        .maneuvers
+        .get(code as usize)
+        .map(|text| (*text).to_string())
 }
 
 pub fn unknown_maneuver(language: Language) -> &'static str {
@@ -87,7 +91,11 @@ pub fn time_left(seconds: f64) -> Option<String> {
     }
     let total = seconds.floor() as u64;
     let (hours, minutes) = (total / 3600, total % 3600 / 60);
-    if hours > 0 { Some(format!("{hours}:{minutes:02} h")) } else { Some(format!("{minutes} min")) }
+    if hours > 0 {
+        Some(format!("{hours}:{minutes:02} h"))
+    } else {
+        Some(format!("{minutes} min"))
+    }
 }
 
 const EN: Words = Words {
@@ -351,9 +359,12 @@ mod tests {
     #[test]
     fn every_maneuver_reads_as_the_old_dictionary_had_it() {
         let v = vectors();
-        for (key, language) in
-            [("en", Language::En), ("de", Language::De), ("fr", Language::Fr), ("ua", Language::Ua)]
-        {
+        for (key, language) in [
+            ("en", Language::En),
+            ("de", Language::De),
+            ("fr", Language::Fr),
+            ("ua", Language::Ua),
+        ] {
             for (code, text) in v[key]["maneuvers"].as_object().unwrap() {
                 let code: i64 = code.parse().unwrap();
                 let ours = u32::try_from(code)
@@ -370,7 +381,11 @@ mod tests {
     fn distances_and_times_read_as_before() {
         let v = vectors();
         for (meters, text) in v["meters"].as_object().unwrap() {
-            assert_eq!(distance(meters.parse().unwrap()).as_deref(), text.as_str(), "{meters} m");
+            assert_eq!(
+                distance(meters.parse().unwrap()).as_deref(),
+                text.as_str(),
+                "{meters} m"
+            );
         }
         for (seconds, text) in v["seconds"].as_object().unwrap() {
             assert_eq!(

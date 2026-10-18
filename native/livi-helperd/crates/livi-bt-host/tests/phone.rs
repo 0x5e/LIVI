@@ -1,5 +1,3 @@
-//! A made-up controller behind the tunnel, and a phone on the other side of it.
-
 use std::io::{Read, Write};
 use std::net::{TcpListener, TcpStream};
 use std::sync::{Arc, Mutex, mpsc};
@@ -34,7 +32,6 @@ fn complete(opcode: u16, ret: &[u8]) -> Vec<u8> {
     event(0x0e, &params)
 }
 
-/// Answers every command, gives every ACL packet its credit back and passes it on.
 fn controller(mut input: TcpStream, out: Arc<Mutex<TcpStream>>, acl: mpsc::Sender<Vec<u8>>) {
     let send = |pkt: Vec<u8>| out.lock().unwrap().write_all(&framed(&pkt)).unwrap();
     loop {
@@ -74,7 +71,10 @@ fn controller(mut input: TcpStream, out: Arc<Mutex<TcpStream>>, acl: mpsc::Sende
                     hci::SET_CONNECTION_ENCRYPTION => {
                         let [lo, hi] = opcode.to_le_bytes();
                         send(event(0x0f, &[0, 1, lo, hi]));
-                        send(event(0x08, &[&[0u8][..], &HANDLE.to_le_bytes(), &[1]].concat()));
+                        send(event(
+                            0x08,
+                            &[&[0u8][..], &HANDLE.to_le_bytes(), &[1]].concat(),
+                        ));
                     }
                     _ => send(complete(opcode, &[0])),
                 }
@@ -128,7 +128,6 @@ impl Phone {
         }
     }
 
-    /// Feeds the host's frames to the phone's session and answers them, until `until` happened.
     fn talk(&mut self, session: &mut Session, cid: u16, until: &Happened) {
         let deadline = Instant::now() + WAIT;
         while Instant::now() < deadline {
@@ -159,9 +158,24 @@ fn start() -> (Stack, livi_bt_host::Inbox, Phone, std::path::PathBuf) {
         std::process::id(),
         std::thread::current().id()
     ));
-    let (stack, inbox) =
-        Stack::start(host_end, Config { name: "LIVI".into(), keys: keys.clone() }).unwrap();
-    (stack, inbox, Phone { out, acl, joiner: l2cap::Joiner::default() }, keys)
+    let (stack, inbox) = Stack::start(
+        host_end,
+        Config {
+            name: "LIVI".into(),
+            keys: keys.clone(),
+        },
+    )
+    .unwrap();
+    (
+        stack,
+        inbox,
+        Phone {
+            out,
+            acl,
+            joiner: l2cap::Joiner::default(),
+        },
+        keys,
+    )
 }
 
 fn le(values: &[u16]) -> Vec<u8> {
@@ -179,17 +193,32 @@ fn a_phone_opens_hands_free_and_talks_over_it() {
     std::thread::spawn(move || controller(controller_end, feed, acl_tx));
 
     let keys = std::env::temp_dir().join(format!("livi-bt-phone-{}", std::process::id()));
-    let (stack, inbox) =
-        Stack::start(host_end, Config { name: "LIVI".into(), keys: keys.clone() }).unwrap();
+    let (stack, inbox) = Stack::start(
+        host_end,
+        Config {
+            name: "LIVI".into(),
+            keys: keys.clone(),
+        },
+    )
+    .unwrap();
     assert_eq!(stack.local(), LOCAL);
     stack.offer(Service::HandsFree, true).unwrap();
-    let mut phone = Phone { out, acl, joiner: l2cap::Joiner::default() };
+    let mut phone = Phone {
+        out,
+        acl,
+        joiner: l2cap::Joiner::default(),
+    };
 
-    phone.event(event(0x04, &[&PHONE[..], &[0x0c, 0x02, 0x5a, hci::LINK_ACL]].concat()));
-    assert_eq!(inbox.notices.recv_timeout(WAIT), Ok(Notice::Connected(PHONE)));
+    phone.event(event(
+        0x04,
+        &[&PHONE[..], &[0x0c, 0x02, 0x5a, hci::LINK_ACL]].concat(),
+    ));
+    assert_eq!(
+        inbox.notices.recv_timeout(WAIT),
+        Ok(Notice::Connected(PHONE))
+    );
     assert!(stack.connected(&PHONE));
 
-    // L2CAP for RFCOMM, the phone's end is 0x0041.
     phone.signal(0x02, 1, &le(&[l2cap::PSM_RFCOMM, 0x0041]));
     let (_, answer) = phone.next();
     assert_eq!(answer[0], 0x03);
@@ -210,12 +239,14 @@ fn a_phone_opens_hands_free_and_talks_over_it() {
     phone.l2cap(host_cid, &session.open(7));
     phone.talk(&mut session, host_cid, &Happened::Opened(14));
 
-    let incoming = inbox.incoming.recv_timeout(WAIT).expect("no channel handed over");
+    let incoming = inbox
+        .incoming
+        .recv_timeout(WAIT)
+        .expect("no channel handed over");
     assert_eq!((incoming.channel, incoming.peer), (7, PHONE));
     let mut profile = incoming.stream;
     profile.set_read_timeout(Some(WAIT)).unwrap();
 
-    // Far more frames than the first credits cover, so the host has to hand credits back.
     for _ in 0..20 {
         let frame = loop {
             if let Some(frame) = session.send(14, b"AT+BRSF=1\r") {
@@ -230,21 +261,27 @@ fn a_phone_opens_hands_free_and_talks_over_it() {
     }
 
     profile.write_all(b"\r\nOK\r\n").unwrap();
-    phone.talk(&mut session, host_cid, &Happened::Data(14, b"\r\nOK\r\n".to_vec()));
+    phone.talk(
+        &mut session,
+        host_cid,
+        &Happened::Data(14, b"\r\nOK\r\n".to_vec()),
+    );
 
     drop(profile);
     phone.talk(&mut session, host_cid, &Happened::Closed(14));
     let _ = std::fs::remove_file(keys);
 }
 
-/// The phone side of our own page: its L2CAP answers, its SDP record and its RFCOMM channel 13.
 #[test]
 fn we_page_a_phone_and_open_its_gateway() {
     let (stack, inbox, mut phone, keys) = start();
     let pager = stack.clone();
     let opened =
         std::thread::spawn(move || pager.connect(PHONE, &sdp::uuid_of(sdp::HANDS_FREE_GATEWAY)));
-    assert_eq!(inbox.notices.recv_timeout(WAIT), Ok(Notice::Connected(PHONE)));
+    assert_eq!(
+        inbox.notices.recv_timeout(WAIT),
+        Ok(Notice::Connected(PHONE))
+    );
 
     let gateway = sdp::Record {
         handle: 0x0001_0009,
@@ -261,9 +298,13 @@ fn we_page_a_phone_and_open_its_gateway() {
         if opened.is_finished() {
             break opened.join().unwrap().expect("our page failed");
         }
-        let Ok(pkt) = phone.acl.recv_timeout(Duration::from_millis(50)) else { continue };
+        let Ok(pkt) = phone.acl.recv_timeout(Duration::from_millis(50)) else {
+            continue;
+        };
         let (_, start, data) = hci::read_acl(&pkt).unwrap();
-        let Some((cid, payload)) = phone.joiner.push(start, data) else { continue };
+        let Some((cid, payload)) = phone.joiner.push(start, data) else {
+            continue;
+        };
         if cid == l2cap::SIGNALLING {
             let (out, signals) = link.signal(&payload, |_| true);
             for pdu in out {
@@ -272,7 +313,12 @@ fn we_page_a_phone_and_open_its_gateway() {
                 }
             }
             for signal in signals {
-                if let l2cap::Signal::Opened { local, psm: l2cap::PSM_RFCOMM, .. } = signal {
+                if let l2cap::Signal::Opened {
+                    local,
+                    psm: l2cap::PSM_RFCOMM,
+                    ..
+                } = signal
+                {
                     session = Some((local, Session::new(false, l2cap::OUR_MTU)));
                 }
             }
@@ -290,12 +336,18 @@ fn we_page_a_phone_and_open_its_gateway() {
         }
     };
     let (rfcomm_cid, mut s) = session.expect("an RFCOMM session");
-    assert!(s.channel_open(26), "its channel 13 on the session we started");
+    assert!(
+        s.channel_open(26),
+        "its channel 13 on the session we started"
+    );
     let mut ours = stream;
     ours.write_all(b"AT+BRSF=156\r").unwrap();
     let deadline = Instant::now() + WAIT;
     loop {
-        assert!(Instant::now() < deadline, "nothing came through the channel");
+        assert!(
+            Instant::now() < deadline,
+            "nothing came through the channel"
+        );
         let (cid, payload) = phone.next();
         if cid != rfcomm_cid {
             continue;

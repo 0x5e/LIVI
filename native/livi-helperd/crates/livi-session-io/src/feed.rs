@@ -1,5 +1,3 @@
-// Streams media records into gst-host over its feed socket.
-
 use tokio::io::AsyncWriteExt;
 use tokio::net::UnixStream;
 use tokio::sync::mpsc;
@@ -31,7 +29,6 @@ impl FeedWriter {
         Self { tx }
     }
 
-    /// False when the writer is behind or gone, the record is dropped then.
     pub fn send(&self, record: Vec<u8>) -> bool {
         self.tx.try_send(record).is_ok()
     }

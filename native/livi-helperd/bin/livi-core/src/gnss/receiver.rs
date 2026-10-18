@@ -14,7 +14,6 @@ const STALE: Duration = Duration::from_secs(10);
 const INFO_EVERY: Duration = Duration::from_secs(1);
 const VERSION_POLL_EVERY: Duration = Duration::from_secs(2);
 const VERSION_POLL_TRIES: u32 = 5;
-/// Antenna state and interference change while running, so they are read again.
 const RF_POLL_EVERY: Duration = Duration::from_secs(10);
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -25,7 +24,6 @@ pub enum Poll {
 
 #[derive(Debug, PartialEq)]
 pub enum Output {
-    /// Answer with `opened` or `failed`.
     Open,
     Close,
     Poll(Poll),
@@ -181,7 +179,6 @@ impl Receiver {
         self.stale_at = Some(now + STALE);
         self.updated_at = Some(unix_ms);
 
-        // The first bytes of a receiver that may have powered up long after the port opened.
         if !self.receiving {
             self.receiving = true;
             self.version_polls = 0;
@@ -205,8 +202,10 @@ impl Receiver {
                 continue;
             }
             if let Some(version) = ubx::parse_version(&frame.payload) {
-                let name =
-                    or(version.model.as_deref(), or(Some(version.software.as_str()), "receiver"));
+                let name = or(
+                    version.model.as_deref(),
+                    or(Some(version.software.as_str()), "receiver"),
+                );
                 println!(
                     "[gnss] {name}, firmware {}, protocol {}",
                     or(version.firmware.as_deref(), "unknown"),
@@ -249,10 +248,16 @@ impl Receiver {
     }
 
     pub fn next_deadline(&self) -> Option<Instant> {
-        [self.stale_at, self.rf_at, self.version_at, self.info_at, self.retry_at]
-            .into_iter()
-            .flatten()
-            .min()
+        [
+            self.stale_at,
+            self.rf_at,
+            self.version_at,
+            self.info_at,
+            self.retry_at,
+        ]
+        .into_iter()
+        .flatten()
+        .min()
     }
 
     pub fn tick(&mut self, now: Instant) {
@@ -277,7 +282,6 @@ impl Receiver {
     fn went_silent(&mut self) {
         let was_receiving = self.receiving;
         self.receiving = false;
-        // A receiver that went away may be another one when it comes back.
         self.version = None;
         self.rf = None;
         self.satellites.clear();
@@ -287,7 +291,10 @@ impl Receiver {
             }
             return;
         }
-        eprintln!("[gnss] no sentences for {}s, dropping the fix state", STALE.as_secs());
+        eprintln!(
+            "[gnss] no sentences for {}s, dropping the fix state",
+            STALE.as_secs()
+        );
         self.fix_quality = FixQuality::None;
         self.fix_mode = FixMode::None;
         self.satellites_used = 0.0;
@@ -504,11 +511,20 @@ mod tests {
         let mut b = Bench::open();
         b.feed(&[GGA, GSA, RMC].concat());
         let info = b.r.info();
-        assert_eq!((info.fix_quality, info.fix_mode), (FixQuality::Gps, FixMode::ThreeD));
-        assert_eq!((info.satellites_used, info.hdop, info.pdop), (8.0, Some(1.3), Some(2.5)));
+        assert_eq!(
+            (info.fix_quality, info.fix_mode),
+            (FixQuality::Gps, FixMode::ThreeD)
+        );
+        assert_eq!(
+            (info.satellites_used, info.hdop, info.pdop),
+            (8.0, Some(1.3), Some(2.5))
+        );
         assert_eq!(info.receiver_time, Some(1_774_269_319_000.0));
         assert_eq!(info.updated_at, Some(1_800_000_000_000));
-        assert_eq!((info.device.as_deref(), info.baud_rate), (Some(DEFAULT_DEVICE), Some(38400)));
+        assert_eq!(
+            (info.device.as_deref(), info.baud_rate),
+            (Some(DEFAULT_DEVICE), Some(38400))
+        );
     }
 
     #[test]
@@ -549,7 +565,10 @@ mod tests {
         let mut b = Bench::open();
         b.feed(GGA);
         b.feed(&version_frame("SPG 4.04"));
-        assert_eq!(b.r.info().version.and_then(|v| v.firmware).as_deref(), Some("SPG 4.04"));
+        assert_eq!(
+            b.r.info().version.and_then(|v| v.firmware).as_deref(),
+            Some("SPG 4.04")
+        );
         b.advance(STALE);
         assert!(!b.r.info().connected);
         b.polls.clear();
@@ -557,7 +576,10 @@ mod tests {
         assert!(b.r.info().connected);
         assert_eq!(b.polls[0], Poll::Version);
         b.feed(&version_frame("SPG 5.10"));
-        assert_eq!(b.r.info().version.and_then(|v| v.firmware).as_deref(), Some("SPG 5.10"));
+        assert_eq!(
+            b.r.info().version.and_then(|v| v.firmware).as_deref(),
+            Some("SPG 5.10")
+        );
     }
 
     #[test]

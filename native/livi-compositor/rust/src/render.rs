@@ -1,7 +1,3 @@
-//! Per-screen rendering: backdrop, tagged video planes, the UI plane,
-//! compositor decorations and dialogs, with the optional full-output
-//! calibration (gamma/contrast/gain) shader pass.
-
 use smithay::backend::allocator::Fourcc;
 use smithay::backend::renderer::damage::OutputDamageTracker;
 use smithay::backend::renderer::element::Kind as ElementKind;
@@ -24,9 +20,6 @@ smithay::backend::renderer::element::render_elements! {
     Deco=MemoryRenderBufferRenderElement<GlesRenderer>,
 }
 
-// The calibration fragment shader, applied over the composited frame.
-// Follows smithay's custom-texture-shader contract: the //_DEFINES_ line,
-// the v_coords varying and the EXTERNAL sampler variant are mandatory.
 const CAL_FRAG: &str = r#"
 #version 100
 //_DEFINES_
@@ -81,7 +74,6 @@ pub fn cal_program(state: &mut LiviState) -> Option<GlesTexProgram> {
     }
 }
 
-/// Committed size of a toplevel's main surface.
 pub fn surface_size(
     surface: &smithay::reexports::wayland_server::protocol::wl_surface::WlSurface,
 ) -> (i32, i32) {
@@ -91,7 +83,6 @@ pub fn surface_size(
     .unwrap_or((0, 0))
 }
 
-/// Topmost sub-surface of `root` under a root-local point.
 pub fn surface_under(
     root: &smithay::reexports::wayland_server::protocol::wl_surface::WlSurface,
     local: Point<f64, Logical>,
@@ -120,8 +111,6 @@ pub fn surface_under(
                 .get::<smithay::wayland::compositor::SubsurfaceCachedState>()
                 .current()
                 .location;
-            // the traversal already holds the states lock and a with_states
-            // re-entry here deadlocks, so read the state off the data_map
             let size = states
                 .data_map
                 .get::<smithay::backend::renderer::utils::RendererSurfaceStateUserData>()
@@ -132,8 +121,10 @@ pub fn surface_under(
                     (size.w as f64, size.h as f64).into(),
                 );
                 if rect.contains(local) {
-                    *found.borrow_mut() =
-                        Some((surface.clone(), local - Point::from((off.x as f64, off.y as f64))));
+                    *found.borrow_mut() = Some((
+                        surface.clone(),
+                        local - Point::from((off.x as f64, off.y as f64)),
+                    ));
                 }
             }
         },
@@ -142,7 +133,6 @@ pub fn surface_under(
     found.into_inner()
 }
 
-/// Collect the render elements for one screen, top to bottom (renderer order).
 fn collect_elements(state: &mut LiviState, screen_idx: usize) -> Vec<LiviElement> {
     let s = &state.screens[screen_idx];
     let (sx, sw, sh) = (s.x, s.width, s.height);
@@ -152,12 +142,13 @@ fn collect_elements(state: &mut LiviState, screen_idx: usize) -> Vec<LiviElement
     let mut elements: Vec<LiviElement> = Vec::new();
     let scale = smithay::utils::Scale::from(1.0);
 
-    // Screen-local offset: the window renders layout range [sx .. sx+sw].
     let to_local =
         |p: Point<i32, Logical>| Point::<i32, smithay::utils::Physical>::from((p.x - sx, p.y));
 
-    // dialogs (top)
-    for t in state.toplevels.iter().filter(|t| t.kind == Kind::Dialog && t.screen_idx == screen_idx)
+    for t in state
+        .toplevels
+        .iter()
+        .filter(|t| t.kind == Kind::Dialog && t.screen_idx == screen_idx)
     {
         elements.extend(
             render_elements_from_surface_tree::<_, WaylandSurfaceRenderElement<GlesRenderer>>(
@@ -173,10 +164,13 @@ fn collect_elements(state: &mut LiviState, screen_idx: usize) -> Vec<LiviElement
         );
     }
 
-    // decorations
     if !fullscreen {
-        let deco_stale =
-            state.host.deco.get(&screen_idx).map(|d| d.titlebar_w != sw).unwrap_or(true);
+        let deco_stale = state
+            .host
+            .deco
+            .get(&screen_idx)
+            .map(|d| d.titlebar_w != sw)
+            .unwrap_or(true);
         if deco_stale {
             let set = crate::deco::build(&role, sw);
             state.host.deco.insert(screen_idx, set);
@@ -210,9 +204,12 @@ fn collect_elements(state: &mut LiviState, screen_idx: usize) -> Vec<LiviElement
         }
     }
 
-    // UI plane
     let renderer = state.host.renderer.as_mut().unwrap();
-    for t in state.toplevels.iter().filter(|t| t.kind == Kind::Ui && t.screen_idx == screen_idx) {
+    for t in state
+        .toplevels
+        .iter()
+        .filter(|t| t.kind == Kind::Ui && t.screen_idx == screen_idx)
+    {
         elements.extend(
             render_elements_from_surface_tree::<_, WaylandSurfaceRenderElement<GlesRenderer>>(
                 renderer,
@@ -227,9 +224,10 @@ fn collect_elements(state: &mut LiviState, screen_idx: usize) -> Vec<LiviElement
         );
     }
 
-    // video planes, top-to-bottom = reverse of the bottom-to-top order
     for &vi in state.video_order.iter().rev() {
-        let Some(t) = state.toplevels.get(vi) else { continue };
+        let Some(t) = state.toplevels.get(vi) else {
+            continue;
+        };
         if t.kind != Kind::Video || t.screen_idx != screen_idx || !t.visible {
             continue;
         }
@@ -279,26 +277,33 @@ pub fn render_screen(state: &mut LiviState, screen_idx: usize) {
     };
 
     let elements = collect_elements(state, screen_idx);
-    let cal = if state.cal.active { cal_program(state) } else { None };
+    let cal = if state.cal.active {
+        cal_program(state)
+    } else {
+        None
+    };
     let uniforms = vec![
         Uniform::new("u_gamma", state.cal.gamma),
         Uniform::new("u_contrast", state.cal.contrast),
-        Uniform::new("u_gain", (state.cal.gain[0], state.cal.gain[1], state.cal.gain[2])),
+        Uniform::new(
+            "u_gain",
+            (state.cal.gain[0], state.cal.gain[1], state.cal.gain[2]),
+        ),
     ];
 
-    // GL window surfaces have a bottom-left origin: the on-screen pass renders
-    // with Flipped180, offscreen textures stay Normal.
     let mut tracker = OutputDamageTracker::new((width, height), 1.0, Transform::Flipped180);
 
     let res = {
-        // Split borrow: renderer and the window's EGL surface both live in host.
         let host = &mut state.host;
         let renderer = host.renderer.as_mut().unwrap();
-        let hw = host.windows.iter_mut().find(|(i, _)| *i == screen_idx).map(|(_, w)| w).unwrap();
+        let hw = host
+            .windows
+            .iter_mut()
+            .find(|(i, _)| *i == screen_idx)
+            .map(|(_, w)| w)
+            .unwrap();
         let clear = Color32F::new(backdrop[0], backdrop[1], backdrop[2], backdrop[3]);
         if let Some(program) = cal.as_ref() {
-            // Calibration: composite into an offscreen texture, then draw it
-            // through the gamma shader onto the window.
             render_calibrated(
                 renderer,
                 &mut hw.egl_surface,
@@ -330,7 +335,6 @@ pub fn render_screen(state: &mut LiviState, screen_idx: usize) {
             {
                 log::error!("swap_buffers failed: {e}");
             }
-            // Client buffers get their release point signalled once dropped, the GPU must be done with them by then.
             if state.syncobj_state.is_some() {
                 let _ = sync.wait();
             }
@@ -340,8 +344,6 @@ pub fn render_screen(state: &mut LiviState, screen_idx: usize) {
     }
 }
 
-/// Composite `elements` offscreen, then draw the result through the
-/// calibration shader onto the window surface.
 #[allow(clippy::too_many_arguments)]
 fn render_calibrated(
     renderer: &mut GlesRenderer,
@@ -356,15 +358,16 @@ fn render_calibrated(
     let mut tex: GlesTexture =
         renderer.create_buffer(Fourcc::Abgr8888, smithay::utils::Size::from((w, h)))?;
     {
-        // Offscreen texture target, unflipped
         let mut offscreen_tracker = OutputDamageTracker::new((w, h), 1.0, Transform::Normal);
         let mut fb = renderer.bind(&mut tex)?;
         offscreen_tracker.render_output::<LiviElement, _>(renderer, &mut fb, 0, elements, clear)?;
     }
-    // the flip happens on the window blit
     let mut fb = renderer.bind(egl_surface)?;
-    let mut frame =
-        renderer.render(&mut fb, smithay::utils::Size::from((w, h)), Transform::Flipped180)?;
+    let mut frame = renderer.render(
+        &mut fb,
+        smithay::utils::Size::from((w, h)),
+        Transform::Flipped180,
+    )?;
     let full = Rectangle::<i32, smithay::utils::Physical>::new((0, 0).into(), (w, h).into());
     frame.render_texture_from_to(
         &tex,

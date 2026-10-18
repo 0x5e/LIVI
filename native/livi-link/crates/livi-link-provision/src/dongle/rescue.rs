@@ -1,6 +1,3 @@
-//! A V821B or AX520 whose kernel finds no LIVI Link rootfs stays in its rescue system, busybox
-//! telnetd on 10.10.10.1. Writing the LIVI Link bundle again brings it back.
-
 use super::arm::ax520;
 use super::arm::imx6ul::shell::Shell;
 use super::probe::Family;
@@ -21,10 +18,12 @@ pub fn of(sh: &Shell) -> Option<Family> {
     family(&sh.sh("cat /proc/device-tree/compatible 2>/dev/null").ok()?)
 }
 
-/// Index, name and size as the board's own kernel lists them in /proc/mtd.
 fn slots(family: Family) -> [(u8, &'static str, u64); 2] {
     match family {
-        Family::V821b => [(1, "boot", v821b::MTD1_SIZE), (3, "rootfs", v821b::MTD3_SIZE)],
+        Family::V821b => [
+            (1, "boot", v821b::MTD1_SIZE),
+            (3, "rootfs", v821b::MTD3_SIZE),
+        ],
         Family::Ax520 => [
             (ax520::BOOT_MTD, "boot", ax520::BOOT_SIZE),
             (ax520::ROOTFS_MTD, "rootfs", ax520::ROOTFS_SIZE),
@@ -33,7 +32,9 @@ fn slots(family: Family) -> [(u8, &'static str, u64); 2] {
 }
 
 fn layout_fits(family: Family, proc_mtd: &str) -> bool {
-    slots(family).iter().all(|&(index, name, size)| mtd_is(proc_mtd, index, name, size))
+    slots(family)
+        .iter()
+        .all(|&(index, name, size)| mtd_is(proc_mtd, index, name, size))
 }
 
 pub fn reflash(sh: &mut Shell, family: Family) -> Result<(), String> {
@@ -61,7 +62,6 @@ pub fn reflash(sh: &mut Shell, family: Family) -> Result<(), String> {
 mod tests {
     use super::*;
 
-    /// `/proc/mtd` as each board's own device tree has it.
     const V821B_MTD: &str = "dev:    size   erasesize  name
 mtd0: 00060000 00010000 \"uboot\"
 mtd1: 00310000 00010000 \"boot\"
@@ -81,8 +81,10 @@ mtd6: 00440000 00010000 \"rootfs\"
 
     #[test]
     fn the_device_tree_names_the_board() {
-        // The strings arrive with their NULs dropped.
-        assert_eq!(family("livi,link-v821ballwinner,sun300i-v821b"), Some(Family::V821b));
+        assert_eq!(
+            family("livi,link-v821ballwinner,sun300i-v821b"),
+            Some(Family::V821b)
+        );
         assert_eq!(family("axera,ax520"), Some(Family::Ax520));
     }
 

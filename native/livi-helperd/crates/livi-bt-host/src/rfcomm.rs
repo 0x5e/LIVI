@@ -1,6 +1,3 @@
-//! RFCOMM over one L2CAP channel: the multiplexer on DLCI 0 and one channel per DLCI, paced by
-//! credits.
-
 use std::collections::BTreeMap;
 
 const SABM: u8 = 0x2f;
@@ -19,18 +16,12 @@ const FCON: u8 = 0x28;
 const FCOFF: u8 = 0x18;
 const NSC: u8 = 0x04;
 
-/// Credit based flow control asked for, and granted.
 const CFC_ASK: u8 = 0xf0;
 const CFC_GRANT: u8 = 0xe0;
-/// What a peer gets to send before it hears from us again.
 const CREDITS: u8 = 7;
-/// The largest frame we take, which fits our L2CAP MTU with its header.
 pub const FRAME: usize = 1000;
-/// Without a parameter negotiation the frame size stays small.
 const DEFAULT_FRAME: usize = 127;
-/// RTC, RTR and DV up.
 const SIGNALS: u8 = 0x8d;
-/// 9600 8N1 without flow control, the answer to a port query.
 const PORT_DEFAULTS: [u8; 7] = [0x03, 0x03, 0x00, 0x11, 0x13, 0xff, 0x3f];
 
 const fn crc_table() -> [u8; 256] {
@@ -52,7 +43,9 @@ const fn crc_table() -> [u8; 256] {
 static CRC: [u8; 256] = crc_table();
 
 fn fcs(bytes: &[u8]) -> u8 {
-    0xff - bytes.iter().fold(0xffu8, |crc, b| CRC[usize::from(crc ^ b)])
+    0xff - bytes
+        .iter()
+        .fold(0xffu8, |crc, b| CRC[usize::from(crc ^ b)])
 }
 
 fn address(dlci: u8, cr: bool) -> u8 {
@@ -69,14 +62,16 @@ fn frame(addr: u8, control: u8, credits: Option<u8>, info: &[u8]) -> Vec<u8> {
     }
     out.extend(credits);
     out.extend_from_slice(info);
-    // Data frames check only address and control, the others their length as well.
     let covered = if control & !PF == UIH { 2 } else { 3 };
     out.push(fcs(&out[..covered]));
     out
 }
 
 fn mcc(kind: u8, command: bool, values: &[u8]) -> Vec<u8> {
-    let mut out = vec![(kind << 2) | (u8::from(command) << 1) | 1, ((values.len() as u8) << 1) | 1];
+    let mut out = vec![
+        (kind << 2) | (u8::from(command) << 1) | 1,
+        ((values.len() as u8) << 1) | 1,
+    ];
     out.extend_from_slice(values);
     out
 }
@@ -95,17 +90,24 @@ fn parse(bytes: &[u8]) -> Option<Frame<'_>> {
     let (len, at) = if first & 1 == 1 {
         (usize::from(first >> 1), 3)
     } else {
-        (usize::from(first >> 1) | (usize::from(*bytes.get(3)?) << 7), 4)
+        (
+            usize::from(first >> 1) | (usize::from(*bytes.get(3)?) << 7),
+            4,
+        )
     };
     let pf = control & PF != 0;
-    // A data frame with the poll bit carries a credit byte in front of its data.
     let credit = usize::from(control & !PF == UIH && pf && addr >> 2 != 0);
     let info = bytes.get(at..at + credit + len)?;
     let covered = if control & !PF == UIH { 2 } else { at };
     if *bytes.get(at + credit + len)? != fcs(&bytes[..covered]) {
         return None;
     }
-    Some(Frame { dlci: addr >> 2, control: control & !PF, pf, info })
+    Some(Frame {
+        dlci: addr >> 2,
+        control: control & !PF,
+        pf,
+        info,
+    })
 }
 
 #[derive(Debug)]
@@ -113,13 +115,10 @@ struct Dlc {
     open: bool,
     frame: usize,
     cfc: bool,
-    /// Frames we may still send.
     may_send: u32,
-    /// Frames the peer sent that we have not paid back yet.
     owed: u8,
 }
 
-/// What came of a frame, each channel named by its DLCI.
 #[derive(Debug, PartialEq)]
 pub enum Happened {
     MuxOpen,
@@ -128,23 +127,25 @@ pub enum Happened {
     Refused(u8),
     Closed(u8),
     Data(u8, Vec<u8>),
-    /// Credits came in, so a waiting sender may go on.
     CanSend(u8),
 }
 
 pub struct Session {
     initiator: bool,
     open: bool,
-    /// The largest frame the L2CAP channel carries to the peer.
     room: usize,
     dlcs: BTreeMap<u8, Dlc>,
 }
 
 impl Session {
     pub fn new(initiator: bool, peer_mtu: u16) -> Self {
-        // Address, control, two length bytes, a credit and the check sum.
         let room = usize::from(peer_mtu).saturating_sub(6).max(DEFAULT_FRAME);
-        Self { initiator, open: false, room, dlcs: BTreeMap::new() }
+        Self {
+            initiator,
+            open: false,
+            room,
+            dlcs: BTreeMap::new(),
+        }
     }
 
     pub fn initiator(&self) -> bool {
@@ -155,8 +156,6 @@ impl Session {
         self.open
     }
 
-    /// The DLCI of a server channel, which says whether the channel sits on the side that started
-    /// the session.
     pub fn dlci(&self, channel: u8, theirs: bool) -> u8 {
         (channel << 1) | u8::from(theirs != self.initiator)
     }
@@ -173,11 +172,19 @@ impl Session {
         frame(address(0, self.initiator), SABM | PF, None, &[])
     }
 
-    /// Opens a channel on the peer, with the parameter negotiation first.
     pub fn open(&mut self, channel: u8) -> Vec<u8> {
         let dlci = self.dlci(channel, true);
         let size = FRAME.min(self.room);
-        self.dlcs.insert(dlci, Dlc { open: false, frame: size, cfc: false, may_send: 0, owed: 0 });
+        self.dlcs.insert(
+            dlci,
+            Dlc {
+                open: false,
+                frame: size,
+                cfc: false,
+                may_send: 0,
+                owed: 0,
+            },
+        );
         let mut values = vec![dlci, CFC_ASK, 0, 0];
         values.extend_from_slice(&(size as u16).to_le_bytes());
         values.extend_from_slice(&[0, CREDITS]);
@@ -197,7 +204,6 @@ impl Session {
         frame(address(dlci, !self.initiator), control | PF, None, &[])
     }
 
-    /// One frame of data if a credit allows it, with the credits we owe riding along.
     pub fn send(&mut self, dlci: u8, data: &[u8]) -> Option<Vec<u8>> {
         let initiator = self.initiator;
         let dlc = self.dlcs.get_mut(&dlci).filter(|d| d.open)?;
@@ -217,7 +223,6 @@ impl Session {
         })
     }
 
-    /// After a frame has been handed on: the credits back once half of them are spent.
     pub fn consumed(&mut self, dlci: u8) -> Option<Vec<u8>> {
         let initiator = self.initiator;
         let dlc = self.dlcs.get_mut(&dlci).filter(|d| d.open && d.cfc)?;
@@ -333,14 +338,15 @@ impl Session {
         (out, happened)
     }
 
-    /// The multiplexer's own commands on DLCI 0.
     fn control(&mut self, info: &[u8]) -> Vec<Vec<u8>> {
         let mut out = Vec::new();
         let mut rest = info;
         while rest.len() >= 2 {
             let (kind, command) = (rest[0] >> 2, rest[0] & 0x02 != 0);
             let len = usize::from(rest[1] >> 1);
-            let Some(values) = rest.get(2..2 + len) else { break };
+            let Some(values) = rest.get(2..2 + len) else {
+                break;
+            };
             rest = &rest[2 + len..];
             match (kind, command) {
                 (PN, true) if values.len() >= 8 => {
@@ -370,7 +376,11 @@ impl Session {
                         let size = usize::from(u16::from_le_bytes([values[4], values[5]]));
                         dlc.frame = size.clamp(1, dlc.frame);
                         dlc.cfc = values[1] & 0xf0 == CFC_GRANT;
-                        dlc.may_send = if dlc.cfc { u32::from(values[7] & 0x07) } else { 0 };
+                        dlc.may_send = if dlc.cfc {
+                            u32::from(values[7] & 0x07)
+                        } else {
+                            0
+                        };
                         out.push(frame(address(dlci, initiator), SABM | PF, None, &[]));
                     }
                 }
@@ -398,14 +408,11 @@ mod tests {
 
     #[test]
     fn the_check_sum_matches_a_known_frame() {
-        // SABM on DLCI 0 from the initiator.
         assert_eq!(frame(0x03, SABM | PF, None, &[]), [0x03, 0x3f, 0x01, 0x1c]);
-        // Its answer.
         assert_eq!(frame(0x03, UA | PF, None, &[]), [0x03, 0x73, 0x01, 0xd7]);
     }
 
     fn phone() -> Session {
-        // The phone starts the session, so it is the initiator and we answer.
         Session::new(true, 1013)
     }
 
@@ -420,8 +427,11 @@ mod tests {
         while !queue.is_empty() {
             let mut next = Vec::new();
             for f in queue {
-                let (out, h) =
-                    if turn { to.input(&f, |c| c == 7) } else { from.input(&f, |_| false) };
+                let (out, h) = if turn {
+                    to.input(&f, |c| c == 7)
+                } else {
+                    from.input(&f, |_| false)
+                };
                 next.extend(out);
                 happened.extend(h);
             }

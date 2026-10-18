@@ -22,7 +22,6 @@ use crate::session::{BYEBYE_USER_SELECTION, Out, Session, SessionEvent, Timer};
 
 #[derive(Debug, Clone, PartialEq)]
 pub enum SessionCmd {
-    /// 0 to 1 across the main screen.
     Touch {
         action: TouchAction,
         x: f64,
@@ -34,7 +33,6 @@ pub enum SessionCmd {
     Disconnect,
     Keyframe,
     ClusterActive(bool),
-    /// Covers audio too.
     VideoActive(bool),
     StreamVolume {
         kind: AudioKind,
@@ -46,7 +44,10 @@ pub enum SessionCmd {
 }
 
 enum Internal {
-    Sink { video: bool, fields: Map<String, Value> },
+    Sink {
+        video: bool,
+        fields: Map<String, Value>,
+    },
 }
 
 struct Phone<M: AaMedia> {
@@ -91,7 +92,11 @@ async fn output(
 }
 
 async fn read(reader: &mut LinkReader, open: bool) -> LinkItem {
-    if open { reader.next().await } else { std::future::pending().await }
+    if open {
+        reader.next().await
+    } else {
+        std::future::pending().await
+    }
 }
 
 #[allow(clippy::too_many_arguments)]
@@ -253,17 +258,25 @@ impl<M: AaMedia> Phone<M> {
                     self.push_audio_sink(&o);
                 }
             }
-            BridgeOut::PrimeAudio { kind, sample_rate, channels, tag } => {
-                self.media.prime_audio(kind, sample_rate, channels, tag.name());
+            BridgeOut::PrimeAudio {
+                kind,
+                sample_rate,
+                channels,
+                tag,
+            } => {
+                self.media
+                    .prime_audio(kind, sample_rate, channels, tag.name());
             }
-            BridgeOut::VideoStarted { cluster, width, height } => {
+            BridgeOut::VideoStarted {
+                cluster,
+                width,
+                height,
+            } => {
                 self.media.video_started(cluster, width, height);
             }
         }
     }
 
-    /// Core hears the end once and last, after the main focus was given back
-    /// and the microphone stopped.
     fn emit_down(&mut self) {
         if self.down_emitted {
             return;
@@ -296,7 +309,9 @@ impl<M: AaMedia> Phone<M> {
             SessionCmd::Touch { action, x, y } => {
                 let g = self.session.geometry();
                 match touch_point(&g, 0, x, y) {
-                    Some(p) => self.session.send_touch(single_touch_action(action), &[p], 0),
+                    Some(p) => self
+                        .session
+                        .send_touch(single_touch_action(action), &[p], 0),
                     None => Vec::new(),
                 }
             }
@@ -329,7 +344,11 @@ impl<M: AaMedia> Phone<M> {
                 self.media.set_active(self.id, active);
                 Vec::new()
             }
-            SessionCmd::StreamVolume { kind, level, ramp_ms } => {
+            SessionCmd::StreamVolume {
+                kind,
+                level,
+                ramp_ms,
+            } => {
                 self.media.set_host_volume(kind, level, ramp_ms);
                 Vec::new()
             }
@@ -362,7 +381,10 @@ impl<M: AaMedia> Phone<M> {
         self.mic_tap = self.media.open_mic_tap(&path, rate, channels, &device);
         self.mic_active = self.mic_tap.is_some();
         if self.mic_active {
-            self.emit(AaEvent::Mic { id: self.id, active: true });
+            self.emit(AaEvent::Mic {
+                id: self.id,
+                active: true,
+            });
         }
     }
 
@@ -378,11 +400,13 @@ impl<M: AaMedia> Phone<M> {
     fn drop_mic_tap(&mut self) {
         if let Some(tap) = self.mic_tap.take() {
             self.media.close_mic_tap(tap);
-            self.emit(AaEvent::Mic { id: self.id, active: false });
+            self.emit(AaEvent::Mic {
+                id: self.id,
+                active: false,
+            });
         }
     }
 
-    /// The plane comes first, so the host has a decoder when the feed starts.
     fn push_video_sink(&mut self, cluster: bool, codec: VideoCodec) {
         self.media.prime_video(self.id, cluster, codec);
         let entry = json!({
@@ -394,7 +418,9 @@ impl<M: AaMedia> Phone<M> {
     }
 
     fn push_audio_sink(&mut self, o: &AudioOutput) {
-        let Some(channel) = o.tag.as_deref().and_then(AudioChannelType::from_name) else { return };
+        let Some(channel) = o.tag.as_deref().and_then(AudioChannelType::from_name) else {
+            return;
+        };
         let id = self.media.audio_feed(self.id, o.stream);
         self.deliver(false, "audio", json!({ "ch": channel.channel(), "id": id }));
     }
@@ -455,16 +481,35 @@ mod tests {
         let (helper, from) = link::attach(theirs, "");
         let (cfg_tx, cfg_rx) = watch::channel(cfg);
         let media = FakeMedia::new();
-        media.refuse_mic.store(mic_refused, std::sync::atomic::Ordering::Relaxed);
+        media
+            .refuse_mic
+            .store(mic_refused, std::sync::atomic::Ordering::Relaxed);
         let (cmds, cmd_rx) = mpsc::unbounded_channel();
         let (ev_tx, events) = mpsc::unbounded_channel();
-        tokio::spawn(run(7, link, reader, cfg_rx, media.clone(), true, cmd_rx, ev_tx));
-        Rig { helper, from, cmds, events, media, _cfg: cfg_tx }
+        tokio::spawn(run(
+            7,
+            link,
+            reader,
+            cfg_rx,
+            media.clone(),
+            true,
+            cmd_rx,
+            ev_tx,
+        ));
+        Rig {
+            helper,
+            from,
+            cmds,
+            events,
+            media,
+            _cfg: cfg_tx,
+        }
     }
 
     impl Rig {
         fn phone(&self, ch: u8, msg_id: u16, payload: &[u8]) {
-            self.helper.send(&Frame::new(ch, 0x0b, msg_id, payload.to_vec()));
+            self.helper
+                .send(&Frame::new(ch, 0x0b, msg_id, payload.to_vec()));
         }
 
         async fn event(&mut self) -> AaEvent {
@@ -475,10 +520,11 @@ mod tests {
         }
 
         async fn item(&mut self) -> LinkItem {
-            tokio::time::timeout(Duration::from_secs(5), self.from.next()).await.expect("in time")
+            tokio::time::timeout(Duration::from_secs(5), self.from.next())
+                .await
+                .expect("in time")
         }
 
-        /// Skips pings, message 0x000b on channel 0.
         async fn frame(&mut self) -> Frame {
             loop {
                 match self.item().await {
@@ -504,7 +550,9 @@ mod tests {
                 ready["mic"] = json!(mic);
             }
             self.helper.control(&ready);
-            let sdr = [0x22, 0x01, b'P', 0x2a, 0x01, b'G', 0x32, 0x03, 0x0a, 0x01, b'I'];
+            let sdr = [
+                0x22, 0x01, b'P', 0x2a, 0x01, b'G', 0x32, 0x03, 0x0a, 0x01, b'I',
+            ];
             self.phone(0, 0x0005, &sdr);
             assert_eq!(
                 self.event().await,
@@ -519,7 +567,11 @@ mod tests {
             self.phone(3, 0x8000, &[0x08, 0x07]);
             assert_eq!(
                 self.event().await,
-                AaEvent::VideoCodec { id: 7, cluster: false, codec: VideoCodec::H265 }
+                AaEvent::VideoCodec {
+                    id: 7,
+                    cluster: false,
+                    codec: VideoCodec::H265
+                }
             );
             assert_eq!(self.event().await, AaEvent::Connected { id: 7 });
             assert_eq!(
@@ -530,7 +582,11 @@ mod tests {
     }
 
     fn hevc() -> AaConfig {
-        AaConfig { hevc_supported: true, mic_device: "usb".into(), ..Default::default() }
+        AaConfig {
+            hevc_supported: true,
+            mic_device: "usb".into(),
+            ..Default::default()
+        }
     }
 
     #[tokio::test]
@@ -540,13 +596,24 @@ mod tests {
         assert_eq!(r.media.take(), [json!({ "primeVideo": false })]);
 
         r.helper.control(&json!({ "type": "first-frame", "ch": 3 }));
-        assert_eq!(r.event().await, AaEvent::VideoFocus { id: 7, cluster: false, projected: true });
+        assert_eq!(
+            r.event().await,
+            AaEvent::VideoFocus {
+                id: 7,
+                cluster: false,
+                projected: true
+            }
+        );
         r.phone(4, 0x8000, &[0x08, 0x01]);
         let setup = r.frame().await;
         assert_eq!((setup.ch, setup.msg_id), (4, 0x8003));
         r.media
             .opened
-            .send(AudioOutput { kind: AudioKind::Media, stream: 41, tag: Some("media".into()) })
+            .send(AudioOutput {
+                kind: AudioKind::Media,
+                stream: 41,
+                tag: Some("media".into()),
+            })
             .unwrap();
         assert_eq!(
             r.control().await,
@@ -571,11 +638,30 @@ mod tests {
             }
         );
         r.phone(0, 0x0012, &[0x08, 0x03]);
-        assert_eq!(r.event().await, AaEvent::Duck { id: 7, level: 0.2, duration_ms: 500 });
+        assert_eq!(
+            r.event().await,
+            AaEvent::Duck {
+                id: 7,
+                level: 0.2,
+                duration_ms: 500
+            }
+        );
         r.phone(0, 0x0011, &[0x08, 0x01]);
-        assert_eq!(r.event().await, AaEvent::Mic { id: 7, active: true });
+        assert_eq!(
+            r.event().await,
+            AaEvent::Mic {
+                id: 7,
+                active: true
+            }
+        );
         r.phone(0, 0x0011, &[0x08, 0x02]);
-        assert_eq!(r.event().await, AaEvent::Mic { id: 7, active: false });
+        assert_eq!(
+            r.event().await,
+            AaEvent::Mic {
+                id: 7,
+                active: false
+            }
+        );
         assert_eq!(
             r.media.take(),
             [
@@ -588,12 +674,19 @@ mod tests {
             r.event().await,
             AaEvent::NowPlaying {
                 id: 7,
-                now_playing: NowPlaying { title: Some("S".into()), ..Default::default() }
+                now_playing: NowPlaying {
+                    title: Some("S".into()),
+                    ..Default::default()
+                }
             }
         );
         r.phone(12, 0x8001, &[]);
         assert!(matches!(r.event().await, AaEvent::Navigation { id: 7, .. }));
-        r.phone(14, 0x8001, &[0x0a, 0x04, 0x08, 0x04, 0x10, 0x05, 0x10, 0x03]);
+        r.phone(
+            14,
+            0x8001,
+            &[0x0a, 0x04, 0x08, 0x04, 0x10, 0x05, 0x10, 0x03],
+        );
         assert_eq!(
             r.event().await,
             AaEvent::Status {
@@ -605,7 +698,9 @@ mod tests {
                 }
             }
         );
-        let AaEvent::Calls { calls, .. } = r.event().await else { panic!("no calls") };
+        let AaEvent::Calls { calls, .. } = r.event().await else {
+            panic!("no calls")
+        };
         assert_eq!(
             calls,
             [PhoneCall {
@@ -622,12 +717,20 @@ mod tests {
 
         r.cmds.send(SessionCmd::VideoActive(false)).unwrap();
         r.cmds
-            .send(SessionCmd::StreamVolume { kind: AudioKind::Alert, level: 0.5, ramp_ms: 100 })
+            .send(SessionCmd::StreamVolume {
+                kind: AudioKind::Alert,
+                level: 0.5,
+                ramp_ms: 100,
+            })
             .unwrap();
         r.cmds.send(SessionCmd::Close).unwrap();
         assert_eq!(
             r.event().await,
-            AaEvent::VideoFocus { id: 7, cluster: false, projected: false }
+            AaEvent::VideoFocus {
+                id: 7,
+                cluster: false,
+                projected: false
+            }
         );
         assert_eq!(r.event().await, AaEvent::Disconnected { id: 7 });
         assert_eq!(
@@ -683,8 +786,12 @@ mod tests {
         r.phone(0, 0x0011, &[0x08, 0x01]);
         r.phone(9, 0x8005, &[0x08, 0x01]);
         assert_eq!(r.frame().await.msg_id, 0x8006);
-        let taps: Vec<_> =
-            r.media.take().into_iter().filter(|e| e.get("micTap").is_some()).collect();
+        let taps: Vec<_> = r
+            .media
+            .take()
+            .into_iter()
+            .filter(|e| e.get("micTap").is_some())
+            .collect();
         assert_eq!(taps.len(), 2);
         r.helper.destroy();
         assert_eq!(r.event().await, AaEvent::Disconnected { id: 7 });
@@ -694,14 +801,22 @@ mod tests {
     async fn input_and_keyframes_reach_the_phone() {
         let mut r = rig(hevc(), false);
         r.running(None).await;
-        r.cmds.send(SessionCmd::Touch { action: TouchAction::Down, x: 0.5, y: 0.5 }).unwrap();
+        r.cmds
+            .send(SessionCmd::Touch {
+                action: TouchAction::Down,
+                x: 0.5,
+                y: 0.5,
+            })
+            .unwrap();
         assert_eq!(r.frame().await.ch, ch::INPUT);
         r.cmds.send(SessionCmd::Command(Command::Up)).unwrap();
         assert_eq!(r.frame().await.ch, ch::INPUT);
         assert_eq!(r.frame().await.ch, ch::INPUT);
         r.cmds.send(SessionCmd::Input(InputCommand::Play)).unwrap();
         r.cmds.send(SessionCmd::Command(Command::Frame)).unwrap();
-        r.cmds.send(SessionCmd::Command(Command::RequestHostUi)).unwrap();
+        r.cmds
+            .send(SessionCmd::Command(Command::RequestHostUi))
+            .unwrap();
         r.cmds.send(SessionCmd::Keyframe).unwrap();
         r.cmds.send(SessionCmd::ClusterActive(false)).unwrap();
         r.cmds

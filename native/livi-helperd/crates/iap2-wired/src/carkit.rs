@@ -9,8 +9,6 @@ use iap2_usbmux::{AsyncMuxStream, LOCKDOWN_PORT, MuxDevice};
 
 pub const LOCKDOWN_SERVICE: &str = "com.apple.carkit.service";
 
-/// Pair record store: usbmuxd's `/var/lib/lockdown` on Linux, the LIVI user folder on macOS;
-/// LIVI_LOCKDOWN_STORE overrides both.
 fn lockdown_store() -> PathBuf {
     if let Some(dir) = std::env::var_os("LIVI_LOCKDOWN_STORE") {
         return PathBuf::from(dir);
@@ -22,15 +20,18 @@ fn lockdown_store() -> PathBuf {
     PathBuf::from("/var/lib/lockdown")
 }
 
-/// The lockdown pair record for a device. The serial from sysfs has no dashes, while the
-/// stored record uses the dashed UDID form, so both spellings are tried.
 pub fn pair_record_path(serial: &str) -> Option<PathBuf> {
     let dashed = if serial.len() == 24 && !serial.contains('-') {
         format!("{}-{}", &serial[..8], &serial[8..])
     } else {
         serial.to_string()
     };
-    for name in [dashed.clone(), dashed.to_uppercase(), serial.to_string(), serial.to_uppercase()] {
+    for name in [
+        dashed.clone(),
+        dashed.to_uppercase(),
+        serial.to_string(),
+        serial.to_uppercase(),
+    ] {
         let p = lockdown_store().join(format!("{name}.plist"));
         if p.exists() {
             return Some(p);
@@ -39,7 +40,6 @@ pub fn pair_record_path(serial: &str) -> Option<PathBuf> {
     None
 }
 
-/// The carkit TLS channel: raw iAP2 bytes in both directions.
 pub struct CarkitChannel {
     idevice: Idevice,
 }
@@ -53,7 +53,6 @@ impl CarkitChannel {
         self.idevice.read_any(max).await.map_err(|e| e.to_string())
     }
 
-    /// Hands out the TLS stream so the iAP2 link layer can drive it directly.
     pub fn into_stream(self) -> Option<Box<dyn idevice::ReadWrite>> {
         self.idevice.get_socket()
     }
@@ -78,7 +77,10 @@ fn system_buid() -> String {
 }
 
 fn save_pair_record(serial: &str, pairing: &PairingFile) -> Result<(), String> {
-    let bytes = pairing.clone().serialize().map_err(|e| format!("serialize pair record: {e}"))?;
+    let bytes = pairing
+        .clone()
+        .serialize()
+        .map_err(|e| format!("serialize pair record: {e}"))?;
     let path = record_file(serial);
     std::fs::create_dir_all(lockdown_store()).map_err(|e| e.to_string())?;
     std::fs::write(&path, bytes).map_err(|e| format!("write {}: {e}", path.display()))?;
@@ -89,14 +91,19 @@ fn save_pair_record(serial: &str, pairing: &PairingFile) -> Result<(), String> {
 async fn new_lockdown(dev: &Arc<MuxDevice>) -> Result<LockdownClient, String> {
     let conn = dev.host.connect(LOCKDOWN_PORT)?;
     let stream = AsyncMuxStream::new(conn);
-    Ok(LockdownClient::new(Idevice::new(Box::new(stream), "livi-helperd")))
+    Ok(LockdownClient::new(Idevice::new(
+        Box::new(stream),
+        "livi-helperd",
+    )))
 }
 
-/// Pairs with the phone, which shows the trust dialog; the device must be unlocked.
 pub async fn pair_device(dev: &Arc<MuxDevice>) -> Result<PairingFile, String> {
     let mut lockdown = new_lockdown(dev).await?;
     let host_id = uuid::Uuid::new_v4().to_string().to_uppercase();
-    println!("[wired] {}: pairing — confirm the trust dialog on the phone", short(&dev.serial));
+    println!(
+        "[wired] {}: pairing — confirm the trust dialog on the phone",
+        short(&dev.serial)
+    );
     let pairing = lockdown
         .pair(host_id, system_buid(), Some("LIVI"))
         .await
@@ -109,8 +116,6 @@ fn short(serial: &str) -> &str {
     &serial[..8.min(serial.len())]
 }
 
-/// Loads the stored pair record, pairing first when there is none or the device no longer
-/// accepts it.
 pub async fn ensure_pairing(dev: &Arc<MuxDevice>) -> Result<PairingFile, String> {
     let existing = pair_record_path(&dev.serial).and_then(|p| PairingFile::read_from_file(&p).ok());
 
@@ -131,12 +136,14 @@ pub async fn ensure_pairing(dev: &Arc<MuxDevice>) -> Result<PairingFile, String>
     }
 }
 
-/// Opens com.apple.carkit.service on a phone that already has its usbmux transport up.
 pub async fn open_carkit(dev: &Arc<MuxDevice>) -> Result<CarkitChannel, String> {
     let pairing = ensure_pairing(dev).await?;
 
     let mut lockdown = new_lockdown(dev).await?;
-    lockdown.start_session(&pairing).await.map_err(|e| format!("lockdown session: {e}"))?;
+    lockdown
+        .start_session(&pairing)
+        .await
+        .map_err(|e| format!("lockdown session: {e}"))?;
     let (port, ssl) = lockdown
         .start_service(LOCKDOWN_SERVICE)
         .await
@@ -146,7 +153,10 @@ pub async fn open_carkit(dev: &Arc<MuxDevice>) -> Result<CarkitChannel, String> 
     let stream = AsyncMuxStream::new(conn);
     let mut idevice = Idevice::new(Box::new(stream), "livi-carkit");
     if ssl {
-        idevice.start_session(&pairing, false).await.map_err(|e| format!("carkit tls: {e}"))?;
+        idevice
+            .start_session(&pairing, false)
+            .await
+            .map_err(|e| format!("carkit tls: {e}"))?;
     }
     Ok(CarkitChannel { idevice })
 }

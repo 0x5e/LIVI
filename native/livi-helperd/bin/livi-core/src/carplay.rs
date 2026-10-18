@@ -47,13 +47,22 @@ impl GstMedia {
         tokio::spawn(async move {
             loop {
                 match events.recv().await {
-                    Ok(HostEvent::AudioStarted { stream, first_sample }) => {
+                    Ok(HostEvent::AudioStarted {
+                        stream,
+                        first_sample,
+                    }) => {
                         let _ = tx.send((stream, first_sample));
                     }
                     Ok(HostEvent::AudioDelay { stream, ms }) => {
-                        delays.lock().unwrap_or_else(|e| e.into_inner()).insert(stream, ms);
+                        delays
+                            .lock()
+                            .unwrap_or_else(|e| e.into_inner())
+                            .insert(stream, ms);
                     }
-                    Ok(HostEvent::UrlStatus { plane: PLANE_VIDEO, status }) => {
+                    Ok(HostEvent::UrlStatus {
+                        plane: PLANE_VIDEO,
+                        status,
+                    }) => {
                         *latest.lock().unwrap_or_else(|e| e.into_inner()) =
                             Some(video_status_of(status));
                     }
@@ -62,13 +71,23 @@ impl GstMedia {
                 }
             }
         });
-        Arc::new(Self { gst, video, started, video_status, output_delays })
+        Arc::new(Self {
+            gst,
+            video,
+            started,
+            video_status,
+            output_delays,
+        })
     }
 }
 
 impl Media for GstMedia {
     fn open_screen(&self, cluster: bool, key: [u8; 32]) -> impl Future<Output = (u16, u32)> + Send {
-        let plane = if cluster { PLANE_CLUSTER_RECV } else { PLANE_MAIN };
+        let plane = if cluster {
+            PLANE_CLUSTER_RECV
+        } else {
+            PLANE_MAIN
+        };
         async move { self.gst.open_video_receiver(plane, &key, cluster).await }
     }
 
@@ -101,7 +120,11 @@ impl Media for GstMedia {
         };
         async move {
             let (id, data_port, control_port) = self.gst.open_audio(&key, &opts).await;
-            AudioStream { id, data_port, control_port }
+            AudioStream {
+                id,
+                data_port,
+                control_port,
+            }
         }
     }
 
@@ -114,7 +137,11 @@ impl Media for GstMedia {
     }
 
     fn audio_output_delay(&self, stream: u32) -> Option<u32> {
-        self.output_delays.lock().unwrap_or_else(|e| e.into_inner()).get(&stream).copied()
+        self.output_delays
+            .lock()
+            .unwrap_or_else(|e| e.into_inner())
+            .get(&stream)
+            .copied()
     }
 
     fn close_audio(&self, stream: u32) {
@@ -223,7 +250,10 @@ fn panel_mm(panel: Option<&Panel>, w: u32, h: u32) -> Option<(i64, i64)> {
     let scale = |mm: u32, px: u32, at: u32| {
         (f64::from(mm) * (f64::from(at) / f64::from(px)).powf(0.75) + 0.5).floor() as i64
     };
-    let (wm, hm) = (scale(g.width_mm, g.width_px, w), scale(g.height_mm, g.height_px, h));
+    let (wm, hm) = (
+        scale(g.width_mm, g.width_px, w),
+        scale(g.height_mm, g.height_px, h),
+    );
     (wm > 0 && hm > 0).then_some((wm, hm))
 }
 
@@ -253,7 +283,12 @@ fn dpi_mm(dpi: u32, w: u32, h: u32) -> Option<(i64, i64)> {
 }
 
 fn insets(top: u32, bottom: u32, left: u32, right: u32) -> Option<Insets> {
-    Some(Insets { top: top.into(), bottom: bottom.into(), left: left.into(), right: right.into() })
+    Some(Insets {
+        top: top.into(),
+        bottom: bottom.into(),
+        left: left.into(),
+        right: right.into(),
+    })
 }
 
 fn icons(cfg: &Config) -> Vec<Icon> {
@@ -273,7 +308,11 @@ fn icons(cfg: &Config) -> Vec<Icon> {
     .into_iter()
     .filter_map(|(size, b64)| {
         let png = STANDARD.decode(b64).ok().filter(|d| !d.is_empty())?;
-        Some(Icon { width_pixels: size, height_pixels: size, png })
+        Some(Icon {
+            width_pixels: size,
+            height_pixels: size,
+            png,
+        })
     })
     .collect()
 }
@@ -294,13 +333,18 @@ pub fn stack_config(
     theme: &Theme,
 ) -> StackConfig {
     let or = |v: u32, d: u32| if v == 0 { d } else { v };
-    let (main_w, main_h) =
-        (even(or(cfg.projection_width, 1920)), even(or(cfg.projection_height, 1080)));
+    let (main_w, main_h) = (
+        even(or(cfg.projection_width, 1920)),
+        even(or(cfg.projection_height, 1080)),
+    );
     let main_mm = dpi_mm(cfg.projection_dpi, main_w, main_h)
         .or_else(|| panel_mm(panels.get("main"), main_w, main_h))
         .or_else(|| fullscreen_mm(screen, main_w, main_h));
-    let name =
-        if cfg.car_name.trim().is_empty() { "LIVI".to_string() } else { cfg.car_name.clone() };
+    let name = if cfg.car_name.trim().is_empty() {
+        "LIVI".to_string()
+    } else {
+        cfg.car_name.clone()
+    };
     let cluster = cluster_displayed(cfg).then(|| {
         let mm = dpi_mm(cfg.cluster_dpi, cfg.cluster_width, cfg.cluster_height)
             .or_else(|| panel_mm(panels.get("cluster"), cfg.cluster_width, cfg.cluster_height));
@@ -329,7 +373,11 @@ pub fn stack_config(
     StackConfig {
         info: InfoConfig {
             device_name: name.clone(),
-            oem_label: if cfg.oem_name.trim().is_empty() { name } else { cfg.oem_name.clone() },
+            oem_label: if cfg.oem_name.trim().is_empty() {
+                name
+            } else {
+                cfg.oem_name.clone()
+            },
             icons: icons(cfg),
             right_hand_drive: cfg.hand == HandDriveType::Rhd,
             theme_displays: theme_displays(cfg, theme),
@@ -365,7 +413,11 @@ pub fn stack_config(
                 initial_url: None,
             },
             cluster,
-            entertainment_sample_rate: if cfg.sampling_frequency == 1 { 48000 } else { 44100 },
+            entertainment_sample_rate: if cfg.sampling_frequency == 1 {
+                48000
+            } else {
+                44100
+            },
             disable_audio_output: cfg.disable_audio_output,
         },
         audio_device: cfg.audio_output_device.clone().unwrap_or_default(),
@@ -390,8 +442,17 @@ fn theme_displays(cfg: &Config, cluster: &Theme) -> Option<ThemeDisplays> {
     if cfg.car_play_theme.is_empty() {
         return None;
     }
-    let id = |kind| cluster.displays.iter().find(|d| d.kind == kind).map(|d| d.id.clone());
-    Some(ThemeDisplays { main: id(DisplayKind::Center)?, cluster: id(DisplayKind::Cluster)? })
+    let id = |kind| {
+        cluster
+            .displays
+            .iter()
+            .find(|d| d.kind == kind)
+            .map(|d| d.id.clone())
+    };
+    Some(ThemeDisplays {
+        main: id(DisplayKind::Center)?,
+        cluster: id(DisplayKind::Cluster)?,
+    })
 }
 
 fn engines(cfg: &Config) -> Engines {
@@ -411,11 +472,15 @@ fn engines(cfg: &Config) -> Engines {
                 | HybridDiesel
         )
     );
-    let electric =
-        matches!(cfg.car_type, Some(Electric | Hydrogen | HybridGasoline | HybridDiesel));
+    let electric = matches!(
+        cfg.car_type,
+        Some(Electric | Hydrogen | HybridGasoline | HybridDiesel)
+    );
     Engines {
-        combustion: combustion
-            .then(|| Rpm { max: cfg.max_rpm, redline: cfg.redline_rpm.min(cfg.max_rpm) }),
+        combustion: combustion.then(|| Rpm {
+            max: cfg.max_rpm,
+            redline: cfg.redline_rpm.min(cfg.max_rpm),
+        }),
         electric,
     }
 }
@@ -430,7 +495,11 @@ fn cluster_url(cfg: &Config) -> String {
     format!(
         "{path}?showCompass={}&showETA={}&showSpeedLimit={}",
         user(cfg.car_play_cluster_compass),
-        if cfg.car_play_cluster_eta { "yes" } else { "no" },
+        if cfg.car_play_cluster_eta {
+            "yes"
+        } else {
+            "no"
+        },
         user(cfg.car_play_cluster_speed_limit)
     )
 }
@@ -481,13 +550,18 @@ fn carplay_images(dir: &Path) -> Vec<(String, Vec<u8>)> {
             println!("[core] cannot write {}: {e}", logo.display());
         }
     }
-    let Ok(entries) = std::fs::read_dir(dir) else { return Vec::new() };
+    let Ok(entries) = std::fs::read_dir(dir) else {
+        return Vec::new();
+    };
     let mut images: Vec<_> = entries
         .filter_map(|entry| {
             let path = entry.ok()?.path();
-            let png = path.extension().is_some_and(|e| e.eq_ignore_ascii_case("png"));
+            let png = path
+                .extension()
+                .is_some_and(|e| e.eq_ignore_ascii_case("png"));
             let name = path.file_stem()?.to_str()?.to_string();
-            png.then(|| Some((name, std::fs::read(&path).ok()?))).flatten()
+            png.then(|| Some((name, std::fs::read(&path).ok()?)))
+                .flatten()
         })
         .collect();
     images.sort();
@@ -505,7 +579,10 @@ fn remembered(told: &mut HashMap<String, String>, key: String, found: Option<Str
             told.insert(key, address.clone());
             address
         }
-        None => told.get(&key).cloned().unwrap_or_else(|| hwaddr::FALLBACK.into()),
+        None => told
+            .get(&key)
+            .cloned()
+            .unwrap_or_else(|| hwaddr::FALLBACK.into()),
     }
 }
 
@@ -513,7 +590,11 @@ impl ConfigSource {
     pub fn new(
         state: watch::Receiver<State>,
         panels: watch::Receiver<HashMap<String, Panel>>,
-    ) -> (Arc<Self>, watch::Receiver<StackConfig>, watch::Receiver<AaConfig>) {
+    ) -> (
+        Arc<Self>,
+        watch::Receiver<StackConfig>,
+        watch::Receiver<AaConfig>,
+    ) {
         let addresses = Addresses {
             device_id: hwaddr::FALLBACK.into(),
             bt_mac: hwaddr::FALLBACK.into(),
@@ -524,8 +605,14 @@ impl ConfigSource {
             (s.config.clone(), s.cluster.theme.clone())
         };
         let screen = host::screen_panel();
-        let first =
-            with_images(stack_config(&cfg, &panels.borrow(), screen, false, &addresses, &cluster));
+        let first = with_images(stack_config(
+            &cfg,
+            &panels.borrow(),
+            screen,
+            false,
+            &addresses,
+            &cluster,
+        ));
         let (tx, rx) = watch::channel(first);
         let (aa, aa_rx) = watch::channel(aa_config(&cfg, Codecs::default(), &addresses));
         let source = Arc::new(Self {
@@ -566,7 +653,10 @@ impl ConfigSource {
             let mut known = self.addresses.lock().unwrap_or_else(|e| e.into_inner());
             if *known != found {
                 if (&known.device_id, &known.bt_mac) != (&found.device_id, &found.bt_mac) {
-                    println!("[core] CarPlay accessory {} (bt {})", found.device_id, found.bt_mac);
+                    println!(
+                        "[core] CarPlay accessory {} (bt {})",
+                        found.device_id, found.bt_mac
+                    );
                 }
                 *known = found;
             }
@@ -597,7 +687,10 @@ impl ConfigSource {
     }
 
     pub fn set_codecs(&self, codecs: Codecs) {
-        println!("[core] codecs hevc {} vp9 {} av1 {}", codecs.hevc, codecs.vp9, codecs.av1);
+        println!(
+            "[core] codecs hevc {} vp9 {} av1 {}",
+            codecs.hevc, codecs.vp9, codecs.av1
+        );
         *self.codecs.lock().unwrap_or_else(|e| e.into_inner()) = codecs;
     }
 
@@ -650,7 +743,12 @@ mod tests {
     fn panels() -> HashMap<String, Panel> {
         HashMap::from([(
             "main".to_string(),
-            Panel { width_mm: 300, height_mm: 170, width_px: 1280, height_px: 720 },
+            Panel {
+                width_mm: 300,
+                height_mm: 170,
+                width_px: 1280,
+                height_px: 720,
+            },
         )])
     }
 
@@ -691,11 +789,23 @@ mod tests {
     #[test]
     fn a_missed_answer_keeps_the_address_last_told_there() {
         let mut told = HashMap::new();
-        assert_eq!(remembered(&mut told, "wifi livi-link".into(), None), hwaddr::FALLBACK);
+        assert_eq!(
+            remembered(&mut told, "wifi livi-link".into(), None),
+            hwaddr::FALLBACK
+        );
         let mac = Some("88:00:33:77:8C:26".to_string());
-        assert_eq!(remembered(&mut told, "wifi livi-link".into(), mac), "88:00:33:77:8C:26");
-        assert_eq!(remembered(&mut told, "wifi livi-link".into(), None), "88:00:33:77:8C:26");
-        assert_eq!(remembered(&mut told, "wifi wlan0".into(), None), hwaddr::FALLBACK);
+        assert_eq!(
+            remembered(&mut told, "wifi livi-link".into(), mac),
+            "88:00:33:77:8C:26"
+        );
+        assert_eq!(
+            remembered(&mut told, "wifi livi-link".into(), None),
+            "88:00:33:77:8C:26"
+        );
+        assert_eq!(
+            remembered(&mut told, "wifi wlan0".into(), None),
+            hwaddr::FALLBACK
+        );
     }
 
     #[test]
@@ -706,7 +816,14 @@ mod tests {
         cfg.car_play_source_version = String::new();
         cfg.dashboard.cluster = true;
         cfg.carplay_icon120 = Some("not base64!".into());
-        let sc = stack_config(&cfg, &HashMap::new(), None, false, &addresses(), &livi_theme());
+        let sc = stack_config(
+            &cfg,
+            &HashMap::new(),
+            None,
+            false,
+            &addresses(),
+            &livi_theme(),
+        );
         assert_eq!(sc.info.main.width_pixels, 1920);
         assert_eq!(sc.info.main.width_physical_mm, None);
         assert!(sc.info.cluster.is_some());
@@ -722,8 +839,10 @@ mod tests {
         std::fs::write(dir.join("frost.PNG"), b"ice").unwrap();
         std::fs::write(dir.join("notes.txt"), b"no").unwrap();
         std::fs::write(dir.join("livi.png"), b"own").unwrap();
-        let names: Vec<_> =
-            carplay_images(&dir).into_iter().map(|(name, png)| (name, png.len())).collect();
+        let names: Vec<_> = carplay_images(&dir)
+            .into_iter()
+            .map(|(name, png)| (name, png.len()))
+            .collect();
         assert_eq!(names, [("frost".to_string(), 3), ("livi".to_string(), 3)]);
         let _ = std::fs::remove_dir_all(&dir);
         let blocked = dir.with_extension("file");
@@ -748,13 +867,33 @@ mod tests {
             "maps:/car/instrumentcluster?showCompass=no&showETA=no&showSpeedLimit=no"
         );
         cfg.car_play_cluster_content = ClusterContent::Maneuver;
-        let sc = stack_config(&cfg, &HashMap::new(), None, false, &addresses(), &livi_theme());
-        assert_eq!(sc.cluster_url, "maps:/car/instrumentcluster/instructioncard");
+        let sc = stack_config(
+            &cfg,
+            &HashMap::new(),
+            None,
+            false,
+            &addresses(),
+            &livi_theme(),
+        );
+        assert_eq!(
+            sc.cluster_url,
+            "maps:/car/instrumentcluster/instructioncard"
+        );
         assert_eq!(sc.vehicle_variant, "");
         cfg.car_play_theme = "44C9FA31EC:985:19.0".into();
         cfg.car_play_vehicle_model = "DB12Coupe".into();
-        let sc = stack_config(&cfg, &HashMap::new(), None, false, &addresses(), &livi_theme());
-        assert_eq!(sc.vehicle_variant, "DB12Coupe", "the theme's car, the phone picks LHD or RHD");
+        let sc = stack_config(
+            &cfg,
+            &HashMap::new(),
+            None,
+            false,
+            &addresses(),
+            &livi_theme(),
+        );
+        assert_eq!(
+            sc.vehicle_variant, "DB12Coupe",
+            "the theme's car, the phone picks LHD or RHD"
+        );
         let names = sc.info.theme_displays.unwrap();
         assert_eq!(
             (names.main.as_str(), names.cluster.as_str()),
@@ -769,12 +908,33 @@ mod tests {
         cfg.car_type = Some(CarType::Diesel);
         cfg.max_rpm = 7000;
         cfg.redline_rpm = 9000;
-        let rpm = Some(Rpm { max: 7000, redline: 7000 });
-        assert_eq!(engines(&cfg), Engines { combustion: rpm, electric: false });
+        let rpm = Some(Rpm {
+            max: 7000,
+            redline: 7000,
+        });
+        assert_eq!(
+            engines(&cfg),
+            Engines {
+                combustion: rpm,
+                electric: false
+            }
+        );
         cfg.car_type = Some(CarType::HybridGasoline);
-        assert_eq!(engines(&cfg), Engines { combustion: rpm, electric: true });
+        assert_eq!(
+            engines(&cfg),
+            Engines {
+                combustion: rpm,
+                electric: true
+            }
+        );
         cfg.car_type = Some(CarType::Electric);
-        assert_eq!(engines(&cfg), Engines { combustion: None, electric: true });
+        assert_eq!(
+            engines(&cfg),
+            Engines {
+                combustion: None,
+                electric: true
+            }
+        );
         cfg.car_type = None;
         assert_eq!(engines(&cfg), Engines::default());
     }
@@ -795,7 +955,12 @@ mod tests {
         assert_eq!(panel_mm(panels().get("cluster"), 800, 480), None);
         let flat = HashMap::from([(
             "main".to_string(),
-            Panel { width_mm: 0, height_mm: 170, width_px: 1280, height_px: 720 },
+            Panel {
+                width_mm: 0,
+                height_mm: 170,
+                width_px: 1280,
+                height_px: 720,
+            },
         )]);
         assert_eq!(panel_mm(flat.get("main"), 1280, 720), None);
     }
@@ -804,7 +969,14 @@ mod tests {
     fn the_dock_position_picks_the_status_bar_edge() {
         let mut cfg = livi_core_proto::config::defaults();
         let edge = |cfg: &Config| {
-            let sc = stack_config(cfg, &HashMap::new(), None, false, &addresses(), &livi_theme());
+            let sc = stack_config(
+                cfg,
+                &HashMap::new(),
+                None,
+                false,
+                &addresses(),
+                &livi_theme(),
+            );
             sc.info.main.status_bar_edge
         };
         assert_eq!(edge(&cfg), Some(1));
@@ -816,26 +988,53 @@ mod tests {
 
     #[test]
     fn the_projection_fills_the_screen() {
-        let screen = Panel { width_mm: 286, height_mm: 179, width_px: 3360, height_px: 2100 };
+        let screen = Panel {
+            width_mm: 286,
+            height_mm: 179,
+            width_px: 3360,
+            height_px: 2100,
+        };
         assert_eq!(fullscreen_mm(Some(screen), 2560, 1600), Some((286, 179)));
         assert_eq!(fullscreen_mm(Some(screen), 1920, 1080), Some((286, 161)));
         assert_eq!(fullscreen_mm(Some(screen), 1440, 1080), Some((239, 179)));
         assert_eq!(fullscreen_mm(None, 1920, 1080), None);
-        assert_eq!(fullscreen_mm(Some(Panel { width_mm: 0, ..screen }), 1920, 1080), None);
+        assert_eq!(
+            fullscreen_mm(
+                Some(Panel {
+                    width_mm: 0,
+                    ..screen
+                }),
+                1920,
+                1080
+            ),
+            None
+        );
         assert_eq!(fullscreen_mm(Some(screen), 0, 1080), None);
     }
 
     #[test]
     fn the_screen_only_counts_without_a_panel_or_dpi() {
-        let screen = Panel { width_mm: 286, height_mm: 179, width_px: 3360, height_px: 2100 };
+        let screen = Panel {
+            width_mm: 286,
+            height_mm: 179,
+            width_px: 3360,
+            height_px: 2100,
+        };
         let mut cfg = livi_core_proto::config::defaults();
         cfg.projection_width = 1920;
         cfg.projection_height = 1080;
         let main = |cfg: &Config, panels: &HashMap<String, Panel>| {
-            stack_config(cfg, panels, Some(screen), false, &addresses(), &livi_theme())
-                .info
-                .main
-                .width_physical_mm
+            stack_config(
+                cfg,
+                panels,
+                Some(screen),
+                false,
+                &addresses(),
+                &livi_theme(),
+            )
+            .info
+            .main
+            .width_physical_mm
         };
         assert_eq!(main(&cfg, &HashMap::new()), Some(286));
         assert_eq!(main(&cfg, &panels()), Some(407));

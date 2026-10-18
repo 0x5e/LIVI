@@ -1,4 +1,3 @@
-/// All zero for the whole frame.
 #[derive(Debug, Clone, Copy, Default, PartialEq)]
 pub struct Region {
     pub crop_l: f64,
@@ -11,19 +10,10 @@ pub struct Region {
 
 #[derive(Debug, PartialEq)]
 pub enum Line {
-    /// Core waits for "bound" before the plane of this tag comes.
     Claim(String),
-    Place {
-        tag: String,
-        region: Region,
-    },
-    Show {
-        tag: String,
-        shown: bool,
-    },
-    /// 0 to 255 per channel.
+    Place { tag: String, region: Region },
+    Show { tag: String, shown: bool },
     Backdrop([u8; 3]),
-    /// Gamma, contrast and the three gains.
     Gamma([f64; 5]),
 }
 
@@ -40,18 +30,27 @@ pub fn parse(line: &str) -> Option<Line> {
         "claim" => Some(Line::Claim(words.next()?.to_string())),
         "videocfg" => {
             let tag = words.next()?.to_string();
-            // Skips the screen, which the plane's tag already gives.
             words.next()?;
             let [crop_l, crop_t, vis_w, vis_h, tier_w, tier_h] = numbers(words)?;
             Some(Line::Place {
                 tag,
-                region: Region { crop_l, crop_t, vis_w, vis_h, tier_w, tier_h },
+                region: Region {
+                    crop_l,
+                    crop_t,
+                    vis_w,
+                    vis_h,
+                    tier_w,
+                    tier_h,
+                },
             })
         }
         "videoshow" => {
             let tag = words.next()?.to_string();
             let [on] = numbers::<i32, 1>(words)?;
-            Some(Line::Show { tag, shown: on != 0 })
+            Some(Line::Show {
+                tag,
+                shown: on != 0,
+            })
         }
         "backdrop" => numbers(words).map(Line::Backdrop),
         "gamma" => numbers(words).map(Line::Gamma),
@@ -65,7 +64,10 @@ mod tests {
 
     #[test]
     fn the_lines_core_sends_come_apart() {
-        assert_eq!(parse("claim cluster-cluster"), Some(Line::Claim("cluster-cluster".into())));
+        assert_eq!(
+            parse("claim cluster-cluster"),
+            Some(Line::Claim("cluster-cluster".into()))
+        );
         assert_eq!(
             parse("videocfg main main 160 0 960 720 1280 720"),
             Some(Line::Place {
@@ -82,10 +84,19 @@ mod tests {
         );
         assert_eq!(
             parse("videoshow main 0"),
-            Some(Line::Show { tag: "main".into(), shown: false })
+            Some(Line::Show {
+                tag: "main".into(),
+                shown: false
+            })
         );
-        assert_eq!(parse("backdrop 212 212 212"), Some(Line::Backdrop([212, 212, 212])));
-        assert_eq!(parse("gamma 1 1.2 1 0.9 1"), Some(Line::Gamma([1.0, 1.2, 1.0, 0.9, 1.0])));
+        assert_eq!(
+            parse("backdrop 212 212 212"),
+            Some(Line::Backdrop([212, 212, 212]))
+        );
+        assert_eq!(
+            parse("gamma 1 1.2 1 0.9 1"),
+            Some(Line::Gamma([1.0, 1.2, 1.0, 0.9, 1.0]))
+        );
     }
 
     #[test]

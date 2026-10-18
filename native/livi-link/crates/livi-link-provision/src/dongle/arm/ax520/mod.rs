@@ -5,8 +5,6 @@ use crate::dongle::{Remote, lfwb, mtd_is};
 
 pub const PROJECT: &str = "ly7129";
 
-/// The MTD indices and sizes of the stock partition table (`/proc/mtd`), also the type byte
-/// each image carries in the bundle.
 pub const BOOT_MTD: u8 = 3;
 pub const CUSTOMER_MTD: u8 = 5;
 pub const ROOTFS_MTD: u8 = 6;
@@ -24,7 +22,6 @@ pub struct HardwareInfo {
 }
 
 impl HardwareInfo {
-    /// The writes go by MTD index, so both indices have to be the boot and rootfs of this board.
     pub fn looks_like_ax520_aic8800d80(&self) -> bool {
         let cortex_a7 = self.cpuinfo_head.contains("0xc07");
         cortex_a7
@@ -40,25 +37,36 @@ impl HardwareInfo {
 pub fn verify_hardware<R: Remote>(sh: &mut R) -> Result<HardwareInfo, String> {
     let cpuinfo_head = sh.run("head -20 /proc/cpuinfo")?;
     let proc_mtd = sh.run("cat /proc/mtd")?;
-    Ok(HardwareInfo { cpuinfo_head, proc_mtd })
+    Ok(HardwareInfo {
+        cpuinfo_head,
+        proc_mtd,
+    })
 }
 
 pub fn backup_stock(sh: &mut BindShell, out_dir: &Path) -> Result<std::path::PathBuf, String> {
     std::fs::create_dir_all(out_dir).map_err(|e| format!("mkdir {out_dir:?}: {e}"))?;
 
-    // The stock keeps its config in customer, so the backup takes it along where the board has it.
     let has_customer = verify_hardware(sh)?.has_customer();
 
     println!("pulling boot ({} B)…", BOOT_SIZE);
-    let boot = sh.stream_out("dd if=/dev/mtdblock3 bs=64k 2>/dev/null; sleep 1", BOOT_SIZE)?;
+    let boot = sh.stream_out(
+        "dd if=/dev/mtdblock3 bs=64k 2>/dev/null; sleep 1",
+        BOOT_SIZE,
+    )?;
     let customer = if has_customer {
         println!("pulling customer ({} B)…", CUSTOMER_SIZE);
-        Some(sh.stream_out("dd if=/dev/mtdblock5 bs=64k 2>/dev/null; sleep 1", CUSTOMER_SIZE)?)
+        Some(sh.stream_out(
+            "dd if=/dev/mtdblock5 bs=64k 2>/dev/null; sleep 1",
+            CUSTOMER_SIZE,
+        )?)
     } else {
         None
     };
     println!("pulling rootfs ({} B)…", ROOTFS_SIZE);
-    let rootfs = sh.stream_out("dd if=/dev/mtdblock6 bs=64k 2>/dev/null; sleep 1", ROOTFS_SIZE)?;
+    let rootfs = sh.stream_out(
+        "dd if=/dev/mtdblock6 bs=64k 2>/dev/null; sleep 1",
+        ROOTFS_SIZE,
+    )?;
 
     let out_path = out_dir.join(format!("ax520_stock_{}.lfwb", lfwb::stamp()));
     let mut images: Vec<(u8, &[u8])> = vec![(BOOT_MTD, &boot)];
@@ -84,7 +92,7 @@ pub fn stream_in_selftest(sh: &mut BindShell, size: usize) -> Result<(), String>
 pub fn flash_embedded(sh: &mut BindShell) -> Result<(), String> {
     if AX520_LFWB.is_empty() {
         return Err(
-            "no LIVI Link firmware baked in — this is a local dev build without CI assets".into()
+            "no LIVI Link firmware baked in — this is a local dev build without CI assets".into(),
         );
     }
     flash_lfwb_bytes(sh, AX520_LFWB)
@@ -94,7 +102,6 @@ fn flash_lfwb_bytes(sh: &mut BindShell, bytes: &[u8]) -> Result<(), String> {
     write_bundle(sh, bytes)?;
     println!("sync + reboot");
     sh.run("sync")?;
-    // The dongle drops the shell as it goes down, so the result is ignored.
     let _ = sh.run("reboot -f &");
     Ok(())
 }
@@ -103,7 +110,6 @@ pub fn write_bundle<R: Remote>(sh: &mut R, bytes: &[u8]) -> Result<(), String> {
     let images = lfwb::unpack(bytes)?;
     let boot = lfwb::image(&images, BOOT_MTD).ok_or("no boot payload in bundle")?;
     let rootfs = lfwb::image(&images, ROOTFS_MTD).ok_or("no rootfs payload in bundle")?;
-    // Only a rollback bundle to stock carries customer, which also holds the config.
     let customer = lfwb::image(&images, CUSTOMER_MTD);
     let mut slots = vec![("boot", boot, BOOT_SIZE), ("rootfs", rootfs, ROOTFS_SIZE)];
     if let Some(data) = customer {
@@ -114,18 +120,28 @@ pub fn write_bundle<R: Remote>(sh: &mut R, bytes: &[u8]) -> Result<(), String> {
     }
     for (what, data, slot) in slots {
         if data.len() as u64 > slot {
-            return Err(format!("{what} image is {} B, its slot holds {slot} B", data.len()));
+            return Err(format!(
+                "{what} image is {} B, its slot holds {slot} B",
+                data.len()
+            ));
         }
     }
 
-    // Kernel first, so a power loss between the writes leaves the new kernel in its initramfs
-    // recovery (USB-NCM + telnet).
-    println!("flashing boot ({} B) → /dev/mtdblock{BOOT_MTD}…", boot.len());
+    println!(
+        "flashing boot ({} B) → /dev/mtdblock{BOOT_MTD}…",
+        boot.len()
+    );
     lfwb::write_mtd_verified(sh, &format!("/dev/mtdblock{BOOT_MTD}"), boot)?;
-    println!("flashing rootfs ({} B) → /dev/mtdblock{ROOTFS_MTD}…", rootfs.len());
+    println!(
+        "flashing rootfs ({} B) → /dev/mtdblock{ROOTFS_MTD}…",
+        rootfs.len()
+    );
     lfwb::write_mtd_verified(sh, &format!("/dev/mtdblock{ROOTFS_MTD}"), rootfs)?;
     if let Some(data) = customer {
-        println!("flashing customer ({} B) → /dev/mtdblock{CUSTOMER_MTD}…", data.len());
+        println!(
+            "flashing customer ({} B) → /dev/mtdblock{CUSTOMER_MTD}…",
+            data.len()
+        );
         lfwb::write_mtd_verified(sh, &format!("/dev/mtdblock{CUSTOMER_MTD}"), data)?;
     }
     Ok(())
@@ -150,7 +166,10 @@ mtd9: 00070000 00010000 \"UDISK\"
     const CPUINFO: &str = "processor\t: 0\nmodel name\t: ARMv7 Processor rev 5 (v7l)\nCPU implementer\t: 0x41\nCPU architecture: 7\nCPU part\t: 0xc07\n";
 
     fn info(cpuinfo: &str, mtd: &str) -> HardwareInfo {
-        HardwareInfo { cpuinfo_head: cpuinfo.into(), proc_mtd: mtd.into() }
+        HardwareInfo {
+            cpuinfo_head: cpuinfo.into(),
+            proc_mtd: mtd.into(),
+        }
     }
 
     #[test]
@@ -160,9 +179,10 @@ mtd9: 00070000 00010000 \"UDISK\"
 
     #[test]
     fn a_shifted_partition_table_is_refused() {
-        // The V821B layout: boot is mtd1 there, mtd3 is its rootfs.
-        let v821b = STOCK_MTD
-            .replace("mtd3: 00300000 00010000 \"boot\"", "mtd3: 00480000 00010000 \"rootfs\"");
+        let v821b = STOCK_MTD.replace(
+            "mtd3: 00300000 00010000 \"boot\"",
+            "mtd3: 00480000 00010000 \"rootfs\"",
+        );
         assert!(!info(CPUINFO, &v821b).looks_like_ax520_aic8800d80());
     }
 

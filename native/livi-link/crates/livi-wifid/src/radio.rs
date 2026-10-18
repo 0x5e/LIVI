@@ -1,5 +1,3 @@
-//! Kept on the dongle, so the page and the host share one switch that survives a boot.
-
 pub const PATH: &str = "/tmp/livi/radio.conf";
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -21,7 +19,6 @@ pub fn enabled(radio: Radio) -> bool {
     enabled_in(&std::fs::read_to_string(PATH).unwrap_or_default(), radio)
 }
 
-/// `true` when the switch changed anything.
 pub fn set(radio: Radio, on: bool) -> std::io::Result<bool> {
     let text = std::fs::read_to_string(PATH).unwrap_or_default();
     if enabled_in(&text, radio) == on {
@@ -46,10 +43,17 @@ fn enabled_in(text: &str, radio: Radio) -> bool {
 fn with(text: &str, radio: Radio, on: bool) -> String {
     let mut out: String = text
         .lines()
-        .filter(|line| line.split_once('=').is_none_or(|(key, _)| key.trim() != radio.key()))
+        .filter(|line| {
+            line.split_once('=')
+                .is_none_or(|(key, _)| key.trim() != radio.key())
+        })
         .map(|line| format!("{line}\n"))
         .collect();
-    out.push_str(&format!("{}={}\n", radio.key(), if on { "on" } else { "off" }));
+    out.push_str(&format!(
+        "{}={}\n",
+        radio.key(),
+        if on { "on" } else { "off" }
+    ));
     out
 }
 

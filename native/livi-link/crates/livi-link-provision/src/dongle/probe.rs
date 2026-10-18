@@ -2,7 +2,6 @@ use crate::dongle::arm::ax520;
 use crate::dongle::riscv::v821b;
 use crate::dongle::shell::BindShell;
 
-/// The boards a LIVI Link image exists for.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum Family {
     V821b,
@@ -17,7 +16,6 @@ impl Family {
         }
     }
 
-    /// Must match the `target` LIVI Link reports in /api/status.
     pub fn target(self) -> &'static str {
         match self {
             Family::V821b => "v821b_aic8800d80",
@@ -66,7 +64,10 @@ impl Probe {
 
     pub fn report(&self) -> String {
         let section = |title: &str, text: &str| {
-            format!("--- {title} ---\n{}\n\n", text.trim_end_matches(['\0', '\n', ' ']))
+            format!(
+                "--- {title} ---\n{}\n\n",
+                text.trim_end_matches(['\0', '\n', ' '])
+            )
         };
         let mut out = String::new();
         out += &section("uname -a", &self.uname);
@@ -113,7 +114,9 @@ mod tests {
     fn a_v821b_is_told_by_riscv_partitions_and_the_wifi_module() {
         let probe = Probe {
             cpuinfo_head: "isa\t\t: rv32imafdc\n".into(),
-            proc_mtd: (0..9).map(|i| format!("mtd{i}: 00010000 00010000 \"p{i}\"\n")).collect(),
+            proc_mtd: (0..9)
+                .map(|i| format!("mtd{i}: 00010000 00010000 \"p{i}\"\n"))
+                .collect(),
             aic_modules: "aic8800_bsp\n".into(),
             ..Probe::default()
         };

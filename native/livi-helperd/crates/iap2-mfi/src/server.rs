@@ -1,8 +1,3 @@
-//! LIVI-Link MFi wire (paired with [`crate::NcmCoprocessor`]):
-//!   GET_CERT    : [0x01]                       -> [status][len:2][cert]
-//!   SIGN        : [0x02][len:2][challenge]     -> [status][len:2][signature]
-//!   PROTO_MAJOR : [0x03]                       -> [status][len:2][major:1]
-
 use std::io::{Read, Write};
 use std::net::{TcpListener, TcpStream};
 use std::sync::{Arc, Mutex};
@@ -16,8 +11,6 @@ pub const OP_PROTOCOL_MAJOR: u8 = 0x03;
 pub const STATUS_OK: u8 = 0;
 pub const STATUS_ERR: u8 = 1;
 
-/// An RSA (2.x) certificate runs to ~945 B, an ECDSA (3.0) one to ~608 B.
-/// Used as a cross-check when register 0x02 reads back as garbage.
 pub const CERT_LEN_SPLIT: usize = 768;
 
 pub fn serve<S: Read + Write>(io: &mut S, chip: &mut dyn AuthCoprocessor) {
@@ -41,8 +34,6 @@ pub fn serve<S: Read + Write>(io: &mut S, chip: &mut dyn AuthCoprocessor) {
                 }
                 let len = usize::from(u16::from_be_bytes(len));
                 if !(CHALLENGE_MIN..=CHALLENGE_MAX).contains(&len) {
-                    // A length we will not read is a framing error, not
-                    // a failed request — close the connection.
                     let _ = respond(io, STATUS_ERR, &[]);
                     return;
                 }
@@ -92,7 +83,6 @@ impl<C: AuthCoprocessor> AuthCoprocessor for Shared<C> {
     }
 }
 
-/// Serves each connection on a thread of its own.
 pub fn listen<C: AuthCoprocessor + Send + 'static>(listener: TcpListener, chip: C) {
     let chip = Arc::new(Mutex::new(chip));
     for mut stream in livi_net::bridge::from_usb(&listener) {
@@ -104,7 +94,6 @@ pub fn listen<C: AuthCoprocessor + Send + 'static>(listener: TcpListener, chip: 
     }
 }
 
-/// Ends the thread of a client that vanished, after 3 s.
 #[cfg(target_os = "linux")]
 fn keepalive(stream: &TcpStream) {
     use std::os::fd::AsRawFd;
@@ -134,9 +123,6 @@ fn keepalive(stream: &TcpStream) {
 #[cfg(not(target_os = "linux"))]
 fn keepalive(_stream: &TcpStream) {}
 
-/// Best-effort major-version resolution. Register 0x02 reads back as
-/// rubbish on the 2.0B chip once it has signed something, so we cross-check
-/// against the certificate length (2.x ≈ 945 B, 3.0 ≈ 608 B).
 pub fn protocol_major(chip: &mut dyn AuthCoprocessor) -> Option<u8> {
     match chip.protocol_major() {
         Ok(major @ (2 | 3)) => Some(major),
@@ -186,7 +172,9 @@ mod tests {
 
         let _silent = TcpStream::connect(addr).unwrap();
         let mut client = TcpStream::connect(addr).unwrap();
-        client.set_read_timeout(Some(std::time::Duration::from_secs(5))).unwrap();
+        client
+            .set_read_timeout(Some(std::time::Duration::from_secs(5)))
+            .unwrap();
         client.write_all(&[OP_PROTOCOL_MAJOR]).unwrap();
         let mut reply = [0u8; 4];
         client.read_exact(&mut reply).unwrap();

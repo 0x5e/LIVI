@@ -5,27 +5,25 @@ use std::sync::atomic::{AtomicBool, Ordering};
 const AF_BLUETOOTH: libc::c_int = 31;
 const BTPROTO_L2CAP: libc::c_int = 0;
 const SOCK_SEQPACKET: libc::c_int = 5;
-/// The channel every SDP client connects to.
 const PSM: u16 = 1;
 const PDU_MAX: usize = 1024;
 
-/// Wireless iAP.
 pub const IAP_UUID: [u8; 16] = [
     0x00, 0x00, 0x00, 0x00, 0xde, 0xca, 0xfa, 0xde, 0xde, 0xca, 0xde, 0xaf, 0xde, 0xca, 0xca, 0xff,
 ];
-/// Wireless iAP the other way round, offered by the phone.
 pub const IAP_CLIENT_UUID: [u8; 16] = [
     0x00, 0x00, 0x00, 0x00, 0xde, 0xca, 0xfa, 0xde, 0xde, 0xca, 0xde, 0xaf, 0xde, 0xca, 0xca, 0xfe,
 ];
 pub const CARPLAY_UUID: [u8; 16] = [
     0xec, 0x88, 0x43, 0x48, 0xcd, 0x41, 0x40, 0xa2, 0x97, 0x27, 0x57, 0x5d, 0x50, 0xbf, 0x1f, 0xd3,
 ];
-/// What the name list a phone sees before connecting carries.
 pub const ADVERTISED: [[u8; 16]; 3] = [IAP_UUID, IAP_CLIENT_UUID, CARPLAY_UUID];
 
 const fn full_uuid(id: u16) -> [u8; 16] {
     let [hi, lo] = id.to_be_bytes();
-    [0, 0, hi, lo, 0x00, 0x00, 0x10, 0x00, 0x80, 0x00, 0x00, 0x80, 0x5f, 0x9b, 0x34, 0xfb]
+    [
+        0, 0, hi, lo, 0x00, 0x00, 0x10, 0x00, 0x80, 0x00, 0x00, 0x80, 0x5f, 0x9b, 0x34, 0xfb,
+    ]
 }
 
 pub struct Record {
@@ -36,13 +34,21 @@ pub struct Record {
 }
 
 pub static RECORDS: [Record; 2] = [
-    Record { handle: 0x0001_0001, uuid: IAP_UUID, channel: 3, name: "Wireless iAP" },
-    Record { handle: 0x0001_0002, uuid: CARPLAY_UUID, channel: 4, name: "CarPlay" },
+    Record {
+        handle: 0x0001_0001,
+        uuid: IAP_UUID,
+        channel: 3,
+        name: "Wireless iAP",
+    },
+    Record {
+        handle: 0x0001_0002,
+        uuid: CARPLAY_UUID,
+        channel: 4,
+        name: "CarPlay",
+    },
 ];
-/// A phone that finds the records uses them, so they are listed only while a host takes them.
 static OFFERED: AtomicBool = AtomicBool::new(false);
 
-/// Whether this changed anything.
 pub fn set_offered(on: bool) -> bool {
     OFFERED.swap(on, Ordering::Relaxed) != on
 }
@@ -52,7 +58,11 @@ pub fn offered() -> bool {
 }
 
 fn on_offer() -> Vec<&'static Record> {
-    if offered() { RECORDS.iter().collect() } else { Vec::new() }
+    if offered() {
+        RECORDS.iter().collect()
+    } else {
+        Vec::new()
+    }
 }
 
 const UUID_L2CAP: u16 = 0x0100;
@@ -85,7 +95,11 @@ pub fn serve() -> Result<(), String> {
     }
     loop {
         let raw = unsafe {
-            libc::accept(listener.as_raw_fd(), std::ptr::null_mut(), std::ptr::null_mut())
+            libc::accept(
+                listener.as_raw_fd(),
+                std::ptr::null_mut(),
+                std::ptr::null_mut(),
+            )
         };
         if raw < 0 {
             return Err(format!("accept: {}", std::io::Error::last_os_error()));
@@ -96,8 +110,13 @@ pub fn serve() -> Result<(), String> {
 }
 
 fn listen() -> Result<OwnedFd, String> {
-    let raw =
-        unsafe { libc::socket(AF_BLUETOOTH, SOCK_SEQPACKET | libc::SOCK_CLOEXEC, BTPROTO_L2CAP) };
+    let raw = unsafe {
+        libc::socket(
+            AF_BLUETOOTH,
+            SOCK_SEQPACKET | libc::SOCK_CLOEXEC,
+            BTPROTO_L2CAP,
+        )
+    };
     if raw < 0 {
         return Err(format!("socket: {}", std::io::Error::last_os_error()));
     }
@@ -117,7 +136,10 @@ fn listen() -> Result<OwnedFd, String> {
         )
     };
     if bound < 0 {
-        return Err(format!("bind psm {PSM}: {}", std::io::Error::last_os_error()));
+        return Err(format!(
+            "bind psm {PSM}: {}",
+            std::io::Error::last_os_error()
+        ));
     }
     if unsafe { libc::listen(fd.as_raw_fd(), 4) } < 0 {
         return Err(format!("listen: {}", std::io::Error::last_os_error()));
@@ -206,7 +228,10 @@ fn service_search(tid: u16, body: &[u8]) -> Vec<u8> {
     let Some((pattern, _)) = element(body) else {
         return error(tid, ERROR_SYNTAX);
     };
-    let hits: Vec<&Record> = on_offer().into_iter().filter(|r| wanted(pattern, r)).collect();
+    let hits: Vec<&Record> = on_offer()
+        .into_iter()
+        .filter(|r| wanted(pattern, r))
+        .collect();
     let count = hits.len() as u16;
     let mut params = Vec::new();
     params.extend_from_slice(&count.to_be_bytes());
@@ -251,7 +276,6 @@ fn record(record: &Record, attrs: &[u8]) -> Vec<u8> {
     seq(&out)
 }
 
-/// Attribute ids have to stay in ascending order.
 fn attributes(record: &Record) -> Vec<(u16, Vec<u8>)> {
     let protocol = seq(&[
         seq(&uuid16(UUID_L2CAP)),
@@ -265,7 +289,10 @@ fn attributes(record: &Record) -> Vec<(u16, Vec<u8>)> {
         (0x0004, protocol),
         (0x0005, seq(&uuid16(UUID_BROWSE_ROOT))),
         (0x0008, uint8(0xff)),
-        (0x0009, seq(&seq(&[uuid16(UUID_SERIAL_PORT), uint16(0x0100)].concat()))),
+        (
+            0x0009,
+            seq(&seq(&[uuid16(UUID_SERIAL_PORT), uint16(0x0100)].concat())),
+        ),
         (0x0100, text(record.name)),
     ]
 }
@@ -317,14 +344,16 @@ fn element(body: &[u8]) -> Option<(&[u8], &[u8])> {
         3 => (8, 1),
         4 => (16, 1),
         5 => (*body.get(1)? as usize, 2),
-        6 => (u16::from_be_bytes([*body.get(1)?, *body.get(2)?]) as usize, 3),
+        6 => (
+            u16::from_be_bytes([*body.get(1)?, *body.get(2)?]) as usize,
+            3,
+        ),
         _ => (
             u32::from_be_bytes([*body.get(1)?, *body.get(2)?, *body.get(3)?, *body.get(4)?])
                 as usize,
             5,
         ),
     };
-    // A nil element carries no payload.
     let len = if head >> 3 == 0 { 0 } else { len };
     let end = from.checked_add(len)?;
     if end > body.len() {

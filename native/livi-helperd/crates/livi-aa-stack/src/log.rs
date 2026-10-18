@@ -1,5 +1,3 @@
-//! Per-frame chatter needs TRACE on top of DEBUG.
-
 use std::sync::OnceLock;
 use std::sync::atomic::{AtomicBool, Ordering};
 

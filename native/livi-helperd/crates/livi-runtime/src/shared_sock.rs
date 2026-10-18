@@ -1,6 +1,3 @@
-// /tmp/livi-shared.sock: line-JSON RPC for what every projection shares (the phones BlueZ knows,
-// the access point, the AVRCP player), plus an event stream.
-
 use std::io;
 use std::os::unix::fs::PermissionsExt;
 use std::sync::Arc;
@@ -14,7 +11,6 @@ use crate::livi_sock::Broadcaster;
 
 pub const SOCK_PATH: &str = "/tmp/livi-shared.sock";
 
-// Default wake/profile target: the phone's HFP AG.
 const WAKE_UUID: &str = "0000111f-0000-1000-8000-00805f9b34fb";
 
 type SetPlaybackStatus = Box<dyn Fn(&str) + Send + Sync>;
@@ -22,15 +18,11 @@ type SetPlaybackStatus = Box<dyn Fn(&str) + Send + Sync>;
 pub struct SharedSockDeps {
     pub adapter: String,
     pub wifi_iface: String,
-    /// Long-lived event stream LIVI subscribes to.
     pub events: Broadcaster,
-    /// Mirrors the active session's play state into the AVRCP player.
     pub set_playback_status: SetPlaybackStatus,
-    /// Sends the phones off the dongle's access point, when that is the one in use.
     pub deauth_dongle: Option<fn() -> Option<usize>>,
 }
 
-/// Without a D-Bus connection (macOS) the BlueZ verbs answer with an error, the rest works.
 pub async fn serve(path: &str, bus: Option<Connection>, deps: SharedSockDeps) -> io::Result<()> {
     let listener = bind(path, "shared-sock")?;
     let deps = Arc::new(deps);
@@ -46,7 +38,6 @@ pub async fn serve(path: &str, bus: Option<Connection>, deps: SharedSockDeps) ->
     }
 }
 
-/// A socket every local user may talk to.
 pub(crate) fn bind(path: &str, name: &str) -> io::Result<UnixListener> {
     let _ = std::fs::remove_file(path);
     let listener = UnixListener::bind(path)?;
@@ -66,8 +57,6 @@ async fn handle(
         None => (line.as_str(), ""),
     };
 
-    // The subscription stays open for the lifetime of the connection; anything else is a
-    // one-shot request/response.
     if verb == "subscribe" {
         return run_subscriber(stream, deps.events.clone(), "shared-sock").await;
     }
@@ -87,9 +76,11 @@ async fn handle(
         },
         "deauth-ap" => {
             let count = match deps.deauth_dongle {
-                Some(deauth) => {
-                    tokio::task::spawn_blocking(deauth).await.ok().flatten().unwrap_or(0)
-                }
+                Some(deauth) => tokio::task::spawn_blocking(deauth)
+                    .await
+                    .ok()
+                    .flatten()
+                    .unwrap_or(0),
                 None => deauth_ap(&deps.wifi_iface).await,
             };
             println!("[shared-sock] deauth-ap: kicked {count} client(s)");
@@ -100,7 +91,6 @@ async fn handle(
     reply(&mut stream, &json).await
 }
 
-/// Kicks every associated station off the access point via hostapd's control socket.
 async fn deauth_ap(iface: &str) -> usize {
     let cli = |args: &[&str]| {
         tokio::process::Command::new(crate::sys::tool("hostapd_cli"))
@@ -108,7 +98,9 @@ async fn deauth_ap(iface: &str) -> usize {
             .args(args)
             .output()
     };
-    let Ok(out) = cli(&["list_sta"]).await else { return 0 };
+    let Ok(out) = cli(&["list_sta"]).await else {
+        return 0;
+    };
     let macs: Vec<String> = String::from_utf8_lossy(&out.stdout)
         .lines()
         .map(str::trim)
@@ -121,7 +113,6 @@ async fn deauth_ap(iface: &str) -> usize {
     macs.len()
 }
 
-/// Feeds pushed event lines to LIVI until it hangs up.
 pub(crate) async fn run_subscriber(
     mut stream: UnixStream,
     events: Broadcaster,
@@ -185,7 +176,11 @@ pub(crate) async fn read_line(stream: &mut UnixStream) -> io::Result<String> {
 }
 
 fn device_path(adapter: &str, mac: &str) -> String {
-    format!("/org/bluez/{}/dev_{}", adapter, mac.replace(':', "_").to_uppercase())
+    format!(
+        "/org/bluez/{}/dev_{}",
+        adapter,
+        mac.replace(':', "_").to_uppercase()
+    )
 }
 
 async fn device_call(
@@ -261,7 +256,6 @@ where
     T::try_from(value).ok()
 }
 
-/// Paired phones as the UI lists them: connected first, then by name.
 async fn list_paired(bus: &Connection, adapter: &str) -> Result<Vec<String>, String> {
     let reply = bus
         .call_method(
@@ -288,14 +282,22 @@ async fn list_paired(bus: &Connection, adapter: &str) -> Result<Vec<String>, Str
         if get_prop::<bool>(bus, &path, "Paired").await != Some(true) {
             continue;
         }
-        let mac =
-            get_prop::<String>(bus, &path, "Address").await.unwrap_or_default().to_uppercase();
+        let mac = get_prop::<String>(bus, &path, "Address")
+            .await
+            .unwrap_or_default()
+            .to_uppercase();
         let name = match get_prop::<String>(bus, &path, "Name").await {
             Some(n) if !n.is_empty() => n,
-            _ => get_prop::<String>(bus, &path, "Alias").await.unwrap_or_default(),
+            _ => get_prop::<String>(bus, &path, "Alias")
+                .await
+                .unwrap_or_default(),
         };
-        let connected = get_prop::<bool>(bus, &path, "Connected").await.unwrap_or(false);
-        let trusted = get_prop::<bool>(bus, &path, "Trusted").await.unwrap_or(false);
+        let connected = get_prop::<bool>(bus, &path, "Connected")
+            .await
+            .unwrap_or(false);
+        let trusted = get_prop::<bool>(bus, &path, "Trusted")
+            .await
+            .unwrap_or(false);
         let class = get_prop::<u32>(bus, &path, "Class").await.unwrap_or(0);
         devices.push((
             connected,
@@ -327,7 +329,16 @@ async fn bluez_verb(bus: &Connection, verb: &str, arg: &str, adapter: &str) -> S
                 Some((m, u)) => (m, Some(u)),
                 None => (arg, None),
             };
-            action(device_call(bus, adapter, mac, "ConnectProfile", uuid.or(Some(WAKE_UUID))).await)
+            action(
+                device_call(
+                    bus,
+                    adapter,
+                    mac,
+                    "ConnectProfile",
+                    uuid.or(Some(WAKE_UUID)),
+                )
+                .await,
+            )
         }
         "disconnect-profile" => {
             let (mac, uuid) = match arg.split_once(' ') {
@@ -335,7 +346,14 @@ async fn bluez_verb(bus: &Connection, verb: &str, arg: &str, adapter: &str) -> S
                 None => (arg, None),
             };
             action(
-                device_call(bus, adapter, mac, "DisconnectProfile", uuid.or(Some(WAKE_UUID))).await,
+                device_call(
+                    bus,
+                    adapter,
+                    mac,
+                    "DisconnectProfile",
+                    uuid.or(Some(WAKE_UUID)),
+                )
+                .await,
             )
         }
         "connect-full" => action(device_call(bus, adapter, arg, "Connect", None).await),

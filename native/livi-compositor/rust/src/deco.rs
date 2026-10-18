@@ -1,6 +1,3 @@
-//! Compositor-drawn decorations: titlebar, title text and round controls,
-//! rasterized with tiny-skia + ab_glyph into memory buffers for the renderer.
-
 use ab_glyph::{Font, FontVec, ScaleFont};
 use smithay::backend::allocator::Fourcc;
 use smithay::backend::renderer::element::memory::MemoryRenderBuffer;
@@ -26,8 +23,6 @@ pub enum BtnSym {
 
 #[allow(clippy::all)]
 fn to_buffer(pixmap: &Pixmap) -> MemoryRenderBuffer {
-    // tiny-skia is RGBA premultiplied, the renderer wants ARGB8888
-    // little-endian (BGRA byte order), so swap R and B.
     let mut data = pixmap.data().to_vec();
     for px in data.chunks_exact_mut(4) {
         px.swap(0, 2);
@@ -58,7 +53,13 @@ pub fn draw_button(sym: BtnSym) -> MemoryRenderBuffer {
     fill.set_color(Color::from_rgba(1.0, 1.0, 1.0, 0.10).unwrap());
     fill.anti_alias = true;
     let circle = PathBuilder::from_circle(cx, cy, rad).unwrap();
-    pm.fill_path(&circle, &fill, tiny_skia::FillRule::Winding, SkTransform::identity(), None);
+    pm.fill_path(
+        &circle,
+        &fill,
+        tiny_skia::FillRule::Winding,
+        SkTransform::identity(),
+        None,
+    );
 
     let mut stroke_paint = Paint::default();
     stroke_paint.set_color(Color::from_rgba(1.0, 1.0, 1.0, 0.80).unwrap());
@@ -101,7 +102,10 @@ pub fn draw_button(sym: BtnSym) -> MemoryRenderBuffer {
 fn load_font() -> Option<FontVec> {
     let mut db = fontdb::Database::new();
     db.load_system_fonts();
-    let query = fontdb::Query { families: &[fontdb::Family::SansSerif], ..Default::default() };
+    let query = fontdb::Query {
+        families: &[fontdb::Family::SansSerif],
+        ..Default::default()
+    };
     let id = db.query(&query)?;
     let (source, index) = db.face_source(id)?;
     let data = match source {
@@ -131,7 +135,10 @@ pub fn draw_title(text: &str) -> (MemoryRenderBuffer, i32) {
     for c in text.chars() {
         let glyph = scaled.scaled_glyph(c);
         let advance = scaled.h_advance(glyph.id);
-        let glyph = ab_glyph::Glyph { position: ab_glyph::point(x, baseline), ..glyph };
+        let glyph = ab_glyph::Glyph {
+            position: ab_glyph::point(x, baseline),
+            ..glyph
+        };
         if let Some(outline) = scaled.outline_glyph(glyph) {
             let bounds = outline.px_bounds();
             let data = pm.data_mut();
@@ -144,7 +151,6 @@ pub fn draw_title(text: &str) -> (MemoryRenderBuffer, i32) {
                 }
                 let a = (cov * 0.85 * 255.0) as u8;
                 let off = py as usize * stride + px as usize * 4;
-                // white text, premultiplied
                 data[off] = a.max(data[off]);
                 data[off + 1] = a.max(data[off + 1]);
                 data[off + 2] = a.max(data[off + 2]);

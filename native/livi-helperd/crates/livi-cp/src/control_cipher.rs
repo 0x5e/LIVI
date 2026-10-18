@@ -1,7 +1,3 @@
-//! The control channel after pair-verify: frames of [u16 LE length][ciphertext]
-//! [16-byte tag], the length as associated data, one counter nonce per
-//! direction and separate keys for reading and writing.
-
 use crate::crypto::{chacha_open, chacha_seal, nonce64};
 
 const MAX_PAYLOAD: usize = 0x4000;
@@ -18,10 +14,14 @@ pub struct ControlCipher {
 
 impl ControlCipher {
     pub fn new(read_key: [u8; 32], write_key: [u8; 32]) -> Self {
-        Self { read_key, write_key, read_ctr: 0, write_ctr: 0 }
+        Self {
+            read_key,
+            write_key,
+            read_ctr: 0,
+            write_ctr: 0,
+        }
     }
 
-    /// The second part is the start of a frame still arriving.
     pub fn decrypt(&mut self, buf: &[u8]) -> Result<(Vec<u8>, Vec<u8>), AuthFailed> {
         let mut out = Vec::new();
         let mut off = 0;
@@ -45,7 +45,6 @@ impl ControlCipher {
         Ok((out, buf[off..].to_vec()))
     }
 
-    /// Split at the 16 KiB frame limit.
     pub fn encrypt(&mut self, plain: &[u8]) -> Vec<u8> {
         let mut out = Vec::new();
         let mut i = 0;
@@ -53,7 +52,12 @@ impl ControlCipher {
             let chunk = &plain[i..(i + MAX_PAYLOAD).min(plain.len())];
             let header = (chunk.len() as u16).to_le_bytes();
             out.extend_from_slice(&header);
-            out.extend(chacha_seal(&self.write_key, &nonce64(self.write_ctr), chunk, &header));
+            out.extend(chacha_seal(
+                &self.write_key,
+                &nonce64(self.write_ctr),
+                chunk,
+                &header,
+            ));
             self.write_ctr += 1;
             i += MAX_PAYLOAD;
             if i >= plain.len() {
@@ -69,7 +73,10 @@ mod tests {
     use super::*;
 
     fn pair() -> (ControlCipher, ControlCipher) {
-        (ControlCipher::new([1; 32], [2; 32]), ControlCipher::new([2; 32], [1; 32]))
+        (
+            ControlCipher::new([1; 32], [2; 32]),
+            ControlCipher::new([2; 32], [1; 32]),
+        )
     }
 
     #[test]
@@ -82,7 +89,9 @@ mod tests {
         let (plain, rest) = ours.decrypt(&stream[..a.len() + 5]).unwrap();
         assert_eq!(plain, b"GET /info RTSP/1.0\r\n\r\n");
         assert_eq!(rest.len(), 5);
-        let (plain, rest) = ours.decrypt(&[rest, stream[a.len() + 5..].to_vec()].concat()).unwrap();
+        let (plain, rest) = ours
+            .decrypt(&[rest, stream[a.len() + 5..].to_vec()].concat())
+            .unwrap();
         assert_eq!(plain, b"OPTIONS * RTSP/1.0\r\n\r\n");
         assert!(rest.is_empty());
     }

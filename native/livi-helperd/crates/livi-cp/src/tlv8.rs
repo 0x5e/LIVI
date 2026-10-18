@@ -1,13 +1,9 @@
-//! TLV8 as the pairing messages carry it: [type][length][value], values over
-//! 255 bytes split into consecutive items of the same type.
-
 use std::collections::BTreeMap;
 
 pub fn encode(items: &[(u8, &[u8])]) -> Vec<u8> {
     let mut out = Vec::new();
     let mut prev: Option<u8> = None;
     for &(kind, value) in items {
-        // Without a separator two adjacent items of one type would read back as one.
         if prev == Some(kind) {
             out.extend_from_slice(&[0xff, 0x00]);
         }
@@ -27,7 +23,6 @@ pub fn encode(items: &[(u8, &[u8])]) -> Vec<u8> {
     out
 }
 
-/// A fragment only continues a value whose previous item was a full 255 bytes.
 pub fn decode(buf: &[u8]) -> BTreeMap<u8, Vec<u8>> {
     let mut out: BTreeMap<u8, Vec<u8>> = BTreeMap::new();
     let mut p = 0;
@@ -65,7 +60,10 @@ mod tests {
 
     #[test]
     fn adjacent_items_of_one_type_get_a_separator() {
-        assert_eq!(encode(&[(1, b"a"), (1, b"b")]), vec![1, 1, b'a', 0xff, 0, 1, 1, b'b']);
+        assert_eq!(
+            encode(&[(1, b"a"), (1, b"b")]),
+            vec![1, 1, b'a', 0xff, 0, 1, 1, b'b']
+        );
         assert_eq!(decode(&encode(&[(1, b"a"), (1, b"b")]))[&1], b"b".to_vec());
     }
 

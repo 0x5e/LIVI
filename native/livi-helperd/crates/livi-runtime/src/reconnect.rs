@@ -1,5 +1,3 @@
-// Round-robins paired phones back over Bluetooth after a restart.
-
 use std::collections::HashMap;
 use std::collections::hash_map::Entry;
 use std::sync::Arc;
@@ -35,17 +33,14 @@ pub async fn run(conn: Connection, adapter: String, ap_iface: String, state: Arc
         rr = rr.wrapping_add(1);
 
         let path = device_path(&adapter, &mac);
-        // No BlueZ device object for this MAC
         let connected = match device_connected(&conn, &path).await {
             Some(c) => c,
             None => continue,
         };
 
         if connected {
-            // Out of the rotation: nudge the profile, disconnect after STALE so it re-pages.
             attempts.remove(&mac);
             next_try.remove(&mac);
-            // A link in progress, for instance still waiting for the access point, is not stale.
             if state.link_active(&mac) {
                 stale_since.remove(&mac);
                 continue;
@@ -74,7 +69,6 @@ pub async fn run(conn: Connection, adapter: String, ap_iface: String, state: Arc
 
         stale_since.remove(&mac);
 
-        // Absent phone: after the fast pokes, only poke every SLOW_INTERVAL.
         if next_try.get(&mac).is_some_and(|t| Instant::now() < *t) {
             continue;
         }
@@ -91,11 +85,9 @@ pub async fn run(conn: Connection, adapter: String, ap_iface: String, state: Arc
                 continue;
             }
             Ok(Err(e)) => println!("[cp] reconnect: {mac} page failed: {e}"),
-            // The poke woke it; the next pass catches it.
             Err(_) => {}
         }
 
-        // After FAST_ATTEMPTS quick pokes, drop to the slow poll.
         let n = attempts.entry(mac.clone()).or_insert(0);
         *n += 1;
         if *n >= FAST_ATTEMPTS {
@@ -105,7 +97,11 @@ pub async fn run(conn: Connection, adapter: String, ap_iface: String, state: Arc
 }
 
 fn device_path(adapter: &str, mac: &str) -> String {
-    format!("/org/bluez/{}/dev_{}", adapter, mac.replace(':', "_").to_uppercase())
+    format!(
+        "/org/bluez/{}/dev_{}",
+        adapter,
+        mac.replace(':', "_").to_uppercase()
+    )
 }
 
 async fn device_connected(conn: &Connection, path: &str) -> Option<bool> {
@@ -136,14 +132,27 @@ async fn page(conn: &Connection, path: &str, uuid: Option<&str>) -> Result<(), z
             .await?;
         }
         None => {
-            conn.call_method(Some("org.bluez"), path, Some("org.bluez.Device1"), "Connect", &())
-                .await?;
+            conn.call_method(
+                Some("org.bluez"),
+                path,
+                Some("org.bluez.Device1"),
+                "Connect",
+                &(),
+            )
+            .await?;
         }
     }
     Ok(())
 }
 
 async fn disconnect(conn: &Connection, path: &str) -> Result<(), zbus::Error> {
-    conn.call_method(Some("org.bluez"), path, Some("org.bluez.Device1"), "Disconnect", &()).await?;
+    conn.call_method(
+        Some("org.bluez"),
+        path,
+        Some("org.bluez.Device1"),
+        "Disconnect",
+        &(),
+    )
+    .await?;
     Ok(())
 }

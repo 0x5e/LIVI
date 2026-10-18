@@ -1,7 +1,3 @@
-// One phone connection: version and TLS handshakes, then the demux. Media on the
-// AV channels goes to gst-host and is acked here where the protocol still wants acks,
-// everything else is relayed to the main process over the session socket.
-
 use std::collections::{HashMap, HashSet, VecDeque};
 use std::net::IpAddr;
 use std::os::unix::fs::PermissionsExt;
@@ -23,13 +19,11 @@ use livi_session_io::feed::FeedWriter;
 use livi_session_io::link;
 
 const NODE_ACCEPT_TIMEOUT: Duration = Duration::from_secs(10);
-/// Idle limit until the session is running, like the main process had.
 const SETUP_TIMEOUT: Duration = Duration::from_secs(30);
 const VIDEO_BACKLOG: usize = 240;
 const AUDIO_BACKLOG: usize = 64;
 const READ_CHUNK: usize = 65536;
 
-/// Removes the session socket once the session is gone.
 struct SocketPath(String);
 
 impl Drop for SocketPath {
@@ -38,16 +32,12 @@ impl Drop for SocketPath {
     }
 }
 
-/// The phone behind a session: a label for the logs and the main process, and the
-/// address the TLS client is built for. USB sessions carry a placeholder address.
 pub struct Peer {
     pub label: String,
     pub ip: IpAddr,
 }
 
-/// How a session ended, for the transport that carried it.
 pub struct SessionEnd {
-    /// The main process asked for the end, so the phone should stay put.
     pub closed_by_node: bool,
 }
 
@@ -58,14 +48,12 @@ enum Phase {
     Running,
 }
 
-/// How often the phone wants our pings and when it counts us as gone.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 struct PingConfig {
     interval_ms: u64,
     timeout_ms: u64,
 }
 
-/// The phone's ping wishes from the options that follow the version response.
 fn ping_config(options: &[u8]) -> Option<PingConfig> {
     let options = VersionResponseOptions::decode(options).ok()?;
     let ping = options.connection_configuration?.ping_configuration?;
@@ -75,15 +63,11 @@ fn ping_config(options: &[u8]) -> Option<PingConfig> {
     })
 }
 
-/// Where the media of each channel goes, as the main process configured it.
 #[derive(Default)]
 struct Sinks {
     feed: Option<(String, FeedWriter)>,
-    /// Channel → plane id and codec byte.
     video: HashMap<u8, (u32, u8)>,
-    /// Channel → stream id.
     audio: HashMap<u8, u32>,
-    /// Media that arrived before its sink was known.
     backlog: HashMap<u8, VecDeque<(u64, Vec<u8>)>>,
 }
 
@@ -94,17 +78,30 @@ impl Sinks {
             && self.feed.as_ref().is_none_or(|(p, _)| p != path)
         {
             self.feed = Some((path.to_owned(), FeedWriter::open(path.to_owned())));
-            let known: Vec<(u8, u32, u8)> =
-                self.video.iter().map(|(ch, (id, codec))| (*ch, *id, *codec)).collect();
+            let known: Vec<(u8, u32, u8)> = self
+                .video
+                .iter()
+                .map(|(ch, (id, codec))| (*ch, *id, *codec))
+                .collect();
             for (_, id, codec) in known {
-                self.send(feedproto::encode(feedproto::KIND_VIDEO_START, id, 0, &[codec]));
+                self.send(feedproto::encode(
+                    feedproto::KIND_VIDEO_START,
+                    id,
+                    0,
+                    &[codec],
+                ));
             }
             let waiting: Vec<u8> = self.backlog.keys().copied().collect();
             for ch in waiting {
                 self.flush(ch);
             }
         }
-        for entry in v.get("video").and_then(|a| a.as_array()).into_iter().flatten() {
+        for entry in v
+            .get("video")
+            .and_then(|a| a.as_array())
+            .into_iter()
+            .flatten()
+        {
             let (Some(ch), Some(id)) = (
                 entry.get("ch").and_then(|c| c.as_u64()),
                 entry.get("id").and_then(|i| i.as_u64()),
@@ -117,10 +114,20 @@ impl Sinks {
                 _ => 0xff,
             };
             self.video.insert(ch as u8, (id as u32, codec));
-            self.send(feedproto::encode(feedproto::KIND_VIDEO_START, id as u32, 0, &[codec]));
+            self.send(feedproto::encode(
+                feedproto::KIND_VIDEO_START,
+                id as u32,
+                0,
+                &[codec],
+            ));
             self.flush(ch as u8);
         }
-        for entry in v.get("audio").and_then(|a| a.as_array()).into_iter().flatten() {
+        for entry in v
+            .get("audio")
+            .and_then(|a| a.as_array())
+            .into_iter()
+            .flatten()
+        {
             let (Some(ch), Some(id)) = (
                 entry.get("ch").and_then(|c| c.as_u64()),
                 entry.get("id").and_then(|i| i.as_u64()),
@@ -132,7 +139,6 @@ impl Sinks {
         }
     }
 
-    /// Media waits in the backlog until both the feed and the channel's sink are known.
     fn push(&mut self, ch: u8, ts: u64, data: &[u8]) {
         if self.feed.is_some()
             && let Some((kind, id)) = self.target(ch)
@@ -140,7 +146,11 @@ impl Sinks {
             self.send(feedproto::encode(kind, id, ts, data));
             return;
         }
-        let limit = if is_video_channel(ch) { VIDEO_BACKLOG } else { AUDIO_BACKLOG };
+        let limit = if is_video_channel(ch) {
+            VIDEO_BACKLOG
+        } else {
+            AUDIO_BACKLOG
+        };
         let q = self.backlog.entry(ch).or_default();
         if q.len() >= limit {
             q.pop_front();
@@ -152,8 +162,12 @@ impl Sinks {
         if self.feed.is_none() {
             return;
         }
-        let Some((kind, id)) = self.target(ch) else { return };
-        let Some(q) = self.backlog.remove(&ch) else { return };
+        let Some((kind, id)) = self.target(ch) else {
+            return;
+        };
+        let Some(q) = self.backlog.remove(&ch) else {
+            return;
+        };
         for (ts, data) in q {
             self.send(feedproto::encode(kind, id, ts, &data));
         }
@@ -175,7 +189,6 @@ impl Sinks {
 
 struct Session<W> {
     peer: Peer,
-    /// Where the microphone tap delivers, told to the main process at ready.
     mic_path: String,
     wr: W,
     node_tx: mpsc::Sender<Vec<u8>>,
@@ -183,11 +196,9 @@ struct Session<W> {
     parser: FrameParser,
     splitter: FrameSplitter,
     tls: Option<TlsEngine>,
-    /// The version the phone agreed to, major and minor.
     protocol: (u16, u16),
     ping: Option<PingConfig>,
     sinks: Sinks,
-    /// Channel → session id from its START_INDICATION, for the acks.
     session_ids: HashMap<u8, u32>,
     announced: HashSet<u8>,
     closed_sent: bool,
@@ -210,13 +221,17 @@ where
     let node_stream = match tokio::time::timeout(NODE_ACCEPT_TIMEOUT, node.accept()).await {
         Ok(Ok((s, _))) => s,
         _ => {
-            eprintln!("[aa-session] {}: main process did not attach to {node_path}", peer.label);
-            return SessionEnd { closed_by_node: false };
+            eprintln!(
+                "[aa-session] {}: main process did not attach to {node_path}",
+                peer.label
+            );
+            return SessionEnd {
+                closed_by_node: false,
+            };
         }
     };
     drop(node);
 
-    // The microphone tap the main process opens in the pipeline connects here.
     let mic_path = format!("{node_path}.mic");
     let _mic_path = SocketPath(mic_path.clone());
     let (mic_tx, mut mic_rx) = mpsc::channel::<(u64, Vec<u8>)>(64);
@@ -278,7 +293,9 @@ where
 
     if let Err(e) = s.send_version_request().await {
         s.closed(&e).await;
-        return SessionEnd { closed_by_node: false };
+        return SessionEnd {
+            closed_by_node: false,
+        };
     }
 
     let mut buf = vec![0u8; READ_CHUNK];
@@ -340,21 +357,31 @@ where
         "[aa-session] {}: session over, video={} audio={}",
         s.peer.label, s.video_frames, s.audio_frames
     );
-    SessionEnd { closed_by_node: s.closed_by_node }
+    SessionEnd {
+        closed_by_node: s.closed_by_node,
+    }
 }
 
 impl<W: AsyncWrite + Unpin + Send> Session<W> {
     async fn send_version_request(&mut self) -> Result<(), String> {
         let mut data = VERSION_MAJOR.to_be_bytes().to_vec();
         data.extend_from_slice(&VERSION_MINOR.to_be_bytes());
-        self.write(&frame::encode(CH_CONTROL, FLAGS_PLAINTEXT, CTRL_VERSION_REQUEST, &data)).await
+        self.write(&frame::encode(
+            CH_CONTROL,
+            FLAGS_PLAINTEXT,
+            CTRL_VERSION_REQUEST,
+            &data,
+        ))
+        .await
     }
 
     async fn write(&mut self, bytes: &[u8]) -> Result<(), String> {
-        self.wr.write_all(bytes).await.map_err(|e| format!("write: {e}"))
+        self.wr
+            .write_all(bytes)
+            .await
+            .map_err(|e| format!("write: {e}"))
     }
 
-    /// False once the main process is gone.
     async fn control(&mut self, json: &str) -> bool {
         self.node_tx.send(link::encode_control(json)).await.is_ok()
     }
@@ -390,10 +417,14 @@ impl<W: AsyncWrite + Unpin + Send> Session<W> {
         }
         loop {
             if self.phase == Phase::Running {
-                let Some(f) = self.splitter.next_frame() else { break };
+                let Some(f) = self.splitter.next_frame() else {
+                    break;
+                };
                 self.on_frame(f).await?;
             } else {
-                let Some(f) = self.parser.next_frame() else { break };
+                let Some(f) = self.parser.next_frame() else {
+                    break;
+                };
                 self.on_setup_frame(f).await?;
             }
         }
@@ -402,10 +433,11 @@ impl<W: AsyncWrite + Unpin + Send> Session<W> {
 
     async fn on_setup_frame(&mut self, f: RawFrame) -> Result<(), String> {
         if f.flags & FLAG_ENCRYPTED != 0 {
-            // an encrypted frame riding on the segment that finished the handshake
             return self.on_encrypted(f).await;
         }
-        let Some((msg_id, body)) = f.message() else { return Ok(()) };
+        let Some((msg_id, body)) = f.message() else {
+            return Ok(());
+        };
         match (msg_id, &self.phase) {
             (CTRL_VERSION_RESPONSE, Phase::Version) => {
                 if body.len() < 6 {
@@ -468,7 +500,10 @@ impl<W: AsyncWrite + Unpin + Send> Session<W> {
             ),
             None => String::new(),
         };
-        println!("[aa-session] {}: tls up, protocol {major}.{minor}{ping}", self.peer.label);
+        println!(
+            "[aa-session] {}: tls up, protocol {major}.{minor}{ping}",
+            self.peer.label
+        );
         let mut ready =
             serde_json::json!({ "type": "ready", "peer": self.peer.label, "mic": self.mic_path });
         if let Some(p) = self.ping {
@@ -495,7 +530,9 @@ impl<W: AsyncWrite + Unpin + Send> Session<W> {
 
     async fn on_encrypted(&mut self, f: RawFrame) -> Result<(), String> {
         let tls = self.tls.as_mut().ok_or("encrypted frame before tls")?;
-        let messages = tls.inject_record(f.ch, f.flags, &f.payload).map_err(|e| e.to_string())?;
+        let messages = tls
+            .inject_record(f.ch, f.flags, &f.payload)
+            .map_err(|e| e.to_string())?;
         for m in messages {
             self.dispatch(m).await?;
         }
@@ -508,7 +545,8 @@ impl<W: AsyncWrite + Unpin + Send> Session<W> {
                 return self.media(m).await;
             }
             if m.msg_id == MEDIA_START {
-                self.session_ids.insert(m.ch, av::start_session_id(&m.payload).unwrap_or(0));
+                self.session_ids
+                    .insert(m.ch, av::start_session_id(&m.payload).unwrap_or(0));
             }
         }
         self.forward(m.ch, m.flags, m.msg_id, &m.payload).await
@@ -544,7 +582,6 @@ impl<W: AsyncWrite + Unpin + Send> Session<W> {
         Ok(())
     }
 
-    /// Captured samples go to the phone's microphone channel, stamped in microseconds.
     async fn send_mic(&mut self, ts_ns: u64, pcm: &[u8]) -> Result<(), String> {
         if self.phase != Phase::Running || pcm.is_empty() {
             return Ok(());
@@ -575,20 +612,20 @@ impl<W: AsyncWrite + Unpin + Send> Session<W> {
                 );
                 return Ok(());
             };
-            tls.encrypt(ch, flags, msg_id, payload).map_err(|e| e.to_string())?
+            tls.encrypt(ch, flags, msg_id, payload)
+                .map_err(|e| e.to_string())?
         } else {
             frame::encode(ch, flags, msg_id, payload)
         };
         self.write(&wire).await
     }
 
-    /// False when the main process asked for the end of the session.
     async fn on_control(&mut self, json: &str) -> bool {
-        let Ok(v) = serde_json::from_str::<serde_json::Value>(json) else { return true };
+        let Ok(v) = serde_json::from_str::<serde_json::Value>(json) else {
+            return true;
+        };
         match v.get("type").and_then(|t| t.as_str()) {
             Some("sink") => self.sinks.apply(&v),
-            // A session the main process ends before it ran is a failed bring-up,
-            // which the transport may retry.
             Some("end") => {
                 self.closed_by_node = self.phase == Phase::Running;
                 let _ = self.wr.shutdown().await;
@@ -603,7 +640,6 @@ impl<W: AsyncWrite + Unpin + Send> Session<W> {
     }
 }
 
-/// Takes the microphone records the pipeline streams in, one connection at a time.
 async fn listen_mic(listener: UnixListener, tx: mpsc::Sender<(u64, Vec<u8>)>) {
     loop {
         tokio::select! {
@@ -630,7 +666,6 @@ async fn read_mic(mut sock: UnixStream, tx: mpsc::Sender<(u64, Vec<u8>)>) {
         framer.push(&buf[..n]);
         while let Some(record) = framer.next_record() {
             if record.kind == feedproto::KIND_MIC {
-                // a slow session drops samples rather than piling them up
                 let _ = tx.try_send((record.ts, record.payload));
             }
         }
@@ -638,7 +673,10 @@ async fn read_mic(mut sock: UnixStream, tx: mpsc::Sender<(u64, Vec<u8>)>) {
 }
 
 fn now_ns() -> u64 {
-    SystemTime::now().duration_since(UNIX_EPOCH).map(|d| d.as_nanos() as u64).unwrap_or(0)
+    SystemTime::now()
+        .duration_since(UNIX_EPOCH)
+        .map(|d| d.as_nanos() as u64)
+        .unwrap_or(0)
 }
 
 #[cfg(test)]
@@ -647,11 +685,18 @@ mod tests {
 
     #[test]
     fn the_phone_ping_wishes_come_out_of_the_version_response() {
-        // The app's default: timeout 8000, interval 1000, high latency 200, 5 tracked pings.
-        let ping = [0x08, 0xc0, 0x3e, 0x10, 0xe8, 0x07, 0x18, 0xc8, 0x01, 0x20, 0x05];
+        let ping = [
+            0x08, 0xc0, 0x3e, 0x10, 0xe8, 0x07, 0x18, 0xc8, 0x01, 0x20, 0x05,
+        ];
         let connection = [&[0x0a, ping.len() as u8][..], &ping].concat();
         let options = [&[0x0a, connection.len() as u8][..], &connection].concat();
-        assert_eq!(ping_config(&options), Some(PingConfig { interval_ms: 1000, timeout_ms: 8000 }));
+        assert_eq!(
+            ping_config(&options),
+            Some(PingConfig {
+                interval_ms: 1000,
+                timeout_ms: 8000
+            })
+        );
         assert_eq!(ping_config(&[]), None);
         assert_eq!(ping_config(&[0x0a, 0x02, 0x0a, 0x00]), None);
     }

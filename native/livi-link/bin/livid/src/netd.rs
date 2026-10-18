@@ -22,8 +22,10 @@ const MSG_ACK: u8 = 5;
 
 fn livid_main(args: &[String]) -> ExitCode {
     let iface = args.first().cloned().unwrap_or_else(|| "usb0".into());
-    let server_ip: Ipv4Addr =
-        args.get(1).and_then(|s| s.parse().ok()).unwrap_or(Ipv4Addr::new(10, 10, 10, 1));
+    let server_ip: Ipv4Addr = args
+        .get(1)
+        .and_then(|s| s.parse().ok())
+        .unwrap_or(Ipv4Addr::new(10, 10, 10, 1));
     let pool_start: u8 = args.get(2).and_then(|s| s.parse().ok()).unwrap_or(100);
     let pool_end: u8 = args.get(3).and_then(|s| s.parse().ok()).unwrap_or(199);
     let hostname: String = args.get(4).cloned().unwrap_or_else(|| "livi-link".into());
@@ -39,7 +41,6 @@ fn livid_main(args: &[String]) -> ExitCode {
         }
     });
 
-    // If the mDNS loop ever returns, init respawns the process.
     livi_mdns::daemon::run(&[hostname, iface])
 }
 
@@ -51,14 +52,23 @@ struct Leases {
 }
 impl Leases {
     fn new(pool_start: u8, pool_end: u8) -> Self {
-        Self { entries: Vec::new(), next: pool_start, pool_start, pool_end }
+        Self {
+            entries: Vec::new(),
+            next: pool_start,
+            pool_start,
+            pool_end,
+        }
     }
     fn assign(&mut self, mac: [u8; 6]) -> u8 {
         if let Some(&(_, ip)) = self.entries.iter().find(|(m, _)| *m == mac) {
             return ip;
         }
         let ip = self.next;
-        self.next = if self.next >= self.pool_end { self.pool_start } else { self.next + 1 };
+        self.next = if self.next >= self.pool_end {
+            self.pool_start
+        } else {
+            self.next + 1
+        };
         self.entries.push((mac, ip));
         ip
     }
@@ -100,7 +110,12 @@ fn dhcp_server(iface: &str, server_ip: Ipv4Addr, pool_start: u8, pool_end: u8) -
             sin_addr: libc::in_addr { s_addr: 0 },
             sin_zero: [0; 8],
         };
-        if libc::bind(sock, &addr as *const _ as *const _, size_of_val(&addr) as u32) < 0 {
+        if libc::bind(
+            sock,
+            &addr as *const _ as *const _,
+            size_of_val(&addr) as u32,
+        ) < 0
+        {
             return Err(io::Error::last_os_error());
         }
         eprintln!("[livi-netd] dhcp bound to :67 on {iface}");
@@ -168,10 +183,18 @@ fn dhcp_server(iface: &str, server_ip: Ipv4Addr, pool_start: u8, pool_end: u8) -
             };
             let so = server_ip.octets();
             let yiaddr = Ipv4Addr::new(so[0], so[1], so[2], last_octet);
-            let reply_type = if msgtype == MSG_DISCOVER { MSG_OFFER } else { MSG_ACK };
+            let reply_type = if msgtype == MSG_DISCOVER {
+                MSG_OFFER
+            } else {
+                MSG_ACK
+            };
 
             let out = build_reply(xid, flags, chaddr, yiaddr, server_ip, reply_type);
-            let label = if reply_type == MSG_OFFER { "OFFER" } else { "ACK" };
+            let label = if reply_type == MSG_OFFER {
+                "OFFER"
+            } else {
+                "ACK"
+            };
             eprintln!("[livi-netd] dhcp {label} -> {yiaddr} mac={:02x?}", chaddr);
 
             let dst = libc::sockaddr_in {
@@ -219,7 +242,6 @@ fn build_reply(
     b.extend_from_slice(&server_ip.octets());
     b.extend_from_slice(&[OPT_LEASE, 4, 0, 0x01, 0x51, 0x80]);
     b.extend_from_slice(&[OPT_SUBNET, 4, 255, 255, 255, 0]);
-    // No router or DNS option, the host must never route traffic through the dongle.
     b.push(OPT_END);
     while b.len() < 300 {
         b.push(0);

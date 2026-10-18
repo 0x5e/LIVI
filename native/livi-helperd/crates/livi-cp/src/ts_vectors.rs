@@ -21,8 +21,16 @@ fn check(name: &str, bytes: &[u8]) {
     match &all[name] {
         Json::String(expected) => assert_eq!(&hex(bytes), expected, "{name}"),
         Json::Object(o) => {
-            assert_eq!(bytes.len() as u64, o["len"].as_u64().unwrap(), "{name} length");
-            assert_eq!(hex(&sha256(&[bytes])), o["sha256"].as_str().unwrap(), "{name} content");
+            assert_eq!(
+                bytes.len() as u64,
+                o["len"].as_u64().unwrap(),
+                "{name} length"
+            );
+            assert_eq!(
+                hex(&sha256(&[bytes])),
+                o["sha256"].as_str().unwrap(),
+                "{name} content"
+            );
         }
         _ => panic!("no vector {name}"),
     }
@@ -41,7 +49,12 @@ fn info_config() -> InfoConfig {
             width_physical_mm: Some(200),
             fps: Some(60),
             view_area: Some(Insets::default()),
-            safe_area: Some(Insets { top: 0, bottom: 0, left: 10, right: 10 }),
+            safe_area: Some(Insets {
+                top: 0,
+                bottom: 0,
+                left: 10,
+                right: 10,
+            }),
             safe_area_draw_outside: Some(true),
             ..Default::default()
         },
@@ -68,7 +81,10 @@ fn info_config() -> InfoConfig {
 
 #[test]
 fn tlv8_matches() {
-    check("tlv8", &tlv8::encode(&[(6, &[1]), (3, &[7; 300]), (3, b"x"), (1, &[])]));
+    check(
+        "tlv8",
+        &tlv8::encode(&[(6, &[1]), (3, &[7; 300]), (3, b"x"), (1, &[])]),
+    );
 }
 
 #[test]
@@ -76,7 +92,10 @@ fn rtsp_matches() {
     let (reqs, _) = parse(b"GET /info RTSP/1.0\r\nCSeq: 5\r\n\r\n");
     let res = Response {
         headers: vec![
-            ("Content-Type".into(), "application/x-apple-binary-plist".into()),
+            (
+                "Content-Type".into(),
+                "application/x-apple-binary-plist".into(),
+            ),
             ("CSeq".into(), "0".into()),
         ],
         body: b"ab".to_vec(),
@@ -85,7 +104,13 @@ fn rtsp_matches() {
     check("rtsp", &build_response(&reqs[0], res));
     check(
         "rtsp500",
-        &build_response(&reqs[0], Response { status: Some(500), ..Default::default() }),
+        &build_response(
+            &reqs[0],
+            Response {
+                status: Some(500),
+                ..Default::default()
+            },
+        ),
     );
 }
 
@@ -139,8 +164,16 @@ fn hid_matches() {
     check(
         "touch",
         &touch_report(&[
-            Contact { x: 100.5, y: 719.49, down: true },
-            Contact { x: 3.0, y: 4.0, down: false },
+            Contact {
+                x: 100.5,
+                y: 719.49,
+                down: true,
+            },
+            Contact {
+                x: 3.0,
+                y: 4.0,
+                down: false,
+            },
         ]),
     );
     check(
@@ -163,18 +196,30 @@ fn hid_matches() {
 #[test]
 fn cipher_matches() {
     let mut c = ControlCipher::new([1; 32], [2; 32]);
-    check("cipher", &c.encrypt(&[vec![0x41; 16384], b"tail".to_vec()].concat()));
+    check(
+        "cipher",
+        &c.encrypt(&[vec![0x41; 16384], b"tail".to_vec()].concat()),
+    );
     check("cipher2", &c.encrypt(b"second"));
 }
 
 #[test]
 fn primitives_match() {
-    check("hkdf", &hkdf_sha512(&[9; 32], b"Control-Salt", b"Control-Read-Encryption-Key"));
-    check("aesctr", &aes_ctr128(&[1; 16], &[2; 16], b"a signature of some length here"));
+    check(
+        "hkdf",
+        &hkdf_sha512(&[9; 32], b"Control-Salt", b"Control-Read-Encryption-Key"),
+    );
+    check(
+        "aesctr",
+        &aes_ctr128(&[1; 16], &[2; 16], b"a signature of some length here"),
+    );
     check("sha1", &sha1(&[b"AES-KEY", &[3; 32]]));
     check("sha256", &sha256(&[b"a", b"b"]));
     check("edSig", &ed25519_sign(&[5; 32], b"sign me"));
-    check("chachaLabel", &chacha_seal(&[4; 32], &nonce_label("PV-Msg02"), b"sub tlv", &[]));
+    check(
+        "chachaLabel",
+        &chacha_seal(&[4; 32], &nonce_label("PV-Msg02"), b"sub tlv", &[]),
+    );
     check("nonce", &nonce64(0x01_0203_0405));
 }
 

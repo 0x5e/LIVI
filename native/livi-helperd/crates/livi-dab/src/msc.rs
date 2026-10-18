@@ -1,7 +1,3 @@
-// Main service channel: one sub-channel cut out of every CIF, time
-// deinterleaved over 16 CIFs, EEP depunctured, Viterbi decoded and
-// descrambled into logical frames.
-
 use crate::fec::{Puncturing, descramble, pack, viterbi};
 use crate::fic::{Protection, Subchannel};
 
@@ -9,9 +5,10 @@ const CU_BITS: usize = 64;
 const DEPTH: usize = 16;
 const DELAY: [usize; DEPTH] = [0, 8, 4, 12, 2, 10, 6, 14, 1, 9, 5, 13, 3, 11, 7, 15];
 
-/// Puncturing of an equal error protection sub-channel.
 pub fn eep_puncturing(sub: &Subchannel) -> Option<Puncturing> {
-    let Protection::Eep { option, level } = sub.protection else { return None };
+    let Protection::Eep { option, level } = sub.protection else {
+        return None;
+    };
     let size = sub.size as usize;
     let runs = match (option, level) {
         (0, level) => {
@@ -56,15 +53,19 @@ impl SubchannelDecoder {
         if puncturing.coded_bits() != bits {
             return None;
         }
-        Some(Self { sub, puncturing, ring: vec![vec![0; bits]; DEPTH], index: 0, filled: 0 })
+        Some(Self {
+            sub,
+            puncturing,
+            ring: vec![vec![0; bits]; DEPTH],
+            index: 0,
+            filled: 0,
+        })
     }
 
     pub fn subchannel(&self) -> &Subchannel {
         &self.sub
     }
 
-    /// One CIF of soft bits in, one logical frame out once the interleaver
-    /// is full.
     pub fn process_cif(&mut self, cif: &[i8]) -> Option<Vec<u8>> {
         let start = self.sub.start as usize * CU_BITS;
         let input = cif.get(start..start + self.sub.size as usize * CU_BITS)?;
@@ -89,7 +90,12 @@ mod tests {
     use super::*;
 
     fn sub(size: u16, option: u8, level: u8) -> Subchannel {
-        Subchannel { id: 1, start: 0, size, protection: Protection::Eep { option, level } }
+        Subchannel {
+            id: 1,
+            start: 0,
+            size,
+            protection: Protection::Eep { option, level },
+        }
     }
 
     #[test]
@@ -106,10 +112,20 @@ mod tests {
         ] {
             for n in 1..=12u16 {
                 let s = sub(unit * n, option, level);
-                let Some(p) = eep_puncturing(&s) else { continue };
-                assert_eq!(p.coded_bits(), s.size as usize * CU_BITS, "{option} {level} {n}");
+                let Some(p) = eep_puncturing(&s) else {
+                    continue;
+                };
+                assert_eq!(
+                    p.coded_bits(),
+                    s.size as usize * CU_BITS,
+                    "{option} {level} {n}"
+                );
                 let rate = if option == 0 { 8 } else { 32 };
-                assert_eq!(p.info_bits(), rate * n as usize * 24, "{option} {level} {n}");
+                assert_eq!(
+                    p.info_bits(),
+                    rate * n as usize * 24,
+                    "{option} {level} {n}"
+                );
             }
         }
     }

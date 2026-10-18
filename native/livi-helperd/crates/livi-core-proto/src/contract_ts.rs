@@ -17,8 +17,11 @@ const HEADER: &str = "// This file is auto-generated from livi-core-proto.";
 
 fn sorted(contents: &str) -> String {
     let (_, body) = contents.split_once("\n\n").unwrap();
-    let mut decls: Vec<&str> =
-        body.split("\n\n").map(|d| d.trim_matches('\n')).filter(|d| !d.is_empty()).collect();
+    let mut decls: Vec<&str> = body
+        .split("\n\n")
+        .map(|d| d.trim_matches('\n'))
+        .filter(|d| !d.is_empty())
+        .collect();
     decls.sort_by_key(|d| declared_name(d));
     format!("{HEADER}\n\n{}\n", decls.join("\n\n"))
 }
@@ -27,7 +30,11 @@ fn declared_name(decl: &str) -> &str {
     ["export type ", "export enum ", "export const "]
         .iter()
         .find_map(|kw| decl.split_once(kw))
-        .map(|(_, rest)| rest.split(|c: char| c == '<' || c.is_whitespace()).next().unwrap_or(rest))
+        .map(|(_, rest)| {
+            rest.split(|c: char| c == '<' || c.is_whitespace())
+                .next()
+                .unwrap_or(rest)
+        })
         .unwrap_or(decl)
 }
 
@@ -39,12 +46,17 @@ fn checked_in() -> PathBuf {
 fn typescript_contract_is_current() {
     let out = std::env::temp_dir().join(format!("livi-core-proto-{}", std::process::id()));
     let _ = fs::remove_dir_all(&out);
-    let cfg = ts_rs::Config::new().with_large_int("number").with_out_dir(&out);
+    let cfg = ts_rs::Config::new()
+        .with_large_int("number")
+        .with_out_dir(&out);
     ToCore::export_all(&cfg).unwrap();
     FromCore::export_all(&cfg).unwrap();
     TelemetrySnapshot::export_all(&cfg).unwrap();
 
-    let files: Vec<_> = fs::read_dir(&out).unwrap().map(|e| e.unwrap().file_name()).collect();
+    let files: Vec<_> = fs::read_dir(&out)
+        .unwrap()
+        .map(|e| e.unwrap().file_name())
+        .collect();
     let generated = fs::read_to_string(out.join(FILE));
     let _ = fs::remove_dir_all(&out);
     assert_eq!(files, [FILE], "every contract type has to export to {FILE}");

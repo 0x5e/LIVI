@@ -1,5 +1,3 @@
-/// Where a system program lives. The PATH we inherit may carry no /usr/sbin, and a program
-/// that is not found fails the same way as one that answers nothing.
 pub fn tool(name: &str) -> String {
     for dir in ["/usr/sbin", "/sbin", "/usr/bin", "/bin"] {
         let path = format!("{dir}/{name}");
@@ -14,7 +12,6 @@ pub fn tool(name: &str) -> String {
 mod tests {
     use super::tool;
 
-    // Whether it lands in /bin or /usr/bin depends on the distribution.
     #[test]
     fn a_program_that_is_there_comes_back_with_its_directory() {
         let sh = tool("sh");

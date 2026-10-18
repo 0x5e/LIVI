@@ -7,9 +7,7 @@ use crate::privileged::sudo;
 
 const ZONEINFO: &str = "/usr/share/zoneinfo";
 
-/// The system's own zone may not show this one yet.
 static APPLIED: Mutex<Option<String>> = Mutex::new(None);
-/// Once GPS named a zone the phone's offset from UTC has no say any more.
 static GPS_ZONE: Mutex<Option<String>> = Mutex::new(None);
 
 pub fn zone_for_position(lat: f64, lng: f64) -> Option<&'static str> {
@@ -19,8 +17,6 @@ pub fn zone_for_position(lat: f64, lng: f64) -> Option<&'static str> {
     Some(lookup(lat, lng))
 }
 
-/// tz-lookup's walk down its quadtree. The top level is a grid of 48 by 24
-/// cells, each further level halves the cell until a leaf names the zone.
 fn lookup(lat: f64, lng: f64) -> &'static str {
     if lat >= 90.0 {
         return "Etc/GMT";
@@ -69,12 +65,12 @@ fn current_zone() -> Option<String> {
     applied.or_else(system_zone)
 }
 
-/// The name goes to a root helper, so nothing that climbs out of the zone
-/// directory passes.
 fn known(zone: &str) -> bool {
     !zone.is_empty()
         && zone.len() <= 64
-        && zone.bytes().all(|b| b.is_ascii_alphanumeric() || matches!(b, b'_' | b'+' | b'/' | b'-'))
+        && zone
+            .bytes()
+            .all(|b| b.is_ascii_alphanumeric() || matches!(b, b'_' | b'+' | b'/' | b'-'))
         && !zone.starts_with('/')
         && Path::new(ZONEINFO).join(zone).is_file()
 }
@@ -101,14 +97,17 @@ pub async fn apply(zone: String) {
     *APPLIED.lock().unwrap_or_else(|e| e.into_inner()) = Some(zone);
 }
 
-/// Minutes east of UTC.
 fn offset_minutes(zone: &str, at: jiff::Timestamp) -> Option<i32> {
     let tz = jiff::tz::TimeZone::get(zone).ok()?;
     Some(tz.to_offset(at).seconds() / 60)
 }
 
 fn observes_dst(zone: &str) -> bool {
-    let at = |month| jiff::civil::date(2026, month, 15).to_zoned(jiff::tz::TimeZone::UTC).ok();
+    let at = |month| {
+        jiff::civil::date(2026, month, 15)
+            .to_zoned(jiff::tz::TimeZone::UTC)
+            .ok()
+    };
     match (at(1), at(7)) {
         (Some(winter), Some(summer)) => {
             let (w, s) = (
@@ -121,7 +120,6 @@ fn observes_dst(zone: &str) -> bool {
     }
 }
 
-/// Etc/GMT zones have an inverted sign: UTC+2 is Etc/GMT-2.
 fn zone_for_offset(minutes: i32, now: jiff::Timestamp) -> Option<String> {
     if minutes.abs() > 14 * 60 {
         return None;
@@ -158,8 +156,6 @@ fn zone_for_offset(minutes: i32, now: jiff::Timestamp) -> Option<String> {
     fallback
 }
 
-/// A zone that already shows this offset stays, it carries the summer time
-/// rules a bare offset lacks.
 pub async fn apply_phone_offset(minutes: i32) {
     if !cfg!(target_os = "linux") || GPS_ZONE.lock().unwrap_or_else(|e| e.into_inner()).is_some() {
         return;
@@ -186,12 +182,20 @@ mod tests {
                 .unwrap()
                 .into_iter()
                 .map(|v| {
-                    (v[0].as_f64().unwrap(), v[1].as_f64().unwrap(), v[2].as_str().unwrap().into())
+                    (
+                        v[0].as_f64().unwrap(),
+                        v[1].as_f64().unwrap(),
+                        v[2].as_str().unwrap().into(),
+                    )
                 })
                 .collect();
         assert!(vectors.len() > 600);
         for (lat, lng, zone) in vectors {
-            assert_eq!(zone_for_position(lat, lng), Some(zone.as_str()), "{lat},{lng}");
+            assert_eq!(
+                zone_for_position(lat, lng),
+                Some(zone.as_str()),
+                "{lat},{lng}"
+            );
         }
     }
 
@@ -208,7 +212,11 @@ mod tests {
         ] {
             assert_eq!(zone_for_position(lat, lng), Some(zone));
         }
-        assert!(zone_for_position(30.0, -40.0).unwrap().starts_with("Etc/GMT"));
+        assert!(
+            zone_for_position(30.0, -40.0)
+                .unwrap()
+                .starts_with("Etc/GMT")
+        );
         assert_eq!(zone_for_position(90.0, 0.0), Some("Etc/GMT"));
     }
 

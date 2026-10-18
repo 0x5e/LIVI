@@ -1,5 +1,3 @@
-//! The panel belongs to the host compositor (Cage in the kiosk), not to ours.
-
 use std::collections::HashMap;
 use std::path::Path;
 use std::process::Stdio;
@@ -9,11 +7,9 @@ use zbus::zvariant::OwnedValue;
 
 use crate::hub::Hub;
 
-/// Our own compositor's display is a nested one, every query names the host's.
 const HOST_DISPLAY: &str = "wayland-0";
 const TOOL_TIMEOUT: Duration = Duration::from_secs(3);
 const PIN_TIMEOUT: Duration = Duration::from_secs(5);
-/// Ships with the headless installer, without it the mode is not pinned.
 const VIDEO_MODE_HELPER: &str = "/usr/local/lib/livi/livi-video-mode.sh";
 const MUTTER: &str = "org.gnome.Mutter.DisplayConfig";
 const MUTTER_PATH: &str = "/org/gnome/Mutter/DisplayConfig";
@@ -32,7 +28,6 @@ fn size_of(mode: &str) -> Option<(u32, u32)> {
     Some((num(w)?, num(h)?))
 }
 
-/// "1920x1080 px, 60.000000 Hz (preferred, current)"
 fn mode_line(line: &str) -> Option<(&str, &str)> {
     let (mode, rest) = line.trim().split_once(" px")?;
     size_of(mode)?;
@@ -55,13 +50,26 @@ fn largest_first(sizes: impl Iterator<Item = (u32, u32)>) -> Vec<String> {
 }
 
 fn modes_in(listing: &str) -> Vec<String> {
-    largest_first(listing.lines().filter_map(mode_line).filter_map(|(m, _)| size_of(m)))
+    largest_first(
+        listing
+            .lines()
+            .filter_map(mode_line)
+            .filter_map(|(m, _)| size_of(m)),
+    )
 }
 
 type Props = HashMap<String, OwnedValue>;
 type MutterMode = (String, i32, i32, f64, f64, Vec<f64>, Props);
 type MutterMonitor = ((String, String, String, String), Vec<MutterMode>, Props);
-type MutterLogical = (i32, i32, f64, u32, bool, Vec<(String, String, String, String)>, Props);
+type MutterLogical = (
+    i32,
+    i32,
+    f64,
+    u32,
+    bool,
+    Vec<(String, String, String, String)>,
+    Props,
+);
 type MutterState = (u32, Vec<MutterMonitor>, Vec<MutterLogical>, Props);
 
 fn mutter_modes_in(monitors: &[MutterMonitor]) -> Vec<String> {
@@ -72,13 +80,17 @@ fn mutter_modes_in(monitors: &[MutterMonitor]) -> Vec<String> {
     largest_first(sizes)
 }
 
-/// GNOME does not speak the wlroots output protocol but tells its modes on the
-/// session bus.
 async fn mutter_modes() -> Vec<String> {
     let state = async {
         let bus = zbus::Connection::session().await.ok()?;
         let reply = bus
-            .call_method(Some(MUTTER), MUTTER_PATH, Some(MUTTER), "GetCurrentState", &())
+            .call_method(
+                Some(MUTTER),
+                MUTTER_PATH,
+                Some(MUTTER),
+                "GetCurrentState",
+                &(),
+            )
             .await
             .ok()?;
         reply.body().deserialize::<MutterState>().ok()
@@ -90,22 +102,27 @@ async fn mutter_modes() -> Vec<String> {
 }
 
 fn current_in(listing: &str) -> Option<Current> {
-    listing.lines().filter(|l| l.contains("current")).find_map(|line| {
-        let (mode, rest) = mode_line(line)?;
-        let hz: f64 = rest.strip_prefix(", ")?.split_once(" Hz")?.0.parse().ok()?;
-        let hz = match hz.round() as u32 {
-            0 => 60,
-            hz => hz,
-        };
-        Some(Current { mode: mode.to_string(), hz })
-    })
+    listing
+        .lines()
+        .filter(|l| l.contains("current"))
+        .find_map(|line| {
+            let (mode, rest) = mode_line(line)?;
+            let hz: f64 = rest.strip_prefix(", ")?.split_once(" Hz")?.0.parse().ok()?;
+            let hz = match hz.round() as u32 {
+                0 => 60,
+                hz => hz,
+            };
+            Some(Current {
+                mode: mode.to_string(),
+                hz,
+            })
+        })
 }
 
 fn fits_hd(mode: &str) -> bool {
     size_of(mode).is_some_and(|(w, h)| w <= 1280 && h <= 720)
 }
 
-/// Every phone handles 720p projection, so an unconfigured panel snaps down to it.
 fn kiosk_mode(configured: &str, current: Option<&Current>, modes: &[String]) -> Option<String> {
     if size_of(configured).is_some() {
         return Some(configured.to_string());
@@ -137,29 +154,40 @@ async fn listing() -> Option<String> {
     run("wlr-randr", &[], TOOL_TIMEOUT).await
 }
 
-/// A mode the output does not list leaves the host compositor unable to test
-/// its swapchain, so only a listed one is sent.
 async fn apply(name: &str, mode: &str, modes: &[String]) {
     if !modes.iter().any(|m| m == mode) {
         println!(
             "[display] {name} does not offer {mode}, leaving it as it is (offered: {})",
-            if modes.is_empty() { "none".to_string() } else { modes.join(", ") }
+            if modes.is_empty() {
+                "none".to_string()
+            } else {
+                modes.join(", ")
+            }
         );
         return;
     }
-    match run("wlr-randr", &["--output", name, "--mode", mode], TOOL_TIMEOUT).await {
+    match run(
+        "wlr-randr",
+        &["--output", name, "--mode", mode],
+        TOOL_TIMEOUT,
+    )
+    .await
+    {
         Some(_) => println!("[display] {name} → {mode}"),
         None => println!("[display] {name} refused {mode}, leaving it as it is"),
     }
 }
 
-/// Console and boot splash come up in the mode the panel runs in.
 async fn pin() {
     if !Path::new(VIDEO_MODE_HELPER).exists() {
         return;
     }
-    let Some(listed) = listing().await else { return };
-    let (Some(name), Some(current)) = (name_in(&listed), current_in(&listed)) else { return };
+    let Some(listed) = listing().await else {
+        return;
+    };
+    let (Some(name), Some(current)) = (name_in(&listed), current_in(&listed)) else {
+        return;
+    };
     let pin = format!("{name}:{}@{}", current.mode, current.hz);
     match run("sudo", &["-n", VIDEO_MODE_HELPER, &pin], PIN_TIMEOUT).await {
         Some(_) => println!("[display] cmdline video pin → {pin}"),
@@ -167,7 +195,6 @@ async fn pin() {
     }
 }
 
-/// Runs before our compositor sizes its window to the panel's mode.
 pub async fn prepare(hub: &Hub) {
     if !cfg!(target_os = "linux") {
         return;
@@ -210,15 +237,32 @@ mod tests {
         1920x1080 px, 50.000000 Hz\n    720x576 px, 50.000000 Hz\n  Position: 0,0\n";
 
     fn current(mode: &str) -> Current {
-        Current { mode: mode.into(), hz: 60 }
+        Current {
+            mode: mode.into(),
+            hz: 60,
+        }
     }
 
     #[test]
     fn the_listing_gives_the_output_its_modes_and_the_current_one() {
         assert_eq!(name_in(LISTING), Some("HDMI-A-1"));
-        assert_eq!(modes_in(LISTING), ["1920x1200", "1920x1080", "1280x720", "720x576"]);
-        assert_eq!(current_in(LISTING), Some(Current { mode: "1920x1200".into(), hz: 60 }));
-        assert_eq!(current_in("x\n  800x480 px, 0.000000 Hz (current)\n").unwrap().hz, 60);
+        assert_eq!(
+            modes_in(LISTING),
+            ["1920x1200", "1920x1080", "1280x720", "720x576"]
+        );
+        assert_eq!(
+            current_in(LISTING),
+            Some(Current {
+                mode: "1920x1200".into(),
+                hz: 60
+            })
+        );
+        assert_eq!(
+            current_in("x\n  800x480 px, 0.000000 Hz (current)\n")
+                .unwrap()
+                .hz,
+            60
+        );
         assert!(modes_in("").is_empty());
         assert_eq!(current_in(""), None);
     }
@@ -226,12 +270,28 @@ mod tests {
     #[test]
     fn gnome_gives_its_modes_as_sizes_of_every_monitor() {
         let mode = |w: i32, h: i32, hz: f64| {
-            (format!("{w}x{h}@{hz:.3}"), w, h, hz, 1.0, vec![1.0], Props::new())
+            (
+                format!("{w}x{h}@{hz:.3}"),
+                w,
+                h,
+                hz,
+                1.0,
+                vec![1.0],
+                Props::new(),
+            )
         };
         let id = |c: &str| (c.to_string(), String::new(), String::new(), String::new());
         let monitors = vec![
-            (id("DP-4"), vec![mode(3840, 2160, 60.0), mode(3840, 2160, 59.982)], Props::new()),
-            (id("HDMI-1"), vec![mode(1280, 720, 60.0), mode(-1, 480, 60.0)], Props::new()),
+            (
+                id("DP-4"),
+                vec![mode(3840, 2160, 60.0), mode(3840, 2160, 59.982)],
+                Props::new(),
+            ),
+            (
+                id("HDMI-1"),
+                vec![mode(1280, 720, 60.0), mode(-1, 480, 60.0)],
+                Props::new(),
+            ),
         ];
         assert_eq!(mutter_modes_in(&monitors), ["3840x2160", "1280x720"]);
         assert!(mutter_modes_in(&[]).is_empty());
@@ -241,12 +301,21 @@ mod tests {
     fn the_kiosk_takes_the_configured_mode_or_snaps_down_to_720p() {
         let modes = modes_in(LISTING);
         let big = current("1920x1200");
-        assert_eq!(kiosk_mode("1920x1080", Some(&big), &modes).as_deref(), Some("1920x1080"));
-        assert_eq!(kiosk_mode("", Some(&big), &modes).as_deref(), Some("1280x720"));
+        assert_eq!(
+            kiosk_mode("1920x1080", Some(&big), &modes).as_deref(),
+            Some("1920x1080")
+        );
+        assert_eq!(
+            kiosk_mode("", Some(&big), &modes).as_deref(),
+            Some("1280x720")
+        );
         assert_eq!(kiosk_mode("", Some(&current("1280x720")), &modes), None);
         assert_eq!(kiosk_mode("", None, &modes), None);
         let large = ["3840x2160".to_string(), "2560x1440".to_string()];
-        assert_eq!(kiosk_mode("", Some(&big), &large).as_deref(), Some("2560x1440"));
+        assert_eq!(
+            kiosk_mode("", Some(&big), &large).as_deref(),
+            Some("2560x1440")
+        );
         assert_eq!(kiosk_mode("auto", Some(&big), &[]), None);
     }
 }

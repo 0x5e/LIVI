@@ -22,33 +22,22 @@ use crate::ident::{DROPPABLE, Identity, Theme, Transport, build_identification};
 use crate::vehicle::{Fuels, LocationTypes, VehicleFeed, VehicleStatus};
 use crate::{AsyncAuth, ControlChannel, net};
 
-/// Wireless CarPlay parameters handed to the phone: the AP and the AirPlay receiver.
 #[derive(Debug, Clone)]
 pub struct CpConfig {
     pub wifi_iface: String,
     pub ssid: String,
     pub passphrase: String,
-    /// What the phone is told when the access point does not say what it is on air with.
     pub channel: Channel,
     pub airplay_port: u32,
     pub source_version: String,
     pub public_key: String,
     pub transport: Transport,
-    /// Wired only: the USB network interface carrying the AV stream, whose link-local
-    /// address the phone connects back to.
     pub av_iface: Option<String>,
-    /// Wired only: where `av_iface` arrives when it is found after the session started. An iPhone
-    /// on a Mac brings its USB network function up only once iAP2 runs over the cable.
     pub av_iface_late: Option<watch::Receiver<Option<String>>>,
     pub available_current_ma: u16,
-    /// The access point's MAC when it is not this host's, so the phone is told the right one.
     pub ap_mac: Option<String>,
-    /// Asks an access point that is not this host's what it is on air with.
     pub ap_on_air: Option<AskOnAir>,
-    /// Bluetooth only: tells whether the phone, by its Bluetooth MAC, runs iAP2 over the cable.
     pub on_cable: Option<OnCable>,
-    /// Wired only: fires when the phone should hear the start once more, over the iAP2 session it
-    /// already has.
     pub start_again: Option<Arc<Notify>>,
     pub theme: Option<Theme>,
 }
@@ -64,7 +53,6 @@ impl core::fmt::Debug for OnCable {
     }
 }
 
-/// The id every session start hands the phone for this accessory.
 pub fn accessory_id(cp: &CpConfig) -> Option<String> {
     cp.ap_mac.clone().or_else(|| net::wlan_mac(&cp.wifi_iface))
 }
@@ -121,7 +109,10 @@ fn subscriptions() -> Vec<Vec<u8>> {
             }),
         }
         .encode(),
-        StartRouteGuidanceUpdates { display_component_id: None }.encode(),
+        StartRouteGuidanceUpdates {
+            display_component_id: None,
+        }
+        .encode(),
         StartPowerUpdates {
             maximum_current_drawn_from_accessory: false,
             device_battery_will_charge_if_power_is_present: false,
@@ -172,7 +163,9 @@ async fn run_identification<C: ControlChannel>(
         match frame_msg_id(&frame) {
             Some(0x1D00) => {
                 let ident = build_identification(id, transport, &exclude);
-                ch.send(ident.encode()).await.map_err(|_| BringupError::Channel)?;
+                ch.send(ident.encode())
+                    .await
+                    .map_err(|_| BringupError::Channel)?;
             }
             Some(0x1D02) => return Ok(()),
             Some(0x1D03) => {
@@ -191,7 +184,9 @@ async fn run_identification<C: ControlChannel>(
                 }
                 exclude.extend(drop);
                 let ident = build_identification(id, transport, &exclude);
-                ch.send(ident.encode()).await.map_err(|_| BringupError::Channel)?;
+                ch.send(ident.encode())
+                    .await
+                    .map_err(|_| BringupError::Channel)?;
             }
             other => {
                 return Err(BringupError::Identification(format!(
@@ -209,8 +204,14 @@ fn flagged_fields(r: &IdentificationRejected) -> Vec<&'static str> {
             out.push(name)
         }
     };
-    push(r.location_information_component, "location_information_component");
-    push(r.vehicle_information_component, "vehicle_information_component");
+    push(
+        r.location_information_component,
+        "location_information_component",
+    );
+    push(
+        r.vehicle_information_component,
+        "vehicle_information_component",
+    );
     push(r.vehicle_status_component, "vehicle_status_component");
     out
 }
@@ -224,9 +225,14 @@ async fn run_auth<C: ControlChannel, A: AsyncAuth>(
         let frame = recv(ch).await?;
         match frame_msg_id(&frame) {
             Some(0xAA00) => {
-                ch.send(AuthenticationCertificate { certificate: cert.clone() }.encode())
-                    .await
-                    .map_err(|_| BringupError::Channel)?;
+                ch.send(
+                    AuthenticationCertificate {
+                        certificate: cert.clone(),
+                    }
+                    .encode(),
+                )
+                .await
+                .map_err(|_| BringupError::Channel)?;
             }
             Some(0xAA02) => {
                 let req = RequestAuthenticationChallengeResponse::decode(&frame)
@@ -238,7 +244,9 @@ async fn run_auth<C: ControlChannel, A: AsyncAuth>(
             }
             Some(0xAA05) => return Ok(()),
             Some(0xAA04) => {
-                return Err(BringupError::Auth("device sent AuthenticationFailed".into()));
+                return Err(BringupError::Auth(
+                    "device sent AuthenticationFailed".into(),
+                ));
             }
             other => {
                 return Err(BringupError::Auth(format!(
@@ -257,7 +265,6 @@ fn start_session_security(security: Security) -> Option<CarPlayWiFiSecurityType>
     }
 }
 
-/// The network the phone is told about: the one on air, else the configured one.
 fn told(cp: &CpConfig, live: Option<&OnAir>) -> (String, u8, Security) {
     let ssid = live.map(|ap| ap.ssid.clone()).filter(|s| !s.is_empty());
     let channel = live.map_or(cp.channel, |ap| ap.channel);
@@ -273,14 +280,11 @@ fn wifi_config(cp: &CpConfig, live: Option<&OnAir>) -> AccessoryWiFiConfiguratio
     AccessoryWiFiConfigurationInformation {
         ssid: Some(ssid),
         passphrase: Some(cp.passphrase.clone()),
-        // The only WPA number this message has. A 3 here made the phone drop the link.
         security_type: AccessoryWiFiSecurityType::Wpa2OrWpa3Transition,
         channel,
     }
 }
 
-/// The phone of a Bluetooth session that runs iAP2 over the cable by now. A start over Bluetooth
-/// would pull it off the cable, so the session ends instead.
 fn on_cable(cp: &CpConfig, frame: &[u8]) -> Option<String> {
     let ask = cp.on_cable.as_ref()?;
     let offer = CarPlayAvailability::decode(frame).ok()?;
@@ -288,7 +292,6 @@ fn on_cable(cp: &CpConfig, frame: &[u8]) -> Option<String> {
     (ask.0)(&phone).then_some(phone)
 }
 
-/// Mutual auth CP3.0 only
 fn mutual_authentication(chip_major: u8) -> Option<bool> {
     (chip_major == 3).then_some(true)
 }
@@ -299,14 +302,13 @@ fn carplay_start_session(
     mutual: Option<bool>,
 ) -> Option<CarPlayStartSession> {
     if cp.transport == Transport::Wired {
-        // The link-local the phone connects to: the A/V interface's.
         let fe80 = net::wlan_link_local(cp.av_iface.as_deref()?)?;
         return Some(CarPlayStartSession {
-            wired_attributes: Some(CarPlayStartSessionWiredAttributes { ip_address: vec![fe80] }),
+            wired_attributes: Some(CarPlayStartSessionWiredAttributes {
+                ip_address: vec![fe80],
+            }),
             wireless_attributes: None,
             port: Some(cp.airplay_port),
-            // The accessory the phone knows over Wi-Fi, so the cable is the same car. Without an
-            // access point the A/V interface stands in.
             device_identifier: accessory_id(cp)
                 .or_else(|| cp.av_iface.as_deref().and_then(net::wlan_mac)),
             public_key: Some(cp.public_key.clone()),
@@ -342,13 +344,12 @@ fn theme_sdk(cp: &CpConfig) -> Option<String> {
 }
 
 fn theme_asset(cp: &CpConfig) -> Option<CarPlayStartSessionAsset> {
-    cp.theme
-        .as_ref()
-        .map(|t| CarPlayStartSessionAsset { identifier: t.id.clone(), version: t.version })
+    cp.theme.as_ref().map(|t| CarPlayStartSessionAsset {
+        identifier: t.id.clone(),
+        version: t.version,
+    })
 }
 
-/// How long the access point is given to come back before the phone is answered anyway.
-// Covers the AP service's own readiness budget plus the wait for the regulatory domain.
 const AP_WAIT: Duration = Duration::from_secs(30);
 const AP_POLL: Duration = Duration::from_millis(250);
 
@@ -359,15 +360,16 @@ async fn on_air(cp: &CpConfig) -> Option<OnAir> {
     }
 }
 
-/// The answer names an SSID and a channel, so it waits until they are on air and returns them.
 async fn wait_for_ap(cp: &CpConfig) -> Option<OnAir> {
     let iface = &cp.wifi_iface;
     let remote = cp.ap_on_air.is_some();
     if !remote && (iface.is_empty() || !Path::new(&format!("/sys/class/net/{iface}")).exists()) {
         return None;
     }
-    // A remote access point may still run what it had before ours was set.
-    let up = |live: &Option<OnAir>| live.as_ref().is_some_and(|ap| !remote || ap.ssid == cp.ssid);
+    let up = |live: &Option<OnAir>| {
+        live.as_ref()
+            .is_some_and(|ap| !remote || ap.ssid == cp.ssid)
+    };
     let mut live = on_air(cp).await;
     if up(&live) {
         return live;
@@ -384,7 +386,10 @@ async fn wait_for_ap(cp: &CpConfig) -> Option<OnAir> {
         live = on_air(cp).await;
         if up(&live) {
             if let Some(ap) = &live {
-                println!("[cp] access point up: {} on channel {}", ap.ssid, ap.channel);
+                println!(
+                    "[cp] access point up: {} on channel {}",
+                    ap.ssid, ap.channel
+                );
             }
             return live;
         }
@@ -393,20 +398,17 @@ async fn wait_for_ap(cp: &CpConfig) -> Option<OnAir> {
     live
 }
 
-/// How long the phone's USB network function is waited for once the phone asks for CarPlay.
 const USB_IFACE_WAIT: Duration = Duration::from_secs(5);
 
-/// The A/V interface found after the session started, if it shows up in time.
 async fn late_av_iface(cp: &CpConfig) -> Option<String> {
     let mut late = cp.av_iface_late.clone()?;
-    let found =
-        tokio::time::timeout(USB_IFACE_WAIT, late.wait_for(Option::is_some)).await.ok()?.ok()?;
+    let found = tokio::time::timeout(USB_IFACE_WAIT, late.wait_for(Option::is_some))
+        .await
+        .ok()?
+        .ok()?;
     (*found).clone()
 }
 
-/// Runs the accessory side of a wireless CarPlay session: identification, MFi auth,
-/// subscriptions, then the request/response phase (Wi-Fi config, CarPlayStartSession),
-/// emitting progress and every subsequent incoming message id over `events`.
 pub async fn run_accessory<C: ControlChannel, A: AsyncAuth>(
     mut ch: C,
     mut auth: A,
@@ -426,7 +428,6 @@ pub async fn run_accessory<C: ControlChannel, A: AsyncAuth>(
         return;
     }
     let _ = events.send(BringupEvent::Authenticated).await;
-    // The chip that just answered for us also answers the phone's mutual authentication.
     let mutual = mutual_authentication(auth.protocol_major().await.unwrap_or(0));
 
     if cp.transport == Transport::Wired {
@@ -450,8 +451,6 @@ pub async fn run_accessory<C: ControlChannel, A: AsyncAuth>(
 
     let mut location_types = LocationTypes::default();
     let mut status_wanted = false;
-    // Set once the phone offered CarPlay. A start asked for before that is dropped, the first one
-    // still goes out when the offer comes.
     let mut offered = false;
     let mut phone_bt_mac: Option<String> = None;
     let again = cp.start_again.clone();
@@ -523,7 +522,6 @@ pub async fn run_accessory<C: ControlChannel, A: AsyncAuth>(
                     .map(|req| LocationTypes::from_request(&req))
                     .unwrap_or_default();
                 println!("[cp] location: subscribed {:?}", location_types.names());
-                // Only fixes from now on, not the one from before the phone asked.
                 vehicle.location.mark_unchanged();
             }
             0xFFFC => {
@@ -544,7 +542,11 @@ pub async fn run_accessory<C: ControlChannel, A: AsyncAuth>(
             }
             0x5702 => {
                 let live = on_air(&cp).await;
-                if ch.send(wifi_config(&cp, live.as_ref()).encode()).await.is_err() {
+                if ch
+                    .send(wifi_config(&cp, live.as_ref()).encode())
+                    .await
+                    .is_err()
+                {
                     break;
                 }
                 let _ = events.send(BringupEvent::WifiConfigSent).await;
@@ -557,8 +559,11 @@ pub async fn run_accessory<C: ControlChannel, A: AsyncAuth>(
                 if cp.transport == Transport::Wired && cp.av_iface.is_none() {
                     cp.av_iface = late_av_iface(&cp).await;
                 }
-                let live =
-                    if cp.transport == Transport::Wired { None } else { wait_for_ap(&cp).await };
+                let live = if cp.transport == Transport::Wired {
+                    None
+                } else {
+                    wait_for_ap(&cp).await
+                };
                 if !send_start(&mut ch, &cp, live, mutual, &events, Some(&frame)).await {
                     break;
                 }
@@ -566,14 +571,17 @@ pub async fn run_accessory<C: ControlChannel, A: AsyncAuth>(
             }
             _ => {}
         }
-        if events.send(BringupEvent::Incoming { msg_id, frame }).await.is_err() {
+        if events
+            .send(BringupEvent::Incoming { msg_id, frame })
+            .await
+            .is_err()
+        {
             return;
         }
     }
     let _ = events.send(BringupEvent::Closed).await;
 }
 
-/// Resolves when the start is asked for again, never without a way to ask.
 async fn asked(again: Option<&Notify>) {
     match again {
         Some(again) => again.notified().await,
@@ -581,8 +589,6 @@ async fn asked(again: Option<&Notify>) {
     }
 }
 
-/// Hands the phone a session start, answering `offer` when there is one. False once the channel
-/// is gone.
 async fn send_start<C: ControlChannel>(
     ch: &mut C,
     cp: &CpConfig,
@@ -603,7 +609,6 @@ async fn send_start<C: ControlChannel>(
         let _ = events.send(BringupEvent::Failed(why)).await;
         return true;
     };
-    // Logs the phone's offer and our answer.
     match offer.map(CarPlayAvailability::decode) {
         Some(Ok(a)) => println!(
             "[cp] CarPlayAvailability wired={:?} wireless={:?}",
@@ -624,7 +629,11 @@ async fn send_start<C: ControlChannel>(
         start.port.unwrap_or(0),
         start.device_identifier.as_deref().unwrap_or("-"),
         start.public_key.as_deref().unwrap_or("").len(),
-        if start.supports_mutual_authentication == Some(true) { " mutual-auth" } else { "" }
+        if start.supports_mutual_authentication == Some(true) {
+            " mutual-auth"
+        } else {
+            ""
+        }
     );
     if ch.send(start.encode()).await.is_err() {
         return false;
@@ -636,10 +645,11 @@ async fn send_start<C: ControlChannel>(
     true
 }
 
-/// Each sentence the phone asked for as its own message. False once the channel is gone.
 async fn send_location<C: ControlChannel>(ch: &mut C, types: &LocationTypes, nmea: &str) -> bool {
     for line in types.wanted(nmea) {
-        let msg = LocationInformation { nmea_sentence: line.to_string() };
+        let msg = LocationInformation {
+            nmea_sentence: line.to_string(),
+        };
         if ch.send(msg.encode()).await.is_err() {
             return false;
         }
@@ -663,7 +673,11 @@ mod tests {
     use super::*;
 
     fn ap(ssid: &str, channel: u32) -> OnAir {
-        OnAir { ssid: ssid.into(), channel: Channel::of_number(channel), security: Security::Wpa2 }
+        OnAir {
+            ssid: ssid.into(),
+            channel: Channel::of_number(channel),
+            security: Security::Wpa2,
+        }
     }
 
     #[test]
@@ -671,16 +685,26 @@ mod tests {
         let theme = Theme::parse("44C9FA31EC:985:19.0");
         assert_eq!(
             theme,
-            Some(Theme { id: "44C9FA31EC".into(), version: 985, sdk_version: "19.0".into() })
+            Some(Theme {
+                id: "44C9FA31EC".into(),
+                version: 985,
+                sdk_version: "19.0".into()
+            })
         );
         assert_eq!(Theme::parse(""), None);
         assert_eq!(Theme::parse("44C9FA31EC:soon:19.0"), None);
 
-        let cp = CpConfig { theme: theme.clone(), ..dongle_ap(|| None) };
+        let cp = CpConfig {
+            theme: theme.clone(),
+            ..dongle_ap(|| None)
+        };
         assert_eq!(theme_sdk(&cp).as_deref(), Some("19.0"));
         assert_eq!(
             theme_asset(&cp),
-            Some(CarPlayStartSessionAsset { identifier: "44C9FA31EC".into(), version: 985 })
+            Some(CarPlayStartSessionAsset {
+                identifier: "44C9FA31EC".into(),
+                version: 985
+            })
         );
 
         let id = Identity {
@@ -709,19 +733,28 @@ mod tests {
     #[test]
     fn the_phone_is_told_the_network_on_air() {
         let cp = dongle_ap(|| None);
-        let live = OnAir { security: Security::Wpa2Wpa3, ..ap("LIVI-Link", 149) };
+        let live = OnAir {
+            security: Security::Wpa2Wpa3,
+            ..ap("LIVI-Link", 149)
+        };
         let told = wifi_config(&cp, Some(&live));
         assert_eq!(told.ssid.as_deref(), Some("LIVI-Link"));
         assert_eq!(told.channel, 149);
         let fallback = wifi_config(&cp, None);
-        assert_eq!((fallback.ssid.as_deref(), fallback.channel), (Some("LIVI"), 36));
+        assert_eq!(
+            (fallback.ssid.as_deref(), fallback.channel),
+            (Some("LIVI"), 36)
+        );
     }
 
     #[test]
     fn the_wifi_config_has_one_number_for_every_wpa_mode() {
         let cp = dongle_ap(|| None);
         for security in [Security::Wpa2, Security::Wpa2Wpa3, Security::Wpa3] {
-            let live = OnAir { security, ..ap("LIVI-Link", 149) };
+            let live = OnAir {
+                security,
+                ..ap("LIVI-Link", 149)
+            };
             assert_eq!(wifi_config(&cp, Some(&live)).security_type as u8, 2);
         }
         assert_eq!(wifi_config(&cp, None).security_type as u8, 2);
@@ -730,8 +763,14 @@ mod tests {
     #[test]
     fn a_start_session_names_only_the_wpa3_modes() {
         assert_eq!(start_session_security(Security::Wpa2), None);
-        assert_eq!(start_session_security(Security::Wpa2Wpa3).map(|s| s as u8), Some(3));
-        assert_eq!(start_session_security(Security::Wpa3).map(|s| s as u8), Some(4));
+        assert_eq!(
+            start_session_security(Security::Wpa2Wpa3).map(|s| s as u8),
+            Some(3)
+        );
+        assert_eq!(
+            start_session_security(Security::Wpa3).map(|s| s as u8),
+            Some(4)
+        );
     }
 
     fn dongle_ap(ask: AskOnAir) -> CpConfig {
@@ -768,14 +807,20 @@ mod tests {
             .encode()
         };
         let cabled = OnCable(Arc::new(|mac: &str| mac == "0c:6a:c4:4e:f3:2a"));
-        let cp = CpConfig { on_cable: Some(cabled), ..dongle_ap(|| None) };
+        let cp = CpConfig {
+            on_cable: Some(cabled),
+            ..dongle_ap(|| None)
+        };
         assert_eq!(
             on_cable(&cp, &offer(Some("0c:6a:c4:4e:f3:2a"))).as_deref(),
             Some("0c:6a:c4:4e:f3:2a")
         );
         assert_eq!(on_cable(&cp, &offer(Some("aa:bb:cc:dd:ee:ff"))), None);
         assert_eq!(on_cable(&cp, &offer(None)), None);
-        assert_eq!(on_cable(&dongle_ap(|| None), &offer(Some("0c:6a:c4:4e:f3:2a"))), None);
+        assert_eq!(
+            on_cable(&dongle_ap(|| None), &offer(Some("0c:6a:c4:4e:f3:2a"))),
+            None
+        );
     }
 
     #[tokio::test]
@@ -799,7 +844,10 @@ mod tests {
     #[tokio::test(start_paused = true)]
     async fn a_usb_interface_found_after_the_start_is_waited_for() {
         let (found, late) = watch::channel(None);
-        let cp = CpConfig { av_iface_late: Some(late), ..dongle_ap(|| None) };
+        let cp = CpConfig {
+            av_iface_late: Some(late),
+            ..dongle_ap(|| None)
+        };
         tokio::spawn(async move {
             tokio::time::sleep(Duration::from_secs(2)).await;
             let _ = found.send(Some("en13".into()));
@@ -810,7 +858,10 @@ mod tests {
     #[tokio::test(start_paused = true)]
     async fn a_usb_interface_that_never_shows_is_given_up_on() {
         let (_found, late) = watch::channel(None);
-        let cp = CpConfig { av_iface_late: Some(late), ..dongle_ap(|| None) };
+        let cp = CpConfig {
+            av_iface_late: Some(late),
+            ..dongle_ap(|| None)
+        };
         assert_eq!(late_av_iface(&cp).await, None);
         assert_eq!(late_av_iface(&dongle_ap(|| None)).await, None);
     }

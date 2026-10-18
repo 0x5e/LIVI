@@ -1,5 +1,3 @@
-// One usbmux instance per attached iPhone, each with its own socket.
-
 use std::collections::HashMap;
 use std::sync::{Arc, Mutex};
 
@@ -20,7 +18,11 @@ impl MuxDevice {
     pub fn start(serial: &str) -> Result<Self, String> {
         ensure_carplay_config(serial)?;
         let host = MuxHost::open(serial)?;
-        Ok(Self { serial: serial.to_string(), socket_path: socket_path(serial), host })
+        Ok(Self {
+            serial: serial.to_string(),
+            socket_path: socket_path(serial),
+            host,
+        })
     }
 }
 
@@ -30,8 +32,6 @@ impl Drop for MuxDevice {
     }
 }
 
-/// Tracks one MuxDevice per serial, adding phones as they appear and dropping them when
-/// they are unplugged.
 #[derive(Default)]
 pub struct MuxRegistry {
     devices: Mutex<HashMap<String, Arc<MuxDevice>>>,
@@ -51,7 +51,10 @@ impl MuxRegistry {
             return Ok(dev);
         }
         let dev = Arc::new(MuxDevice::start(serial)?);
-        self.devices.lock().unwrap().insert(serial.to_string(), dev.clone());
+        self.devices
+            .lock()
+            .unwrap()
+            .insert(serial.to_string(), dev.clone());
         Ok(dev)
     }
 
@@ -59,8 +62,6 @@ impl MuxRegistry {
         self.devices.lock().unwrap().remove(serial);
     }
 
-    /// Brings up every attached iPhone that is not tracked yet and drops the ones that went
-    /// away. Returns (added, removed) serials.
     pub fn sync(&self) -> (Vec<String>, Vec<String>) {
         let present: Vec<String> = find_iphones().into_iter().map(|d| d.serial).collect();
         let known = self.serials();

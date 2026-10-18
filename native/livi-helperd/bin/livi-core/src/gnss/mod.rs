@@ -28,7 +28,6 @@ fn latin1(bytes: &[u8]) -> String {
     bytes.iter().copied().map(char::from).collect()
 }
 
-/// A no-break space counts as white space, a next line character does not.
 fn trim(text: &str) -> &str {
     text.trim_matches([' ', '\t', '\n', '\u{b}', '\u{c}', '\r', '\u{a0}'])
 }
@@ -45,9 +44,13 @@ struct Moment {
 
 impl Moment {
     fn now() -> Self {
-        let unix_ms =
-            SystemTime::now().duration_since(UNIX_EPOCH).map_or(0, |d| d.as_millis() as u64);
-        Self { at: Instant::now(), unix_ms }
+        let unix_ms = SystemTime::now()
+            .duration_since(UNIX_EPOCH)
+            .map_or(0, |d| d.as_millis() as u64);
+        Self {
+            at: Instant::now(),
+            unix_ms,
+        }
     }
 }
 
@@ -86,7 +89,6 @@ struct Gnss {
     device: String,
     baud_rate: u32,
     timezone: Option<String>,
-    /// The position rounded to about a kilometer.
     zone_key: String,
     jobs: Vec<Job>,
 }
@@ -120,9 +122,16 @@ impl Gnss {
             self.stop_receiver(now);
             return;
         }
-        let device = if settings.device.is_empty() { DEFAULT_DEVICE } else { &settings.device };
-        let baud_rate =
-            if settings.baud_rate == 0 { DEFAULT_BAUD_RATE } else { settings.baud_rate };
+        let device = if settings.device.is_empty() {
+            DEFAULT_DEVICE
+        } else {
+            &settings.device
+        };
+        let baud_rate = if settings.baud_rate == 0 {
+            DEFAULT_BAUD_RATE
+        } else {
+            settings.baud_rate
+        };
         if self.receiver.is_some() && device == self.device && baud_rate == self.baud_rate {
             return;
         }
@@ -136,7 +145,9 @@ impl Gnss {
     }
 
     fn stop_receiver(&mut self, now: Moment) {
-        let Some(mut receiver) = self.receiver.take() else { return };
+        let Some(mut receiver) = self.receiver.take() else {
+            return;
+        };
         receiver.stop();
         self.port = None;
         self.clock.release();
@@ -149,7 +160,9 @@ impl Gnss {
     }
 
     fn read(&mut self, chunk: Option<Chunk>, now: Moment) {
-        let Some(receiver) = self.receiver.as_mut() else { return };
+        let Some(receiver) = self.receiver.as_mut() else {
+            return;
+        };
         match chunk {
             Some(Ok(bytes)) => receiver.data(&bytes, now.at, now.unix_ms),
             Some(Err(reason)) => receiver.failed(reason, now.at),
@@ -199,7 +212,9 @@ impl Gnss {
         match output {
             Output::Open => {
                 let opened = (self.open)(&self.device, self.baud_rate);
-                let Some(receiver) = self.receiver.as_mut() else { return };
+                let Some(receiver) = self.receiver.as_mut() else {
+                    return;
+                };
                 match opened {
                     Ok(port) => {
                         self.port = Some(port);
@@ -244,11 +259,9 @@ impl Gnss {
                 self.zone_key = key;
                 if let Some(zone) = timezone::zone_for_position(lat, lng) {
                     timezone::note_gps_zone(zone);
-                    // Again on every move, so a zone the phone set gives way.
                     self.jobs.push(Job::ApplyTimezone(zone.to_string()));
                     if self.timezone.as_deref() != Some(zone) {
                         self.timezone = Some(zone.to_string());
-                        // Remembered, so the next start shows the right time before a fix.
                         self.jobs.push(Job::SaveTimezone(zone.to_string()));
                     }
                 }
@@ -294,7 +307,11 @@ pub async fn run(core: Arc<Core>, telemetry: mpsc::UnboundedSender<Value>) {
     let mut state = core.hub.watch();
     let config = state.borrow_and_update().config.clone();
     let mut settings = Settings::of(&config);
-    let mut gnss = Gnss::new(telemetry, Box::new(Port::open), Clock::new(clock::CLAIM_FILE));
+    let mut gnss = Gnss::new(
+        telemetry,
+        Box::new(Port::open),
+        Clock::new(clock::CLAIM_FILE),
+    );
     gnss.begin(&config, Moment::now());
     loop {
         for job in gnss.take_jobs() {
@@ -352,14 +369,26 @@ mod tests {
                 Ok(Port::fake(mpsc::unbounded_channel().1))
             });
             let gnss = Gnss::new(tx, open, Clock::new(dir.0.join("claim")));
-            let now = Moment { at: Instant::now(), unix_ms: 1_774_269_319_000 };
-            let mut rig = Self { gnss, telemetry, opened, now, dir };
+            let now = Moment {
+                at: Instant::now(),
+                unix_ms: 1_774_269_319_000,
+            };
+            let mut rig = Self {
+                gnss,
+                telemetry,
+                opened,
+                now,
+                dir,
+            };
             rig.gnss.begin(config, rig.now);
             rig
         }
 
         fn enabled() -> Self {
-            Self::new(&Config { gps_enabled: true, ..defaults() })
+            Self::new(&Config {
+                gps_enabled: true,
+                ..defaults()
+            })
         }
 
         fn opened(&self) -> Vec<(String, u32)> {
@@ -375,7 +404,11 @@ mod tests {
         }
 
         fn last_gnss(&mut self) -> Value {
-            self.sent().into_iter().rev().find_map(|v| v.get("gnss").cloned()).unwrap()
+            self.sent()
+                .into_iter()
+                .rev()
+                .find_map(|v| v.get("gnss").cloned())
+                .unwrap()
         }
 
         fn feed(&mut self, bytes: &[u8]) {
@@ -389,17 +422,29 @@ mod tests {
         }
 
         fn fix(&mut self, lat: f64, lng: f64) {
-            let fix = GpsFix { lat: Some(lat), lng: Some(lng), ..Default::default() };
+            let fix = GpsFix {
+                lat: Some(lat),
+                lng: Some(lng),
+                ..Default::default()
+            };
             self.gnss.publish_fix(fix);
         }
 
         fn info(&mut self) {
-            let info = GnssInfo { connected: true, satellites_used: 6.0, ..Default::default() };
+            let info = GnssInfo {
+                connected: true,
+                satellites_used: 6.0,
+                ..Default::default()
+            };
             self.gnss.on_info(info, self.now);
         }
 
         fn apply(&mut self, enabled: bool, device: &str, baud_rate: u32) {
-            let settings = Settings { enabled, device: device.into(), baud_rate };
+            let settings = Settings {
+                enabled,
+                device: device.into(),
+                baud_rate,
+            };
             self.gnss.apply(&settings, self.now);
         }
     }
@@ -413,9 +458,16 @@ mod tests {
         let rig = Rig::new(&defaults());
         assert!(rig.opened().is_empty() && rig.gnss.receiver.is_none());
 
-        let blank =
-            Config { gps_enabled: true, gps_device: String::new(), gps_baud_rate: 0, ..defaults() };
-        assert_eq!(Rig::new(&blank).opened(), [(DEFAULT_DEVICE.to_string(), 38400)]);
+        let blank = Config {
+            gps_enabled: true,
+            gps_device: String::new(),
+            gps_baud_rate: 0,
+            ..defaults()
+        };
+        assert_eq!(
+            Rig::new(&blank).opened(),
+            [(DEFAULT_DEVICE.to_string(), 38400)]
+        );
     }
 
     #[test]
@@ -428,7 +480,10 @@ mod tests {
         let opened = rig.opened();
         assert_eq!(
             opened[1..],
-            [("/dev/ttyUSB0".to_string(), 38400), ("/dev/ttyUSB0".to_string(), 9600)]
+            [
+                ("/dev/ttyUSB0".to_string(), 38400),
+                ("/dev/ttyUSB0".to_string(), 9600)
+            ]
         );
     }
 
@@ -489,11 +544,24 @@ mod tests {
         rig.now.unix_ms -= 3_600_000;
         rig.feed(&[GGA, GSA, RMC].concat());
         rig.later(Duration::from_secs(1));
-        let steps: Vec<Job> =
-            rig.gnss.take_jobs().into_iter().filter(|j| matches!(j, Job::StepClock(_))).collect();
-        assert_eq!(steps, [Job::StepClock(Step { epoch: 1_774_269_319, drift_s: 3599.0 })]);
+        let steps: Vec<Job> = rig
+            .gnss
+            .take_jobs()
+            .into_iter()
+            .filter(|j| matches!(j, Job::StepClock(_)))
+            .collect();
+        assert_eq!(
+            steps,
+            [Job::StepClock(Step {
+                epoch: 1_774_269_319,
+                drift_s: 3599.0
+            })]
+        );
         let info = rig.gnss.receiver.as_ref().unwrap().info();
-        assert_eq!((info.fix_quality, info.fix_mode), (FixQuality::Gps, FixMode::ThreeD));
+        assert_eq!(
+            (info.fix_quality, info.fix_mode),
+            (FixQuality::Gps, FixMode::ThreeD)
+        );
     }
 
     #[test]
@@ -505,7 +573,10 @@ mod tests {
         rig.fix(53.3536, 10.5633);
         assert_eq!(
             rig.gnss.take_jobs(),
-            [Job::ApplyTimezone("Europe/Berlin".into()), Job::SaveTimezone("Europe/Berlin".into())]
+            [
+                Job::ApplyTimezone("Europe/Berlin".into()),
+                Job::SaveTimezone("Europe/Berlin".into())
+            ]
         );
         rig.info();
         assert_eq!(rig.last_gnss()["timezone"], "Europe/Berlin");
@@ -513,11 +584,20 @@ mod tests {
         rig.fix(53.3537, 10.5634);
         assert!(rig.gnss.take_jobs().is_empty());
         rig.fix(52.52, 13.405);
-        assert_eq!(rig.gnss.take_jobs(), [Job::ApplyTimezone("Europe/Berlin".into())]);
+        assert_eq!(
+            rig.gnss.take_jobs(),
+            [Job::ApplyTimezone("Europe/Berlin".into())]
+        );
         rig.fix(22.5726, 88.3639);
-        assert_eq!(rig.gnss.take_jobs()[1], Job::SaveTimezone("Asia/Kolkata".into()));
+        assert_eq!(
+            rig.gnss.take_jobs()[1],
+            Job::SaveTimezone("Asia/Kolkata".into())
+        );
 
-        rig.gnss.publish_fix(GpsFix { alt: Some(12.0), ..Default::default() });
+        rig.gnss.publish_fix(GpsFix {
+            alt: Some(12.0),
+            ..Default::default()
+        });
         rig.fix(999.0, 999.0);
         assert!(rig.gnss.take_jobs().is_empty());
         rig.info();
@@ -526,13 +606,22 @@ mod tests {
 
     #[test]
     fn the_remembered_zone_stands_until_gps_names_another() {
-        let config = Config { timezone: "Asia/Kolkata".into(), ..defaults() };
+        let config = Config {
+            timezone: "Asia/Kolkata".into(),
+            ..defaults()
+        };
         let mut rig = Rig::new(&config);
-        assert_eq!(rig.gnss.take_jobs(), [Job::ApplyTimezone("Asia/Kolkata".into())]);
+        assert_eq!(
+            rig.gnss.take_jobs(),
+            [Job::ApplyTimezone("Asia/Kolkata".into())]
+        );
         rig.info();
         assert_eq!(rig.last_gnss()["timezone"], "Asia/Kolkata");
         rig.fix(22.5726, 88.3639);
-        assert_eq!(rig.gnss.take_jobs(), [Job::ApplyTimezone("Asia/Kolkata".into())]);
+        assert_eq!(
+            rig.gnss.take_jobs(),
+            [Job::ApplyTimezone("Asia/Kolkata".into())]
+        );
         rig.fix(999.0, 999.0);
         rig.info();
         assert_eq!(rig.last_gnss()["timezone"], "Asia/Kolkata");
@@ -545,7 +634,12 @@ mod tests {
         rig.later(Duration::from_secs(1));
         let claim = rig.dir.0.join("claim");
         assert!(claim.exists());
-        let Rig { gnss, mut telemetry, dir, .. } = rig;
+        let Rig {
+            gnss,
+            mut telemetry,
+            dir,
+            ..
+        } = rig;
         drop(gnss);
         let mut last = None;
         while let Ok(v) = telemetry.try_recv() {
@@ -562,7 +656,13 @@ mod tests {
         let (tx, mut telemetry) = mpsc::unbounded_channel();
         let open: Opener = Box::new(|device, _| Err(format!("{device} not found")));
         let mut gnss = Gnss::new(tx, open, Clock::new(dir.0.join("claim")));
-        gnss.begin(&Config { gps_enabled: true, ..defaults() }, Moment::now());
+        gnss.begin(
+            &Config {
+                gps_enabled: true,
+                ..defaults()
+            },
+            Moment::now(),
+        );
         let info = telemetry.try_recv().unwrap();
         assert_eq!(info["gnss"]["error"], "/dev/ttyAMA0 not found");
         assert!(gnss.next_deadline().is_some());
@@ -576,7 +676,13 @@ mod tests {
         let mut chunks = Some(chunks);
         let open: Opener = Box::new(move |_, _| Ok(Port::fake(chunks.take().unwrap())));
         let mut gnss = Gnss::new(tx, open, Clock::new(dir.0.join("claim")));
-        gnss.begin(&Config { gps_enabled: true, ..defaults() }, Moment::now());
+        gnss.begin(
+            &Config {
+                gps_enabled: true,
+                ..defaults()
+            },
+            Moment::now(),
+        );
         feed.send(Ok(GGA.to_vec())).unwrap();
         assert_eq!(gnss.next_chunk().await, Some(Ok(GGA.to_vec())));
         drop(feed);

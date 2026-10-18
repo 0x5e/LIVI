@@ -1,5 +1,3 @@
-// LIVI's DAB+ radio for the phone's Radio app: stations, what plays and each station's logo.
-
 use std::sync::Arc;
 
 use base64::Engine;
@@ -14,7 +12,6 @@ pub fn station_id(service: u32) -> String {
     format!("{service:x}")
 }
 
-/// What the Radio app asked for, as an ask for the DAB+ task.
 pub fn ask(command: RadioCommand) -> Option<DabAsk> {
     Some(match command {
         RadioCommand::Tune(id) => DabAsk::Play(u32::from_str_radix(&id, 16).ok()?),
@@ -26,12 +23,16 @@ pub fn ask(command: RadioCommand) -> Option<DabAsk> {
 }
 
 fn logo(st: &DabStation) -> Option<Vec<u8>> {
-    st.logo.as_deref().and_then(|b| base64::engine::general_purpose::STANDARD.decode(b).ok())
+    st.logo
+        .as_deref()
+        .and_then(|b| base64::engine::general_purpose::STANDARD.decode(b).ok())
 }
 
 fn radio(dab: &Dab) -> Radio {
     let stations = &dab.stations;
-    let tuned = dab.station.and_then(|id| stations.iter().find(|s| s.service_id == id));
+    let tuned = dab
+        .station
+        .and_then(|id| stations.iter().find(|s| s.service_id == id));
     let label = tuned.map(|s| s.label.clone()).unwrap_or_default();
     let artwork = tuned.and_then(logo).unwrap_or_default();
     Radio {
@@ -49,7 +50,11 @@ fn radio(dab: &Dab) -> Radio {
             .collect(),
         current: dab.station.map(station_id),
         title: dab.text.clone().unwrap_or_else(|| label.clone()),
-        artist: if dab.text.is_some() { label } else { String::new() },
+        artist: if dab.text.is_some() {
+            label
+        } else {
+            String::new()
+        },
         album: tuned.map(|s| s.ensemble.clone()).unwrap_or_default(),
         artwork,
         playing: dab.playing,
@@ -91,8 +96,14 @@ mod tests {
 
     #[test]
     fn the_radio_app_hears_stations_and_what_plays() {
-        let kultur = DabStation { logo: Some("AQID".into()), ..station(0xd220, "Dlf Kultur") };
-        let gone = DabStation { hidden: true, ..station(0xd240, "Doku") };
+        let kultur = DabStation {
+            logo: Some("AQID".into()),
+            ..station(0xd220, "Dlf Kultur")
+        };
+        let gone = DabStation {
+            hidden: true,
+            ..station(0xd240, "Doku")
+        };
         let dab = Dab {
             receiver: Some("stick".into()),
             stations: vec![station(0xd210, "Dlf"), kultur, gone],
@@ -104,7 +115,10 @@ mod tests {
         let r = radio(&dab);
         assert!(r.available);
         assert_eq!(r.current.as_deref(), Some("d220"));
-        assert_eq!((r.title.as_str(), r.artist.as_str()), ("Lesart", "Dlf Kultur"));
+        assert_eq!(
+            (r.title.as_str(), r.artist.as_str()),
+            ("Lesart", "Dlf Kultur")
+        );
         assert_eq!(r.album, "DR Deutschland");
         assert_eq!(r.artwork, vec![1, 2, 3], "the tuned station's logo");
         assert_eq!(r.stations[1].image.as_deref(), Some(&[1u8, 2, 3][..]));
@@ -114,8 +128,14 @@ mod tests {
 
     #[test]
     fn without_text_the_station_is_the_title() {
-        let dab = Dab { station: Some(1), ..Default::default() };
-        let dab = Dab { stations: vec![station(1, "Dlf")], ..dab };
+        let dab = Dab {
+            station: Some(1),
+            ..Default::default()
+        };
+        let dab = Dab {
+            stations: vec![station(1, "Dlf")],
+            ..dab
+        };
         let r = radio(&dab);
         assert_eq!((r.title.as_str(), r.artist.as_str()), ("Dlf", ""));
         assert!(!r.available);
@@ -124,7 +144,10 @@ mod tests {
 
     #[test]
     fn radio_app_commands_become_dab_asks() {
-        assert_eq!(ask(RadioCommand::Tune("d220".into())), Some(DabAsk::Play(0xd220)));
+        assert_eq!(
+            ask(RadioCommand::Tune("d220".into())),
+            Some(DabAsk::Play(0xd220))
+        );
         assert_eq!(ask(RadioCommand::Tune("nope".into())), None);
         assert_eq!(ask(RadioCommand::Play), Some(DabAsk::Resume));
         assert_eq!(ask(RadioCommand::Pause), Some(DabAsk::Pause));

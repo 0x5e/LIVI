@@ -1,18 +1,3 @@
-//! The LIVI bridge is a USB serial microcontroller between LIVI and the car.
-//!
-//! LIVI to the bridge:
-//!   name <text>, brightness <0-100>
-//!   media title|artist|album|app <text>, media duration|position <ms>,
-//!   media playing true|false
-//!   nav active true|false, nav maneuver <code>, nav maneuver-text <text>,
-//!   nav distance <text>, nav idle-text <text>, nav road|destination|eta <text>,
-//!   nav destination-distance <m>, nav time-left <s>
-//!
-//! The bridge to LIVI:
-//!   button next|previous|scan    next, previous, play/pause
-//!   car <field> <value>          vehicle data, into the telemetry
-//! Its power, ignition, changer, station and remote lines are not used yet.
-
 use std::collections::HashMap;
 use std::fs::File;
 use std::io::{self, Read, Write};
@@ -30,11 +15,8 @@ use tokio::time::Instant;
 use crate::nav_text::{self, Language};
 use crate::server::Core;
 
-/// The product name in the bridge's USB descriptor. Its vendor id is a test
-/// id that goes away, the name stays.
 const PRODUCT: &str = "LIVI Bridge";
 const RETRY: Duration = Duration::from_secs(3);
-/// A session hop empties what plays, the car keeps it a moment longer.
 const MEDIA_BLANK: Duration = Duration::from_secs(4);
 const LINE_MAX: usize = 512;
 const MEDIA_TEXTS: [&str; 4] = ["media title", "media artist", "media album", "media app"];
@@ -97,12 +79,19 @@ fn nav(rows: &mut Rows, nav: &Navigation, language: Language) {
     if let Some(code) = nav.maneuver_type {
         rows.set("nav maneuver", &code.to_string());
     }
-    let maneuver = nav.maneuver_text.as_deref().unwrap_or(nav_text::unknown_maneuver(language));
+    let maneuver = nav
+        .maneuver_text
+        .as_deref()
+        .unwrap_or(nav_text::unknown_maneuver(language));
     rows.set("nav maneuver-text", maneuver);
     text(rows, "nav distance", &nav.maneuver_distance_text);
     text(rows, "nav road", &nav.road_name);
     text(rows, "nav destination", &nav.destination_name);
-    text(rows, "nav eta", &nav.eta.and_then(clock).or_else(|| nav.eta_text.clone()));
+    text(
+        rows,
+        "nav eta",
+        &nav.eta.and_then(clock).or_else(|| nav.eta_text.clone()),
+    );
     if let Some(m) = nav.distance_to_destination {
         rows.set("nav destination-distance", &m.to_string());
     }
@@ -134,11 +123,13 @@ fn parse(line: &str) -> FromBridge {
         "button next" => FromBridge::Button(MediaControl::Next),
         "button previous" => FromBridge::Button(MediaControl::Prev),
         "button scan" => FromBridge::Button(MediaControl::PlayPause),
-        _ => line.strip_prefix("car ").and_then(car).map_or(FromBridge::Unused, FromBridge::Car),
+        _ => line
+            .strip_prefix("car ")
+            .and_then(car)
+            .map_or(FromBridge::Unused, FromBridge::Car),
     }
 }
 
-/// `car speed 42` or `car gps.lat 52.5`, true and false and numbers as such.
 fn car(rest: &str) -> Option<Value> {
     let (key, raw) = rest.split_once(' ')?;
     let raw = raw.trim();
@@ -178,7 +169,6 @@ impl Port {
             .write(true)
             .custom_flags(libc::O_NOCTTY)
             .open(path)?;
-        // A CDC device ignores the line settings, raw only keeps the tty from echoing.
         if let Err(e) = raw_mode(&file) {
             eprintln!("[bridge] {path} stays cooked: {e}");
         }
@@ -231,7 +221,9 @@ fn read_lines(mut reader: File, tx: mpsc::UnboundedSender<String>) {
 #[cfg(target_os = "linux")]
 async fn find_port() -> Option<String> {
     let read = |p: &std::path::Path| {
-        std::fs::read_to_string(p).map(|s| s.trim().to_string()).unwrap_or_default()
+        std::fs::read_to_string(p)
+            .map(|s| s.trim().to_string())
+            .unwrap_or_default()
     };
     for entry in std::fs::read_dir("/sys/class/tty").ok()?.flatten() {
         let name = entry.file_name().to_string_lossy().into_owned();
@@ -241,7 +233,9 @@ async fn find_port() -> Option<String> {
         let Ok(iface) = std::fs::canonicalize(format!("/sys/class/tty/{name}/device")) else {
             continue;
         };
-        let Some(device) = iface.parent() else { continue };
+        let Some(device) = iface.parent() else {
+            continue;
+        };
         if read(&device.join("product")).eq_ignore_ascii_case(PRODUCT) {
             return Some(format!("/dev/{name}"));
         }
@@ -259,8 +253,6 @@ async fn find_port() -> Option<String> {
     callout_device(&String::from_utf8_lossy(&out.stdout))
 }
 
-/// In the registry each USB device is a block under a `+-o <name>@<location>`
-/// line, its serial port as the IOCalloutDevice somewhere inside.
 #[cfg_attr(target_os = "linux", allow(dead_code))]
 fn callout_device(ioreg: &str) -> Option<String> {
     let mut ours = false;
@@ -297,11 +289,16 @@ pub async fn run(core: Arc<Core>, car_data: mpsc::UnboundedSender<Value>) {
             let language = Language::of(language);
             rows.set("name", "LIVI");
             if brightness.is_finite() {
-                rows.set("brightness", &(brightness * 100.0).clamp(0.0, 100.0).round().to_string());
+                rows.set(
+                    "brightness",
+                    &(brightness * 100.0).clamp(0.0, 100.0).round().to_string(),
+                );
             }
             rows.set("nav idle-text", nav_text::no_route(language));
             if *np == NowPlaying::default() {
-                let had = seen.as_ref().is_some_and(|(was, ..)| *was != NowPlaying::default());
+                let had = seen
+                    .as_ref()
+                    .is_some_and(|(was, ..)| *was != NowPlaying::default());
                 if had {
                     blank_at = Some(Instant::now() + MEDIA_BLANK);
                 }
@@ -387,14 +384,35 @@ mod tests {
     #[test]
     fn the_bridge_buttons_and_car_data_are_understood() {
         assert_eq!(parse("button next"), FromBridge::Button(MediaControl::Next));
-        assert_eq!(parse("button previous"), FromBridge::Button(MediaControl::Prev));
-        assert_eq!(parse("button scan"), FromBridge::Button(MediaControl::PlayPause));
-        assert_eq!(parse("car speed 42"), FromBridge::Car(json!({ "speed": 42 })));
-        assert_eq!(parse("car gps.lat 52.5"), FromBridge::Car(json!({ "gps": { "lat": 52.5 } })));
-        assert_eq!(parse("car reverse true"), FromBridge::Car(json!({ "reverse": true })));
+        assert_eq!(
+            parse("button previous"),
+            FromBridge::Button(MediaControl::Prev)
+        );
+        assert_eq!(
+            parse("button scan"),
+            FromBridge::Button(MediaControl::PlayPause)
+        );
+        assert_eq!(
+            parse("car speed 42"),
+            FromBridge::Car(json!({ "speed": 42 }))
+        );
+        assert_eq!(
+            parse("car gps.lat 52.5"),
+            FromBridge::Car(json!({ "gps": { "lat": 52.5 } }))
+        );
+        assert_eq!(
+            parse("car reverse true"),
+            FromBridge::Car(json!({ "reverse": true }))
+        );
         assert_eq!(parse("car gear D"), FromBridge::Car(json!({ "gear": "D" })));
-        for unused in ["power on", "remote up", "car 1x 2", "car a.b.c 1", "car speed", "button x"]
-        {
+        for unused in [
+            "power on",
+            "remote up",
+            "car 1x 2",
+            "car a.b.c 1",
+            "car speed",
+            "button x",
+        ] {
             assert_eq!(parse(unused), FromBridge::Unused, "{unused}");
         }
     }
@@ -411,8 +429,14 @@ mod tests {
   | +-o IOSerialBSDClient  <class IOSerialBSDClient>
   |     "IOCalloutDevice" = "/dev/cu.usbmodem1201"
 "#;
-        assert_eq!(callout_device(ioreg).as_deref(), Some("/dev/cu.usbmodem1201"));
-        assert_eq!(callout_device("+-o Other@1\n  \"IOCalloutDevice\" = \"/dev/x\"\n"), None);
+        assert_eq!(
+            callout_device(ioreg).as_deref(),
+            Some("/dev/cu.usbmodem1201")
+        );
+        assert_eq!(
+            callout_device("+-o Other@1\n  \"IOCalloutDevice\" = \"/dev/x\"\n"),
+            None
+        );
     }
 
     #[test]

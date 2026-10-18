@@ -1,7 +1,3 @@
-// AA frame layout: `[ch][flags][len:u16 BE]`, plus `[total:u32 BE]` on the first
-// fragment of a multi-frame message, then the payload. Before TLS the payload is
-// `[msgId:u16 BE][proto]`. After it every encrypted payload is one TLS record.
-
 use std::collections::HashMap;
 
 use crate::consts::{FLAG_FIRST, FLAG_LAST};
@@ -10,7 +6,6 @@ const HEADER_SHORT: usize = 4;
 const HEADER_EXTENDED: usize = 8;
 const TLS_RECORD_HEADER: usize = 5;
 
-/// One frame as it came off the wire, payload still including the message id.
 #[derive(Debug, PartialEq, Eq)]
 pub struct RawFrame {
     pub ch: u8,
@@ -19,7 +14,6 @@ pub struct RawFrame {
 }
 
 impl RawFrame {
-    /// Splits a plaintext payload into message id and body.
     pub fn message(&self) -> Option<(u16, &[u8])> {
         split_message(&self.payload)
     }
@@ -32,7 +26,6 @@ pub fn split_message(payload: &[u8]) -> Option<(u16, &[u8])> {
     Some((u16::from_be_bytes([payload[0], payload[1]]), &payload[2..]))
 }
 
-/// A single-frame message: short header, message id, body.
 pub fn encode(ch: u8, flags: u8, msg_id: u16, data: &[u8]) -> Vec<u8> {
     let mut payload = Vec::with_capacity(2 + data.len());
     payload.extend_from_slice(&msg_id.to_be_bytes());
@@ -40,7 +33,6 @@ pub fn encode(ch: u8, flags: u8, msg_id: u16, data: &[u8]) -> Vec<u8> {
     encode_raw(ch, flags, &payload)
 }
 
-/// A single frame around a ready payload (handshake bytes or a TLS record).
 pub fn encode_raw(ch: u8, flags: u8, payload: &[u8]) -> Vec<u8> {
     let mut out = Vec::with_capacity(HEADER_SHORT + payload.len());
     out.push(ch);
@@ -50,8 +42,6 @@ pub fn encode_raw(ch: u8, flags: u8, payload: &[u8]) -> Vec<u8> {
     out
 }
 
-/// One frame per TLS record. Several records become a FIRST/MIDDLE/LAST run,
-/// the first carrying the extended header with the total size.
 pub fn encode_records(ch: u8, flags: u8, tls: &[u8]) -> Vec<u8> {
     let records = split_records(tls);
     if records.len() <= 1 {
@@ -77,8 +67,6 @@ pub fn encode_records(ch: u8, flags: u8, tls: &[u8]) -> Vec<u8> {
     out
 }
 
-/// Splits a byte run into TLS records by their 5-byte headers. Anything that
-/// does not parse comes back as one piece.
 fn split_records(tls: &[u8]) -> Vec<&[u8]> {
     let mut out = Vec::new();
     let mut i = 0usize;
@@ -105,23 +93,35 @@ struct Header {
     total: u32,
 }
 
-/// The header at the front of `buf`, or None while it is still incomplete.
 fn parse_header(buf: &[u8]) -> Option<Header> {
     if buf.len() < HEADER_SHORT {
         return None;
     }
     let flags = buf[1];
     let extended = flags & FLAG_FIRST != 0 && flags & FLAG_LAST == 0;
-    let header_len = if extended { HEADER_EXTENDED } else { HEADER_SHORT };
+    let header_len = if extended {
+        HEADER_EXTENDED
+    } else {
+        HEADER_SHORT
+    };
     if buf.len() < header_len {
         return None;
     }
     let len = u16::from_be_bytes([buf[2], buf[3]]) as usize;
-    let total = if extended { u32::from_be_bytes([buf[4], buf[5], buf[6], buf[7]]) } else { 0 };
-    Some(Header { ch: buf[0], flags, len, header_len, total })
+    let total = if extended {
+        u32::from_be_bytes([buf[4], buf[5], buf[6], buf[7]])
+    } else {
+        0
+    };
+    Some(Header {
+        ch: buf[0],
+        flags,
+        len,
+        header_len,
+        total,
+    })
 }
 
-/// Splits the byte stream into frames, one per wire frame, fragments included.
 #[derive(Default)]
 pub struct FrameSplitter {
     buf: Vec<u8>,
@@ -140,12 +140,14 @@ impl FrameSplitter {
         }
         let payload = self.buf[h.header_len..end].to_vec();
         self.buf.drain(..end);
-        Some(RawFrame { ch: h.ch, flags: h.flags, payload })
+        Some(RawFrame {
+            ch: h.ch,
+            flags: h.flags,
+            payload,
+        })
     }
 }
 
-/// Splits the byte stream into whole messages, reassembling FIRST/MIDDLE/LAST
-/// runs per channel. Used before TLS is up.
 #[derive(Default)]
 pub struct FrameParser {
     splitter: FrameSplitter,
@@ -157,14 +159,15 @@ impl FrameParser {
         self.splitter.push(chunk);
     }
 
-    /// The splitter with whatever is still buffered, for after the handshake.
     pub fn into_splitter(self) -> FrameSplitter {
         self.splitter
     }
 
     pub fn next_frame(&mut self) -> Option<RawFrame> {
         loop {
-            let total = parse_header(&self.splitter.buf).map(|h| h.total).unwrap_or(0);
+            let total = parse_header(&self.splitter.buf)
+                .map(|h| h.total)
+                .unwrap_or(0);
             let f = self.splitter.next_frame()?;
             let first = f.flags & FLAG_FIRST != 0;
             let last = f.flags & FLAG_LAST != 0;
@@ -184,9 +187,17 @@ impl FrameParser {
                 continue;
             }
             if total != 0 && buf.len() != total as usize {
-                eprintln!("[aa] ch={} reassembled {}B, announced {total}B", f.ch, buf.len());
+                eprintln!(
+                    "[aa] ch={} reassembled {}B, announced {total}B",
+                    f.ch,
+                    buf.len()
+                );
             }
-            return Some(RawFrame { ch: f.ch, flags: f.flags, payload: buf });
+            return Some(RawFrame {
+                ch: f.ch,
+                flags: f.flags,
+                payload: buf,
+            });
         }
     }
 }
@@ -219,7 +230,6 @@ mod tests {
 
     #[test]
     fn fragments_are_reassembled_by_channel() {
-        // FIRST carries the extended header with the total size.
         let mut wire = vec![5, 0x09, 0, 2, 0, 0, 0, 5, 0xAA, 0xBB];
         wire.extend_from_slice(&[5, 0x08, 0, 1, 0xCC]);
         wire.extend_from_slice(&[5, 0x0a, 0, 2, 0xDD, 0xEE]);

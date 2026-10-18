@@ -1,11 +1,3 @@
-//! An image's type byte is its MTD index on the dongle.
-//!
-//! ```text
-//! Header (8 B):     "LFWB" | version:u8=1 | count:u8 | reserved:u16
-//! Descriptor (12 B) type:u8 | flags:u8 | reserved:u16 | length:u32 le | crc32:u32 le   (per image)
-//! Payload:          the images back to back, in descriptor order
-//! ```
-
 use md5::{Digest, Md5};
 
 use super::Remote;
@@ -25,8 +17,8 @@ pub fn pack(images: &[(u8, &[u8])]) -> Vec<u8> {
     out.extend_from_slice(&[0, 0]);
     for (typ, data) in images {
         out.push(*typ);
-        out.push(0); // flags
-        out.extend_from_slice(&[0, 0]); // reserved
+        out.push(0);
+        out.extend_from_slice(&[0, 0]);
         out.extend_from_slice(&(data.len() as u32).to_le_bytes());
         out.extend_from_slice(&crc32(data).to_le_bytes());
     }
@@ -67,7 +59,10 @@ pub fn unpack(bytes: &[u8]) -> Result<Vec<(u8, Vec<u8>)>, String> {
 }
 
 pub fn image(images: &[(u8, Vec<u8>)], typ: u8) -> Option<&[u8]> {
-    images.iter().find(|(t, _)| *t == typ).map(|(_, data)| data.as_slice())
+    images
+        .iter()
+        .find(|(t, _)| *t == typ)
+        .map(|(_, data)| data.as_slice())
 }
 
 pub fn crc32(data: &[u8]) -> u32 {
@@ -87,11 +82,13 @@ pub fn crc32(data: &[u8]) -> u32 {
 }
 
 fn md5_hex(data: &[u8]) -> String {
-    Md5::digest(data).iter().map(|b| format!("{b:02x}")).collect()
+    Md5::digest(data)
+        .iter()
+        .map(|b| format!("{b:02x}"))
+        .collect()
 }
 
 pub fn write_mtd(sh: &mut BindShell, node: &str, data: &[u8]) -> Result<(), String> {
-    // `head -c` stops after exactly SIZE bytes from the bindshell socket.
     let cmd = format!(
         "head -c {} 2>/dev/null | dd of={node} bs=64k conv=fsync 2>/dev/null; sync",
         data.len(),
@@ -99,7 +96,6 @@ pub fn write_mtd(sh: &mut BindShell, node: &str, data: &[u8]) -> Result<(), Stri
     sh.stream_in(&cmd, data)
 }
 
-/// Reads of the block device come from the page cache, not the chip.
 pub fn raw_node(node: &str) -> String {
     match node.rsplit_once("mtdblock") {
         Some((dir, n)) if n.bytes().all(|b| b.is_ascii_digit()) && !n.is_empty() => {
@@ -109,12 +105,9 @@ pub fn raw_node(node: &str) -> String {
     }
 }
 
-/// A write-protected flash takes a write and silently drops it.
 pub fn write_mtd_verified<R: Remote>(sh: &mut R, node: &str, data: &[u8]) -> Result<(), String> {
     sh.write_mtd(node, data)?;
     let raw = raw_node(node);
-    // A system without the raw node gets the block node, its page cache dropped first so the read
-    // still reaches the chip.
     let out = sh.run(&format!(
         "n={raw}; [ -c $n ] || {{ sync; echo 3 > /proc/sys/vm/drop_caches; n={node}; }}; head -c {} $n | md5sum",
         data.len()
@@ -152,10 +145,14 @@ pub fn stream_in_selftest(sh: &mut BindShell, size: usize) -> Result<(), String>
     let dongle_size: usize = lines.next().unwrap_or("0").trim().parse().unwrap_or(0);
     println!("selftest: dongle {size} B want {size}, md5 {dongle_md5}");
     if dongle_size != size {
-        return Err(format!("selftest size mismatch: got {dongle_size}, want {size}"));
+        return Err(format!(
+            "selftest size mismatch: got {dongle_size}, want {size}"
+        ));
     }
     if dongle_md5 != host_md5 {
-        return Err(format!("selftest md5 mismatch: dongle {dongle_md5}, host {host_md5}"));
+        return Err(format!(
+            "selftest md5 mismatch: dongle {dongle_md5}, host {host_md5}"
+        ));
     }
     Ok(())
 }
@@ -186,7 +183,6 @@ mod tests {
 
     #[test]
     fn crc32_is_the_standard_one() {
-        // The check value of the CRC-32 that gzip and pack-bundle.sh use.
         assert_eq!(crc32(b"123456789"), 0xCBF4_3926);
     }
 

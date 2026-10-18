@@ -1,11 +1,5 @@
-//! Which frames a receiver lets through, and the GOP it keeps.
-//!
-//! Frames pass from the first keyframe on. The running GOP is kept up to
-//! `CACHE_MAX` frames and primes a player created mid-stream.
-
 use livi_video_nal::{CpCodec, CpNalKind, classify_nal};
 
-/// Frames kept at most. A longer GOP is dropped.
 pub const CACHE_MAX: usize = 240;
 
 #[derive(Default, Clone, Copy, PartialEq, Eq, Debug)]
@@ -61,7 +55,6 @@ impl Fanout {
         self.have_codec = true;
     }
 
-    /// Waits for the next keyframe again and drops the cached GOP.
     pub fn restart(&mut self) {
         self.awaiting_keyframe = true;
         self.cache.clear();
@@ -76,24 +69,18 @@ impl Fanout {
         if self.cache_valid { &self.cache } else { &[] }
     }
 
-    /// The last parameter sets the stream sent, kept across a restart.
     pub fn params(&self) -> &[Vec<u8>] {
         &self.params
     }
 
-    /// The frames a new player is primed with: the parameter sets, then the running GOP.
     pub fn primer(&self) -> impl Iterator<Item = &Vec<u8>> {
         self.params.iter().chain(self.cached())
     }
 
-    /// Reads the counters and starts them over.
     pub fn take_stats(&mut self) -> Stats {
         core::mem::take(&mut self.stats)
     }
 
-    /// Accounts for `nal` and answers whether the caller pushes it. `has_target`
-    /// says whether any player is listening. The frame enters the cache whether
-    /// or not it is pushed.
     pub fn take(&mut self, nal: &[u8], has_target: bool) -> bool {
         self.stats.incoming += 1;
         if !self.have_codec {
@@ -114,7 +101,6 @@ impl Fanout {
         if self.awaiting_keyframe {
             self.stats.dropped += 1;
             match kind {
-                // parameter sets ride along, the keyframe needs them
                 CpNalKind::Delta => return false,
                 CpNalKind::Keyframe => self.awaiting_keyframe = false,
                 CpNalKind::Params => {}
@@ -134,7 +120,6 @@ impl Fanout {
             }
         }
 
-        // A held receiver fills its cache but pushes nothing.
         if !self.active {
             return false;
         }
@@ -189,7 +174,14 @@ mod tests {
         f.set_active(true);
 
         assert!(!f.take(&keyframe(), true));
-        assert_eq!(f.take_stats(), Stats { incoming: 1, dropped: 1, pushed: 0 });
+        assert_eq!(
+            f.take_stats(),
+            Stats {
+                incoming: 1,
+                dropped: 1,
+                pushed: 0
+            }
+        );
     }
 
     #[test]
@@ -198,7 +190,14 @@ mod tests {
         f.set_codec(CpCodec::H264);
 
         assert!(!f.take(&keyframe(), true));
-        assert_eq!(f.take_stats(), Stats { incoming: 1, dropped: 1, pushed: 0 });
+        assert_eq!(
+            f.take_stats(),
+            Stats {
+                incoming: 1,
+                dropped: 1,
+                pushed: 0
+            }
+        );
         assert_eq!(f.cached().len(), 1);
     }
 
@@ -247,7 +246,6 @@ mod tests {
 
         assert!(f.cached().is_empty());
 
-        // and it fills again from the next keyframe
         f.take(&keyframe(), true);
         assert_eq!(f.cached().len(), 1);
     }
@@ -272,7 +270,14 @@ mod tests {
         assert!(!f.take(&delta(), false));
 
         assert_eq!(f.cached().len(), 2);
-        assert_eq!(f.take_stats(), Stats { incoming: 2, dropped: 1, pushed: 0 });
+        assert_eq!(
+            f.take_stats(),
+            Stats {
+                incoming: 2,
+                dropped: 1,
+                pushed: 0
+            }
+        );
     }
 
     #[test]
@@ -297,7 +302,14 @@ mod tests {
         f.take(&delta(), true);
         f.take(&delta(), false);
 
-        assert_eq!(f.take_stats(), Stats { incoming: 3, dropped: 1, pushed: 2 });
+        assert_eq!(
+            f.take_stats(),
+            Stats {
+                incoming: 3,
+                dropped: 1,
+                pushed: 2
+            }
+        );
         assert_eq!(f.take_stats(), Stats::default());
     }
 
@@ -337,7 +349,10 @@ mod tests {
         assert_eq!(f.params(), [params(), pps()]);
         assert_eq!(f.primer().cloned().collect::<Vec<_>>(), [params(), pps()]);
         f.take(&keyframe(), true);
-        assert_eq!(f.primer().cloned().collect::<Vec<_>>(), [params(), pps(), keyframe()]);
+        assert_eq!(
+            f.primer().cloned().collect::<Vec<_>>(),
+            [params(), pps(), keyframe()]
+        );
     }
 
     #[test]

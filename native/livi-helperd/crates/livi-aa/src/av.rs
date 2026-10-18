@@ -1,13 +1,8 @@
-// The AV channel messages the transport handles itself: media data, the start
-// indication it takes the session id from, and the ack older protocols need.
-
 use livi_aa_proto::{MediaAckNotification, MediaStartNotification};
 use prost::Message;
 
 use crate::consts::{MEDIA_DATA, is_video_channel};
 
-/// The media bytes and their timestamp. Only `MEDIA_DATA` carries one, as eight
-/// big-endian bytes ahead of the data.
 pub fn media(msg_id: u16, payload: &[u8]) -> (Option<u64>, &[u8]) {
     if msg_id == MEDIA_DATA && payload.len() >= 8 {
         let ts = u64::from_be_bytes(payload[..8].try_into().unwrap());
@@ -17,10 +12,11 @@ pub fn media(msg_id: u16, payload: &[u8]) -> (Option<u64>, &[u8]) {
 }
 
 pub fn start_session_id(payload: &[u8]) -> Option<u32> {
-    MediaStartNotification::decode(payload).ok().map(|s| s.session_id as u32)
+    MediaStartNotification::decode(payload)
+        .ok()
+        .map(|s| s.session_id as u32)
 }
 
-/// One ack per media message.
 pub fn ack(session_id: u32) -> Vec<u8> {
     MediaAckNotification {
         session_id: session_id as i32,
@@ -30,8 +26,6 @@ pub fn ack(session_id: u32) -> Vec<u8> {
     .encode_to_vec()
 }
 
-/// From protocol 5.0 the phone streams audio without waiting for acks, from 6.0 video too, and
-/// takes every ack it still gets for a message of unknown type.
 pub fn wants_ack(protocol: (u16, u16), ch: u8) -> bool {
     protocol < if is_video_channel(ch) { (6, 0) } else { (5, 0) }
 }
@@ -55,7 +49,10 @@ mod tests {
 
     #[test]
     fn session_id_comes_out_of_start() {
-        let start = MediaStartNotification { session_id: 300, ..Default::default() };
+        let start = MediaStartNotification {
+            session_id: 300,
+            ..Default::default()
+        };
         assert_eq!(start_session_id(&start.encode_to_vec()), Some(300));
     }
 

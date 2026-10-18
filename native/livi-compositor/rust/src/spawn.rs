@@ -1,6 +1,3 @@
-//! Inner-UI child management: spawn with WAYLAND_DISPLAY set, SIGTERM on
-//! shutdown, and the "restart" flow that re-execs the whole compositor.
-
 use std::os::unix::process::CommandExt;
 
 use nix::sys::signal::{SigHandler, Signal, kill, signal};
@@ -9,7 +6,6 @@ use nix::unistd::Pid;
 use crate::state::LiviState;
 
 pub fn spawn_startup(state: &mut LiviState) {
-    // Auto-reap children so no zombies accumulate.
     unsafe {
         let _ = signal(Signal::SIGCHLD, SigHandler::SigIgn);
     }
@@ -20,7 +16,12 @@ pub fn spawn_startup(state: &mut LiviState) {
         .arg("-c")
         .arg(&cmd)
         .env("WAYLAND_DISPLAY", &state.ui_socket)
-        .envs(state.render_node.as_ref().map(|node| ("LIVI_RENDER_NODE", node)))
+        .envs(
+            state
+                .render_node
+                .as_ref()
+                .map(|node| ("LIVI_RENDER_NODE", node)),
+        )
         .spawn();
     match child {
         Ok(c) => state.startup_pid = Some(Pid::from_raw(c.id() as i32)),
@@ -34,7 +35,6 @@ pub fn terminate_child(state: &mut LiviState) {
     }
 }
 
-/// The inner UI ignored SIGTERM past the deadline: SIGKILL and stop the loop.
 pub fn force_restart(state: &mut LiviState) {
     log::info!("inner UI did not quit -> SIGKILL, then re-exec");
     state.restart_deadline = None;
@@ -51,7 +51,9 @@ pub fn shutdown(state: &mut LiviState) {
         log::info!("re-exec for full restart");
         let argv = state.saved_argv.clone();
         if !argv.is_empty() {
-            let err = std::process::Command::new("/proc/self/exe").args(&argv[1..]).exec();
+            let err = std::process::Command::new("/proc/self/exe")
+                .args(&argv[1..])
+                .exec();
             log::error!("re-exec via /proc/self/exe failed: {err}");
             let err = std::process::Command::new(&argv[0]).args(&argv[1..]).exec();
             log::error!("re-exec failed: {err}");

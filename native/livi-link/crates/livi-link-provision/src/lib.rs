@@ -1,13 +1,13 @@
-//! Code an architecture family shares goes in `dongle`, code for one SoC in
-//! `dongle::arm::<soc>` or `dongle::riscv::<soc>`.
-
 use std::path::Path;
 
 pub mod detect;
 pub mod dongle;
 
 pub fn tilde(path: &Path) -> String {
-    shorten(&path.display().to_string(), std::env::var("HOME").ok().as_deref())
+    shorten(
+        &path.display().to_string(),
+        std::env::var("HOME").ok().as_deref(),
+    )
 }
 
 fn shorten(text: &str, home: Option<&str>) -> String {
@@ -30,7 +30,6 @@ mod tests {
         let home = Some("/Users/x");
         assert_eq!(shorten("/Users/x/Library/LIVI", home), "~/Library/LIVI");
         assert_eq!(shorten("/Users/x", home), "~");
-        // A longer name that merely starts the same is not the home.
         assert_eq!(shorten("/Users/xy/LIVI", home), "/Users/xy/LIVI");
         assert_eq!(shorten("/tmp/LIVI", home), "/tmp/LIVI");
         assert_eq!(shorten("/Users/x/LIVI", None), "/Users/x/LIVI");

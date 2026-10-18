@@ -14,15 +14,12 @@ use crate::hwaddr;
 use crate::projection::DongleAsks;
 
 const POLL: Duration = Duration::from_millis(1500);
-/// The rates cost the dongle's Wi-Fi driver a firmware round trip.
 const RATES_EVERY: Duration = Duration::from_secs(5);
-/// Applying waits for the radio, and a 5 GHz start spends the first seconds scanning.
 const APPLY: Duration = Duration::from_secs(30);
 const DRIFT_RETRY: Duration = Duration::from_secs(30);
 
 type Status = HashMap<String, String>;
 
-/// Held by every UI connection that shows the link speed.
 pub struct LinkSpeedViewer(watch::Sender<usize>);
 
 impl LinkSpeedViewer {
@@ -39,16 +36,28 @@ impl Drop for LinkSpeedViewer {
 }
 
 fn ssid_of(cfg: &Config) -> String {
-    if cfg.car_name.is_empty() { "LIVI".into() } else { cfg.car_name.clone() }
+    if cfg.car_name.is_empty() {
+        "LIVI".into()
+    } else {
+        cfg.car_name.clone()
+    }
 }
 
 fn country_of(cfg: &Config) -> String {
-    if cfg.country.is_empty() { "DE".into() } else { cfg.country.to_uppercase() }
+    if cfg.country.is_empty() {
+        "DE".into()
+    } else {
+        cfg.country.to_uppercase()
+    }
 }
 
 fn settings_for(cfg: &Config) -> Vec<String> {
     let or = |v: u32, d: u32| if v == 0 { d } else { v };
-    let pass = if cfg.wifi_password.is_empty() { "12345678" } else { &cfg.wifi_password };
+    let pass = if cfg.wifi_password.is_empty() {
+        "12345678"
+    } else {
+        &cfg.wifi_password
+    };
     vec![
         format!("set ssid {}", ssid_of(cfg)),
         format!("set country {}", country_of(cfg)),
@@ -56,12 +65,10 @@ fn settings_for(cfg: &Config) -> Vec<String> {
         format!("set width {}", or(cfg.wifi_channel_width, 40)),
         format!("set passphrase {pass}"),
         "apply".into(),
-        // Keeps the whole state across a reboot.
         "save".into(),
     ]
 }
 
-/// Whether the access point is on is kept on the dongle itself.
 fn commands_for(cfg: &Config, status: &Status) -> Vec<String> {
     if cfg.wifi_interface != CHOICE || status.get("wifi-enabled").map(String::as_str) == Some("off")
     {
@@ -70,8 +77,6 @@ fn commands_for(cfg: &Config, status: &Status) -> Vec<String> {
     settings_for(cfg)
 }
 
-/// The host drives the dongle's controller itself, over the tunnel. Only on Linux can a test hand
-/// wireless CarPlay to the dongle's own accessory instead.
 fn accessory_on_dongle() -> bool {
     cfg!(target_os = "linux") && std::env::var("LIVI_BT_VIA_DONGLE").as_deref() == Ok("1")
 }
@@ -81,8 +86,6 @@ fn bt_commands_for(cfg: &Config) -> Vec<String> {
     vec![if on { "accessory on" } else { "accessory off" }.into()]
 }
 
-/// Channel and width are left out, the dongle narrows those itself when its
-/// radio refuses them.
 fn drifted(status: &Status, cfg: &Config) -> bool {
     let get = |k: &str| status.get(k).map(String::as_str);
     if cfg.wifi_interface != CHOICE || get("wifi-enabled") == Some("off") {
@@ -96,7 +99,10 @@ fn drifted(status: &Status, cfg: &Config) -> bool {
 
 fn radios(status: &Status) -> DongleRadios {
     let on = |k: &str| status.get(k).map(String::as_str) != Some("off");
-    DongleRadios { wifi: on("wifi-enabled"), bt: on("bt-enabled") }
+    DongleRadios {
+        wifi: on("wifi-enabled"),
+        bt: on("bt-enabled"),
+    }
 }
 
 fn mbps(bytes: f64, over: Duration) -> f64 {
@@ -107,8 +113,6 @@ fn mbps(bytes: f64, over: Duration) -> f64 {
     (bytes * 8.0 / secs / 1e6 * 10.0).round() / 10.0
 }
 
-/// A host access point counts the way the dongle does: bytes on the interface, the phone's
-/// rates from the kernel.
 fn host_counters(iface: &str) -> Option<Status> {
     let bytes = |dir: &str| {
         std::fs::read_to_string(format!("/sys/class/net/{iface}/statistics/{dir}_bytes"))
@@ -220,10 +224,16 @@ impl Link {
             (Radio::Bt, false) => vec!["bt off".into()],
         };
         if let Err(e) = talk(commands).await {
-            report(if radio == Radio::Wifi { "access point" } else { "bluetooth" }, &e);
+            report(
+                if radio == Radio::Wifi {
+                    "access point"
+                } else {
+                    "bluetooth"
+                },
+                &e,
+            );
             return;
         }
-        // The accessory learns its part once the controller is up.
         if radio == Radio::Bt && on {
             self.reconcile(cfg).await;
         }
@@ -251,14 +261,17 @@ impl Link {
         self.rates_at.is_none_or(|at| at.elapsed() >= RATES_EVERY)
     }
 
-    /// A single missed poll keeps the dongle listed, the route needs a moment after plug in.
     async fn poll(&mut self, hub: &Hub, speed_shown: bool, wifi_interface: &str) -> Option<Status> {
         let status = if attached() {
             tokio::task::spawn_blocking(ap::status).await.ok().flatten()
         } else {
             None
         };
-        self.misses = if status.is_some() { 0 } else { self.misses.saturating_add(1) };
+        self.misses = if status.is_some() {
+            0
+        } else {
+            self.misses.saturating_add(1)
+        };
         let answers =
             status.is_some() || (self.misses < 2 && hub.watch().borrow().system.dongle.is_some());
         let host = wifi_interface != CHOICE;
@@ -267,7 +280,10 @@ impl Link {
             (false, true) => status.clone(),
             (true, true) => {
                 let iface = wifi_interface.to_string();
-                tokio::task::spawn_blocking(move || host_counters(&iface)).await.ok().flatten()
+                tokio::task::spawn_blocking(move || host_counters(&iface))
+                    .await
+                    .ok()
+                    .flatten()
             }
         };
         let link_speed = match counted.as_mut() {
@@ -275,13 +291,16 @@ impl Link {
                 if self.rates_due() {
                     let iface = wifi_interface.to_string();
                     self.rates = tokio::task::spawn_blocking(move || {
-                        if host { host_rates(&iface) } else { ap::rates().unwrap_or_default() }
+                        if host {
+                            host_rates(&iface)
+                        } else {
+                            ap::rates().unwrap_or_default()
+                        }
                     })
                     .await
                     .unwrap_or_default();
                     self.rates_at = Some(Instant::now());
                 }
-                // Older dongles carry the rates in the status.
                 s.extend(self.rates.clone());
                 Some(self.speed(s))
             }
@@ -375,8 +394,6 @@ pub async fn run(hub: Arc<Hub>, mut asks: DongleAsks) {
                 cfg = next;
             }
             Some((radio, on)) = asks.radios.recv() => {
-                // The pick the user just made counts, the applied settings
-                // only follow it once nothing projects or with apply.
                 let now = hub.config();
                 let picked = match radio {
                     Radio::Wifi => &now.wifi_interface,
@@ -396,7 +413,10 @@ mod tests {
     use crate::config_file::defaults;
 
     fn status(pairs: &[(&str, &str)]) -> Status {
-        pairs.iter().map(|(k, v)| (k.to_string(), v.to_string())).collect()
+        pairs
+            .iter()
+            .map(|(k, v)| (k.to_string(), v.to_string()))
+            .collect()
     }
 
     fn on_dongle() -> Config {
@@ -417,11 +437,19 @@ mod tests {
                 "set country AT",
                 &format!(
                     "set channel {}",
-                    if cfg.wifi_channel == 0 { 36 } else { cfg.wifi_channel }
+                    if cfg.wifi_channel == 0 {
+                        36
+                    } else {
+                        cfg.wifi_channel
+                    }
                 ),
                 &format!(
                     "set width {}",
-                    if cfg.wifi_channel_width == 0 { 40 } else { cfg.wifi_channel_width }
+                    if cfg.wifi_channel_width == 0 {
+                        40
+                    } else {
+                        cfg.wifi_channel_width
+                    }
                 ),
                 &format!("set passphrase {}", cfg.wifi_password),
                 "apply",
@@ -453,7 +481,11 @@ mod tests {
         cfg.wireless_cp_enabled = true;
         assert_eq!(bt_commands_for(&cfg), ["accessory off"]);
         cfg.bt_adapter = CHOICE.into();
-        let on = if accessory_on_dongle() { "accessory on" } else { "accessory off" };
+        let on = if accessory_on_dongle() {
+            "accessory on"
+        } else {
+            "accessory off"
+        };
         assert_eq!(bt_commands_for(&cfg), [on]);
         cfg.wireless_cp_enabled = false;
         assert_eq!(bt_commands_for(&cfg), ["accessory off"]);
@@ -492,10 +524,19 @@ mod tests {
 
     #[test]
     fn radios_are_on_unless_switched_off() {
-        assert_eq!(radios(&Status::new()), DongleRadios { wifi: true, bt: true });
+        assert_eq!(
+            radios(&Status::new()),
+            DongleRadios {
+                wifi: true,
+                bt: true
+            }
+        );
         assert_eq!(
             radios(&status(&[("wifi-enabled", "off"), ("bt-enabled", "on")])),
-            DongleRadios { wifi: false, bt: true }
+            DongleRadios {
+                wifi: false,
+                bt: true
+            }
         );
     }
 
@@ -506,9 +547,15 @@ mod tests {
         assert_eq!(mbps(5.0, Duration::ZERO), 0.0);
 
         let mut link = Link::default();
-        let first =
-            link.speed(&status(&[("downbytes", "0"), ("upbytes", "0"), ("downrate", "866")]));
-        assert_eq!((first.down_mbps, first.down_rate, first.up_rate), (0.0, 866.0, 0.0));
+        let first = link.speed(&status(&[
+            ("downbytes", "0"),
+            ("upbytes", "0"),
+            ("downrate", "866"),
+        ]));
+        assert_eq!(
+            (first.down_mbps, first.down_rate, first.up_rate),
+            (0.0, 866.0, 0.0)
+        );
         let (_, _, at) = link.bytes.unwrap();
         link.bytes = Some((0.0, 0.0, at - Duration::from_secs(1)));
         let next = link.speed(&status(&[("downbytes", "1250000"), ("upbytes", "125000")]));

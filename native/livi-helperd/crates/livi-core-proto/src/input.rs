@@ -45,7 +45,12 @@ mod tests {
     fn pointer_on_the_wire() {
         let input = Input::Pointer {
             screen: Screen::Main,
-            points: vec![Point { id: 0, x: 0.25, y: 0.5, phase: Phase::Down }],
+            points: vec![Point {
+                id: 0,
+                x: 0.25,
+                y: 0.5,
+                phase: Phase::Down,
+            }],
         };
         assert_eq!(
             serde_json::to_value(&input).unwrap(),
@@ -57,6 +62,12 @@ mod tests {
     fn key_on_the_wire() {
         let input: Input =
             serde_json::from_value(json!({ "kind": "key", "code": "KeyH", "down": true })).unwrap();
-        assert_eq!(input, Input::Key { code: "KeyH".into(), down: true });
+        assert_eq!(
+            input,
+            Input::Key {
+                code: "KeyH".into(),
+                down: true
+            }
+        );
     }
 }

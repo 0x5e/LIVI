@@ -1,16 +1,15 @@
-//! macOS only: the iPhone's own CarPlay AV interfaces (enX). macOS binds them itself, found by the
-//! phone's USB serial, not a fixed USB interface number.
-
 use tokio::process::Command;
 
-/// The drivers macOS binds to an NCM data interface: NCM 1.0 or 1.1, whichever the phone reports.
 const NCM_DATA: [&str; 2] = ["AppleUSBNCMData", "AppleUSBNCM11Data"];
 
 fn normalize(serial: &str) -> String {
-    serial.chars().filter(|c| c.is_ascii_alphanumeric()).collect::<String>().to_ascii_lowercase()
+    serial
+        .chars()
+        .filter(|c| c.is_ascii_alphanumeric())
+        .collect::<String>()
+        .to_ascii_lowercase()
 }
 
-/// The NCM interfaces (enX) macOS bound for this iPhone. Usually two, the AV path takes one.
 pub async fn ncm_interfaces(udid: &str) -> Result<Vec<String>, String> {
     let out = Command::new("/usr/sbin/ioreg")
         .args(["-r", "-n", "iPhone", "-l", "-w", "0"])
@@ -23,13 +22,11 @@ pub async fn ncm_interfaces(udid: &str) -> Result<Vec<String>, String> {
     ncm_interfaces_in(&String::from_utf8_lossy(&out.stdout), udid)
 }
 
-// ioreg lines carry a "  | | " tree prefix, so pull each quoted value out of the line rather than
-// matching from its start.
 fn quoted_value<'a>(line: &'a str, key: &str) -> Option<&'a str> {
-    line.split_once(&format!("\"{key}\" = \"")).and_then(|(_, r)| r.split('"').next())
+    line.split_once(&format!("\"{key}\" = \""))
+        .and_then(|(_, r)| r.split('"').next())
 }
 
-/// The class on a node line, `+-o en13  <class IOEthernetInterface, id …>`.
 fn node_class(line: &str) -> Option<&str> {
     line.contains("+-o ").then_some(())?;
     line.split_once("<class ")?.1.split([',', '>']).next()
@@ -38,13 +35,12 @@ fn node_class(line: &str) -> Option<&str> {
 fn ncm_interfaces_in(ioreg: &str, udid: &str) -> Result<Vec<String>, String> {
     let want = normalize(udid);
     for block in ioreg.split("+-o iPhone@") {
-        let serial = block.lines().find_map(|l| quoted_value(l, "USB Serial Number"));
+        let serial = block
+            .lines()
+            .find_map(|l| quoted_value(l, "USB Serial Number"));
         if serial.map(normalize).as_deref() != Some(want.as_str()) {
             continue;
         }
-        // The BSD name sits below its driver. Take the ones under an NCM data driver, not the
-        // plain USB-Ethernet function (AppleUSBEthernetHostAQM), and not the restricted interface
-        // (anriN) macOS keeps for itself.
         let mut ifaces = Vec::new();
         let mut under_ncm = false;
         let mut restricted = false;
@@ -69,7 +65,6 @@ fn ncm_interfaces_in(ioreg: &str, udid: &str) -> Result<Vec<String>, String> {
     Err("iPhone serial not found in the IORegistry".into())
 }
 
-/// The first CarPlay NCM interface for this iPhone.
 pub async fn discover(udid: &str) -> Result<String, String> {
     ncm_interfaces(udid)
         .await?
@@ -82,8 +77,6 @@ pub async fn discover(udid: &str) -> Result<String, String> {
 mod tests {
     use super::*;
 
-    /// An iPhone that reports NCM 1.1, as `ioreg -r -n iPhone -l -w 0` shows it (trimmed to the
-    /// lines the parser reads, serial made up).
     const NCM11: &str = r#"
 +-o iPhone@01100000  <class IOUSBHostDevice, id 0x100009fd5, registered, matched, active>
   |   "USB Serial Number" = "0000814000012345ABCDEF01"
@@ -109,7 +102,10 @@ mod tests {
 
     #[test]
     fn serials_compare_without_dashes_or_case() {
-        assert_eq!(normalize("00008120-000924CE2E51A01E"), "00008120000924ce2e51a01e");
+        assert_eq!(
+            normalize("00008120-000924CE2E51A01E"),
+            "00008120000924ce2e51a01e"
+        );
     }
 
     #[test]
@@ -121,7 +117,10 @@ mod tests {
     #[test]
     fn ncm_1_0_is_found_as_before() {
         let ncm10 = NCM11.replace("NCM11", "NCM");
-        assert_eq!(ncm_interfaces_in(&ncm10, "00008140-00012345ABCDEF01").unwrap(), ["en13"]);
+        assert_eq!(
+            ncm_interfaces_in(&ncm10, "00008140-00012345ABCDEF01").unwrap(),
+            ["en13"]
+        );
     }
 
     #[test]

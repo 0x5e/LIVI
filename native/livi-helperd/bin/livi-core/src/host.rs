@@ -1,4 +1,3 @@
-/// Two cars on the same stock name would collide, so the hostname names the head unit.
 pub fn car_name(hostname: &str, max: usize) -> Option<String> {
     let name = hostname.split('.').next().unwrap_or("").trim();
     if name.is_empty() || name.eq_ignore_ascii_case("localhost") {
@@ -18,8 +17,6 @@ pub fn hostname() -> Option<String> {
     String::from_utf8(buf[..end].to_vec()).ok()
 }
 
-/// Native pixels from the first detailed timing of an EDID blob. A panel
-/// without a physical size is no panel to size the projection by.
 #[cfg(any(target_os = "linux", test))]
 fn edid_native_px(edid: &[u8]) -> Option<(u32, u32)> {
     if edid.len() < 128 {
@@ -37,17 +34,19 @@ fn edid_native_px(edid: &[u8]) -> Option<(u32, u32)> {
     (width_mm > 0 && height_mm > 0 && width > 0 && height > 0).then_some((width, height))
 }
 
-/// The connector a `drm.edid_firmware=<connector>:<file>` on the kernel command line names.
 #[cfg(any(target_os = "linux", test))]
 fn forced_edid_connector(cmdline: &str) -> Option<&str> {
-    let value = cmdline.split_whitespace().find_map(|t| t.strip_prefix("drm.edid_firmware="))?;
+    let value = cmdline
+        .split_whitespace()
+        .find_map(|t| t.strip_prefix("drm.edid_firmware="))?;
     let (connector, _) = value.split_once(':')?;
-    let valid =
-        !connector.is_empty() && connector.chars().all(|c| c.is_ascii_alphanumeric() || c == '-');
+    let valid = !connector.is_empty()
+        && connector
+            .chars()
+            .all(|c| c.is_ascii_alphanumeric() || c == '-');
     valid.then_some(connector)
 }
 
-/// Only unambiguous through a forced EDID or a single connected display.
 #[cfg(target_os = "linux")]
 pub fn panel_native_px() -> Option<(u32, u32)> {
     use std::fs;
@@ -63,7 +62,9 @@ pub fn panel_native_px() -> Option<(u32, u32)> {
         })
         .collect();
     let pick = match forced_edid_connector(&cmdline) {
-        Some(forced) => connected.iter().find(|n| n.ends_with(&format!("-{forced}")))?,
+        Some(forced) => connected
+            .iter()
+            .find(|n| n.ends_with(&format!("-{forced}")))?,
         None if connected.len() == 1 => &connected[0],
         None => return None,
     };
@@ -77,7 +78,6 @@ pub fn panel_native_px() -> Option<(u32, u32)> {
     None
 }
 
-/// The main display's own size where no compositor reports panels.
 #[cfg(target_os = "macos")]
 pub fn screen_panel() -> Option<livi_media::compositor::Panel> {
     use std::ffi::c_void;
@@ -105,7 +105,10 @@ pub fn screen_panel() -> Option<livi_media::compositor::Panel> {
         if mode.is_null() {
             return None;
         }
-        let px = (CGDisplayModeGetPixelWidth(mode), CGDisplayModeGetPixelHeight(mode));
+        let px = (
+            CGDisplayModeGetPixelWidth(mode),
+            CGDisplayModeGetPixelHeight(mode),
+        );
         CGDisplayModeRelease(mode);
         (mm, px)
     };
@@ -141,7 +144,9 @@ fn screen_panel_from(
 
 #[cfg(any(target_os = "linux", test))]
 fn is_connector(name: &str) -> bool {
-    let Some(rest) = name.strip_prefix("card") else { return false };
+    let Some(rest) = name.strip_prefix("card") else {
+        return false;
+    };
     let digits = rest.chars().take_while(char::is_ascii_digit).count();
     digits > 0 && rest[digits..].starts_with('-')
 }
@@ -193,7 +198,10 @@ mod tests {
 
     #[test]
     fn edid_gives_the_native_mode() {
-        assert_eq!(edid_native_px(&edid(1920, 1080, 344, 194)), Some((1920, 1080)));
+        assert_eq!(
+            edid_native_px(&edid(1920, 1080, 344, 194)),
+            Some((1920, 1080))
+        );
         assert_eq!(edid_native_px(&edid(1024, 600, 0, 0)), None);
         assert_eq!(edid_native_px(&edid(1920, 1080, 344, 194)[..127]), None);
         let mut no_timing = edid(1920, 1080, 344, 194);
@@ -205,7 +213,10 @@ mod tests {
     fn forced_connector_from_the_command_line() {
         let line = "console=tty1 drm.edid_firmware=HDMI-A-1:edid/panel.bin quiet";
         assert_eq!(forced_edid_connector(line), Some("HDMI-A-1"));
-        assert_eq!(forced_edid_connector("drm.edid_firmware=edid/panel.bin"), None);
+        assert_eq!(
+            forced_edid_connector("drm.edid_firmware=edid/panel.bin"),
+            None
+        );
         assert_eq!(forced_edid_connector("quiet"), None);
     }
 

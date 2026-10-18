@@ -8,15 +8,13 @@ use livi_wifi::Band;
 
 use crate::server::Core;
 
-/// Without the radio's own list, only what every regulatory domain allows: no
-/// DFS, no UNII-3.
 const FALLBACK_24: [u32; 11] = [1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11];
 const FALLBACK_5: [u32; 4] = [36, 40, 44, 48];
 const ALLOWED_24: [u32; 13] = [1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13];
 const ALLOWED_5: [u32; 9] = [36, 40, 44, 48, 149, 153, 157, 161, 165];
-/// The preferred scanning channels, the only ones a phone finds on 6 GHz by itself.
-const ALLOWED_6: [u32; 15] = [5, 21, 37, 53, 69, 85, 101, 117, 133, 149, 165, 181, 197, 213, 229];
-/// Under this a band is a short range device allowance, not a WLAN one.
+const ALLOWED_6: [u32; 15] = [
+    5, 21, 37, 53, 69, 85, 101, 117, 133, 149, 165, 181, 197, 213, 229,
+];
 const MIN_AP_DBM: f64 = 17.0;
 const FALLBACK_COUNTRIES: [&str; 43] = [
     "DE", "AT", "CH", "NL", "BE", "LU", "FR", "GB", "IE", "IT", "ES", "PT", "PL", "CZ", "SK", "HU",
@@ -38,7 +36,10 @@ struct Radio {
 }
 
 fn radio_in(listing: &str, phy: &str) -> Option<Radio> {
-    let mut radio = Radio { country: String::new(), channels: Vec::new() };
+    let mut radio = Radio {
+        country: String::new(),
+        channels: Vec::new(),
+    };
     let mut current = "";
     for line in listing.lines() {
         let mut words = line.split_whitespace();
@@ -47,10 +48,17 @@ fn radio_in(listing: &str, phy: &str) -> Option<Radio> {
             Some("phy") => current = words.next().unwrap_or_default(),
             Some("chan") if phy.is_empty() || current == phy => {
                 let mut num = || words.next().and_then(|w| w.parse::<u32>().ok());
-                let (Some(ch), Some(freq)) = (num(), num()) else { continue };
+                let (Some(ch), Some(freq)) = (num(), num()) else {
+                    continue;
+                };
                 let flags = words.next().unwrap_or_default().to_string();
                 let dbm = words.next().and_then(|w| w.parse().ok()).unwrap_or(0.0);
-                radio.channels.push(Channel { ch, freq, flags, dbm });
+                radio.channels.push(Channel {
+                    ch,
+                    freq,
+                    flags,
+                    dbm,
+                });
             }
             _ => {}
         }
@@ -75,14 +83,14 @@ pub fn wifi_band(band: Band) -> WifiBand {
 }
 
 fn channels_in(radio: Option<&Radio>, band: WifiBand, country: &str) -> Vec<u32> {
-    // 6 GHz has no channel every domain allows.
     let (allowed, fallback): (&[u32], &[u32]) = match band {
         WifiBand::Ghz6 => (&ALLOWED_6, &[]),
         WifiBand::Ghz5 => (&ALLOWED_5, &FALLBACK_5),
         WifiBand::Ghz24 => (&ALLOWED_24, &FALLBACK_24),
     };
-    let Some(radio) = radio else { return fallback.to_vec() };
-    // The driver knows the domain it is on, not the one that was just picked.
+    let Some(radio) = radio else {
+        return fallback.to_vec();
+    };
     if !country.is_empty()
         && !radio.country.is_empty()
         && !radio.country.eq_ignore_ascii_case(country)
@@ -98,7 +106,11 @@ fn channels_in(radio: Option<&Radio>, band: WifiBand, country: &str) -> Vec<u32>
         .filter(|c| in_band(c.freq) && allowed.contains(&c.ch))
         .map(|c| c.ch)
         .collect();
-    if chans.is_empty() { fallback.to_vec() } else { chans.into_iter().collect() }
+    if chans.is_empty() {
+        fallback.to_vec()
+    } else {
+        chans.into_iter().collect()
+    }
 }
 
 fn countries_in(dump: &str) -> Vec<String> {
@@ -125,7 +137,6 @@ fn phy_of(iface: &str) -> String {
         .unwrap_or_default()
 }
 
-/// regdbdump lives in sbin, which a desktop session does not carry in its PATH.
 fn tool(name: &str) -> String {
     ["/usr/sbin", "/sbin", "/usr/bin", "/bin"]
         .iter()
@@ -146,7 +157,6 @@ async fn countries() -> Vec<String> {
     countries_in(&dump)
 }
 
-/// 6 GHz takes WPA3, which takes a radio hostapd runs SAE on. The LIVI Link has no 6 GHz.
 fn bands_in(radio: Option<&Radio>, country: &str, six_ghz_ap: bool) -> Vec<WifiBand> {
     let mut bands = vec![WifiBand::Ghz24, WifiBand::Ghz5];
     if six_ghz_ap && !channels_in(radio, WifiBand::Ghz6, country).is_empty() {
@@ -167,11 +177,12 @@ async fn options(cfg: &Config) -> (Vec<WifiBand>, Vec<u32>) {
     .unwrap_or((None, false));
     let radio = listing.and_then(|l| radio_in(&l, &phy));
     let bands = bands_in(radio.as_ref(), &cfg.country, six_ghz_ap);
-    (bands, channels_in(radio.as_ref(), cfg.wifi_type, &cfg.country))
+    (
+        bands,
+        channels_in(radio.as_ref(), cfg.wifi_type, &cfg.country),
+    )
 }
 
-/// What a band change or a radio without the band leaves to correct: the band, else the
-/// channel.
 fn corrected(cfg: &Config, bands: &[WifiBand], chans: &[u32]) -> Option<serde_json::Value> {
     if !bands.is_empty() && !bands.contains(&cfg.wifi_type) {
         return Some(serde_json::json!({ "wifiType": Band::Ghz5.setting() }));
@@ -179,7 +190,6 @@ fn corrected(cfg: &Config, bands: &[WifiBand], chans: &[u32]) -> Option<serde_js
     snapped(cfg, chans).map(|to| serde_json::json!({ "wifiChannel": to }))
 }
 
-/// Where a band change lands when its channel does not exist in the new band.
 fn snapped(cfg: &Config, chans: &[u32]) -> Option<u32> {
     let n = cfg.wifi_channel;
     let belongs = match cfg.wifi_type {
@@ -198,7 +208,11 @@ fn snapped(cfg: &Config, chans: &[u32]) -> Option<u32> {
         WifiBand::Ghz5 => 36,
         WifiBand::Ghz6 => 37,
     };
-    Some(if chans.is_empty() || chans.contains(&preferred) { preferred } else { chans[0] })
+    Some(if chans.is_empty() || chans.contains(&preferred) {
+        preferred
+    } else {
+        chans[0]
+    })
 }
 
 pub async fn follow(core: Arc<Core>) {
@@ -209,7 +223,11 @@ pub async fn follow(core: Arc<Core>) {
     let mut last = None;
     loop {
         let cfg = state.borrow_and_update().config.clone();
-        let key = (cfg.wifi_type, cfg.country.clone(), cfg.wifi_interface.clone());
+        let key = (
+            cfg.wifi_type,
+            cfg.country.clone(),
+            cfg.wifi_interface.clone(),
+        );
         if last.as_ref() != Some(&key) {
             let (bands, chans) = options(&cfg).await;
             let patch = corrected(&cfg, &bands, &chans);
@@ -247,7 +265,6 @@ mod tests {
     fn the_channels_are_those_the_radio_may_send_an_access_point_on() {
         let radio = radio_in(LISTING, "phy0");
         assert_eq!(channels_in(radio.as_ref(), WifiBand::Ghz24, "DE"), [1, 6]);
-        // 52 is DFS, 149 is too weak there.
         assert_eq!(channels_in(radio.as_ref(), WifiBand::Ghz5, "de"), [36]);
         let all = radio_in(LISTING, "");
         assert_eq!(channels_in(all.as_ref(), WifiBand::Ghz24, ""), [1, 6, 11]);
@@ -257,10 +274,16 @@ mod tests {
     fn without_a_fitting_radio_the_safe_channels_stay() {
         assert_eq!(channels_in(None, WifiBand::Ghz5, "DE"), FALLBACK_5);
         let phy0 = radio_in(LISTING, "phy0");
-        assert_eq!(channels_in(phy0.as_ref(), WifiBand::Ghz24, "US"), FALLBACK_24);
+        assert_eq!(
+            channels_in(phy0.as_ref(), WifiBand::Ghz24, "US"),
+            FALLBACK_24
+        );
         assert!(radio_in(LISTING, "phy9").is_none());
         let only_dfs = radio_in("phy phy0\nchan 52 5260 ok 23\n", "");
-        assert_eq!(channels_in(only_dfs.as_ref(), WifiBand::Ghz5, ""), FALLBACK_5);
+        assert_eq!(
+            channels_in(only_dfs.as_ref(), WifiBand::Ghz5, ""),
+            FALLBACK_5
+        );
         assert!(channels_in(None, WifiBand::Ghz6, "DE").is_empty());
     }
 
@@ -274,7 +297,10 @@ mod tests {
         let all = [WifiBand::Ghz24, WifiBand::Ghz5, WifiBand::Ghz6];
         assert_eq!(bands_in(radio.as_ref(), "DE", true), all);
         assert_eq!(bands_in(radio.as_ref(), "DE", false), all[..2]);
-        assert_eq!(bands_in(radio_in(LISTING, "phy0").as_ref(), "DE", true), all[..2]);
+        assert_eq!(
+            bands_in(radio_in(LISTING, "phy0").as_ref(), "DE", true),
+            all[..2]
+        );
     }
 
     #[test]
@@ -296,9 +322,15 @@ mod tests {
         let mut cfg = crate::config_file::defaults();
         (cfg.wifi_type, cfg.wifi_channel) = (WifiBand::Ghz6, 37);
         let two = [WifiBand::Ghz24, WifiBand::Ghz5];
-        assert_eq!(corrected(&cfg, &two, &[37]), Some(serde_json::json!({ "wifiType": "5ghz" })));
+        assert_eq!(
+            corrected(&cfg, &two, &[37]),
+            Some(serde_json::json!({ "wifiType": "5ghz" }))
+        );
         cfg.wifi_type = WifiBand::Ghz5;
-        assert_eq!(corrected(&cfg, &two, &[36]), Some(serde_json::json!({ "wifiChannel": 36 })));
+        assert_eq!(
+            corrected(&cfg, &two, &[36]),
+            Some(serde_json::json!({ "wifiChannel": 36 }))
+        );
         cfg.wifi_channel = 36;
         assert_eq!(corrected(&cfg, &two, &[36]), None);
     }

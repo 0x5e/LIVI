@@ -1,5 +1,3 @@
-//! Only the bplist00 subset the control channel carries.
-
 use std::fmt;
 
 #[derive(Debug, Clone, PartialEq)]
@@ -10,7 +8,6 @@ pub enum Value {
     String(String),
     Data(Vec<u8>),
     Array(Vec<Value>),
-    /// Keys in the order they are written.
     Dict(Vec<(String, Value)>),
 }
 
@@ -59,7 +56,12 @@ impl Value {
 }
 
 pub fn dict<const N: usize>(entries: [(&str, Value); N]) -> Value {
-    Value::Dict(entries.into_iter().map(|(k, v)| (k.to_string(), v)).collect())
+    Value::Dict(
+        entries
+            .into_iter()
+            .map(|(k, v)| (k.to_string(), v))
+            .collect(),
+    )
 }
 
 #[derive(Debug, PartialEq)]
@@ -74,7 +76,6 @@ impl fmt::Display for DecodeError {
 impl std::error::Error for DecodeError {}
 
 const MAGIC: &[u8] = b"bplist00";
-/// A plist whose references loop back would recurse without end.
 const MAX_DEPTH: usize = 64;
 
 fn err<T>(msg: impl Into<String>) -> Result<T, DecodeError> {
@@ -89,8 +90,10 @@ struct Reader<'a> {
 
 impl Reader<'_> {
     fn sized(&self, at: usize, size: usize) -> Result<u128, DecodeError> {
-        let bytes =
-            self.buf.get(at..at + size).ok_or_else(|| DecodeError("out of bounds".into()))?;
+        let bytes = self
+            .buf
+            .get(at..at + size)
+            .ok_or_else(|| DecodeError("out of bounds".into()))?;
         Ok(bytes.iter().fold(0u128, |v, &b| (v << 8) | u128::from(b)))
     }
 
@@ -99,19 +102,26 @@ impl Reader<'_> {
     }
 
     fn byte(&self, at: usize) -> Result<u8, DecodeError> {
-        self.buf.get(at).copied().ok_or_else(|| DecodeError("out of bounds".into()))
+        self.buf
+            .get(at)
+            .copied()
+            .ok_or_else(|| DecodeError("out of bounds".into()))
     }
 
     fn slice(&self, at: usize, len: usize) -> Result<&[u8], DecodeError> {
-        self.buf.get(at..at.saturating_add(len)).ok_or_else(|| DecodeError("out of bounds".into()))
+        self.buf
+            .get(at..at.saturating_add(len))
+            .ok_or_else(|| DecodeError("out of bounds".into()))
     }
 
     fn object(&self, index: usize, depth: usize) -> Result<Value, DecodeError> {
         if depth > MAX_DEPTH {
             return err("nested too deep");
         }
-        let mut p =
-            *self.offsets.get(index).ok_or_else(|| DecodeError("bad object reference".into()))?;
+        let mut p = *self
+            .offsets
+            .get(index)
+            .ok_or_else(|| DecodeError("bad object reference".into()))?;
         let marker = self.byte(p)?;
         let (kind, nib) = (marker >> 4, marker & 0x0f);
         p += 1;
@@ -134,28 +144,36 @@ impl Reader<'_> {
             },
             0x1 => {
                 let v = self.sized(p, 1 << nib)?;
-                u64::try_from(v).map(Value::Int).or_else(|_| err("integer too large"))
+                u64::try_from(v)
+                    .map(Value::Int)
+                    .or_else(|_| err("integer too large"))
             }
             0x2 => {
                 let size = 1usize << nib;
                 let bytes = self.slice(p, size)?;
                 match size {
-                    4 => Ok(Value::Real(f64::from(f32::from_be_bytes(bytes.try_into().unwrap())))),
+                    4 => Ok(Value::Real(f64::from(f32::from_be_bytes(
+                        bytes.try_into().unwrap(),
+                    )))),
                     8 => Ok(Value::Real(f64::from_be_bytes(bytes.try_into().unwrap()))),
                     _ => err("unsupported real size"),
                 }
             }
-            // Seconds since 2001, read as a plain number.
-            0x3 if nib == 3 => {
-                Ok(Value::Real(f64::from_be_bytes(self.slice(p, 8)?.try_into().unwrap())))
-            }
+            0x3 if nib == 3 => Ok(Value::Real(f64::from_be_bytes(
+                self.slice(p, 8)?.try_into().unwrap(),
+            ))),
             0x4 => {
                 let n = count()?;
                 Ok(Value::Data(self.slice(p, n)?.to_vec()))
             }
             0x5 => {
                 let n = count()?;
-                Ok(Value::String(self.slice(p, n)?.iter().map(|&b| char::from(b & 0x7f)).collect()))
+                Ok(Value::String(
+                    self.slice(p, n)?
+                        .iter()
+                        .map(|&b| char::from(b & 0x7f))
+                        .collect(),
+                ))
             }
             0x6 => {
                 let n = count()?;
@@ -209,7 +227,11 @@ pub fn decode(buf: &[u8]) -> Result<Value, DecodeError> {
     let be64 = |at: usize| u64::from_be_bytes(trailer[at..at + 8].try_into().unwrap());
     let (num_objects, top, table) = (be64(8), be64(16), be64(24));
 
-    let mut reader = Reader { buf, offsets: Vec::new(), ref_size };
+    let mut reader = Reader {
+        buf,
+        offsets: Vec::new(),
+        ref_size,
+    };
     let table = usize::try_from(table).or_else(|_| err("offset table out of range"))?;
     let num_objects = usize::try_from(num_objects).or_else(|_| err("too many objects"))?;
     if num_objects.saturating_mul(offset_size) > buf.len() {
@@ -292,13 +314,26 @@ fn add(nodes: &mut Vec<Node>, value: &Value) -> usize {
         }
         Value::Array(items) => {
             let refs = items.iter().map(|v| add(nodes, v)).collect::<Vec<_>>();
-            Node::Container { head: marker(0xa, refs.len()), refs }
+            Node::Container {
+                head: marker(0xa, refs.len()),
+                refs,
+            }
         }
         Value::Dict(entries) => {
-            let mut refs: Vec<usize> =
-                entries.iter().map(|(k, _)| add(nodes, &Value::String(k.clone()))).collect();
-            refs.extend(entries.iter().map(|(_, v)| add(nodes, v)).collect::<Vec<_>>());
-            Node::Container { head: marker(0xd, entries.len()), refs }
+            let mut refs: Vec<usize> = entries
+                .iter()
+                .map(|(k, _)| add(nodes, &Value::String(k.clone())))
+                .collect();
+            refs.extend(
+                entries
+                    .iter()
+                    .map(|(_, v)| add(nodes, v))
+                    .collect::<Vec<_>>(),
+            );
+            Node::Container {
+                head: marker(0xd, entries.len()),
+                refs,
+            }
         }
     };
     nodes[idx] = node;
@@ -366,7 +401,10 @@ mod tests {
             ("ratio", Value::Real(-1.5)),
             ("on", Value::Bool(true)),
             ("name", Value::String("Bülli".into())),
-            ("list", Value::Array(vec![Value::Int(1), Value::Int(300), Value::Int(70000)])),
+            (
+                "list",
+                Value::Array(vec![Value::Int(1), Value::Int(300), Value::Int(70000)]),
+            ),
         ]);
         assert_eq!(decode(&encode(&value)), Ok(value));
     }
@@ -393,7 +431,6 @@ mod tests {
     fn rejects_garbage_and_loops() {
         assert!(decode(b"nope").is_err());
         assert!(decode(&[b"bplist00".as_slice(), &[0u8; 32]].concat()).is_err());
-        // One array that contains itself.
         let mut looped = b"bplist00".to_vec();
         looped.extend_from_slice(&[0xa1, 0x00]);
         let table = looped.len();

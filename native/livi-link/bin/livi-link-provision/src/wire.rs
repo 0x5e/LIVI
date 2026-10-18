@@ -1,6 +1,3 @@
-// The stock dongle's framing: a 16 byte header of magic, payload length, message type and the
-// type's complement, then the payload.
-
 const MAGIC: u32 = 0x55aa_55aa;
 const HEADER_LEN: usize = 16;
 

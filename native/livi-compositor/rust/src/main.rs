@@ -1,10 +1,3 @@
-//! livi-compositor, a nested Wayland compositor for LIVI.
-//!
-//! One screen per role (LIVI_SCREENS), each a host window with a transparent
-//! Electron UI on top and tagged GStreamer waylandsink video planes below,
-//! composited zero-copy. The host drives video placement/crop/visibility over
-//! a control socket (LIVI_COMPOSITOR_CTRL).
-
 mod ctrl;
 mod deco;
 mod host;
@@ -43,7 +36,6 @@ fn main() {
         } else {
             log::LevelFilter::Info
         })
-        // smithay instruments per-frame spans, as log records they are noise
         .filter_module("tracing::span", log::LevelFilter::Off)
         .init();
 
@@ -59,10 +51,16 @@ fn main() {
     ctrl::leave_with_core(&event_loop.handle());
     spawn::spawn_startup(&mut state);
 
-    log::info!("Running livi-compositor on WAYLAND_DISPLAY={}", state.ui_socket);
+    log::info!(
+        "Running livi-compositor on WAYLAND_DISPLAY={}",
+        state.ui_socket
+    );
 
     while state.running {
-        if event_loop.dispatch(Some(Duration::from_millis(16)), &mut state).is_err() {
+        if event_loop
+            .dispatch(Some(Duration::from_millis(16)), &mut state)
+            .is_err()
+        {
             log::error!("event loop error, shutting down");
             break;
         }

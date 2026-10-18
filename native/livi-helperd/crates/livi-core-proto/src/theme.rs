@@ -112,7 +112,9 @@ pub struct LayoutSlot {
 
 impl Theme {
     pub fn cluster(&self) -> Option<&ThemeDisplay> {
-        self.displays.iter().find(|d| d.kind == DisplayKind::Cluster)
+        self.displays
+            .iter()
+            .find(|d| d.kind == DisplayKind::Cluster)
     }
 
     pub fn cluster_layout(&self, id: &str) -> Option<&ThemeLayout> {
@@ -128,16 +130,26 @@ impl Cluster {
         palettes: &BTreeMap<String, String>,
         slots: &BTreeMap<String, LayoutSlot>,
     ) -> Self {
-        let mut c = Self { theme, ..Self::default() };
+        let mut c = Self {
+            theme,
+            ..Self::default()
+        };
         c.arrange(slots);
         c.palettes = palettes
             .iter()
             .filter(|(l, _)| c.theme.cluster_layout(l).is_some())
             .map(|(l, p)| (l.clone(), p.clone()))
             .collect();
-        let first = c.theme.cluster().and_then(|d| d.layouts.first()).map(|l| l.id.clone());
-        let start =
-            if c.theme.cluster_layout(layout).is_some() { Some(layout.to_string()) } else { first };
+        let first = c
+            .theme
+            .cluster()
+            .and_then(|d| d.layouts.first())
+            .map(|l| l.id.clone());
+        let start = if c.theme.cluster_layout(layout).is_some() {
+            Some(layout.to_string())
+        } else {
+            first
+        };
         if let Some(start) = start {
             c.select(&start, None);
         }
@@ -161,8 +173,11 @@ impl Cluster {
     /// Orders and filters the layouts as the user arranged them. With every layout off all of
     /// them stay, so the dashboard never ends up empty. False when nothing changed.
     pub fn arrange(&mut self, slots: &BTreeMap<String, LayoutSlot>) -> bool {
-        let all: Vec<&ThemeLayout> =
-            self.theme.cluster().map(|d| d.layouts.iter().collect()).unwrap_or_default();
+        let all: Vec<&ThemeLayout> = self
+            .theme
+            .cluster()
+            .map(|d| d.layouts.iter().collect())
+            .unwrap_or_default();
         let mut ordered: Vec<(u32, usize, &ThemeLayout)> = all
             .iter()
             .enumerate()
@@ -176,8 +191,11 @@ impl Cluster {
                 on: slots.get(&l.id).is_none_or(|s| s.on),
             })
             .collect();
-        let mut shown: Vec<String> =
-            arranged.iter().filter(|l| l.on).map(|l| l.id.clone()).collect();
+        let mut shown: Vec<String> = arranged
+            .iter()
+            .filter(|l| l.on)
+            .map(|l| l.id.clone())
+            .collect();
         if shown.is_empty() {
             shown = arranged.iter().map(|l| l.id.clone()).collect();
         }
@@ -190,7 +208,9 @@ impl Cluster {
     /// The arrangement with one layout moved by some places, None past either end.
     pub fn moved(&self, layout: &str, by: i32) -> Option<BTreeMap<String, LayoutSlot>> {
         let at = self.arranged.iter().position(|l| l.id == layout)?;
-        let to = at.checked_add_signed(by as isize).filter(|to| *to < self.arranged.len())?;
+        let to = at
+            .checked_add_signed(by as isize)
+            .filter(|to| *to < self.arranged.len())?;
         let mut list = self.arranged.clone();
         let item = list.remove(at);
         list.insert(to, item);
@@ -207,7 +227,9 @@ impl Cluster {
     /// Without a palette the layout comes back with the one picked for it last, else its
     /// default. False for a layout the theme does not have, or one already up like that.
     pub fn select(&mut self, layout: &str, palette: Option<&str>) -> bool {
-        let Some(found) = self.theme.cluster_layout(layout) else { return false };
+        let Some(found) = self.theme.cluster_layout(layout) else {
+            return false;
+        };
         let offered = |p: &&str| found.palettes.iter().any(|q| q == p);
         let palette = palette
             .filter(offered)
@@ -243,7 +265,10 @@ impl Cluster {
 }
 
 fn slots_of(list: &[ArrangedLayout]) -> BTreeMap<String, LayoutSlot> {
-    list.iter().zip(1..).map(|(l, pos)| (l.id.clone(), LayoutSlot { on: l.on, pos })).collect()
+    list.iter()
+        .zip(1..)
+        .map(|(l, pos)| (l.id.clone(), LayoutSlot { on: l.on, pos }))
+        .collect()
 }
 
 const LIVI_CLUSTER: &str = "Cluster_Display";
@@ -256,7 +281,10 @@ pub fn livi_theme() -> Theme {
         id: id.into(),
         name: name.into(),
         palettes: vec!["default".into()],
-        zones: vec![Zone { id: MAP_ZONE.into(), component: map.into() }],
+        zones: vec![Zone {
+            id: MAP_ZONE.into(),
+            component: map.into(),
+        }],
     };
     Theme {
         id: "livi".into(),
@@ -266,12 +294,20 @@ pub fn livi_theme() -> Theme {
                 kind: DisplayKind::Cluster,
                 layouts: vec![
                     layout("livi.navMini", "Gauges with turn-by-turn", "maneuver"),
-                    layout("livi.navFull", "Gauges with turn-by-turn (extended)", "maneuver"),
+                    layout(
+                        "livi.navFull",
+                        "Gauges with turn-by-turn (extended)",
+                        "maneuver",
+                    ),
                     layout("livi.clusterFull", "Gauges with map", "map"),
                     layout("livi.clusterOnly", "Map", "map"),
                 ],
             },
-            ThemeDisplay { id: LIVI_CENTER.into(), kind: DisplayKind::Center, layouts: Vec::new() },
+            ThemeDisplay {
+                id: LIVI_CENTER.into(),
+                kind: DisplayKind::Center,
+                layouts: Vec::new(),
+            },
         ],
         palettes: Vec::new(),
     }
@@ -294,7 +330,15 @@ mod tests {
             palettes: palettes.iter().map(|p| p.to_string()).collect(),
             zones: Vec::new(),
         };
-        let colours = ["custom", "green", "blue", "red", "rose", "starlight", "vibrant"];
+        let colours = [
+            "custom",
+            "green",
+            "blue",
+            "red",
+            "rose",
+            "starlight",
+            "vibrant",
+        ];
         Theme {
             id: "maker".into(),
             displays: vec![ThemeDisplay {
@@ -325,7 +369,10 @@ mod tests {
     #[test]
     fn the_cluster_starts_on_the_first_layout_and_wraps_both_ways() {
         let mut c = fresh(livi_theme());
-        assert_eq!((c.layout.as_str(), c.palette.as_str()), ("livi.navMini", "default"));
+        assert_eq!(
+            (c.layout.as_str(), c.palette.as_str()),
+            ("livi.navMini", "default")
+        );
         assert!(c.step(-1));
         assert_eq!(c.layout, "livi.clusterOnly");
         assert!(c.step(1));
@@ -340,7 +387,10 @@ mod tests {
         assert!(!c.select(MODULAR, Some("rose")), "already up");
         assert!(!c.select("nope", None));
         assert!(c.select("DB7C6944-5DFF-58DF-94E9-91006781FA93", Some("rose")));
-        assert_eq!(c.palette, "vibrant", "a palette the layout does not offer falls back");
+        assert_eq!(
+            c.palette, "vibrant",
+            "a palette the layout does not offer falls back"
+        );
     }
 
     #[test]
@@ -363,7 +413,10 @@ mod tests {
         ]);
         let c = Cluster::new(maker_theme(), DIGIRING, &kept, &BTreeMap::new());
         assert_eq!((c.layout.as_str(), c.palette.as_str()), (DIGIRING, "red"));
-        assert!(!c.palettes.contains_key("gone"), "layouts the theme lost are dropped");
+        assert!(
+            !c.palettes.contains_key("gone"),
+            "layouts the theme lost are dropped"
+        );
         let c = Cluster::new(maker_theme(), "gone", &kept, &BTreeMap::new());
         assert_eq!(c.layout, "6C45CC47-EC01-527A-B40D-1316AA9C936F");
     }
@@ -375,7 +428,10 @@ mod tests {
         assert_eq!(c.palette, "blue");
         assert!(c.follow(MODULAR, Some("racingGreen")));
         assert_eq!(c.palette, "racingGreen");
-        assert!(!c.follow(MODULAR, None), "a layout start keeps the palette it has");
+        assert!(
+            !c.follow(MODULAR, None),
+            "a layout start keeps the palette it has"
+        );
         assert!(!c.follow("nope", Some("x")));
     }
 
@@ -384,7 +440,11 @@ mod tests {
         let theme = maker_theme();
         for layout in &theme.cluster().unwrap().layouts {
             for p in &layout.palettes {
-                assert!(theme.palettes.iter().any(|q| &q.id == p), "{} {p}", layout.name);
+                assert!(
+                    theme.palettes.iter().any(|q| &q.id == p),
+                    "{} {p}",
+                    layout.name
+                );
             }
         }
     }
@@ -398,10 +458,19 @@ mod tests {
             ("livi.navMini".to_string(), slot(true, 3)),
         ]);
         let mut c = Cluster::new(livi_theme(), "", &BTreeMap::new(), &slots);
-        assert_eq!(c.shown, ["livi.clusterOnly", "livi.navMini", "livi.clusterFull"]);
-        assert_eq!(c.layout, "livi.navMini", "the first theme layout until one is picked");
+        assert_eq!(
+            c.shown,
+            ["livi.clusterOnly", "livi.navMini", "livi.clusterFull"]
+        );
+        assert_eq!(
+            c.layout, "livi.navMini",
+            "the first theme layout until one is picked"
+        );
         assert!(c.step(1));
-        assert_eq!(c.layout, "livi.clusterFull", "the switched off layout is skipped");
+        assert_eq!(
+            c.layout, "livi.clusterFull",
+            "the switched off layout is skipped"
+        );
         assert!(c.step(1));
         assert_eq!(c.layout, "livi.clusterOnly", "round again");
         assert!(!c.arrange(&slots), "same arrangement");
@@ -415,10 +484,16 @@ mod tests {
         assert!(c.arrange(&all_off));
         assert_eq!(c.shown.len(), 4, "never empty");
 
-        c.arrange(&BTreeMap::from([("livi.navMini".to_string(), slot(false, 1))]));
+        c.arrange(&BTreeMap::from([(
+            "livi.navMini".to_string(),
+            slot(false, 1),
+        )]));
         assert!(c.select("livi.navMini", None));
         assert!(c.step(1));
-        assert_eq!(c.layout, "livi.navFull", "from a hidden layout to the first shown");
+        assert_eq!(
+            c.layout, "livi.navFull",
+            "from a hidden layout to the first shown"
+        );
     }
 
     #[test]
@@ -427,9 +502,17 @@ mod tests {
         let ids = |c: &Cluster| c.arranged.iter().map(|l| l.id.clone()).collect::<Vec<_>>();
         assert_eq!(
             ids(&c),
-            ["livi.navMini", "livi.navFull", "livi.clusterFull", "livi.clusterOnly"]
+            [
+                "livi.navMini",
+                "livi.navFull",
+                "livi.clusterFull",
+                "livi.clusterOnly"
+            ]
         );
-        assert!(c.arranged.iter().all(|l| l.on), "a layout without a slot is on");
+        assert!(
+            c.arranged.iter().all(|l| l.on),
+            "a layout without a slot is on"
+        );
 
         let slots = c.moved("livi.clusterOnly", -1).unwrap();
         assert_eq!(slots["livi.clusterOnly"], LayoutSlot { on: true, pos: 3 });
@@ -443,8 +526,14 @@ mod tests {
         let slots = c.switched("livi.navFull", false).unwrap();
         assert_eq!(slots["livi.navFull"], LayoutSlot { on: false, pos: 2 });
         c.arrange(&slots);
-        assert_eq!(c.shown, ["livi.navMini", "livi.clusterOnly", "livi.clusterFull"]);
-        assert!(!c.arranged[1].on, "the arrangement keeps the switched off layout");
+        assert_eq!(
+            c.shown,
+            ["livi.navMini", "livi.clusterOnly", "livi.clusterFull"]
+        );
+        assert!(
+            !c.arranged[1].on,
+            "the arrangement keeps the switched off layout"
+        );
         assert_eq!(c.switched("nope", true), None);
     }
 

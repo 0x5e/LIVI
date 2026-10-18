@@ -32,7 +32,9 @@ pub fn host() -> Result<HostInfo, String> {
         .build()
         .call()
         .map_err(|e| format!("id=host: {e}"))?;
-    resp.body_mut().read_json::<HostInfo>().map_err(|e| format!("id=host JSON: {e}"))
+    resp.body_mut()
+        .read_json::<HostInfo>()
+        .map_err(|e| format!("id=host JSON: {e}"))
 }
 
 pub fn upload(image: &[u8]) -> Result<(), String> {
@@ -48,7 +50,10 @@ pub fn upload(image: &[u8]) -> Result<(), String> {
     body.extend_from_slice(format!("\r\n--{boundary}--\r\n").as_bytes());
 
     let resp = ureq::post(&url)
-        .header("Content-Type", format!("multipart/form-data; boundary={boundary}"))
+        .header(
+            "Content-Type",
+            format!("multipart/form-data; boundary={boundary}"),
+        )
         .config()
         .timeout_global(Some(Duration::from_secs(60)))
         .build()
@@ -65,7 +70,6 @@ pub fn wait_for_update_complete(deadline_secs: u64) -> Result<(), String> {
     let deadline = Duration::from_secs(deadline_secs);
     loop {
         std::thread::sleep(Duration::from_secs(2));
-        // An Err means the dongle is rebooting: keep polling.
         if let Ok(info) = host() {
             if info.update == 3 {
                 return Ok(());
@@ -75,7 +79,9 @@ pub fn wait_for_update_complete(deadline_secs: u64) -> Result<(), String> {
             }
         }
         if start.elapsed() > deadline {
-            return Err(format!("update did not reach state 3 within {deadline_secs}s"));
+            return Err(format!(
+                "update did not reach state 3 within {deadline_secs}s"
+            ));
         }
     }
 }

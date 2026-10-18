@@ -363,7 +363,11 @@ mod tests {
 
     #[test]
     fn per_screen_addresses_each_screen() {
-        let mut fronts = PerScreen { main: Front::Livi, cluster: Front::Livi, aux: Front::Livi };
+        let mut fronts = PerScreen {
+            main: Front::Livi,
+            cluster: Front::Livi,
+            aux: Front::Livi,
+        };
         *fronts.get_mut(Screen::Cluster) = Front::Cluster;
         assert_eq!(*fronts.get(Screen::Main), Front::Livi);
         assert_eq!(*fronts.get(Screen::Cluster), Front::Cluster);
@@ -372,8 +376,11 @@ mod tests {
 
     #[test]
     fn fronts_are_lower_case_on_the_wire() {
-        let fronts =
-            PerScreen { main: Front::Projection, cluster: Front::Cluster, aux: Front::Camera };
+        let fronts = PerScreen {
+            main: Front::Projection,
+            cluster: Front::Cluster,
+            aux: Front::Camera,
+        };
         assert_eq!(
             serde_json::to_string(&fronts).unwrap(),
             r#"{"main":"projection","cluster":"cluster","aux":"camera"}"#
@@ -382,8 +389,11 @@ mod tests {
 
     #[test]
     fn now_playing_says_null_for_what_the_phone_did_not_tell() {
-        let np =
-            NowPlaying { title: Some("Song".into()), playing: Some(true), ..Default::default() };
+        let np = NowPlaying {
+            title: Some("Song".into()),
+            playing: Some(true),
+            ..Default::default()
+        };
         assert_eq!(
             serde_json::to_value(&np).unwrap(),
             serde_json::json!({
@@ -395,7 +405,11 @@ mod tests {
 
     #[test]
     fn sessions_name_the_protocol_as_the_ui_does() {
-        let sessions = Sessions { active: Some(Protocol::Androidauto), position: 1, total: 2 };
+        let sessions = Sessions {
+            active: Some(Protocol::Androidauto),
+            position: 1,
+            total: 2,
+        };
         assert_eq!(
             serde_json::to_string(&sessions).unwrap(),
             r#"{"active":"androidauto","position":1,"total":2}"#

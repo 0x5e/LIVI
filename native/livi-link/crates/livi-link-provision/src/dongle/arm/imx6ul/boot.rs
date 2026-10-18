@@ -11,8 +11,6 @@ use super::Running;
 use super::mtd::{self, Partition, sha256_hex};
 use super::shell::{PUSH_PORT, Shell, md5_hex};
 
-/// The vendor layout keeps the environment block at the end of its 256 KiB uboot partition. Ours
-/// has an `env` partition, so U-Boot itself stays read-only.
 enum EnvAt {
     Uboot,
     Own(Partition),
@@ -32,18 +30,19 @@ pub struct Install {
 const TMP_IMAGE: &str = "/tmp/livi-kernel.img";
 const TMP_ROOTFS: &str = "/tmp/livi-rootfs.img";
 
-/// Bundle image types, the MTD index in imx6ull.dts.
 const TYPE_KERNEL: u8 = 2;
 const TYPE_ROOTFS: u8 = 3;
 
-/// The kernel image is zImage + DTB.
 pub struct Bundle {
     pub kernel: Option<Vec<u8>>,
     pub rootfs: Option<Vec<u8>>,
 }
 
 pub fn read_bundle(bytes: &[u8]) -> Result<Bundle, String> {
-    let mut bundle = Bundle { kernel: None, rootfs: None };
+    let mut bundle = Bundle {
+        kernel: None,
+        rootfs: None,
+    };
     for (typ, data) in crate::dongle::lfwb::unpack(bytes)? {
         match typ {
             TYPE_KERNEL => bundle.kernel = Some(data),
@@ -62,12 +61,17 @@ pub fn write_rootfs(
     progress: &dyn Fn(&str),
 ) -> Result<(), String> {
     let parts = mtd::partitions(sh)?;
-    let part =
-        parts.iter().find(|p| p.name == "rootfs").ok_or("no rootfs partition in /proc/mtd")?;
+    let part = parts
+        .iter()
+        .find(|p| p.name == "rootfs")
+        .ok_or("no rootfs partition in /proc/mtd")?;
     if image.len() as u64 > part.bytes {
-        return Err(format!("rootfs image is {} bytes, the partition {}", image.len(), part.bytes));
+        return Err(format!(
+            "rootfs image is {} bytes, the partition {}",
+            image.len(),
+            part.bytes
+        ));
     }
-    // The read back goes by dd in whole 4 KiB blocks, which mksquashfs pads to.
     if !image.len().is_multiple_of(4096) {
         return Err(format!(
             "rootfs image is {} bytes, not a whole number of 4 KiB blocks",
@@ -82,7 +86,7 @@ pub fn write_rootfs(
         }
         Running::Livi => {
             return Err(
-                "LIVI Link runs from the rootfs partition, update it through its web page".into()
+                "LIVI Link runs from the rootfs partition, update it through its web page".into(),
             );
         }
         Running::Rescue => {}
@@ -99,18 +103,25 @@ pub fn write_rootfs(
 
     let dev = &part.device;
     sh.push(image, TMP_ROOTFS, PUSH_PORT, &md5_hex(image))?;
-    sh.run(&format!("flashcp {TMP_ROOTFS} {dev} && sync"), Duration::from_secs(600))?;
+    sh.run(
+        &format!("flashcp {TMP_ROOTFS} {dev} && sync"),
+        Duration::from_secs(600),
+    )?;
     let there = sh.run(
-        &format!("dd if={dev} bs=4096 count={} 2>/dev/null | sha256sum", image.len() / 4096),
+        &format!(
+            "dd if={dev} bs=4096 count={} 2>/dev/null | sha256sum",
+            image.len() / 4096
+        ),
         Duration::from_secs(240),
     )?;
     sh.sh(&format!("rm -f {TMP_ROOTFS}"))?;
     if there.split_whitespace().next() != Some(sha256_hex(image).as_str()) {
-        return Err(format!("{dev} does not read back as written, do not reboot"));
+        return Err(format!(
+            "{dev} does not read back as written, do not reboot"
+        ));
     }
     progress(&format!("wrote and verified {dev}"));
 
-    // A mark from an earlier rootfs that did not come up would keep this one from being tried.
     if let Some(state) = parts.iter().find(|p| p.name == "bootstate") {
         sh.sh(&format!("flash_eraseall -q {}", state.device))?;
         progress("cleared the bootstate mark");
@@ -124,13 +135,15 @@ pub fn prepare(
     backup_root: &Path,
     progress: &dyn Fn(&str),
 ) -> Result<Install, String> {
-    // The vendor kernel reports these boards as ULL, mainline as ULZ (ULL without ENET/LCD/CSI).
     let soc = sh.sh("cat /sys/devices/soc0/soc_id 2>/dev/null")?;
     if !matches!(soc.trim(), "i.MX6UL" | "i.MX6ULL" | "i.MX6ULZ") {
         return Err(format!("not an i.MX6UL/ULL/ULZ: {:?}", soc.trim()));
     }
     let (uboot, env, kernel) = locate(&mtd::partitions(sh)?)?;
-    let erase = sh.sh(&format!("cat /sys/class/mtd/{}/erasesize", sysfs_name(&kernel)))?;
+    let erase = sh.sh(&format!(
+        "cat /sys/class/mtd/{}/erasesize",
+        sysfs_name(&kernel)
+    ))?;
     if erase.trim() != ERASE.to_string() {
         return Err(format!("erase size is {}, not {ERASE}", erase.trim()));
     }
@@ -144,17 +157,28 @@ pub fn prepare(
         let path = backup.join(name);
         std::fs::write(&path, image).map_err(|e| format!("{}: {e}", crate::tilde(&path)))?;
     }
-    progress(&format!("saved uboot and kernel to {}", crate::tilde(&backup)));
+    progress(&format!(
+        "saved uboot and kernel to {}",
+        crate::tilde(&backup)
+    ));
 
     let update = read_env(&uboot_image[UPDATE_BLOCK..UPDATE_BLOCK + ERASE], &key)?;
     let layout = layout(&update, kernel_image.len())?;
     let partition = kernel_partition(&kernel_image, zimage, &layout, &key)?;
     let unchanged = partition == kernel_image;
-    Ok(Install { uboot, env, kernel, layout, partition, unchanged, backup, uboot_image })
+    Ok(Install {
+        uboot,
+        env,
+        kernel,
+        layout,
+        partition,
+        unchanged,
+        backup,
+        uboot_image,
+    })
 }
 
 pub fn install(sh: &Shell, plan: &Install, progress: &dyn Fn(&str)) -> Result<(), String> {
-    // The vendor userspace has mtd-utils, our initramfs only busybox.
     let tools = sh.sh(
         "for t in flash_erase flashcp flash_eraseall; do command -v $t >/dev/null && echo $t; done",
     )?;
@@ -170,7 +194,12 @@ pub fn install(sh: &Shell, plan: &Install, progress: &dyn Fn(&str)) -> Result<()
     };
 
     if !plan.unchanged {
-        sh.push(&plan.partition, TMP_IMAGE, PUSH_PORT, &md5_hex(&plan.partition))?;
+        sh.push(
+            &plan.partition,
+            TMP_IMAGE,
+            PUSH_PORT,
+            &md5_hex(&plan.partition),
+        )?;
         let dev = &plan.kernel.device;
         let write = if has("flash_erase") {
             format!("{} && cat {TMP_IMAGE} > {dev}", erase_all(dev)?)
@@ -183,7 +212,9 @@ pub fn install(sh: &Shell, plan: &Install, progress: &dyn Fn(&str)) -> Result<()
         let there = sh.run(&format!("sha256sum {dev}"), Duration::from_secs(240))?;
         sh.sh(&format!("rm -f {TMP_IMAGE}"))?;
         if there.split_whitespace().next() != Some(sha256_hex(&plan.partition).as_str()) {
-            return Err(format!("{dev} does not read back as written, do not reboot"));
+            return Err(format!(
+                "{dev} does not read back as written, do not reboot"
+            ));
         }
         progress(&format!("wrote and verified {dev}"));
     }
@@ -201,16 +232,18 @@ pub fn install(sh: &Shell, plan: &Install, progress: &dyn Fn(&str)) -> Result<()
     let after = mtd::pull(sh, &plan.uboot, progress)?;
     if after[..UPDATE_BLOCK + ERASE] != plan.uboot_image[..UPDATE_BLOCK + ERASE] {
         return Err(
-            "U-Boot changed although only the environment block was erased, do not reboot".into()
+            "U-Boot changed although only the environment block was erased, do not reboot".into(),
         );
     }
-    if env_block(sh, &plan.uboot, &plan.env, progress)?.iter().any(|&b| b != 0xff) {
+    if env_block(sh, &plan.uboot, &plan.env, progress)?
+        .iter()
+        .any(|&b| b != 0xff)
+    {
         return Err("the environment block did not erase".into());
     }
     progress("environment block erased, U-Boot itself unchanged");
 
     progress("rebooting, U-Boot converts the staging blocks and resets once more");
-    // A shell as PID 1 (our initramfs) ignores the signal a plain reboot sends it.
     sh.sh("(sleep 1; sync; reboot; sleep 5; reboot -f) >/dev/null 2>&1 &")?;
     let gone = Instant::now();
     while sh.reachable() && gone.elapsed() < Duration::from_secs(30) {
@@ -218,9 +251,11 @@ pub fn install(sh: &Shell, plan: &Install, progress: &dyn Fn(&str)) -> Result<()
     }
     super::wait_for_dongle(sh, progress)?;
 
-    // The kernel that comes back may be the other one, with the other partition layout.
     let (uboot, env, _) = locate(&mtd::partitions(sh)?)?;
-    if env_block(sh, &uboot, &env, progress)?.iter().all(|&b| b == 0xff) {
+    if env_block(sh, &uboot, &env, progress)?
+        .iter()
+        .all(|&b| b == 0xff)
+    {
         return Err("the dongle is back but U-Boot did not write a new environment".into());
     }
     progress("U-Boot wrote the environment block again, conversion done");
@@ -228,8 +263,10 @@ pub fn install(sh: &Shell, plan: &Install, progress: &dyn Fn(&str)) -> Result<()
 }
 
 fn locate(parts: &[Partition]) -> Result<(Partition, EnvAt, Partition), String> {
-    let at =
-        parts.iter().position(|p| p.name == "uboot").ok_or("no uboot partition in /proc/mtd")?;
+    let at = parts
+        .iter()
+        .position(|p| p.name == "uboot")
+        .ok_or("no uboot partition in /proc/mtd")?;
     let next = |i: usize, name: &str| parts.get(at + i).filter(|p| p.name == name).cloned();
     let uboot = parts[at].clone();
     let found = match uboot.bytes as usize {
@@ -258,8 +295,6 @@ fn env_block(
     }
 }
 
-/// The vendor kernel has /sys/fsl_otp, a mainline kernel the OCOTP as nvmem (one word per shadow
-/// register, CFG0 at word 1, MAC0 at word 0x22).
 pub(super) fn read_fuses(sh: &Shell) -> Result<Fuses, String> {
     let out = sh.sh(
         "if [ -d /sys/fsl_otp ]; then cd /sys/fsl_otp && cat HW_OCOTP_CFG0 HW_OCOTP_CFG1 HW_OCOTP_MAC0 HW_OCOTP_MAC1; \
@@ -271,7 +306,12 @@ pub(super) fn read_fuses(sh: &Shell) -> Result<Fuses, String> {
         .map(|w| u32::from_str_radix(w.trim_start_matches("0x"), 16).ok())
         .collect();
     match words.as_deref() {
-        Some(&[cfg0, cfg1, mac0, mac1]) => Ok(Fuses { cfg0, cfg1, mac0, mac1 }),
+        Some(&[cfg0, cfg1, mac0, mac1]) => Ok(Fuses {
+            cfg0,
+            cfg1,
+            mac0,
+            mac1,
+        }),
         _ => Err(format!("could not read the fuses: {out:?}")),
     }
 }
@@ -298,13 +338,20 @@ mod tests {
     }
 
     fn part(name: &str, n: u32, bytes: usize) -> Partition {
-        Partition { name: name.into(), device: format!("/dev/mtd{n}"), bytes: bytes as u64 }
+        Partition {
+            name: name.into(),
+            device: format!("/dev/mtd{n}"),
+            bytes: bytes as u64,
+        }
     }
 
     #[test]
     fn the_vendor_layout_and_ours_are_both_found() {
-        let vendor =
-            [part("uboot", 0, 0x40000), part("kernel", 1, 0x340000), part("rootfs", 2, 0xc80000)];
+        let vendor = [
+            part("uboot", 0, 0x40000),
+            part("kernel", 1, 0x340000),
+            part("rootfs", 2, 0xc80000),
+        ];
         let (_, env, kernel) = locate(&vendor).unwrap();
         assert!(matches!(env, EnvAt::Uboot));
         assert_eq!(kernel.device, "/dev/mtd1");

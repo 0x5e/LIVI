@@ -1,6 +1,3 @@
-//! Recorded output of the TypeScript Android Auto stack. This stack has to send
-//! the same bytes and report the same things.
-
 use std::sync::{Arc, OnceLock};
 use std::time::Duration;
 
@@ -47,15 +44,20 @@ fn vectors() -> &'static Json {
 }
 
 fn unhex(s: &str) -> Vec<u8> {
-    (0..s.len()).step_by(2).map(|i| u8::from_str_radix(&s[i..i + 2], 16).unwrap()).collect()
+    (0..s.len())
+        .step_by(2)
+        .map(|i| u8::from_str_radix(&s[i..i + 2], 16).unwrap())
+        .collect()
 }
 
 fn base64(bytes: &[u8]) -> String {
     const A: &[u8] = b"ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/";
     let mut out = String::new();
     for chunk in bytes.chunks(3) {
-        let n =
-            chunk.iter().enumerate().fold(0u32, |n, (i, b)| n | (u32::from(*b) << (16 - 8 * i)));
+        let n = chunk
+            .iter()
+            .enumerate()
+            .fold(0u32, |n, (i, b)| n | (u32::from(*b) << (16 - 8 * i)));
         for i in 0..4 {
             if i <= chunk.len() {
                 out.push(A[(n >> (18 - 6 * i) & 63) as usize] as char);
@@ -149,7 +151,12 @@ fn wire_helpers_match() {
         assert_eq!(hex(&encode_varint(n)), case[1], "varint {n}");
     }
     for case in v["floats"].as_array().unwrap() {
-        assert_eq!(hex(&field_float(1, case[0].as_f64().unwrap())), case[1], "float {}", case[0]);
+        assert_eq!(
+            hex(&field_float(1, case[0].as_f64().unwrap())),
+            case[1],
+            "float {}",
+            case[0]
+        );
     }
     for case in v["readVarint"].as_array().unwrap() {
         let (value, n) = read_varint(&unhex(case[0].as_str().unwrap()), 0);
@@ -159,12 +166,18 @@ fn wire_helpers_match() {
         let got = decode_start(&unhex(case[0].as_str().unwrap())).map(|s| {
             json!({ "sessionId": s.session_id, "configIndex": s.config_index.map_or(-1, i64::from) })
         });
-        assert_eq!(got.unwrap_or(Json::Null), case[1], "decodeStart {}", case[0]);
+        assert_eq!(
+            got.unwrap_or(Json::Null),
+            case[1],
+            "decodeStart {}",
+            case[0]
+        );
     }
     for case in v["decodeFields"].as_array().unwrap() {
         let bytes = unhex(case[0].as_str().unwrap());
-        let got: Vec<Json> =
-            decode_fields(&bytes).map(|f| json!([f.field, f.wire, hex(f.bytes)])).collect();
+        let got: Vec<Json> = decode_fields(&bytes)
+            .map(|f| json!([f.field, f.wire, hex(f.bytes)]))
+            .collect();
         assert_eq!(Json::from(got), case[1], "decodeFields {}", case[0]);
     }
 }
@@ -179,7 +192,11 @@ fn service_discovery_matches() {
             Json::from(c.iter().map(|c| c.name()).collect::<Vec<_>>())
         };
         assert_eq!(names(&d.video_codecs), case["video"], "sdr {name} video");
-        assert_eq!(names(&d.cluster_codecs), case["cluster"], "sdr {name} cluster");
+        assert_eq!(
+            names(&d.cluster_codecs),
+            case["cluster"],
+            "sdr {name} cluster"
+        );
     }
 }
 
@@ -190,7 +207,11 @@ fn sdr_request_json(r: &ServiceDiscoveryRequest) -> Json {
     if let Some(p) = &r.mobile_device_identity {
         let mut pi = Map::new();
         put(&mut pi, "instanceId", p.mobile_device_id.clone());
-        put(&mut pi, "connectivityLifetimeId", p.connectivity_lifetime_id.clone());
+        put(
+            &mut pi,
+            "connectivityLifetimeId",
+            p.connectivity_lifetime_id.clone(),
+        );
         o.insert("phoneInfo".into(), Json::Object(pi));
     }
     Json::Object(o)
@@ -208,7 +229,11 @@ fn control_event_json(e: &ControlEvent) -> Json {
         ControlEvent::Ping(ts) => json!(["ping", ts]),
         ControlEvent::Pong => json!(["pong"]),
         ControlEvent::AudioFocusRequest(t) => json!(["audio-focus-request", t]),
-        ControlEvent::Battery { level, critical, time_remaining_s } => {
+        ControlEvent::Battery {
+            level,
+            critical,
+            time_remaining_s,
+        } => {
             let mut o = Map::new();
             put(&mut o, "level", *level);
             o.insert("critical".into(), json!(critical));
@@ -272,7 +297,11 @@ fn nav_event_json(e: &NavigationEvent) -> Json {
         NavigationEvent::Turn(t) => {
             let mut o = Map::new();
             put(&mut o, "road", t.road.clone());
-            put(&mut o, "turnSide", t.turn_side.map(NavigationTurnSide::name));
+            put(
+                &mut o,
+                "turnSide",
+                t.turn_side.map(NavigationTurnSide::name),
+            );
             put(&mut o, "event", t.event.map(NavigationTurnEvent::name));
             put(&mut o, "image", t.image.as_deref().map(hex));
             put(&mut o, "turnNumber", t.turn_number);
@@ -298,7 +327,11 @@ fn nav_event_json(e: &NavigationEvent) -> Json {
         NavigationEvent::Position(p) => {
             let mut o = Map::new();
             put(&mut o, "stepDistanceMeters", p.step_distance_meters);
-            put(&mut o, "stepDistanceDisplay", p.step_distance_display.clone());
+            put(
+                &mut o,
+                "stepDistanceDisplay",
+                p.step_distance_display.clone(),
+            );
             put(&mut o, "timeToStepSeconds", p.time_to_step_seconds);
             put(&mut o, "destinationMeters", p.destination_meters);
             put(&mut o, "destinationDisplay", p.destination_display.clone());
@@ -339,7 +372,12 @@ fn channel_decoders_match() {
             .iter()
             .map(nav_event_json)
             .collect();
-        assert_eq!(Json::from(got), case["events"], "navigation 0x{id:04x} {}", case["payload"]);
+        assert_eq!(
+            Json::from(got),
+            case["events"],
+            "navigation 0x{id:04x} {}",
+            case["payload"]
+        );
     }
 }
 
@@ -364,19 +402,34 @@ fn maneuver_maps_match() {
         assert_eq!(json!(got), case[2], "turn {} {}", case[0], case[1]);
     }
     for case in v["sideMap"].as_array().unwrap() {
-        assert_eq!(json!(turn_side_to_navi_code(side_of(&case[0])).map(|s| s as u8)), case[1]);
+        assert_eq!(
+            json!(turn_side_to_navi_code(side_of(&case[0])).map(|s| s as u8)),
+            case[1]
+        );
     }
     for case in v["maneuverMap"].as_array().unwrap() {
         let t = Some(u(&case[0]));
-        assert_eq!(json!(nav_maneuver_type_to_code(t).map(|m| m as u8)), case[1], "maneuver {t:?}");
-        assert_eq!(json!(nav_maneuver_type_to_side(t).map(|s| s as u8)), case[2], "side {t:?}");
+        assert_eq!(
+            json!(nav_maneuver_type_to_code(t).map(|m| m as u8)),
+            case[1],
+            "maneuver {t:?}"
+        );
+        assert_eq!(
+            json!(nav_maneuver_type_to_side(t).map(|s| s as u8)),
+            case[2],
+            "side {t:?}"
+        );
     }
     for case in v["tiers"].as_array().unwrap() {
         let (w, h) = fitting_tier(u(&case[0]), u(&case[1]), case[2].as_bool().unwrap());
         assert_eq!(json!([w, h]), json!([case[3], case[4]]), "tier {case}");
     }
     for case in v["dpi"].as_array().unwrap() {
-        assert_eq!(json!(android_auto_dpi(u(&case[0]), u(&case[1]))), case[2], "dpi {case}");
+        assert_eq!(
+            json!(android_auto_dpi(u(&case[0]), u(&case[1]))),
+            case[2],
+            "dpi {case}"
+        );
     }
 }
 
@@ -519,8 +572,11 @@ impl Replay {
             let out = self.s.on_link_control(c);
             self.apply(out);
         } else if let Some(m) = op.get("msg") {
-            let out =
-                self.s.on_message(u(&m[0]) as u8, u(&m[1]) as u16, &unhex(m[2].as_str().unwrap()));
+            let out = self.s.on_message(
+                u(&m[0]) as u8,
+                u(&m[1]) as u16,
+                &unhex(m[2].as_str().unwrap()),
+            );
             self.apply(out);
         } else if op.get("close").is_some() {
             let out = self.s.on_link_closed(None);
@@ -553,7 +609,8 @@ impl Replay {
                         id: p["id"].as_i64().unwrap(),
                     })
                     .collect();
-                self.s.send_touch(u(&a[0]), &pointers, arg_u(a, 2).unwrap_or(0) as u32)
+                self.s
+                    .send_touch(u(&a[0]), &pointers, arg_u(a, 2).unwrap_or(0) as u32)
             }
             "sendButton" => {
                 let codes: Vec<u32> = match &a[0] {
@@ -616,14 +673,15 @@ impl Replay {
             "forceClusterKeyframe" => self.s.force_cluster_keyframe(),
             "setClusterStreamActive" => self.s.set_cluster_stream_active(a[0].as_bool().unwrap()),
             "requestShutdown" => self.s.request_shutdown(arg_u(a, 0).unwrap_or(1) as u8),
-            "close" => self.s.close(a.get(0).and_then(Json::as_str).unwrap_or("manual close")),
+            "close" => self
+                .s
+                .close(a.get(0).and_then(Json::as_str).unwrap_or("manual close")),
             "sendMediaSink" => self.s.send_media_sink(a[0].as_object().unwrap().clone()),
             other => panic!("no call {other}"),
         }
     }
 }
 
-/// The calls list has no recording.
 fn session_event_json(e: &SessionEvent) -> Option<Json> {
     Some(match e {
         SessionEvent::Connected => json!(["connected"]),
@@ -631,10 +689,16 @@ fn session_event_json(e: &SessionEvent) -> Option<Json> {
         SessionEvent::Error(m) => json!(["error", m]),
         SessionEvent::VideoCodec(c) => json!(["video-codec", c.name()]),
         SessionEvent::ClusterVideoCodec(c) => json!(["cluster-video-codec", c.name()]),
-        SessionEvent::AudioSetup { channel, sample_rate, channels } => {
+        SessionEvent::AudioSetup {
+            channel,
+            sample_rate,
+            channels,
+        } => {
             json!(["audio-setup", channel.name(), sample_rate, channels])
         }
-        SessionEvent::Audio { channel, active, .. } => json!([
+        SessionEvent::Audio {
+            channel, active, ..
+        } => json!([
             if *active { "audio-start" } else { "audio-stop" },
             channel.name(),
             channel.channel()
@@ -644,11 +708,21 @@ fn session_event_json(e: &SessionEvent) -> Option<Json> {
         SessionEvent::VoiceSession(a) => json!(["voice-session", a]),
         SessionEvent::AudioFocus(t) => json!(["audio-focus", t]),
         SessionEvent::HostUiRequested => json!(["host-ui-requested"]),
-        SessionEvent::DeviceInfo { name, model, instance_id, ip } => json!([
+        SessionEvent::DeviceInfo {
+            name,
+            model,
+            instance_id,
+            ip,
+        } => json!([
             "device-info",
             { "name": name, "model": model, "instanceId": instance_id, "ip": ip }
         ]),
-        SessionEvent::Battery { ip, level, critical, time_remaining_s } => {
+        SessionEvent::Battery {
+            ip,
+            level,
+            critical,
+            time_remaining_s,
+        } => {
             let mut o = Map::new();
             o.insert("ip".into(), json!(ip));
             put(&mut o, "batteryLevel", *level);
@@ -727,12 +801,21 @@ fn bridge_event(name: &str, args: &[Json], formats: &mut [(u32, u32); 3]) -> Ses
         "audio-setup" => {
             let c = channel(&args[0]);
             formats[slot(c)] = (u(&args[1]), u(&args[2]));
-            SessionEvent::AudioSetup { channel: c, sample_rate: u(&args[1]), channels: u(&args[2]) }
+            SessionEvent::AudioSetup {
+                channel: c,
+                sample_rate: u(&args[1]),
+                channels: u(&args[2]),
+            }
         }
         "audio-start" | "audio-stop" => {
             let c = channel(&args[0]);
             let (sample_rate, channels) = formats[slot(c)];
-            SessionEvent::Audio { channel: c, sample_rate, channels, active: name == "audio-start" }
+            SessionEvent::Audio {
+                channel: c,
+                sample_rate,
+                channels,
+                active: name == "audio-start",
+            }
         }
         "audio-focus" => SessionEvent::AudioFocus(u(&args[0]) as u8),
         "mic-start" => SessionEvent::MicStart,
@@ -784,7 +867,10 @@ fn bridge_event(name: &str, args: &[Json], formats: &mut [(u32, u32); 3]) -> Ses
                     road: s(t, "road"),
                     turn_side: side(t),
                     event: t["event"].as_str().map(|e| {
-                        NavigationTurnEvent::ALL.into_iter().find(|x| x.name() == e).unwrap()
+                        NavigationTurnEvent::ALL
+                            .into_iter()
+                            .find(|x| x.name() == e)
+                            .unwrap()
                     }),
                     image: t.get("image").and_then(Json::as_str).map(unhex),
                     turn_number: opt_u(t, "turnNumber"),
@@ -854,7 +940,11 @@ fn navi_json(n: &Navigation) -> Json {
     put(&mut o, "NaviDisplayDistanceE3", n.display_distance_e3);
     put(&mut o, "NaviDisplayDistanceUnit", n.display_distance_unit);
     put(&mut o, "NaviDestinationName", n.destination_name.clone());
-    put(&mut o, "NaviDistanceToDestination", n.distance_to_destination);
+    put(
+        &mut o,
+        "NaviDistanceToDestination",
+        n.distance_to_destination,
+    );
     put(&mut o, "NaviTimeToDestination", n.time_to_destination);
     put(&mut o, "NaviETA", n.eta.clone());
     Json::Object(o)
@@ -879,7 +969,10 @@ fn now_playing_json(n: &NowPlaying) -> Vec<Json> {
     if let Some(art) = &n.artwork {
         let mut o = Map::new();
         o.insert("mediaType".into(), json!(3));
-        o.insert("payload".into(), json!({ "type": 3, "base64Image": base64(art) }));
+        o.insert(
+            "payload".into(),
+            json!({ "type": 3, "base64Image": base64(art) }),
+        );
         out.push(message("MediaData", o));
     }
     out
@@ -889,7 +982,12 @@ fn report_json(r: &Report) -> Vec<Json> {
     match r {
         Report::Connected => vec![json!({ "connected": true })],
         Report::Disconnected => vec![json!({ "disconnected": true })],
-        Report::Device { name, model, instance_id, ip } => vec![json!({
+        Report::Device {
+            name,
+            model,
+            instance_id,
+            ip,
+        } => vec![json!({
             "presence": { "name": name, "model": model, "instanceId": instance_id, "ip": ip }
         })],
         Report::Status(s) => {
@@ -905,11 +1003,22 @@ fn report_json(r: &Report) -> Vec<Json> {
         Report::VideoCodec { cluster, codec } => vec![json!({
             "codec": [if *cluster { "cluster-video-codec" } else { "video-codec" }, codec.name()]
         })],
-        Report::VideoFocus { cluster: false, projected: true } => vec![command(500)],
-        Report::VideoFocus { cluster: false, projected: false } => vec![command(501)],
+        Report::VideoFocus {
+            cluster: false,
+            projected: true,
+        } => vec![command(500)],
+        Report::VideoFocus {
+            cluster: false,
+            projected: false,
+        } => vec![command(501)],
         Report::VideoFocus { cluster: true, .. } => vec![command(506)],
         Report::HostUiRequested => vec![command(3)],
-        Report::Audio { stream, sample_rate, channels, active } => {
+        Report::Audio {
+            stream,
+            sample_rate,
+            channels,
+            active,
+        } => {
             let media = *stream == AudioChannelType::Media;
             let decode_type = match (sample_rate, channels) {
                 (48000, 2) => 4,
@@ -931,7 +1040,14 @@ fn report_json(r: &Report) -> Vec<Json> {
         Report::Duck { level, duration_ms } => {
             let mut o = Map::new();
             let whole = level.fract() == 0.0;
-            o.insert("level".into(), if whole { json!(*level as i64) } else { json!(level) });
+            o.insert(
+                "level".into(),
+                if whole {
+                    json!(*level as i64)
+                } else {
+                    json!(level)
+                },
+            );
             o.insert("durationMs".into(), json!(duration_ms));
             vec![message("DuckAudio", o)]
         }
@@ -998,16 +1114,24 @@ fn the_event_bridge_matches() {
                     BridgeOut::AudioSinks => {
                         later.extend(outputs.iter().filter_map(|(s, t)| audio_sink(*s, t)));
                     }
-                    BridgeOut::PrimeAudio { kind, sample_rate, channels, tag } => {
+                    BridgeOut::PrimeAudio {
+                        kind,
+                        sample_rate,
+                        channels,
+                        tag,
+                    } => {
                         now.push(json!({ "primeAudio": [*kind as u8, sample_rate, channels, tag.name()] }));
                     }
-                    BridgeOut::VideoStarted { cluster, width, height } => {
+                    BridgeOut::VideoStarted {
+                        cluster,
+                        width,
+                        height,
+                    } => {
                         now.push(json!({ "videoStarted": [cluster, width, height] }));
                     }
                 }
             }
             if name == "disconnected" {
-                // The recording has the end first, this stack reports it last.
                 if let Some(i) = now.iter().position(|r| r.get("disconnected").is_some()) {
                     let down = now.remove(i);
                     now.insert(0, down);
@@ -1036,19 +1160,17 @@ fn livi_config(patch: &Json) -> livi_core_proto::config::Config {
     for (k, x) in patch.as_object().unwrap() {
         v[k] = x.clone();
     }
-    // The recordings come from the four dashboards, of which only 3 and 4 put the cluster
-    // stream on a screen.
     if let Some(slots) = patch.get("dashboards") {
         let on = |screen: &str| {
-            ["dashboard3", "dashboard4"].iter().any(|d| slots[d][screen].as_bool() == Some(true))
+            ["dashboard3", "dashboard4"]
+                .iter()
+                .any(|d| slots[d][screen].as_bool() == Some(true))
         };
         v["dashboard"] = json!({ "main": on("main"), "cluster": on("cluster"), "aux": on("aux") });
     }
     serde_json::from_value(v).unwrap()
 }
 
-/// No microphone device key, the recording read it from the app's config when
-/// the tap opened.
 fn aa_config_json(c: &AaConfig) -> Json {
     let mut o = Map::new();
     let insets = |o: &mut Map<String, Json>, prefix: &str, i: &Insets| {
@@ -1082,7 +1204,11 @@ fn aa_config_json(c: &AaConfig) -> Json {
     o.insert("clusterHeight".into(), json!(c.cluster_height));
     put(&mut o, "clusterTierWidth", c.cluster_tier_width);
     put(&mut o, "clusterTierHeight", c.cluster_tier_height);
-    put(&mut o, "clusterPixelAspectRatioE4", c.cluster_pixel_aspect_ratio_e4);
+    put(
+        &mut o,
+        "clusterPixelAspectRatioE4",
+        c.cluster_pixel_aspect_ratio_e4,
+    );
     o.insert("clusterFps".into(), json!(c.cluster_fps));
     put(&mut o, "clusterDpi", c.cluster_dpi);
     insets(&mut o, "clusterViewArea", &c.cluster_view_area);
@@ -1192,7 +1318,13 @@ impl Driver {
             cmd_rx,
             events,
         ));
-        let mut d = Self { helper, from_driver, cmds, media, marker: 0 };
+        let mut d = Self {
+            helper,
+            from_driver,
+            cmds,
+            media,
+            marker: 0,
+        };
         d.helper
             .control(&json!({ "type": "ready", "peer": "p", "mic": "/tmp/aa-session-1.sock.mic" }));
         d.helper.send(&Frame::new(0, 0x0b, 0x0005, []));
@@ -1211,7 +1343,9 @@ impl Driver {
 
     async fn through_commands(&mut self) -> Vec<Frame> {
         self.marker += 1;
-        self.cmds.send(SessionCmd::Sensor(Sensor::Gear(self.marker))).unwrap();
+        self.cmds
+            .send(SessionCmd::Sensor(Sensor::Gear(self.marker)))
+            .unwrap();
         let batch = crate::sensors::batch(&Sensor::Gear(self.marker)).unwrap();
         self.until(Frame::new(1, 0x0b, 0x8003, batch)).await
     }
@@ -1236,7 +1370,12 @@ impl Driver {
 
 #[tokio::test]
 async fn the_driver_matches() {
-    for (n, case) in vectors()["aaSessions"].as_array().unwrap().iter().enumerate() {
+    for (n, case) in vectors()["aaSessions"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .enumerate()
+    {
         let cfg = livi_config(&case["patch"]);
         let seed = &case["seed"];
         let codecs = Codecs {
@@ -1257,8 +1396,14 @@ async fn the_driver_matches() {
         let aa = from_livi(&cfg, codecs, seed["initialNightMode"].as_bool(), &addresses);
         assert_eq!(aa_config_json(&aa), case["aaCfg"], "driver {n} config");
         let g = Geometry::main(&aa);
-        let touch =
-            [g.tier_width, g.tier_height, g.inset.top, g.inset.bottom, g.inset.left, g.inset.right];
+        let touch = [
+            g.tier_width,
+            g.tier_height,
+            g.inset.top,
+            g.inset.bottom,
+            g.inset.left,
+            g.inset.right,
+        ];
         assert_eq!(json!(touch), case["touch"], "driver {n} touch geometry");
 
         set_wall(T0);
@@ -1302,10 +1447,14 @@ async fn the_driver_matches() {
                 d.cmds.send(SessionCmd::MultiTouch(items)).unwrap();
                 d.through_commands().await
             } else if let Some(c) = input.get("command") {
-                d.cmds.send(SessionCmd::Command(command_of(c.as_str().unwrap()))).unwrap();
+                d.cmds
+                    .send(SessionCmd::Command(command_of(c.as_str().unwrap())))
+                    .unwrap();
                 d.through_commands().await
             } else if let Some(i) = input.get("input") {
-                d.cmds.send(SessionCmd::Input(input_of(i.as_str().unwrap()))).unwrap();
+                d.cmds
+                    .send(SessionCmd::Input(input_of(i.as_str().unwrap())))
+                    .unwrap();
                 d.through_commands().await
             } else {
                 let p = &input["phone"];
@@ -1317,9 +1466,15 @@ async fn the_driver_matches() {
                 ));
                 d.through_link().await
             };
-            let sent: Vec<Json> = frames.iter().map(|f| json!({ "send": frame_json(f) })).collect();
-            let want_sent: Vec<Json> =
-                want.iter().filter(|r| r.get("send").is_some()).cloned().collect();
+            let sent: Vec<Json> = frames
+                .iter()
+                .map(|f| json!({ "send": frame_json(f) }))
+                .collect();
+            let want_sent: Vec<Json> = want
+                .iter()
+                .filter(|r| r.get("send").is_some())
+                .cloned()
+                .collect();
             assert_eq!(sent, want_sent, "driver {n} input {input}");
             let taps = d.media.take();
             let want_taps: Vec<Json> = want

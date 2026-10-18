@@ -4,18 +4,14 @@ use std::time::Duration;
 use livi_core_proto::LIFELINE_ENV;
 use tokio::process::{Child, ChildStdin, Command};
 
-/// The child leaves when core dies. Its stdin is the pipe, see `hold_lifeline`.
 pub fn with_lifeline(cmd: &mut Command) -> &mut Command {
     cmd.stdin(Stdio::piped()).env(LIFELINE_ENV, "1")
 }
 
-/// Core's end of the pipe, the child lives as long as it is held. `wait`
-/// closes a child's stdin, so it has to come out of the `Child` first.
 pub fn hold_lifeline(child: &mut Child) -> Option<ChildStdin> {
     child.stdin.take()
 }
 
-/// With `group`, the signals reach the child's whole process group.
 pub async fn terminate(child: &mut Child, grace: Duration, group: bool) {
     if let Some(pid) = child.id().and_then(|p| i32::try_from(p).ok()) {
         let target = if group { -pid } else { pid };
@@ -53,9 +49,16 @@ mod tests {
     async fn the_lifeline_ends_only_with_the_child_handle() {
         let mut cmd = Command::new("sh");
         cmd.arg("-c").arg("cat >/dev/null; echo gone");
-        let mut child = with_lifeline(&mut cmd).stdout(Stdio::piped()).spawn().unwrap();
+        let mut child = with_lifeline(&mut cmd)
+            .stdout(Stdio::piped())
+            .spawn()
+            .unwrap();
         let lifeline = hold_lifeline(&mut child);
-        assert!(tokio::time::timeout(Duration::from_millis(300), child.wait()).await.is_err());
+        assert!(
+            tokio::time::timeout(Duration::from_millis(300), child.wait())
+                .await
+                .is_err()
+        );
         drop(lifeline);
         let out = tokio::time::timeout(Duration::from_secs(5), child.wait_with_output())
             .await
@@ -73,9 +76,11 @@ mod tests {
             .process_group(0)
             .spawn()
             .unwrap();
-        // TERM only finds the trap once the shell has set it.
         let mut ready = String::new();
-        BufReader::new(child.stdout.take().unwrap()).read_line(&mut ready).await.unwrap();
+        BufReader::new(child.stdout.take().unwrap())
+            .read_line(&mut ready)
+            .await
+            .unwrap();
         terminate(&mut child, Duration::from_millis(300), true).await;
         assert_eq!(child.wait().await.unwrap().signal(), Some(libc::SIGKILL));
     }

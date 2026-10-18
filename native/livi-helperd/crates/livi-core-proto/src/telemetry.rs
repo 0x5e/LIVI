@@ -270,9 +270,19 @@ mod tests {
             consumption_l_per100_km: Some(6.5),
             iat_c: Some(30.0),
             turn_signal: Some(TurnSignal::Left),
-            can: Some(CanFrame { id: 1, data: vec![2], bus: None }),
-            tire_pressure: Some(TirePressure { rear_left_kpa: Some(230.0), ..Default::default() }),
-            climate: Some(Climate { driver_target_c: Some(21.5), ..Default::default() }),
+            can: Some(CanFrame {
+                id: 1,
+                data: vec![2],
+                bus: None,
+            }),
+            tire_pressure: Some(TirePressure {
+                rear_left_kpa: Some(230.0),
+                ..Default::default()
+            }),
+            climate: Some(Climate {
+                driver_target_c: Some(21.5),
+                ..Default::default()
+            }),
             ..Default::default()
         };
         let named = serde_json::to_value(&snapshot).unwrap();
@@ -280,9 +290,15 @@ mod tests {
         assert_eq!(named["iatC"], 30.0);
         assert_eq!(named["turnSignal"], "left");
         assert_eq!(named["tirePressure"]["rearLeftKpa"], 230.0);
-        assert_eq!((&named["can"]["id"], &named["can"]["data"]), (&json!(1), &json!([2])));
+        assert_eq!(
+            (&named["can"]["id"], &named["can"]["data"]),
+            (&json!(1), &json!([2]))
+        );
         assert_eq!(named["climate"]["driverTargetC"], 21.5);
         let unknown = serde_json::from_value::<Climate>(json!({ "seatCooling": 1 }));
-        assert!(unknown.is_err(), "a climate key the contract does not name is refused");
+        assert!(
+            unknown.is_err(),
+            "a climate key the contract does not name is refused"
+        );
     }
 }

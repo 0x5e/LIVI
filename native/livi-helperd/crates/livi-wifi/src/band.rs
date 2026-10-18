@@ -1,5 +1,3 @@
-//! Channel numbers repeat across the bands, so a channel always carries its band.
-
 use std::fmt;
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash, PartialOrd, Ord)]
@@ -10,7 +8,6 @@ pub enum Band {
 }
 
 impl Band {
-    /// The name the settings keep.
     pub fn setting(self) -> &'static str {
         match self {
             Band::Ghz24 => "2.4ghz",
@@ -20,10 +17,11 @@ impl Band {
     }
 
     pub fn of_setting(name: &str) -> Option<Self> {
-        [Band::Ghz24, Band::Ghz5, Band::Ghz6].into_iter().find(|b| b.setting() == name)
+        [Band::Ghz24, Band::Ghz5, Band::Ghz6]
+            .into_iter()
+            .find(|b| b.setting() == name)
     }
 
-    /// hostapd's `hw_mode`.
     pub fn hw_mode(self) -> &'static str {
         match self {
             Band::Ghz24 => "g",
@@ -53,16 +51,21 @@ impl Channel {
         Self { band, number }
     }
 
-    /// A channel kept as a bare number, as settings and the dongle did before 6 GHz.
     pub fn of_number(number: u32) -> Self {
-        let band = if number <= 14 { Band::Ghz24 } else { Band::Ghz5 };
+        let band = if number <= 14 {
+            Band::Ghz24
+        } else {
+            Band::Ghz5
+        };
         Self { band, number }
     }
 
-    /// A channel as the settings keep it, a number and the band picked. Below 6 GHz the number
-    /// alone decides, as it always did.
     pub fn of_setting(band: Band, number: u32) -> Self {
-        if band == Band::Ghz6 { Self::new(band, number) } else { Self::of_number(number) }
+        if band == Band::Ghz6 {
+            Self::new(band, number)
+        } else {
+            Self::of_number(number)
+        }
     }
 
     pub fn of_freq(mhz: u32) -> Option<Self> {
@@ -131,8 +134,14 @@ mod tests {
             assert_eq!(Band::of_setting(band.setting()), Some(band));
         }
         assert_eq!(Band::of_setting("60ghz"), None);
-        assert_eq!(Channel::of_setting(Band::Ghz6, 37), Channel::new(Band::Ghz6, 37));
-        assert_eq!(Channel::of_setting(Band::Ghz5, 6), Channel::new(Band::Ghz24, 6));
+        assert_eq!(
+            Channel::of_setting(Band::Ghz6, 37),
+            Channel::new(Band::Ghz6, 37)
+        );
+        assert_eq!(
+            Channel::of_setting(Band::Ghz5, 6),
+            Channel::new(Band::Ghz24, 6)
+        );
     }
 
     #[test]

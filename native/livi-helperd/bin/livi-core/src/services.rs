@@ -105,7 +105,9 @@ impl Services {
         let cfg = state.borrow().config.clone();
         let identity = livi_cp::identity::load_or_create(&user_data.join("cp/identity.json"));
         let airplay = carplay_listener();
-        let airplay_port = airplay.as_ref().map(|l| livi_cp::net::local_port(l.local_addr()));
+        let airplay_port = airplay
+            .as_ref()
+            .map(|l| livi_cp::net::local_port(l.local_addr()));
         let helper_restart = Arc::new(Notify::new());
         let applied = hub.applied();
         let env_identity = identity.clone();
@@ -143,13 +145,19 @@ impl Services {
         let clusters = ClusterPlanes::new(gst.clone(), ctrl.clone());
 
         let display = compositor.is_some().then(|| ctrl.ui());
-        let ui =
-            res.ui.clone().map(|cmd| UiSupervisor::start(cmd, core_socket, display, quit.clone()));
+        let ui = res
+            .ui
+            .clone()
+            .map(|cmd| UiSupervisor::start(cmd, core_socket, display, quit.clone()));
         if ui.is_none() {
             println!("[core] running without a UI");
         }
         let compositor = compositor.map(|child| watch_compositor(child, quit));
-        tokio::spawn(spectrum::follow(gst.clone(), asks.spectrum.clone(), state.clone()));
+        tokio::spawn(spectrum::follow(
+            gst.clone(),
+            asks.spectrum.clone(),
+            state.clone(),
+        ));
         tokio::spawn(crate::blinker::run(hub.clone(), gst.clone()));
         if let Some(dab_asks) = asks.dab.take() {
             tokio::spawn(crate::dab::run(
@@ -174,12 +182,26 @@ impl Services {
             carplay.start(hub, &ctrl, &gst, plane.clone(), clusters.clone(), asks);
         }
 
-        tokio::spawn(follow_display(ctrl.ui(), gst.clone(), res, user_data.to_path_buf()));
-        tokio::spawn(follow_state(state.clone(), ctrl, plane.clone(), clusters.clone()));
+        tokio::spawn(follow_display(
+            ctrl.ui(),
+            gst.clone(),
+            res,
+            user_data.to_path_buf(),
+        ));
+        tokio::spawn(follow_state(
+            state.clone(),
+            ctrl,
+            plane.clone(),
+            clusters.clone(),
+        ));
         tokio::spawn(follow_audio_output(state.clone(), gst.clone()));
         tokio::spawn(follow_host(gst, plane, clusters, state));
 
-        Self { helper: Some(helper), compositor, ui }
+        Self {
+            helper: Some(helper),
+            compositor,
+            ui,
+        }
     }
 
     pub async fn stop(mut self) {
@@ -237,7 +259,9 @@ impl CarPlay {
         let probing = source.clone();
         let probe = self.probe;
         tokio::spawn(async move {
-            let Some(codecs) = livi_media::gst_host::probe_codecs(&probe).await else { return };
+            let Some(codecs) = livi_media::gst_host::probe_codecs(&probe).await else {
+                return;
+            };
             println!("[core] gst-host codecs {codecs}");
             probing.set_codecs(android_auto::codecs(&codecs));
             let _ = tokio::task::spawn_blocking(move || probing.refresh()).await;
@@ -251,7 +275,9 @@ impl CarPlay {
             config,
             refresh: Some(Arc::new(move || refreshing.refresh())),
             debug: self.debug,
-            video_capture: self.debug.then(|| self.user_data.join("log/video-playback")),
+            video_capture: self
+                .debug
+                .then(|| self.user_data.join("log/video-playback")),
         });
         let (events_tx, events) = mpsc::unbounded_channel();
         let cp = livi_cp::manager::start(self.listener, ctx, events_tx);
@@ -287,8 +313,15 @@ impl CarPlay {
             settings: self.settings,
             themes: self.user_data.join("themes"),
         };
-        let projection =
-            Projection::new(hub, drivers, plane, clusters, self.helper_restart, devices, wants);
+        let projection = Projection::new(
+            hub,
+            drivers,
+            plane,
+            clusters,
+            self.helper_restart,
+            devices,
+            wants,
+        );
         tokio::spawn(projection.run(events, aa_events, asks, state));
     }
 }
@@ -333,7 +366,11 @@ fn secondary_screens(cfg: &Config) -> [ScreenWant; 2] {
             cfg.cluster_screen_active,
             size(cfg.cluster_screen_width, cfg.cluster_screen_height),
         ),
-        ("aux", cfg.aux_screen_active, size(cfg.aux_screen_width, cfg.aux_screen_height)),
+        (
+            "aux",
+            cfg.aux_screen_active,
+            size(cfg.aux_screen_width, cfg.aux_screen_height),
+        ),
     ]
 }
 
@@ -373,7 +410,10 @@ async fn follow_state(
             ctrl.screen(role, on, size);
         }
         let stream = |c: &Config| (c.projection_width, c.projection_height);
-        if last.as_ref().is_none_or(|l| stream(&l.config) != stream(&now.config)) {
+        if last
+            .as_ref()
+            .is_none_or(|l| stream(&l.config) != stream(&now.config))
+        {
             ctrl.aspect("main", Some(stream(&now.config)));
         }
         if last.as_ref().is_none_or(|l| l.front.main != now.front.main) {
@@ -410,11 +450,19 @@ async fn follow_host(
     let mut events = gst.subscribe();
     loop {
         match events.recv().await {
-            Ok(HostEvent::Config { plane: PLANE_MAIN, codec, atom }) => {
+            Ok(HostEvent::Config {
+                plane: PLANE_MAIN,
+                codec,
+                atom,
+            }) => {
                 plane.prepare(codec, atom);
                 place_carplay(&plane, &state.borrow().config);
             }
-            Ok(HostEvent::Config { plane: PLANE_CLUSTER_RECV, codec, atom }) => {
+            Ok(HostEvent::Config {
+                plane: PLANE_CLUSTER_RECV,
+                codec,
+                atom,
+            }) => {
                 let cfg = state.borrow().config.clone();
                 let size = (cfg.cluster_width, cfg.cluster_height);
                 clusters.set_crop(crop_for(size, size));
@@ -429,12 +477,18 @@ async fn follow_host(
 
 fn carplay_tier(cfg: &Config) -> (u32, u32) {
     let or = |v: u32, d: u32| if v == 0 { d } else { v };
-    (or(cfg.projection_width, 1920), or(cfg.projection_height, 1080))
+    (
+        or(cfg.projection_width, 1920),
+        or(cfg.projection_height, 1080),
+    )
 }
 
 fn place_carplay(plane: &MainPlane, cfg: &Config) {
     let tier = carplay_tier(cfg);
-    plane.set_crop(crop_for(tier, (cfg.projection_width, cfg.projection_height)));
+    plane.set_crop(crop_for(
+        tier,
+        (cfg.projection_width, cfg.projection_height),
+    ));
 }
 
 #[cfg(test)]
@@ -469,7 +523,10 @@ mod tests {
 
         let mut on = cfg.clone();
         on.cluster_screen_active = true;
-        assert_eq!(changed_screens(Some(&cfg), &on), vec![("cluster", true, Some((800, 480)))]);
+        assert_eq!(
+            changed_screens(Some(&cfg), &on),
+            vec![("cluster", true, Some((800, 480)))]
+        );
 
         let mut resized = on.clone();
         resized.cluster_screen_width = 1024;
@@ -502,11 +559,21 @@ mod tests {
             render_node: Some("/dev/dri/renderD128".into()),
         };
         let launch = host_launch(&res, Path::new("/u"), Some(&ui));
-        let get = |k: &str| launch.env.iter().find(|(n, _)| n == k).map(|(_, v)| v.as_str());
+        let get = |k: &str| {
+            launch
+                .env
+                .iter()
+                .find(|(n, _)| n == k)
+                .map(|(_, v)| v.as_str())
+        };
         assert_eq!(get("WAYLAND_DISPLAY"), Some("wayland-1"));
         assert_eq!(get("LIVI_RENDER_NODE"), Some("/dev/dri/renderD128"));
         let gl = cfg!(target_os = "linux").then_some("surfaceless");
-        assert_eq!(get("GST_GL_WINDOW"), gl, "EGL without a window only on Linux");
+        assert_eq!(
+            get("GST_GL_WINDOW"),
+            gl,
+            "EGL without a window only on Linux"
+        );
         assert_eq!(launch.log, PathBuf::from("/u/log/gst-host.log"));
         assert_eq!(
             host_launch(&res, Path::new("/u"), None)

@@ -1,5 +1,3 @@
-//! CarPlay video playback.
-
 use std::path::{Path, PathBuf};
 use std::time::Instant;
 
@@ -11,22 +9,17 @@ use crate::media::VideoStatus;
 use crate::opack;
 
 pub const FEATURE: &str = "videoPlayback";
-/// Live streams have no length, so answers name one long enough for any film.
 const ASSUMED_DURATION_S: f64 = 4.0 * 3600.0;
 pub const DATASTREAM_UUID: &str = "A6B27562-B43A-4F2D-B75F-82391E250194";
-/// Subtitles, remote logging, licence and analytics requests, on a socket of its own.
 pub const SETTINGS_DATASTREAM_UUID: &str = "BB493F61-A6B8-4769-8D74-80C23A9F71C4";
-/// Asked for once the car holds the screen for video, on a socket of its own.
 pub const OVERLAY_DATASTREAM_UUID: &str = "E3DC3EA6-E6C3-4B30-847C-B7ACFEBEA654";
 
-/// The legacy feature bits little-endian, trailing zero bytes cut, base64 without padding.
 pub fn features_ex(features: u64) -> String {
     let bytes = features.to_le_bytes();
     let len = bytes.iter().rposition(|&b| b != 0).map_or(0, |i| i + 1);
     STANDARD_NO_PAD.encode(&bytes[..len])
 }
 
-/// What /info gains while the phone may play video on LIVI.
 pub fn info_entries(features: u64, allowed: bool) -> [(String, Value); 2] {
     [
         (
@@ -46,7 +39,6 @@ pub fn info_entries(features: u64, allowed: bool) -> [(String, Value); 2] {
     ]
 }
 
-/// `status` is idle, video or audioOnly.
 pub fn allowed_command(allowed: bool, status: &str) -> Value {
     dict([
         ("type", Value::String("setVideoPlaybackAllowed".into())),
@@ -65,21 +57,28 @@ const BORROW: u64 = 3;
 const UNBORROW: u64 = 4;
 const USER_INITIATED: u64 = 500;
 
-/// The car borrows the main screen from the phone while the video shows, and gives it back after.
 pub fn borrow_screen(borrow: bool) -> Value {
     let mut screen = vec![
         ("resourceID".to_string(), Value::Int(SCREEN)),
-        ("transferType".to_string(), Value::Int(if borrow { BORROW } else { UNBORROW })),
-        ("borrowID".to_string(), Value::String("VideoPlayback".into())),
+        (
+            "transferType".to_string(),
+            Value::Int(if borrow { BORROW } else { UNBORROW }),
+        ),
+        (
+            "borrowID".to_string(),
+            Value::String("VideoPlayback".into()),
+        ),
     ];
     if borrow {
-        // Without the condition for handing it back the phone answers 400.
         screen.push(("transferPriority".to_string(), Value::Int(USER_INITIATED)));
         screen.push(("unborrowConstraint".to_string(), Value::Int(USER_INITIATED)));
     }
     dict([
         ("type", Value::String("changeModes".into())),
-        ("params", dict([("resources", Value::Array(vec![Value::Dict(screen)]))])),
+        (
+            "params",
+            dict([("resources", Value::Array(vec![Value::Dict(screen)]))]),
+        ),
     ])
 }
 
@@ -94,15 +93,16 @@ fn seconds(v: Option<&Value>) -> Option<f64> {
         Value::Int(n) => Some(*n as f64),
         Value::Dict(_) => {
             let value = v.get("value").and_then(Value::as_int)? as f64;
-            let scale = v.get("timescale").and_then(Value::as_int).filter(|s| *s > 0)? as f64;
+            let scale = v
+                .get("timescale")
+                .and_then(Value::as_int)
+                .filter(|s| *s > 0)? as f64;
             Some(value / scale)
         }
         _ => None,
     }
 }
 
-/// One line for the log: type, kind, id and property of a message on the video stream, with the
-/// values it sets.
 pub fn describe(message: &Value) -> String {
     let mut parts = Vec::new();
     for key in ["type", "controlMessage", "kind", "property"] {
@@ -113,7 +113,10 @@ pub fn describe(message: &Value) -> String {
     if let Some(id) = message.get("messageID").and_then(Value::as_int) {
         parts.push(format!("messageID={id}"));
     }
-    if let Some(url) = message.get("item").and_then(|i| text_of(i, "Content-Location")) {
+    if let Some(url) = message
+        .get("item")
+        .and_then(|i| text_of(i, "Content-Location"))
+    {
         parts.push(format!("url={url}"));
     }
     if let Some(rate) = seconds(message.get("rate")) {
@@ -133,10 +136,13 @@ pub fn describe(message: &Value) -> String {
         }
         _ => {}
     }
-    if parts.is_empty() { "no type".into() } else { parts.join(" ") }
+    if parts.is_empty() {
+        "no type".into()
+    } else {
+        parts.join(" ")
+    }
 }
 
-/// What the phone believes plays, enough to answer its requests as a playing receiver would.
 #[derive(Default)]
 pub struct Playback {
     item: Option<String>,
@@ -155,9 +161,6 @@ impl Playback {
         self.rate
     }
 
-    /// Follows the phone's commands and returns the answer to a request. A first rate above 0
-    /// also returns true, the moment the phone should hear that video plays.
-    /// `status` is what the player last said about itself, the answers follow it.
     pub fn handle(
         &mut self,
         message: &Value,
@@ -205,11 +208,17 @@ impl Playback {
         (Some(Value::Dict(answer)), started)
     }
 
-    /// Before the player said anything it is not ready and nothing plays.
     fn info(&self, status: Option<&VideoStatus>) -> Value {
         let s = status.copied().unwrap_or_default();
-        let duration = s.duration.filter(|d| *d > 0.0).unwrap_or(ASSUMED_DURATION_S);
-        let position = if s.ended { duration } else { s.position.unwrap_or(self.start_s) };
+        let duration = s
+            .duration
+            .filter(|d| *d > 0.0)
+            .unwrap_or(ASSUMED_DURATION_S);
+        let position = if s.ended {
+            duration
+        } else {
+            s.position.unwrap_or(self.start_s)
+        };
         let ready = s.ready && !s.failed;
         let running = s.playing && !s.ended && !s.failed;
         let (empty, full) = match s.buffered_percent {
@@ -226,11 +235,17 @@ impl Playback {
         let mut info = vec![
             ("duration".to_string(), Value::Real(duration)),
             ("position".to_string(), Value::Real(position)),
-            ("rate".to_string(), Value::Real(if running { self.rate } else { 0.0 })),
+            (
+                "rate".to_string(),
+                Value::Real(if running { self.rate } else { 0.0 }),
+            ),
             ("readyToPlay".to_string(), Value::Bool(ready)),
             ("playbackBufferEmpty".to_string(), Value::Bool(empty)),
             ("playbackBufferFull".to_string(), Value::Bool(full)),
-            ("playbackLikelyToKeepUp".to_string(), Value::Bool(ready && !empty)),
+            (
+                "playbackLikelyToKeepUp".to_string(),
+                Value::Bool(ready && !empty),
+            ),
             ("loadedTimeRanges".to_string(), range()),
             ("seekableTimeRanges".to_string(), range()),
         ];
@@ -241,9 +256,10 @@ impl Playback {
     }
 }
 
-/// A settings message for the log, with the plist it carries opened up.
 pub fn describe_setting(message: &[u8]) -> String {
-    let Some(v) = opack::decode(message) else { return "not OPACK".into() };
+    let Some(v) = opack::decode(message) else {
+        return "not OPACK".into();
+    };
     let kind = v.get("messageType").and_then(opack::Value::as_int);
     let data = match v.get("data") {
         Some(opack::Value::Data(d)) => match bplist::decode(d) {
@@ -253,10 +269,12 @@ pub fn describe_setting(message: &[u8]) -> String {
         Some(other) => format!("{other:?}"),
         None => "none".into(),
     };
-    format!("messageType={} data={data}", kind.map_or("?".into(), |k| k.to_string()))
+    format!(
+        "messageType={} data={data}",
+        kind.map_or("?".into(), |k| k.to_string())
+    )
 }
 
-/// One folder per session, every payload as it came plus its plist text when it is one.
 pub struct Capture {
     dir: PathBuf,
     kept: u32,
@@ -267,14 +285,16 @@ impl Capture {
         let started = std::time::SystemTime::now()
             .duration_since(std::time::UNIX_EPOCH)
             .map_or(0, |d| d.as_secs());
-        Self { dir: root.join(started.to_string()), kept: 0 }
+        Self {
+            dir: root.join(started.to_string()),
+            kept: 0,
+        }
     }
 
     pub fn dir(&self) -> &Path {
         &self.dir
     }
 
-    /// `source` names the file after where the payload came from, such as stream2 or settings.
     pub fn keep(&mut self, source: &str, data: &[u8]) -> std::io::Result<PathBuf> {
         std::fs::create_dir_all(&self.dir)?;
         self.kept += 1;
@@ -305,56 +325,108 @@ mod tests {
     #[test]
     fn info_follows_the_vehicle_and_claims_no_fairplay() {
         let [(info, allowed), (caps, playback)] = info_entries(0x80, true);
-        assert_eq!((info.as_str(), caps.as_str()), ("videoPlaybackInfo", "playbackCapabilities"));
-        assert_eq!(allowed.get("videoPlaybackAllowed").and_then(Value::as_bool), Some(true));
-        assert_eq!(allowed.get("featuresEx").and_then(Value::as_str), Some("gA"));
-        assert_eq!(playback.get("supportsFPSSecureStop").and_then(Value::as_bool), Some(false));
+        assert_eq!(
+            (info.as_str(), caps.as_str()),
+            ("videoPlaybackInfo", "playbackCapabilities")
+        );
+        assert_eq!(
+            allowed.get("videoPlaybackAllowed").and_then(Value::as_bool),
+            Some(true)
+        );
+        assert_eq!(
+            allowed.get("featuresEx").and_then(Value::as_str),
+            Some("gA")
+        );
+        assert_eq!(
+            playback
+                .get("supportsFPSSecureStop")
+                .and_then(Value::as_bool),
+            Some(false)
+        );
         let [(_, driving), _] = info_entries(0x80, false);
-        assert_eq!(driving.get("videoPlaybackAllowed").and_then(Value::as_bool), Some(false));
+        assert_eq!(
+            driving.get("videoPlaybackAllowed").and_then(Value::as_bool),
+            Some(false)
+        );
         let cmd = allowed_command(false, "idle");
-        assert_eq!(cmd.get("type").and_then(Value::as_str), Some("setVideoPlaybackAllowed"));
+        assert_eq!(
+            cmd.get("type").and_then(Value::as_str),
+            Some("setVideoPlaybackAllowed")
+        );
         let params = cmd.get("params").unwrap();
-        assert_eq!(params.get("playbackStatus").and_then(Value::as_str), Some("idle"));
-        assert_eq!(params.get("videoPlaybackAllowed").and_then(Value::as_bool), Some(false));
+        assert_eq!(
+            params.get("playbackStatus").and_then(Value::as_str),
+            Some("idle")
+        );
+        assert_eq!(
+            params.get("videoPlaybackAllowed").and_then(Value::as_bool),
+            Some(false)
+        );
     }
 
     fn message(entries: Vec<(&str, Value)>) -> Value {
-        Value::Dict(entries.into_iter().map(|(k, v)| (k.to_string(), v)).collect())
+        Value::Dict(
+            entries
+                .into_iter()
+                .map(|(k, v)| (k.to_string(), v))
+                .collect(),
+        )
     }
 
     #[test]
     fn a_request_is_answered_like_a_playing_receiver() {
         let mut playback = Playback::default();
-        let start = dict([("value", Value::Int(60_000)), ("timescale", Value::Int(1000))]);
+        let start = dict([
+            ("value", Value::Int(60_000)),
+            ("timescale", Value::Int(1000)),
+        ]);
         let item = dict([
             ("uuid", Value::String("item-1".into())),
             ("Start-Position", start),
             ("Content-Location", Value::String("https://x/a.m3u8".into())),
         ]);
-        let insert =
-            message(vec![("type", Value::String("insertPlayQueueItem".into())), ("item", item)]);
-        assert_eq!(describe(&insert), "type=insertPlayQueueItem url=https://x/a.m3u8");
+        let insert = message(vec![
+            ("type", Value::String("insertPlayQueueItem".into())),
+            ("item", item),
+        ]);
+        assert_eq!(
+            describe(&insert),
+            "type=insertPlayQueueItem url=https://x/a.m3u8"
+        );
         assert_eq!(playback.handle(&insert, None), (None, false));
 
-        let rate =
-            message(vec![("type", Value::String("setRate".into())), ("rate", Value::Int(1))]);
+        let rate = message(vec![
+            ("type", Value::String("setRate".into())),
+            ("rate", Value::Int(1)),
+        ]);
         assert_eq!(describe(&rate), "type=setRate rate=1");
         let mute = message(vec![
             ("type", Value::String("setProperty".into())),
             ("property", Value::String("muted".into())),
             ("value", Value::Bool(true)),
         ]);
-        assert_eq!(describe(&mute), "type=setProperty property=muted value=true");
+        assert_eq!(
+            describe(&mute),
+            "type=setProperty property=muted value=true"
+        );
         assert_eq!(playback.handle(&rate, None), (None, true));
-        assert_eq!(playback.handle(&rate, None), (None, false), "only the first start counts");
+        assert_eq!(
+            playback.handle(&rate, None),
+            (None, false),
+            "only the first start counts"
+        );
 
         let ask = message(vec![
             ("type", Value::String("playbackInfo".into())),
             ("kind", Value::String("request".into())),
             ("messageID", Value::Int(7)),
         ]);
-        let playing =
-            VideoStatus { position: Some(61.5), ready: true, playing: true, ..Default::default() };
+        let playing = VideoStatus {
+            position: Some(61.5),
+            ready: true,
+            playing: true,
+            ..Default::default()
+        };
         let (answer, _) = playback.handle(&ask, Some(&playing));
         let answer = answer.unwrap();
         assert_eq!(
@@ -362,10 +434,16 @@ mod tests {
             "type=playbackInfo kind=response messageID=7 position=61.500 rate=1.000"
         );
         let info = answer.get("value").unwrap();
-        assert_eq!(info.get("position").and_then(|p| seconds(Some(p))), Some(61.5));
+        assert_eq!(
+            info.get("position").and_then(|p| seconds(Some(p))),
+            Some(61.5)
+        );
         assert_eq!(info.get("rate").and_then(|p| seconds(Some(p))), Some(1.0));
         assert_eq!(info.get("readyToPlay").and_then(Value::as_bool), Some(true));
-        assert!((60.0..61.0).contains(&playback.position()), "the phone's own clock");
+        assert!(
+            (60.0..61.0).contains(&playback.position()),
+            "the phone's own clock"
+        );
         assert_eq!(info.get("uuid").and_then(Value::as_str), Some("item-1"));
 
         let other = message(vec![
@@ -376,7 +454,10 @@ mod tests {
         let (answer, _) = playback.handle(&other, None);
         assert!(answer.unwrap().get("value").is_none());
 
-        let to = dict([("value", Value::Int(600_000_000)), ("timescale", Value::Int(1_000_000))]);
+        let to = dict([
+            ("value", Value::Int(600_000_000)),
+            ("timescale", Value::Int(1_000_000)),
+        ]);
         let seek = message(vec![
             ("type", Value::String("seek".into())),
             ("kind", Value::String("request".into())),
@@ -393,14 +474,22 @@ mod tests {
 
     fn info_for(status: Option<VideoStatus>) -> Value {
         let mut playback = Playback::default();
-        let rate =
-            message(vec![("type", Value::String("setRate".into())), ("rate", Value::Int(1))]);
+        let rate = message(vec![
+            ("type", Value::String("setRate".into())),
+            ("rate", Value::Int(1)),
+        ]);
         playback.handle(&rate, None);
         let ask = message(vec![
             ("type", Value::String("playbackInfo".into())),
             ("kind", Value::String("request".into())),
         ]);
-        playback.handle(&ask, status.as_ref()).0.unwrap().get("value").unwrap().clone()
+        playback
+            .handle(&ask, status.as_ref())
+            .0
+            .unwrap()
+            .get("value")
+            .unwrap()
+            .clone()
     }
 
     fn real(v: &Value, key: &str) -> f64 {
@@ -460,7 +549,12 @@ mod tests {
         assert_eq!((real(&film, "position"), real(&film, "rate")), (600.0, 0.0));
         assert_eq!(range(&film, "loadedTimeRanges"), (0.0, 600.0));
 
-        let broken = VideoStatus { ready: true, playing: true, failed: true, ..Default::default() };
+        let broken = VideoStatus {
+            ready: true,
+            playing: true,
+            failed: true,
+            ..Default::default()
+        };
         let broken = info_for(Some(broken));
         assert!(!flag(&broken, "readyToPlay"));
         assert_eq!(real(&broken, "rate"), 0.0);
@@ -469,16 +563,38 @@ mod tests {
     #[test]
     fn the_screen_is_borrowed_for_video_and_given_back() {
         let borrow = borrow_screen(true);
-        assert_eq!(borrow.get("type").and_then(Value::as_str), Some("changeModes"));
-        let take = &borrow.get("params").and_then(|p| p.get("resources")).unwrap();
+        assert_eq!(
+            borrow.get("type").and_then(Value::as_str),
+            Some("changeModes")
+        );
+        let take = &borrow
+            .get("params")
+            .and_then(|p| p.get("resources"))
+            .unwrap();
         let screen = &take.as_array().unwrap()[0];
-        assert_eq!(screen.get("transferType").and_then(Value::as_int), Some(BORROW));
-        assert_eq!(screen.get("borrowID").and_then(Value::as_str), Some("VideoPlayback"));
-        assert_eq!(screen.get("unborrowConstraint").and_then(Value::as_int), Some(USER_INITIATED));
+        assert_eq!(
+            screen.get("transferType").and_then(Value::as_int),
+            Some(BORROW)
+        );
+        assert_eq!(
+            screen.get("borrowID").and_then(Value::as_str),
+            Some("VideoPlayback")
+        );
+        assert_eq!(
+            screen.get("unborrowConstraint").and_then(Value::as_int),
+            Some(USER_INITIATED)
+        );
         let give = borrow_screen(false);
-        let screen =
-            &give.get("params").and_then(|p| p.get("resources")).unwrap().as_array().unwrap()[0];
-        assert_eq!(screen.get("transferType").and_then(Value::as_int), Some(UNBORROW));
+        let screen = &give
+            .get("params")
+            .and_then(|p| p.get("resources"))
+            .unwrap()
+            .as_array()
+            .unwrap()[0];
+        assert_eq!(
+            screen.get("transferType").and_then(Value::as_int),
+            Some(UNBORROW)
+        );
         assert!(screen.get("transferPriority").is_none());
     }
 
@@ -496,12 +612,18 @@ mod tests {
         let v = opack::decode(&msg).unwrap();
         assert_eq!(v.get("messageType").and_then(opack::Value::as_int), Some(5));
         let line = describe_setting(&msg);
-        assert!(line.starts_with("messageType=5 data=") && line.contains("\"p\""), "{line}");
+        assert!(
+            line.starts_with("messageType=5 data=") && line.contains("\"p\""),
+            "{line}"
+        );
 
         let open = [0xDF, 0x01, 0x30, 0xFF, 0x03, 0xEF, 0x41, b'k', 0x02, 0x03];
         assert_eq!(
             opack::decode(&open[..5]),
-            Some(opack::Value::Array(vec![opack::Value::Bool(true), opack::Value::Int(-1)]))
+            Some(opack::Value::Array(vec![
+                opack::Value::Bool(true),
+                opack::Value::Int(-1)
+            ]))
         );
         let dict_end = opack::decode(&open[5..]).unwrap();
         assert_eq!(dict_end.get("k"), Some(&opack::Value::Bool(false)));
@@ -519,9 +641,15 @@ mod tests {
         assert!(first.ends_with("0001-stream2.bin") && second.ends_with("0002-settings.bin"));
         assert_eq!(std::fs::read(&first).unwrap(), plist);
         assert!(
-            std::fs::read_to_string(first.with_extension("txt")).unwrap().contains("https://x")
+            std::fs::read_to_string(first.with_extension("txt"))
+                .unwrap()
+                .contains("https://x")
         );
-        assert!(std::fs::read_to_string(second.with_extension("txt")).unwrap().contains("data="));
+        assert!(
+            std::fs::read_to_string(second.with_extension("txt"))
+                .unwrap()
+                .contains("data=")
+        );
         assert!(!third.with_extension("txt").exists());
         std::fs::remove_dir_all(root).unwrap();
     }

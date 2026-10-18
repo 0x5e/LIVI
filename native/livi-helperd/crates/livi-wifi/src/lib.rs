@@ -1,7 +1,5 @@
 #![cfg_attr(not(target_os = "linux"), allow(dead_code))]
 
-//! Shared by the host and the LIVI Link's wifid.
-
 pub mod ap_config;
 pub mod band;
 pub mod radio;
@@ -16,7 +14,6 @@ pub fn listing() -> Result<String, String> {
     Err("the channel list needs linux".into())
 }
 
-/// `width` in MHz.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct ApState {
     pub ssid: String,
@@ -24,7 +21,6 @@ pub struct ApState {
     pub width: u32,
 }
 
-/// The access point as a phone finds it.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct OnAir {
     pub ssid: String,
@@ -37,11 +33,14 @@ pub fn ap_state(_iface: &str) -> Option<ApState> {
     None
 }
 
-/// A host access point: what the kernel beacons, secured as hostapd runs it.
 pub fn on_air(iface: &str) -> Option<OnAir> {
     let ap = ap_state(iface)?;
     let conf = std::fs::read_to_string(ap_config::HOST_CONF).unwrap_or_default();
-    Some(OnAir { ssid: ap.ssid, channel: ap.channel, security: Security::of_hostapd(&conf) })
+    Some(OnAir {
+        ssid: ap.ssid,
+        channel: ap.channel,
+        security: Security::of_hostapd(&conf),
+    })
 }
 
 #[cfg(not(target_os = "linux"))]
@@ -49,8 +48,6 @@ pub fn regulatory_country() -> Option<String> {
     None
 }
 
-/// `rates` in Mbps as (down, up) of the first station that reports any. Down is what the
-/// phone sends us (station RX), up what we send it (station TX).
 #[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
 pub struct Stations {
     pub count: usize,
@@ -80,12 +77,11 @@ const NL80211_CMD_GET_INTERFACE: u8 = 5;
 const NL80211_CMD_GET_STATION: u8 = 17;
 const ATTR_IFINDEX: u16 = 3;
 const ATTR_IFNAME: u16 = 4;
-// STA_INFO nests the per-station stats, TX/RX_BITRATE each nest a RATE_INFO.
 const ATTR_STA_INFO: u16 = 21;
 const STA_INFO_TX_BITRATE: u16 = 8;
 const STA_INFO_RX_BITRATE: u16 = 14;
-const RATE_INFO_BITRATE: u16 = 2; // u16, 100 kbps
-const RATE_INFO_BITRATE32: u16 = 5; // u32, 100 kbps
+const RATE_INFO_BITRATE: u16 = 2;
+const RATE_INFO_BITRATE32: u16 = 5;
 const ATTR_IFTYPE: u16 = 5;
 const ATTR_WIPHY_FREQ: u16 = 38;
 const ATTR_SSID: u16 = 52;
@@ -99,7 +95,6 @@ const ATTR_SPLIT_WIPHY_DUMP: u16 = 174;
 const BAND_ATTR_FREQS: u16 = 1;
 const FREQ_ATTR_FREQ: u16 = 1;
 const FREQ_ATTR_DISABLED: u16 = 2;
-// Called PASSIVE_SCAN on this kernel, NO_IR since 3.15.
 const FREQ_ATTR_NO_IR: u16 = 3;
 const FREQ_ATTR_RADAR: u16 = 5;
 const FREQ_ATTR_MAX_TX_POWER: u16 = 6;
@@ -110,7 +105,6 @@ const NLM_F_REQUEST: u16 = 0x001;
 const NLM_F_ACK: u16 = 0x004;
 const NLM_F_DUMP: u16 = 0x300;
 
-/// The netlink header plus the generic netlink header in front of every payload.
 const HDR: usize = 20;
 
 #[cfg(target_os = "linux")]
@@ -139,7 +133,10 @@ pub fn listing() -> Result<String, String> {
         out.push_str(&format!("phy {}\n", radio.name));
         for c in radio.channels {
             if let Some(ch) = Channel::of_freq(c.freq) {
-                out.push_str(&format!("chan {} {} {} {}\n", ch.number, c.freq, c.flags, c.dbm));
+                out.push_str(&format!(
+                    "chan {} {} {} {}\n",
+                    ch.number, c.freq, c.flags, c.dbm
+                ));
             }
         }
     }
@@ -149,10 +146,17 @@ pub fn listing() -> Result<String, String> {
 #[cfg(target_os = "linux")]
 fn open() -> Result<OwnedFd, String> {
     let raw = unsafe {
-        libc::socket(libc::AF_NETLINK, libc::SOCK_RAW | libc::SOCK_CLOEXEC, NETLINK_GENERIC)
+        libc::socket(
+            libc::AF_NETLINK,
+            libc::SOCK_RAW | libc::SOCK_CLOEXEC,
+            NETLINK_GENERIC,
+        )
     };
     if raw < 0 {
-        return Err(format!("netlink socket: {}", std::io::Error::last_os_error()));
+        return Err(format!(
+            "netlink socket: {}",
+            std::io::Error::last_os_error()
+        ));
     }
     let fd = unsafe { OwnedFd::from_raw_fd(raw) };
     let mut local: libc::sockaddr_nl = unsafe { std::mem::zeroed() };
@@ -167,7 +171,10 @@ fn open() -> Result<OwnedFd, String> {
     if bound < 0 {
         return Err(format!("netlink bind: {}", std::io::Error::last_os_error()));
     }
-    let timeout = libc::timeval { tv_sec: 3, tv_usec: 0 };
+    let timeout = libc::timeval {
+        tv_sec: 3,
+        tv_usec: 0,
+    };
     unsafe {
         libc::setsockopt(
             fd.as_raw_fd(),
@@ -218,13 +225,16 @@ pub fn ap_state(iface: &str) -> Option<ApState> {
         }
         if name.as_deref() == Some(iface) && kind_of == Some(IFTYPE_AP) {
             let ssid = ssid.filter(|s| !s.is_empty())?;
-            return Some(ApState { ssid, channel: Channel::of_freq(freq?)?, width });
+            return Some(ApState {
+                ssid,
+                channel: Channel::of_freq(freq?)?,
+                width,
+            });
         }
     }
     None
 }
 
-/// `enum nl80211_chan_width` as MHz. 80+80 reports its primary segment.
 fn width_mhz(raw: u32) -> u32 {
     match raw {
         0 | 1 => 20,
@@ -236,7 +246,6 @@ fn width_mhz(raw: u32) -> u32 {
     }
 }
 
-/// The AIC8800 driver asks its firmware about every station.
 #[cfg(target_os = "linux")]
 pub fn stations(iface: &str) -> Stations {
     let Ok(name) = std::ffi::CString::new(iface) else {
@@ -263,7 +272,6 @@ pub fn stations(iface: &str) -> Stations {
 fn stations_in(payloads: &[Vec<u8>]) -> Stations {
     let mut found = Stations::default();
     for payload in payloads {
-        // One answer per station, each with a nested STA_INFO.
         let Some(info) =
             Attrs(&payload[..]).find_map(|(kind, info)| (kind == ATTR_STA_INFO).then_some(info))
         else {
@@ -288,7 +296,6 @@ fn rates_of(info: &[u8]) -> Option<(u32, u32)> {
     (down.is_some() || up.is_some()).then(|| (down.unwrap_or(0), up.unwrap_or(0)))
 }
 
-/// Prefers the 32-bit rate, both are in 100 kbps.
 fn rate_mbps(attrs: &[u8]) -> Option<u32> {
     let mut wide = None;
     let mut narrow = None;
@@ -333,14 +340,12 @@ struct Phy {
     channels: Vec<Frequency>,
 }
 
-/// `dbm` is the permitted EIRP, 0 when the kernel names none.
 struct Frequency {
     freq: u32,
     flags: String,
     dbm: u32,
 }
 
-/// A split dump spreads one radio over several messages.
 #[cfg(target_os = "linux")]
 fn radios(fd: &OwnedFd, family: u16) -> Result<Vec<Phy>, String> {
     let split = attr(ATTR_SPLIT_WIPHY_DUMP, &[]);
@@ -372,7 +377,11 @@ fn radios(fd: &OwnedFd, family: u16) -> Result<Vec<Phy>, String> {
         let at = match radios.iter().position(|r| r.id == id) {
             Some(at) => at,
             None => {
-                radios.push(Phy { id, name: String::new(), channels: Vec::new() });
+                radios.push(Phy {
+                    id,
+                    name: String::new(),
+                    channels: Vec::new(),
+                });
                 radios.len() - 1
             }
         };
@@ -389,13 +398,11 @@ fn radios(fd: &OwnedFd, family: u16) -> Result<Vec<Phy>, String> {
     Ok(radios)
 }
 
-/// A netlink string, which carries its terminator.
 fn text(value: &[u8]) -> String {
     let end = value.iter().position(|b| *b == 0).unwrap_or(value.len());
     String::from_utf8_lossy(&value[..end]).into_owned()
 }
 
-/// Power comes in mBm.
 fn frequency(attrs: &[u8]) -> Option<Frequency> {
     let mut freq = None;
     let mut dbm = 0;
@@ -417,7 +424,11 @@ fn frequency(attrs: &[u8]) -> Option<Frequency> {
     if flags.is_empty() {
         flags.push("ok");
     }
-    Some(Frequency { freq: freq?, flags: flags.join(","), dbm })
+    Some(Frequency {
+        freq: freq?,
+        flags: flags.join(","),
+        dbm,
+    })
 }
 
 fn message(family: u16, cmd: u8, flags: u16, attrs: &[u8]) -> Vec<u8> {
@@ -427,7 +438,6 @@ fn message(family: u16, cmd: u8, flags: u16, attrs: &[u8]) -> Vec<u8> {
     m.extend_from_slice(&family.to_ne_bytes());
     m.extend_from_slice(&(flags | NLM_F_REQUEST).to_ne_bytes());
     m.extend_from_slice(&1u32.to_ne_bytes());
-    // The kernel fills in the port id.
     m.extend_from_slice(&0u32.to_ne_bytes());
     m.push(cmd);
     m.push(1);
@@ -453,7 +463,12 @@ const fn align(n: usize) -> usize {
 #[cfg(target_os = "linux")]
 fn call(fd: &OwnedFd, request: &[u8]) -> Result<Vec<Vec<u8>>, String> {
     let sent = unsafe {
-        libc::send(fd.as_raw_fd(), request.as_ptr() as *const libc::c_void, request.len(), 0)
+        libc::send(
+            fd.as_raw_fd(),
+            request.as_ptr() as *const libc::c_void,
+            request.len(),
+            0,
+        )
     };
     if sent < 0 {
         return Err(format!("netlink send: {}", std::io::Error::last_os_error()));
@@ -463,7 +478,12 @@ fn call(fd: &OwnedFd, request: &[u8]) -> Result<Vec<Vec<u8>>, String> {
     let mut buf = vec![0u8; 64 << 10];
     loop {
         let got = unsafe {
-            libc::recv(fd.as_raw_fd(), buf.as_mut_ptr() as *mut libc::c_void, buf.len(), 0)
+            libc::recv(
+                fd.as_raw_fd(),
+                buf.as_mut_ptr() as *mut libc::c_void,
+                buf.len(),
+                0,
+            )
         };
         if got <= 0 {
             return Err(format!("netlink recv: {}", std::io::Error::last_os_error()));
@@ -482,7 +502,6 @@ fn call(fd: &OwnedFd, request: &[u8]) -> Result<Vec<Vec<u8>>, String> {
                     if code != 0 {
                         return Err(format!("netlink error {code}"));
                     }
-                    // A zero is the acknowledgement, which ends a plain request.
                     return Ok(out);
                 }
                 _ if len > HDR => out.push(rest[HDR..len].to_vec()),
@@ -509,7 +528,6 @@ impl<'a> Iterator for Attrs<'a> {
         }
         let value = &self.0[4..len];
         self.0 = &self.0[align(len).min(self.0.len())..];
-        // The nested and byte order bits are not part of the type.
         Some((kind & 0x3fff, value))
     }
 }
@@ -522,7 +540,9 @@ mod tests {
     fn attributes_are_walked_with_their_padding() {
         let mut list = attr(1, &[0xaa]);
         list.extend(attr(2, &[1, 2, 3, 4]));
-        let seen: Vec<_> = Attrs(&list[..]).map(|(kind, value)| (kind, value.to_vec())).collect();
+        let seen: Vec<_> = Attrs(&list[..])
+            .map(|(kind, value)| (kind, value.to_vec()))
+            .collect();
         assert_eq!(seen, vec![(1, vec![0xaa]), (2, vec![1, 2, 3, 4])]);
     }
 
@@ -545,13 +565,19 @@ mod tests {
         let mut usable = attr(FREQ_ATTR_FREQ, &5180u32.to_ne_bytes());
         usable.extend(attr(FREQ_ATTR_MAX_TX_POWER, &2000u32.to_ne_bytes()));
         let usable = frequency(&usable).unwrap();
-        assert_eq!((usable.freq, usable.flags.as_str(), usable.dbm), (5180, "ok", 20));
+        assert_eq!(
+            (usable.freq, usable.flags.as_str(), usable.dbm),
+            (5180, "ok", 20)
+        );
 
         let mut dfs = attr(FREQ_ATTR_FREQ, &5260u32.to_ne_bytes());
         dfs.extend(attr(FREQ_ATTR_NO_IR, &[]));
         dfs.extend(attr(FREQ_ATTR_RADAR, &[]));
         let dfs = frequency(&dfs).unwrap();
-        assert_eq!((dfs.freq, dfs.flags.as_str(), dfs.dbm), (5260, "no-ir,radar", 0));
+        assert_eq!(
+            (dfs.freq, dfs.flags.as_str(), dfs.dbm),
+            (5260, "no-ir,radar", 0)
+        );
 
         assert!(frequency(&attr(FREQ_ATTR_DISABLED, &[])).is_none());
     }
@@ -564,7 +590,10 @@ mod tests {
             NLM_F_ACK,
             &attr(CTRL_ATTR_FAMILY_NAME, b"nl80211\0"),
         );
-        assert_eq!(u32::from_ne_bytes([m[0], m[1], m[2], m[3]]) as usize, m.len());
+        assert_eq!(
+            u32::from_ne_bytes([m[0], m[1], m[2], m[3]]) as usize,
+            m.len()
+        );
         assert_eq!(u16::from_ne_bytes([m[4], m[5]]), 0x10);
         assert_eq!(u16::from_ne_bytes([m[6], m[7]]), NLM_F_ACK | NLM_F_REQUEST);
         assert_eq!(m[16], CTRL_CMD_GETFAMILY);
@@ -582,17 +611,31 @@ mod tests {
 
     #[test]
     fn one_station_dump_counts_the_phones_and_takes_the_first_rates() {
-        let mut info =
-            attr(STA_INFO_RX_BITRATE, &attr(RATE_INFO_BITRATE32, &8660u32.to_ne_bytes()));
-        info.extend(attr(STA_INFO_TX_BITRATE, &attr(RATE_INFO_BITRATE, &4000u16.to_ne_bytes())));
+        let mut info = attr(
+            STA_INFO_RX_BITRATE,
+            &attr(RATE_INFO_BITRATE32, &8660u32.to_ne_bytes()),
+        );
+        info.extend(attr(
+            STA_INFO_TX_BITRATE,
+            &attr(RATE_INFO_BITRATE, &4000u16.to_ne_bytes()),
+        ));
         let phone = attr(ATTR_STA_INFO, &info);
         let quiet = attr(ATTR_STA_INFO, &[]);
         let no_station = attr(ATTR_IFINDEX, &3u32.to_ne_bytes());
         assert_eq!(
             stations_in(&[quiet.clone(), phone, no_station]),
-            Stations { count: 2, rates: Some((866, 400)) }
+            Stations {
+                count: 2,
+                rates: Some((866, 400))
+            }
         );
-        assert_eq!(stations_in(&[quiet]), Stations { count: 1, rates: None });
+        assert_eq!(
+            stations_in(&[quiet]),
+            Stations {
+                count: 1,
+                rates: None
+            }
+        );
         assert_eq!(stations_in(&[]), Stations::default());
     }
 }

@@ -1,9 +1,3 @@
-//! OPACK, the compact binary the phone speaks on several data streams.
-//!
-//! Decoding follows back-references: every string, data blob, UUID, real and every number too big
-//! for the one-byte form joins a table the first time it appears, and 0xA0 onwards points into
-//! it. Encoding writes everything out plainly, which every reader takes.
-
 #[derive(Debug, Clone, PartialEq)]
 pub enum Value {
     Null,
@@ -14,7 +8,6 @@ pub enum Value {
     Data(Vec<u8>),
     Uuid([u8; 16]),
     Array(Vec<Value>),
-    /// Keys in the order they are written. Numbers are keys as often as strings.
     Dict(Vec<(Value, Value)>),
 }
 
@@ -70,7 +63,12 @@ impl Value {
 }
 
 pub fn dict<const N: usize>(entries: [(&str, Value); N]) -> Value {
-    Value::Dict(entries.into_iter().map(|(k, v)| (Value::str(k), v)).collect())
+    Value::Dict(
+        entries
+            .into_iter()
+            .map(|(k, v)| (Value::str(k), v))
+            .collect(),
+    )
 }
 
 const TRUE: u8 = 0x01;
@@ -86,19 +84,20 @@ const FLOAT32: u8 = 0x35;
 const FLOAT64: u8 = 0x36;
 const STRING: u8 = 0x40;
 const DATA: u8 = 0x70;
-/// Lengths up to this ride in the tag itself.
 const SHORT_LEN: usize = 0x20;
 const REF: u8 = 0xA0;
-/// 0xC1 to 0xC4 carry the table index in the 1 to 4 bytes that follow.
 const REF_WIDE: u8 = 0xC0;
 const ARRAY: u8 = 0xD0;
 const DICT: u8 = 0xE0;
-/// Up to this many items the count rides in the tag, past it the collection ends with END.
 const SHORT_COUNT: usize = 14;
 const OPEN: u8 = 0x0F;
 
 pub fn decode(buf: &[u8]) -> Option<Value> {
-    let mut reader = Reader { buf, at: 0, seen: Vec::new() };
+    let mut reader = Reader {
+        buf,
+        at: 0,
+        seen: Vec::new(),
+    };
     let v = reader.value()?;
     (reader.at == buf.len()).then_some(v)
 }
@@ -117,7 +116,12 @@ impl Reader<'_> {
     }
 
     fn unsigned(&mut self, width: usize) -> Option<u64> {
-        Some(self.take(width)?.iter().rev().fold(0, |acc, b| (acc << 8) | u64::from(*b)))
+        Some(
+            self.take(width)?
+                .iter()
+                .rev()
+                .fold(0, |acc, b| (acc << 8) | u64::from(*b)),
+        )
     }
 
     fn signed(&mut self, width: usize) -> Option<i64> {
@@ -326,24 +330,34 @@ mod tests {
             ("c", Value::Int(3)),
         ]);
         let bytes = encode(&v);
-        assert_eq!(bytes[0], DICT + OPEN, "more than {SHORT_COUNT} entries end with END");
+        assert_eq!(
+            bytes[0],
+            DICT + OPEN,
+            "more than {SHORT_COUNT} entries end with END"
+        );
         assert_eq!(decode(&bytes), Some(v));
     }
 
     fn hex(s: &str) -> Vec<u8> {
         let s: String = s.split_whitespace().collect();
-        (0..s.len()).step_by(2).map(|i| u8::from_str_radix(&s[i..i + 2], 16).unwrap()).collect()
+        (0..s.len())
+            .step_by(2)
+            .map(|i| u8::from_str_radix(&s[i..i + 2], 16).unwrap())
+            .collect()
     }
 
     #[test]
     fn a_register_answer_with_references_reads_whole() {
-        // As a receiver sent it: every repeat of -6727 is a reference to the table.
-        let inner =
-            hex("e4466572726f7273eb31040131b9e5310d01a2310501a2310e01a2310a01a2310601a2310201a2
+        let inner = hex(
+            "e4466572726f7273eb31040131b9e5310d01a2310501a2310e01a2310a01a2310601a2310201a2
              310f01a2310b01a2310301a2310c01a24d7472616e73616374696f6e494433a0bc52cb03e5cd02
-             47636f6d6d616e6450726567697374657252657370 6f6e7365467661 6c756573e23108010131110108");
+             47636f6d6d616e6450726567697374657252657370 6f6e7365467661 6c756573e23108010131110108",
+        );
         let v = decode(&inner).unwrap();
-        assert_eq!(v.get("command").and_then(Value::as_str), Some("registerResponse"));
+        assert_eq!(
+            v.get("command").and_then(Value::as_str),
+            Some("registerResponse")
+        );
         let errors = v.get("errors").and_then(Value::as_dict).unwrap();
         assert_eq!(errors.len(), 11);
         assert!(errors.iter().all(|(_, e)| *e == Value::Int(-6727)));
@@ -372,8 +386,6 @@ mod tests {
 
     #[test]
     fn back_references_point_at_strings_and_wide_numbers() {
-        // {"iid": 273, "type": 273, "list": ["iid", 5, "type"]} with each repeat as a reference:
-        // the table holds "iid", 273, "type", "list" in that order.
         let mut msg = vec![0xE3, 0x43];
         msg.extend_from_slice(b"iid");
         msg.extend_from_slice(&[0x31, 0x11, 0x01, 0x44]);

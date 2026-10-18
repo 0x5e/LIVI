@@ -1,23 +1,15 @@
-// Station logos from the ensemble's service and programme information: packet
-// mode data groups carry a MOT carousel in directory mode, its service
-// information file names each service's logos, the logo files come with it.
-
 use std::collections::{BTreeMap, HashMap};
 
 use crate::fec::crc16_ok;
 use crate::mot::{self, DG_BODY, DG_DIRECTORY, Header, Segments};
 
 const PACKET_SIZES: [usize; 4] = [24, 48, 72, 96];
-/// Bodies kept while their directory entry or service information is missing.
 const MAX_HELD_BYTES: usize = 2 << 20;
 const SI_TYPE: (u8, u16) = (7, 0);
 const LOGO_UNRESTRICTED: u8 = 0x02;
 const LOGO_SQUARE: u8 = 0x04;
-/// The tile size LIVI draws, the nearest square logo wins.
 const WANTED_SIDE: i32 = 128;
 
-/// Data groups of one packet address, reassembled from the packets of each
-/// logical frame.
 pub struct Packets {
     address: u16,
     group: Vec<u8>,
@@ -27,7 +19,12 @@ pub struct Packets {
 
 impl Packets {
     pub fn new(address: u16) -> Self {
-        Self { address, group: Vec::new(), continuity: None, open: false }
+        Self {
+            address,
+            group: Vec::new(),
+            continuity: None,
+            open: false,
+        }
     }
 
     pub fn frame(&mut self, lf: &[u8]) -> Vec<Vec<u8>> {
@@ -75,7 +72,6 @@ pub struct SiLogo {
     pub height: u16,
 }
 
-/// A logo for one service, ready to show.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct Logo {
     pub service: u32,
@@ -89,7 +85,6 @@ pub struct Carousel {
     directory_transport: Option<u16>,
     entries: HashMap<u16, Header>,
     bodies: HashMap<u16, Segments>,
-    /// Finished objects by ContentName.
     files: HashMap<String, (Header, Vec<u8>)>,
     wanted: BTreeMap<u32, SiLogo>,
     sent: HashMap<u32, String>,
@@ -101,7 +96,9 @@ impl Carousel {
     }
 
     pub fn data_group(&mut self, g: &[u8]) -> Vec<Logo> {
-        let Some(dg) = mot::data_group(g) else { return Vec::new() };
+        let Some(dg) = mot::data_group(g) else {
+            return Vec::new();
+        };
         match dg.kind {
             DG_DIRECTORY => {
                 if self.directory_transport != Some(dg.transport) {
@@ -109,7 +106,11 @@ impl Carousel {
                     self.directory_transport = Some(dg.transport);
                 }
                 self.directory.add(dg.segment, dg.last, dg.data);
-                if let Some(entries) = self.directory.complete().as_deref().and_then(mot::directory)
+                if let Some(entries) = self
+                    .directory
+                    .complete()
+                    .as_deref()
+                    .and_then(mot::directory)
                 {
                     self.entries = entries.into_iter().collect();
                     let known = &self.entries;
@@ -129,8 +130,6 @@ impl Carousel {
         self.finish()
     }
 
-    /// Moves complete bodies with a directory entry into the files, reads the
-    /// service information, hands out the logos it can now name.
     fn finish(&mut self) -> Vec<Logo> {
         let done: Vec<u16> = self
             .bodies
@@ -142,11 +141,15 @@ impl Carousel {
             let (Some(body), Some(h)) = (self.bodies.remove(&tid), self.entries.get(&tid)) else {
                 continue;
             };
-            let Some(data) = body.complete().filter(|d| d.len() == h.body_size) else { continue };
+            let Some(data) = body.complete().filter(|d| d.len() == h.body_size) else {
+                continue;
+            };
             if (h.content_type, h.subtype) == SI_TYPE {
                 for logo in service_logos(&data) {
-                    let better =
-                        self.wanted.get(&logo.service).is_none_or(|w| rank(&logo) < rank(w));
+                    let better = self
+                        .wanted
+                        .get(&logo.service)
+                        .is_none_or(|w| rank(&logo) < rank(w));
                     if better {
                         self.wanted.insert(logo.service, logo);
                     }
@@ -160,16 +163,21 @@ impl Carousel {
             if self.sent.get(service) == Some(&logo.url) {
                 continue;
             }
-            let Some((h, data)) = self.files.get(&logo.url) else { continue };
+            let Some((h, data)) = self.files.get(&logo.url) else {
+                continue;
+            };
             let Some(mime) = h.mime() else { continue };
             self.sent.insert(*service, logo.url.clone());
-            out.push(Logo { service: *service, mime, data: data.clone() });
+            out.push(Logo {
+                service: *service,
+                mime,
+                data: data.clone(),
+            });
         }
         out
     }
 }
 
-/// Smaller is better: square logos near the tile size first.
 fn rank(l: &SiLogo) -> (u8, i32) {
     let square = l.width == l.height && l.width > 0;
     match l.kind {
@@ -180,12 +188,14 @@ fn rank(l: &SiLogo) -> (u8, i32) {
     }
 }
 
-/// One tag-length-value item of the binary encoding.
 fn tlv(d: &[u8]) -> Option<(u8, &[u8], usize)> {
     let tag = *d.first()?;
     let (len, head) = match *d.get(1)? {
         0xfe => (u16::from_be_bytes([*d.get(2)?, *d.get(3)?]) as usize, 4),
-        0xff => (u32::from_be_bytes([0, *d.get(2)?, *d.get(3)?, *d.get(4)?]) as usize, 5),
+        0xff => (
+            u32::from_be_bytes([0, *d.get(2)?, *d.get(3)?, *d.get(4)?]) as usize,
+            5,
+        ),
         n => (n as usize, 2),
     };
     Some((tag, d.get(head..head + len)?, head + len))
@@ -207,7 +217,6 @@ const EL_SERVICE: u8 = 0x28;
 const EL_BEARER: u8 = 0x29;
 const EL_MULTIMEDIA: u8 = 0x2b;
 
-/// Every service's logos named in a binary service information file.
 pub fn service_logos(si: &[u8]) -> Vec<SiLogo> {
     let mut out = Vec::new();
     for (tag, value) in items(si) {
@@ -234,7 +243,10 @@ fn service(d: &[u8], out: &mut Vec<SiLogo>) {
         .iter()
         .filter(|(tag, _)| *tag == EL_BEARER)
         .filter_map(|(_, b)| {
-            items(b).into_iter().find(|(t, _)| *t == 0x80).and_then(|(_, v)| bearer_sid(v))
+            items(b)
+                .into_iter()
+                .find(|(t, _)| *t == 0x80)
+                .and_then(|(_, v)| bearer_sid(v))
         })
         .collect();
     let Some(&sid) = ids.first() else { return };
@@ -253,8 +265,18 @@ fn service(d: &[u8], out: &mut Vec<SiLogo>) {
 }
 
 fn multimedia(service: u32, d: &[u8]) -> Option<SiLogo> {
-    let mut logo = SiLogo { service, url: String::new(), kind: None, width: 0, height: 0 };
-    let u16_of = |v: &[u8]| v.get(..2).map(|b| u16::from_be_bytes([b[0], b[1]])).unwrap_or(0);
+    let mut logo = SiLogo {
+        service,
+        url: String::new(),
+        kind: None,
+        width: 0,
+        height: 0,
+    };
+    let u16_of = |v: &[u8]| {
+        v.get(..2)
+            .map(|b| u16::from_be_bytes([b[0], b[1]]))
+            .unwrap_or(0)
+    };
     for (tag, v) in items(d) {
         match tag {
             0x82 => logo.url = String::from_utf8_lossy(v).into_owned(),
@@ -270,14 +292,17 @@ fn multimedia(service: u32, d: &[u8]) -> Option<SiLogo> {
     (!logo.url.is_empty()).then_some(logo)
 }
 
-/// The service id in a binary dab: bearer URI.
 fn bearer_sid(id: &[u8]) -> Option<u32> {
     let flags = *id.first()?;
     let ensemble = flags & 0x40 != 0;
     let long = flags & 0x10 != 0;
     let at = 1 + if ensemble { 3 } else { 0 };
     let n = if long { 4 } else { 2 };
-    Some(id.get(at..at + n)?.iter().fold(0u32, |a, &b| (a << 8) | b as u32))
+    Some(
+        id.get(at..at + n)?
+            .iter()
+            .fold(0u32, |a, &b| (a << 8) | b as u32),
+    )
 }
 
 #[cfg(test)]
@@ -316,7 +341,6 @@ mod tests {
         assert_eq!(groups[0].len(), 23);
         assert_eq!(groups[0][19..], [2, 2, 2, 2]);
 
-        // A lost packet drops the group it belonged to.
         let mut gap = packet(5, 0, true, false, &[1; 4]);
         gap.extend(packet(5, 2, false, true, &[2; 4]));
         assert!(p.frame(&gap).is_empty());
@@ -345,10 +369,11 @@ mod tests {
         el(EL_MULTIMEDIA, &attrs)
     }
 
-    /// A service element with a dab: bearer of ECC E0, EId 10BC, SId d210.
     fn service_el(sid: u16, logos: &[Vec<u8>]) -> Vec<u8> {
-        let bearer =
-            el(EL_BEARER, &el(0x80, &[0x40, 0xe0, 0x10, 0xbc, (sid >> 8) as u8, sid as u8]));
+        let bearer = el(
+            EL_BEARER,
+            &el(0x80, &[0x40, 0xe0, 0x10, 0xbc, (sid >> 8) as u8, sid as u8]),
+        );
         let mut s = el(0x80, &[0, 1]);
         s.extend(el(0x10, &el(0x01, b"Dlf")));
         s.extend(el(EL_MEDIA_DESCRIPTION, &logos.concat()));
@@ -391,7 +416,10 @@ mod tests {
         let parsed = items(&encoded);
         assert_eq!(parsed[0].1.len(), 300);
         assert_eq!(tlv(&[0x01, 0xff, 0, 0, 2, 9, 9]).unwrap().1, &[9, 9]);
-        assert_eq!(bearer_sid(&[0x10, 0xe0, 0xd1, 0x10, 0xbc]), Some(0xe0d1_10bc));
+        assert_eq!(
+            bearer_sid(&[0x10, 0xe0, 0xd1, 0x10, 0xbc]),
+            Some(0xe0d1_10bc)
+        );
         assert_eq!(bearer_sid(&[0x00, 0xd2, 0x10]), Some(0xd210));
         assert_eq!(bearer_sid(&[0x40, 0xe0]), None);
     }
@@ -411,13 +439,29 @@ mod tests {
             dir.extend_from_slice(h);
         }
         let mut c = Carousel::new();
-        // Bodies may come before the directory.
         assert!(c.data_group(&group(DG_BODY, 2, 0, true, &logo)).is_empty());
-        assert!(c.data_group(&group(DG_DIRECTORY, 9, 0, true, &dir)).is_empty());
+        assert!(
+            c.data_group(&group(DG_DIRECTORY, 9, 0, true, &dir))
+                .is_empty()
+        );
         let first = c.data_group(&group(DG_BODY, 1, 0, true, &si));
-        assert_eq!(first, [Logo { service: 0xd210, mime: "image/png", data: logo.clone() }]);
+        assert_eq!(
+            first,
+            [Logo {
+                service: 0xd210,
+                mime: "image/png",
+                data: logo.clone()
+            }]
+        );
         let more = c.data_group(&group(DG_BODY, 3, 0, true, &logo));
-        assert_eq!(more, [Logo { service: 0xd220, mime: "image/png", data: logo.clone() }]);
+        assert_eq!(
+            more,
+            [Logo {
+                service: 0xd220,
+                mime: "image/png",
+                data: logo.clone()
+            }]
+        );
         assert!(c.data_group(&group(DG_BODY, 3, 0, true, &logo)).is_empty());
         assert!(c.data_group(&group(0, 3, 0, true, &logo)).is_empty());
         assert!(c.data_group(&[1, 2]).is_empty());

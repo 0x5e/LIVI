@@ -1,7 +1,3 @@
-// The socket to the main process, one per session: four bytes of length in
-// little endian, one byte of kind, then either an AA message
-// `[ch][flags][msgId:u16 BE][payload]` or a line of JSON.
-
 const LEN_BYTES: usize = 4;
 
 pub const KIND_MESSAGE: u8 = 0;
@@ -9,7 +5,12 @@ pub const KIND_CONTROL: u8 = 1;
 
 #[derive(Debug, PartialEq, Eq)]
 pub enum Item {
-    Message { ch: u8, flags: u8, msg_id: u16, payload: Vec<u8> },
+    Message {
+        ch: u8,
+        flags: u8,
+        msg_id: u16,
+        payload: Vec<u8>,
+    },
     Control(String),
 }
 
@@ -86,7 +87,12 @@ mod tests {
         f.push(&encode_message(3, 0x0b, 0x8004, &[8, 1]));
         assert_eq!(
             f.next_item(),
-            Some(Item::Message { ch: 3, flags: 0x0b, msg_id: 0x8004, payload: vec![8, 1] })
+            Some(Item::Message {
+                ch: 3,
+                flags: 0x0b,
+                msg_id: 0x8004,
+                payload: vec![8, 1]
+            })
         );
         assert_eq!(f.next_item(), None);
     }
@@ -99,10 +105,18 @@ mod tests {
         for piece in wire.chunks(3) {
             f.push(piece);
         }
-        assert_eq!(f.next_item(), Some(Item::Control("{\"type\":\"ready\"}".into())));
         assert_eq!(
             f.next_item(),
-            Some(Item::Message { ch: 0, flags: 3, msg_id: 1, payload: vec![] })
+            Some(Item::Control("{\"type\":\"ready\"}".into()))
+        );
+        assert_eq!(
+            f.next_item(),
+            Some(Item::Message {
+                ch: 0,
+                flags: 3,
+                msg_id: 1,
+                payload: vec![]
+            })
         );
     }
 
@@ -114,7 +128,12 @@ mod tests {
         f.push(&wire);
         assert_eq!(
             f.next_item().unwrap(),
-            Item::Message { ch: 1, flags: 2, msg_id: 3, payload: vec![4] }
+            Item::Message {
+                ch: 1,
+                flags: 2,
+                msg_id: 3,
+                payload: vec![4]
+            }
         );
     }
 }

@@ -1,21 +1,13 @@
-//! The vendor U-Boot keeps the first three erase blocks of the kernel encrypted with a key only the
-//! SoC holds. A new kernel goes in as three staging blocks encrypted with the UPGkey from four
-//! fuses, which U-Boot's `heweiencrypt` script converts once the environment block fails its check.
-//!
-//! The update block also holds the tail of U-Boot and its signature, so it is only ever read.
-
 use std::io::Read;
 
 use aes::Aes128;
 use aes::cipher::{BlockCipherDecrypt, BlockCipherEncrypt, KeyInit};
 use flate2::read::GzDecoder;
 
-/// Flash offsets and sizes.
 pub const UPDATE_BLOCK: usize = 0x20000;
 pub const ENV_BLOCK: usize = 0x30000;
 pub const KERNEL: usize = 0x40000;
 pub const ERASE: usize = 0x10000;
-/// What U-Boot keeps in device form.
 pub const HEAD: usize = 3 * ERASE;
 
 const ENV_SIZE: usize = 0x10000;
@@ -32,12 +24,18 @@ pub struct Fuses {
 }
 
 impl Fuses {
-    /// From the OCOTP as a mainline kernel exposes it (nvmem, one little-endian word per shadow
-    /// register): CFG0 and CFG1 at words 1 and 2, MAC0 and MAC1 at words 0x22 and 0x23.
     pub fn from_ocotp(nvmem: &[u8]) -> Option<Self> {
-        let word =
-            |i: usize| Some(u32::from_le_bytes(nvmem.get(i * 4..i * 4 + 4)?.try_into().ok()?));
-        Some(Self { cfg0: word(1)?, cfg1: word(2)?, mac0: word(0x22)?, mac1: word(0x23)? })
+        let word = |i: usize| {
+            Some(u32::from_le_bytes(
+                nvmem.get(i * 4..i * 4 + 4)?.try_into().ok()?,
+            ))
+        };
+        Some(Self {
+            cfg0: word(1)?,
+            cfg1: word(2)?,
+            mac0: word(0x22)?,
+            mac1: word(0x23)?,
+        })
     }
 }
 
@@ -47,14 +45,15 @@ pub struct UpgKey {
 }
 
 impl UpgKey {
-    /// Derived the way the vendor U-Boot does it.
     pub fn new(f: Fuses) -> Self {
         let text = format!("{:08x}{:08x}{:08x}{:08x}", f.cfg0, f.cfg1, f.mac0, f.mac1);
         let (key, iv) = text.as_bytes().split_at(16);
-        Self { key: key.try_into().unwrap(), iv: iv.try_into().unwrap() }
+        Self {
+            key: key.try_into().unwrap(),
+            iv: iv.try_into().unwrap(),
+        }
     }
 
-    /// Each call starts again from the IV, like one U-Boot `mm` call.
     pub fn encrypt(&self, data: &mut [u8]) {
         let (chunks, rest) = data.as_chunks_mut::<16>();
         assert!(rest.is_empty());
@@ -85,15 +84,18 @@ impl UpgKey {
     }
 }
 
-/// The update environment: 0x10000 bytes, CRC32 of the variables up front, DTB at 0x800. It sits at
-/// the end of the update block, and the last word of the block holds its length.
 pub fn read_env(block: &[u8], key: &UpgKey) -> Result<Vec<u8>, String> {
     if block.len() != ERASE {
-        return Err(format!("update block is {} bytes, not {ERASE}", block.len()));
+        return Err(format!(
+            "update block is {} bytes, not {ERASE}",
+            block.len()
+        ));
     }
     let len = u32::from_le_bytes(block[ERASE - 4..].try_into().unwrap()) as usize;
     if len == 0 || len > ERASE || !len.is_multiple_of(16) {
-        return Err(format!("update block holds no environment (length word {len:#x})"));
+        return Err(format!(
+            "update block holds no environment (length word {len:#x})"
+        ));
     }
     let mut payload = block[ERASE - len..].to_vec();
     key.decrypt(&mut payload);
@@ -104,7 +106,10 @@ pub fn read_env(block: &[u8], key: &UpgKey) -> Result<Vec<u8>, String> {
         .read_to_end(&mut env)
         .map_err(|e| format!("update environment does not unpack with this dongle's key: {e}"))?;
     if env.len() != ENV_SIZE {
-        return Err(format!("update environment is {:#x} bytes, not {ENV_SIZE:#x}", env.len()));
+        return Err(format!(
+            "update environment is {:#x} bytes, not {ENV_SIZE:#x}",
+            env.len()
+        ));
     }
     let mut crc = flate2::Crc::new();
     crc.update(&env[4..ENV_VARS_END]);
@@ -124,13 +129,10 @@ pub fn env_var<'a>(env: &'a [u8], name: &str) -> Option<&'a str> {
 
 #[derive(Debug, PartialEq, Eq)]
 pub struct Layout {
-    /// How many bytes `norboot` reads from the kernel partition, the zImage has to fit in there.
     pub kernel_len: usize,
-    /// Flash offset of the first block `heweiencrypt` converts.
     pub staging: usize,
 }
 
-/// The layout differs between vendor U-Boot builds, so it comes from the environment.
 pub fn layout(env: &[u8], kernel_part: usize) -> Result<Layout, String> {
     let norboot = commands(env_var(env, "norboot").ok_or("no norboot in the update environment")?);
     let kernel_len = norboot
@@ -166,10 +168,20 @@ pub fn layout(env: &[u8], kernel_part: usize) -> Result<Layout, String> {
             _ => {}
         }
     }
-    let staging = pairs.first().map(|p| p.0).ok_or("heweiencrypt converts no kernel blocks")?;
-    let expected: Vec<(usize, usize)> =
-        (0..3).map(|i| (staging + i * ERASE, KERNEL + i * ERASE)).collect();
-    if pairs.iter().filter(|p| p.1 != ENV_BLOCK).cloned().collect::<Vec<_>>() != expected {
+    let staging = pairs
+        .first()
+        .map(|p| p.0)
+        .ok_or("heweiencrypt converts no kernel blocks")?;
+    let expected: Vec<(usize, usize)> = (0..3)
+        .map(|i| (staging + i * ERASE, KERNEL + i * ERASE))
+        .collect();
+    if pairs
+        .iter()
+        .filter(|p| p.1 != ENV_BLOCK)
+        .cloned()
+        .collect::<Vec<_>>()
+        != expected
+    {
         return Err("heweiencrypt does not convert three consecutive staging blocks".into());
     }
 
@@ -179,11 +191,12 @@ pub fn layout(env: &[u8], kernel_part: usize) -> Result<Layout, String> {
             "kernel {kernel_len:#x} and staging at {staging:#x} do not fit the kernel partition"
         ));
     }
-    Ok(Layout { kernel_len, staging })
+    Ok(Layout {
+        kernel_len,
+        staging,
+    })
 }
 
-/// The head stays as on the device until U-Boot replaces it from the staging blocks, the rest of
-/// the zImage lies there in the clear.
 pub fn kernel_partition(
     current: &[u8],
     zimage: &[u8],
@@ -243,7 +256,12 @@ mod tests {
     use flate2::{Compression, write::GzEncoder};
     use std::io::Write;
 
-    const FUSES: Fuses = Fuses { cfg0: 0x0123abcd, cfg1: 0x89ef4567, mac0: 0xdeadbeef, mac1: 1 };
+    const FUSES: Fuses = Fuses {
+        cfg0: 0x0123abcd,
+        cfg1: 0x89ef4567,
+        mac0: 0xdeadbeef,
+        mac1: 1,
+    };
 
     fn env_with(vars: &[&str]) -> Vec<u8> {
         let mut env = vec![0u8; ENV_SIZE];
@@ -256,7 +274,6 @@ mod tests {
         env
     }
 
-    /// The update block as the vendor updater leaves it, with filler in front of the environment.
     fn update_block(env: &[u8], key: &UpgKey) -> Vec<u8> {
         let mut gz = GzEncoder::new(Vec::new(), Compression::best());
         gz.write_all(env).unwrap();
@@ -269,7 +286,6 @@ mod tests {
         block
     }
 
-    /// Shaped like the environment of the unit this was worked out on.
     fn vendor_env(kernel_len: usize) -> Vec<u8> {
         let norboot = [
             "run norargs".to_string(),
@@ -283,11 +299,16 @@ mod tests {
         ];
         let mut hewei = vec!["sf probe 0".to_string()];
         for i in 0..3 {
-            hewei
-                .push(format!("sf read 0x80800000 {:#x} 0x10000", KERNEL + kernel_len + i * ERASE));
+            hewei.push(format!(
+                "sf read 0x80800000 {:#x} 0x10000",
+                KERNEL + kernel_len + i * ERASE
+            ));
             hewei.push("mm d 0x80800000 0x10000".into());
             hewei.push("mm m 0x80800000 0x10000".into());
-            hewei.push(format!("sf update 0x80800000 {:#x}  0x10000", KERNEL + i * ERASE));
+            hewei.push(format!(
+                "sf update 0x80800000 {:#x}  0x10000",
+                KERNEL + i * ERASE
+            ));
         }
         hewei.extend([
             " sf probe 0".to_string(),
@@ -320,9 +341,12 @@ mod tests {
     #[test]
     fn the_fuses_are_read_from_the_ocotp_words() {
         let mut nvmem = vec![0u8; 0x100];
-        for (word, value) in
-            [(1, FUSES.cfg0), (2, FUSES.cfg1), (0x22, FUSES.mac0), (0x23, FUSES.mac1)]
-        {
+        for (word, value) in [
+            (1, FUSES.cfg0),
+            (2, FUSES.cfg1),
+            (0x22, FUSES.mac0),
+            (0x23, FUSES.mac1),
+        ] {
             nvmem[word * 4..word * 4 + 4].copy_from_slice(&value.to_le_bytes());
         }
         let f = Fuses::from_ocotp(&nvmem).unwrap();
@@ -346,8 +370,14 @@ mod tests {
         .concat();
         let mut data = plain.clone();
         k.encrypt(&mut data);
-        assert_eq!(data[..16], 0x7649abac8119b246cee98e9b12e9197d_u128.to_be_bytes());
-        assert_eq!(data[16..], 0x5086cb9b507219ee95db113a917678b2_u128.to_be_bytes());
+        assert_eq!(
+            data[..16],
+            0x7649abac8119b246cee98e9b12e9197d_u128.to_be_bytes()
+        );
+        assert_eq!(
+            data[16..],
+            0x5086cb9b507219ee95db113a917678b2_u128.to_be_bytes()
+        );
         k.decrypt(&mut data);
         assert_eq!(data, plain);
     }
@@ -360,7 +390,11 @@ mod tests {
 
         let mut bad = env.clone();
         bad[0x10] ^= 1;
-        assert!(read_env(&update_block(&bad, &key), &key).unwrap_err().contains("CRC"));
+        assert!(
+            read_env(&update_block(&bad, &key), &key)
+                .unwrap_err()
+                .contains("CRC")
+        );
 
         let other = UpgKey::new(Fuses { mac1: 2, ..FUSES });
         assert!(read_env(&update_block(&env, &key), &other).is_err());
@@ -369,7 +403,13 @@ mod tests {
     #[test]
     fn the_layout_comes_from_norboot_and_heweiencrypt() {
         let layout = layout(&vendor_env(0x302fd8), 0x340000).unwrap();
-        assert_eq!(layout, Layout { kernel_len: 0x302fd8, staging: 0x342fd8 });
+        assert_eq!(
+            layout,
+            Layout {
+                kernel_len: 0x302fd8,
+                staging: 0x342fd8
+            }
+        );
         assert_eq!(env_var(&vendor_env(0x302fd8), "bootdelay"), Some("3"));
     }
 
@@ -382,7 +422,10 @@ mod tests {
     #[test]
     fn the_head_goes_into_the_staging_blocks_and_the_rest_stays_clear() {
         let key = UpgKey::new(FUSES);
-        let layout = Layout { kernel_len: 0x300000, staging: 0x340000 };
+        let layout = Layout {
+            kernel_len: 0x300000,
+            staging: 0x340000,
+        };
         let current: Vec<u8> = (0..0x340000).map(|i| (i % 13) as u8).collect();
         let z = zimage(0x2f0001);
         let part = kernel_partition(&current, &z, &layout, &key).unwrap();
@@ -406,7 +449,10 @@ mod tests {
         let current: Vec<u8> = (0..0x340000).map(|i| (i % 13) as u8).collect();
         let z = zimage(0x2f0001);
 
-        let layout = Layout { kernel_len: 0x302fd8, staging: 0x342fd8 };
+        let layout = Layout {
+            kernel_len: 0x302fd8,
+            staging: 0x342fd8,
+        };
         assert_eq!(
             stage(&z, &current, &uboot, FUSES).unwrap(),
             kernel_partition(&current, &z, &layout, &key).unwrap()
@@ -418,15 +464,15 @@ mod tests {
     #[test]
     fn a_zimage_uboot_would_cut_off_is_refused() {
         let key = UpgKey::new(FUSES);
-        let layout = Layout { kernel_len: 0x100000, staging: 0x140000 };
+        let layout = Layout {
+            kernel_len: 0x100000,
+            staging: 0x140000,
+        };
         let current = vec![0; 0x340000];
         assert!(kernel_partition(&current, &zimage(0x100001), &layout, &key).is_err());
         assert!(kernel_partition(&current, &vec![0; 0x100000], &layout, &key).is_err());
     }
 
-    /// Against a real unit, never in CI: packing its own stock kernel again has to give back the
-    /// kernel partition byte for byte. LIVI_IMX6UL_FUSES=cfg0,cfg1,mac0,mac1 LIVI_IMX6UL_MTD0=…
-    /// LIVI_IMX6UL_MTD1=… LIVI_IMX6UL_ZIMAGE=… cargo test -p imx6ul-uboot -- --ignored
     #[test]
     #[ignore]
     fn the_stock_kernel_packs_back_to_the_flash() {
@@ -435,7 +481,12 @@ mod tests {
             .split(',')
             .map(|v| u32::from_str_radix(v.trim().trim_start_matches("0x"), 16).unwrap())
             .collect();
-        let key = UpgKey::new(Fuses { cfg0: f[0], cfg1: f[1], mac0: f[2], mac1: f[3] });
+        let key = UpgKey::new(Fuses {
+            cfg0: f[0],
+            cfg1: f[1],
+            mac0: f[2],
+            mac1: f[3],
+        });
         let mtd0 = std::fs::read(var("LIVI_IMX6UL_MTD0")).unwrap();
         let mtd1 = std::fs::read(var("LIVI_IMX6UL_MTD1")).unwrap();
         let zimage = std::fs::read(var("LIVI_IMX6UL_ZIMAGE")).unwrap();

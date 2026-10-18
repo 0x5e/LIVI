@@ -1,6 +1,3 @@
-// $LIVI_LINK_HOST sets the host (default 10.10.10.1), $LIVI_LINK_OTA names a vendor update file
-// for a machine that cannot reach the vendor's server.
-
 mod bootstrap;
 mod wire;
 
@@ -50,10 +47,12 @@ fn main() -> std::process::ExitCode {
     }
 }
 
-/// `dongle <arch> <soc> <command>`, so every board is named by its silicon.
 fn run_dongle(args: &[String]) -> Result<bool, String> {
     let rest = args.get(2..).unwrap_or_default();
-    match (args.first().map(String::as_str), args.get(1).map(String::as_str)) {
+    match (
+        args.first().map(String::as_str),
+        args.get(1).map(String::as_str),
+    ) {
         (Some("arm"), Some("imx6ul")) => run_imx6ul(rest),
         (Some("arm"), Some("ax520")) => run_ax520(rest),
         (Some("riscv"), Some("v821b")) => run_v821b(rest),
@@ -75,15 +74,15 @@ fn run_imx6ul(args: &[String]) -> Result<bool, String> {
             })
         }
         "push" => match &args[1..] {
-            [local, remote] => {
-                std::fs::read(local).map_err(|e| format!("{local}: {e}")).and_then(|data| {
+            [local, remote] => std::fs::read(local)
+                .map_err(|e| format!("{local}: {e}"))
+                .and_then(|data| {
                     let md5 = shell::md5_hex(&data);
                     sh.push(&data, remote, shell::PUSH_PORT, &md5).map(|()| {
                         println!("pushed {} bytes to {remote} ({md5})", data.len());
                         true
                     })
-                })
-            }
+                }),
             _ => Err("usage: push <local> <remote>".to_string()),
         },
         "kernel" => match &args[1..] {
@@ -118,7 +117,8 @@ fn run_imx6ul(args: &[String]) -> Result<bool, String> {
                 if rest.is_empty() {
                     let bundle = boot::read_bundle(&data)?;
                     let size = |i: &Option<Vec<u8>>| {
-                        i.as_ref().map_or("none".into(), |d| format!("{} B", d.len()))
+                        i.as_ref()
+                            .map_or("none".into(), |d| format!("{} B", d.len()))
                     };
                     println!(
                         "== bundle: kernel {}, rootfs {}",
@@ -142,10 +142,12 @@ fn run_imx6ul(args: &[String]) -> Result<bool, String> {
             println!("bootstrap written, replug the dongle to start its shell");
             true
         }),
-        "sh" => sh.run(&args[1..].join(" "), Duration::from_secs(120)).map(|out| {
-            println!("{out}");
-            true
-        }),
+        "sh" => sh
+            .run(&args[1..].join(" "), Duration::from_secs(120))
+            .map(|out| {
+                println!("{out}");
+                true
+            }),
         "usbscan" => {
             for (v, p, name) in bootstrap::scan() {
                 println!("{v:04x}:{p:04x}  {name}");
@@ -162,7 +164,10 @@ fn run_ax520(args: &[String]) -> Result<bool, String> {
         Some("install-shell") => stock_install_shell(Some(ax520::PROJECT)),
         Some("verify-hw") => ax520_verify(),
         Some("selftest") => {
-            let n = args.get(1).and_then(|s| s.parse::<usize>().ok()).unwrap_or(3_211_264);
+            let n = args
+                .get(1)
+                .and_then(|s| s.parse::<usize>().ok())
+                .unwrap_or(3_211_264);
             ax520_selftest(n)
         }
         Some("backup") => {
@@ -188,7 +193,10 @@ fn run_v821b(args: &[String]) -> Result<bool, String> {
         Some("install-shell") => stock_install_shell(Some(v821b::PROJECT)),
         Some("verify-hw") => v821b_verify(),
         Some("selftest") => {
-            let n = args.get(1).and_then(|s| s.parse::<usize>().ok()).unwrap_or(3_211_264);
+            let n = args
+                .get(1)
+                .and_then(|s| s.parse::<usize>().ok())
+                .unwrap_or(3_211_264);
             v821b_selftest(n)
         }
         Some("backup") => {
@@ -256,7 +264,9 @@ fn wait_for_dongle() -> Found {
     }
     drop(tx);
 
-    let found = rx.recv_timeout(Duration::from_secs(60)).unwrap_or(Found::Nothing);
+    let found = rx
+        .recv_timeout(Duration::from_secs(60))
+        .unwrap_or(Found::Nothing);
     stop.store(true, Ordering::Relaxed);
     let _ = usb.join();
     match found {
@@ -344,7 +354,6 @@ fn menu() -> std::process::ExitCode {
                     None => open_unknown(),
                 };
                 match (done, family) {
-                    // Only looked at it, the next round offers what the hardware allows.
                     (Ok(()), None) => Ok(()),
                     (Ok(()), Some(_)) => return std::process::ExitCode::SUCCESS,
                     (Err(e), _) => Err(e),
@@ -393,7 +402,6 @@ fn imx6ul_provision(lfwb: Option<&Path>) -> Result<(), String> {
         .transpose()?;
     let host = pick_host();
     let sh = Shell::new(&host);
-    // A stock dongle offers the host no network, so the bootstrap rides into the next boot.
     if !sh.reachable() {
         if bootstrap::livi_link_on_usb().is_none() {
             println!("== this dongle has no way in yet, so it needs one unplug and plug back in");
@@ -404,11 +412,26 @@ fn imx6ul_provision(lfwb: Option<&Path>) -> Result<(), String> {
         }
         wait_for_shell(&sh)?;
     }
-    // Whoever put it there, it goes before the backup, so the image is the dongle's own again.
-    if sh.sh(&format!("[ -e {} ] && echo yes || echo no", bootstrap::BOOT_HOOK))?.trim() == "yes" {
+    if sh
+        .sh(&format!(
+            "[ -e {} ] && echo yes || echo no",
+            bootstrap::BOOT_HOOK
+        ))?
+        .trim()
+        == "yes"
+    {
         let carrier = bootstrap::carrier_body().as_bytes();
-        sh.push(carrier, bootstrap::CARRIER, shell::PUSH_PORT, &shell::md5_hex(carrier))?;
-        sh.sh(&format!("chmod 755 {}; rm -f {}; sync", bootstrap::CARRIER, bootstrap::BOOT_HOOK))?;
+        sh.push(
+            carrier,
+            bootstrap::CARRIER,
+            shell::PUSH_PORT,
+            &shell::md5_hex(carrier),
+        )?;
+        sh.sh(&format!(
+            "chmod 755 {}; rm -f {}; sync",
+            bootstrap::CARRIER,
+            bootstrap::BOOT_HOOK
+        ))?;
         println!("== bootstrap removed again");
     }
     let bundle = match given {
@@ -438,7 +461,10 @@ fn rescue_reflash(family: Family) -> Result<(), String> {
 fn imx6ul_back_to_stock(dir: Option<&Path>) -> Result<(), String> {
     let sh = Shell::new(&pick_host());
     let stock = imx6ul::restore::find(&sh, &backup_dir(), dir, &report)?;
-    println!("== the backup of this dongle: {}", livi_link_provision::tilde(&stock.dir));
+    println!(
+        "== the backup of this dongle: {}",
+        livi_link_provision::tilde(&stock.dir)
+    );
     let answer = ask("write the vendor firmware back, LIVI Link is gone afterwards? [y/N]")?;
     if !answer.eq_ignore_ascii_case("y") {
         println!("== left as it is");
@@ -505,12 +531,14 @@ fn update_livi_link() -> Result<(), String> {
     println!("== {done}");
     if done.contains("rebooting") {
         let now = back_after_reboot(&host)?;
-        println!("\n== done, the dongle runs LIVI Link {} ({})", now.version, now.build);
+        println!(
+            "\n== done, the dongle runs LIVI Link {} ({})",
+            now.version, now.build
+        );
     }
     Ok(())
 }
 
-/// Waits for it to go first, so the system going down does not count as back.
 fn back_after_reboot(host: &str) -> Result<link::Status, String> {
     let gone = Instant::now();
     while link::status(host).is_some() && gone.elapsed() < Duration::from_secs(30) {
@@ -519,7 +547,6 @@ fn back_after_reboot(host: &str) -> Result<link::Status, String> {
     wait_for_livi_link(host)
 }
 
-/// On the i.MX6UL a new kernel takes a U-Boot conversion and two starts.
 fn wait_for_livi_link(host: &str) -> Result<link::Status, String> {
     let start = Instant::now();
     while start.elapsed() < Duration::from_secs(240) {
@@ -561,8 +588,6 @@ fn wait_for_shell(sh: &Shell) -> Result<(), String> {
     })
 }
 
-/// A computer that leaves the new interface down never asks the dongle for an address. The
-/// bootstrap's link-local address only needs the interface up.
 fn link_local_shell(asked: &mut bool) -> Option<String> {
     let iface = bootstrap::link_iface()?;
     if !bootstrap::iface_up(&iface) && !bootstrap::bring_up(&iface) {
@@ -573,11 +598,15 @@ fn link_local_shell(asked: &mut bool) -> Option<String> {
         }
         return None;
     }
-    let host = format!("{}%{iface}", bootstrap::link_local(bootstrap::BOOTSTRAP_MAC));
-    Shell::new(&host).port_open(shell::TELNET_PORT).then_some(host)
+    let host = format!(
+        "{}%{iface}",
+        bootstrap::link_local(bootstrap::BOOTSTRAP_MAC)
+    );
+    Shell::new(&host)
+        .port_open(shell::TELNET_PORT)
+        .then_some(host)
 }
 
-/// The bootstrap leaves the vendor's access point up where the kernel has no NCM.
 fn shell_over_wifi(sh: &Shell) -> Result<(), String> {
     println!("== the dongle's kernel has no network over USB (no NCM), its Wi-Fi is the way in");
     ask("join the dongle's own Wi-Fi from this computer, then press enter")?;
@@ -599,7 +628,9 @@ fn ask(what: &str) -> Result<String, String> {
     print!("{what}: ");
     let _ = std::io::Write::flush(&mut std::io::stdout());
     let mut line = String::new();
-    std::io::stdin().read_line(&mut line).map_err(|e| e.to_string())?;
+    std::io::stdin()
+        .read_line(&mut line)
+        .map_err(|e| e.to_string())?;
     Ok(line.trim().to_string())
 }
 
@@ -614,7 +645,6 @@ fn usage() -> &'static str {
   dongle riscv v821b info | install-shell | verify-hw | selftest [N] | backup [dir] | flash <lfwb> | provision [lfwb]"
 }
 
-/// Next to the config.json mirror, so one copy saves everything irreplaceable.
 fn backup_dir() -> PathBuf {
     let home = std::env::var("HOME").unwrap_or_else(|_| ".".into());
     let base = if cfg!(target_os = "macos") {
@@ -628,7 +658,6 @@ fn backup_dir() -> PathBuf {
     base.join("dongle-backup")
 }
 
-/// Only the V821B and the AX520 have a LIVI Link image.
 fn family_of(info: &HostInfo) -> Option<Family> {
     match hook::ly_project(&info.sys.appver).as_deref() {
         Some(p) if p == v821b::PROJECT => Some(Family::V821b),
@@ -649,7 +678,6 @@ fn ota_cache_dir() -> PathBuf {
     backup_dir().with_file_name("ota-cache")
 }
 
-/// The dongle ends up on the vendor's public update with a shell on port 2323.
 fn open_unknown() -> Result<(), String> {
     hook::install_bindshell(None, &ota_cache_dir())?;
     let mut sh = livi_link_provision::dongle::shell::BindShell::connect(300)?;
@@ -658,7 +686,10 @@ fn open_unknown() -> Result<(), String> {
     println!("\n{report}");
 
     let dir = backup_dir().with_file_name("dongle-probe");
-    let file = dir.join(format!("probe-{}.txt", livi_link_provision::dongle::lfwb::stamp()));
+    let file = dir.join(format!(
+        "probe-{}.txt",
+        livi_link_provision::dongle::lfwb::stamp()
+    ));
     match std::fs::create_dir_all(&dir).and_then(|()| std::fs::write(&file, &report)) {
         Ok(()) => println!("== saved {}", livi_link_provision::tilde(&file)),
         Err(e) => println!("== could not save the report: {e}"),
@@ -676,7 +707,6 @@ fn open_unknown() -> Result<(), String> {
     Ok(())
 }
 
-/// `expected` is the hardware family the caller named.
 fn stock_info(expected: Option<&str>) -> Result<(), String> {
     let info = livi_link_provision::dongle::web::host()?;
     println!("name:    {}", info.name);
@@ -745,7 +775,7 @@ fn v821b_provision(lfwb: Option<&PathBuf>) -> Result<(), String> {
     let hw = livi_link_provision::dongle::riscv::v821b::verify_hardware(&mut sh)?;
     if !hw.looks_like_v821b_aic8800d80() {
         return Err(
-            "hardware verify failed — not touching mtd. bind-shell stays open for you.".into()
+            "hardware verify failed — not touching mtd. bind-shell stays open for you.".into(),
         );
     }
     println!("hw: V821B+AIC8800D80 ✓  → backup + flash");
@@ -795,7 +825,7 @@ fn ax520_provision(lfwb: Option<&PathBuf>) -> Result<(), String> {
     let hw = ax520::verify_hardware(&mut sh)?;
     if !hw.looks_like_ax520_aic8800d80() {
         return Err(
-            "hardware verify failed — not touching mtd. bind-shell stays open for you.".into()
+            "hardware verify failed — not touching mtd. bind-shell stays open for you.".into(),
         );
     }
     println!("hw: AX520+AIC8800D80 ✓  → backup + flash");

@@ -1,8 +1,3 @@
-// A USB bulk in/out pair as an async byte stream for a session, pumped by two
-// tasks. The transport-specific bring-up (AOAP for Android Auto, the dongle's
-// hotplug watcher) lives with each driver; opening the pipe and moving bytes is
-// the same for both.
-
 use std::io;
 use std::pin::Pin;
 use std::task::{Context, Poll};
@@ -27,24 +22,36 @@ pub struct Pipe {
 }
 
 pub async fn open_pipe(dev: &Device) -> Result<Pipe, String> {
-    let active = dev.active_configuration().map(|c| c.configuration_value()).ok();
+    let active = dev
+        .active_configuration()
+        .map(|c| c.configuration_value())
+        .ok();
     if active != Some(1) {
-        dev.set_configuration(1).await.map_err(|e| format!("set configuration: {e}"))?;
+        dev.set_configuration(1)
+            .await
+            .map_err(|e| format!("set configuration: {e}"))?;
     }
     let (number, in_addr, out_addr) = {
-        let cfg = dev.active_configuration().map_err(|e| format!("configuration: {e}"))?;
+        let cfg = dev
+            .active_configuration()
+            .map_err(|e| format!("configuration: {e}"))?;
         bulk_pair(&cfg).ok_or("no interface with bulk in and out")?
     };
-    // Right after enumeration the OS may briefly refuse the claim.
     let mut last = String::new();
     for _ in 0..CLAIM_RETRIES {
         match dev.claim_interface(number).await {
             Ok(iface) => {
-                let ep_in =
-                    iface.endpoint::<Bulk, In>(in_addr).map_err(|e| format!("bulk in: {e}"))?;
-                let ep_out =
-                    iface.endpoint::<Bulk, Out>(out_addr).map_err(|e| format!("bulk out: {e}"))?;
-                return Ok(Pipe { iface, ep_in, ep_out });
+                let ep_in = iface
+                    .endpoint::<Bulk, In>(in_addr)
+                    .map_err(|e| format!("bulk in: {e}"))?;
+                let ep_out = iface
+                    .endpoint::<Bulk, Out>(out_addr)
+                    .map_err(|e| format!("bulk out: {e}"))?;
+                return Ok(Pipe {
+                    iface,
+                    ep_in,
+                    ep_out,
+                });
             }
             Err(e) => {
                 last = e.to_string();
@@ -57,7 +64,9 @@ pub async fn open_pipe(dev: &Device) -> Result<Pipe, String> {
 
 fn bulk_pair(cfg: &ConfigurationDescriptor<'_>) -> Option<(u8, u8, u8)> {
     for intf in cfg.interfaces() {
-        let Some(alt) = intf.alt_settings().next() else { continue };
+        let Some(alt) = intf.alt_settings().next() else {
+            continue;
+        };
         let (mut ep_in, mut ep_out) = (None, None);
         for ep in alt.endpoints() {
             if ep.transfer_type() != TransferType::Bulk {
@@ -75,7 +84,6 @@ fn bulk_pair(cfg: &ConfigurationDescriptor<'_>) -> Option<(u8, u8, u8)> {
     None
 }
 
-/// The bulk pipe as a byte stream for the session, pumped by two tasks.
 pub struct UsbStream {
     rx: mpsc::UnboundedReceiver<Vec<u8>>,
     tx: Option<mpsc::UnboundedSender<Vec<u8>>>,
@@ -89,7 +97,12 @@ impl UsbStream {
         let (out_tx, out_rx) = mpsc::unbounded_channel();
         tokio::spawn(pump_in(pipe.ep_in, in_tx, pipe.iface));
         tokio::spawn(pump_out(pipe.ep_out, out_rx));
-        Self { rx: in_rx, tx: Some(out_tx), leftover: Vec::new(), eof: false }
+        Self {
+            rx: in_rx,
+            tx: Some(out_tx),
+            leftover: Vec::new(),
+            eof: false,
+        }
     }
 }
 
@@ -136,7 +149,6 @@ async fn pump_out(mut ep: Endpoint<Bulk, Out>, mut rx: mpsc::UnboundedReceiver<V
         let done = loop {
             match tokio::time::timeout(WRITE_DRAIN, ep.next_complete()).await {
                 Ok(done) => break done,
-                // The stream is gone and the device is not taking the write.
                 Err(_) if rx.is_closed() => return,
                 Err(_) => {}
             }
@@ -180,7 +192,10 @@ impl AsyncWrite for UsbStream {
         _cx: &mut Context<'_>,
         data: &[u8],
     ) -> Poll<io::Result<usize>> {
-        let sent = self.tx.as_ref().is_some_and(|tx| tx.send(data.to_vec()).is_ok());
+        let sent = self
+            .tx
+            .as_ref()
+            .is_some_and(|tx| tx.send(data.to_vec()).is_ok());
         if sent {
             Poll::Ready(Ok(data.len()))
         } else {
@@ -203,10 +218,23 @@ mod tests {
     use super::*;
     use tokio::io::{AsyncReadExt, AsyncWriteExt};
 
-    fn stream() -> (UsbStream, mpsc::UnboundedSender<Vec<u8>>, mpsc::UnboundedReceiver<Vec<u8>>) {
+    fn stream() -> (
+        UsbStream,
+        mpsc::UnboundedSender<Vec<u8>>,
+        mpsc::UnboundedReceiver<Vec<u8>>,
+    ) {
         let (in_tx, in_rx) = mpsc::unbounded_channel();
         let (out_tx, out_rx) = mpsc::unbounded_channel();
-        (UsbStream { rx: in_rx, tx: Some(out_tx), leftover: Vec::new(), eof: false }, in_tx, out_rx)
+        (
+            UsbStream {
+                rx: in_rx,
+                tx: Some(out_tx),
+                leftover: Vec::new(),
+                eof: false,
+            },
+            in_tx,
+            out_rx,
+        )
     }
 
     #[tokio::test]

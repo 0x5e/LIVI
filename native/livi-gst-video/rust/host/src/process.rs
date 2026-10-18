@@ -18,8 +18,6 @@ const VISUALIZER_INTERVAL_MS: u64 = 20;
 const URL_STATUS_INTERVAL_MS: u64 = 500;
 const CHUNK: usize = 65536;
 
-/// The audio receive threads reply through the same socket, the lock keeps frames from
-/// interleaving.
 struct SocketWire {
     sock: Arc<UnixStream>,
     write: Mutex<()>,
@@ -33,8 +31,6 @@ impl Wire for SocketWire {
     }
 }
 
-/// In a process of its own, libwayland binds the system libffi, which keeps wayland marshalling
-/// intact across resizes.
 pub fn run(sock_path: &str, crash_log: &str) {
     glib::set_prgname(Some("livi-video"));
     livi_video_player::ensure_init();
@@ -45,7 +41,10 @@ pub fn run(sock_path: &str, crash_log: &str) {
         std::process::exit(1);
     };
     let sock = Arc::new(sock);
-    let wire = Arc::new(SocketWire { sock: sock.clone(), write: Mutex::new(()) });
+    let wire = Arc::new(SocketWire {
+        sock: sock.clone(),
+        write: Mutex::new(()),
+    });
     let host = Rc::new(RefCell::new(Host::new(Gst, wire)));
 
     let fd = sock.as_raw_fd();
@@ -69,17 +68,23 @@ pub fn run(sock_path: &str, crash_log: &str) {
     );
 
     let visualizer_host = host.clone();
-    glib::timeout_add_local(std::time::Duration::from_millis(VISUALIZER_INTERVAL_MS), move || {
-        visualizer_host.borrow_mut().pump_visualizer();
-        glib::ControlFlow::Continue
-    });
+    glib::timeout_add_local(
+        std::time::Duration::from_millis(VISUALIZER_INTERVAL_MS),
+        move || {
+            visualizer_host.borrow_mut().pump_visualizer();
+            glib::ControlFlow::Continue
+        },
+    );
 
     let status_host = host.clone();
-    glib::timeout_add_local(std::time::Duration::from_millis(URL_STATUS_INTERVAL_MS), move || {
-        status_host.borrow().pump_url_status();
-        status_host.borrow().pump_audio_delays();
-        glib::ControlFlow::Continue
-    });
+    glib::timeout_add_local(
+        std::time::Duration::from_millis(URL_STATUS_INTERVAL_MS),
+        move || {
+            status_host.borrow().pump_url_status();
+            status_host.borrow().pump_audio_delays();
+            glib::ControlFlow::Continue
+        },
+    );
 
     glib::timeout_add_seconds_local(STATS_SECONDS, move || {
         for line in host.borrow().take_stats() {
@@ -91,13 +96,10 @@ pub fn run(sock_path: &str, crash_log: &str) {
     glib::MainLoop::new(None, false).run();
 }
 
-/// Read from the signal handler, so it stays a plain pointer.
 static CRASH_PATH: AtomicPtr<c_char> = AtomicPtr::new(core::ptr::null_mut());
 
-/// The default action, 0 on every unix.
 const SIG_DFL: usize = 0;
 
-// Declared here because libc types the handler differently on Linux and macOS.
 unsafe extern "C" {
     fn backtrace(buffer: *mut *mut c_void, size: c_int) -> c_int;
     fn backtrace_symbols_fd(buffer: *const *mut c_void, size: c_int, fd: c_int);
@@ -118,7 +120,11 @@ extern "C" fn on_crash(sig: c_int) {
     let path = CRASH_PATH.load(Ordering::Relaxed);
     if !path.is_null() {
         let fd = unsafe {
-            libc::open(path, libc::O_CREAT | libc::O_WRONLY | libc::O_TRUNC, 0o644 as c_int)
+            libc::open(
+                path,
+                libc::O_CREAT | libc::O_WRONLY | libc::O_TRUNC,
+                0o644 as c_int,
+            )
         };
         if fd >= 0 {
             dump(fd);

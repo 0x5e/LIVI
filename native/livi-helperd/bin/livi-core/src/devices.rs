@@ -88,12 +88,18 @@ impl Entry {
 
     pub fn id(&self) -> String {
         let s = &self.stored;
-        [&s.bt_mac, &s.usb_udid, &s.usb_serial, &s.wifi_mac, &s.instance_id]
-            .into_iter()
-            .flatten()
-            .next()
-            .cloned()
-            .unwrap_or_default()
+        [
+            &s.bt_mac,
+            &s.usb_udid,
+            &s.usb_serial,
+            &s.wifi_mac,
+            &s.instance_id,
+        ]
+        .into_iter()
+        .flatten()
+        .next()
+        .cloned()
+        .unwrap_or_default()
     }
 
     pub fn bt_mac(&self) -> Option<&str> {
@@ -133,7 +139,10 @@ pub fn norm_mac(v: &str) -> String {
         return v.to_lowercase();
     }
     let hex = hex.to_lowercase();
-    (0..6).map(|i| &hex[i * 2..i * 2 + 2]).collect::<Vec<_>>().join(":")
+    (0..6)
+        .map(|i| &hex[i * 2..i * 2 + 2])
+        .collect::<Vec<_>>()
+        .join(":")
 }
 
 fn real_name(v: Option<&str>) -> Option<String> {
@@ -142,7 +151,9 @@ fn real_name(v: Option<&str>) -> Option<String> {
 }
 
 fn now_ms() -> f64 {
-    SystemTime::now().duration_since(UNIX_EPOCH).map_or(0.0, |d| d.as_millis() as f64)
+    SystemTime::now()
+        .duration_since(UNIX_EPOCH)
+        .map_or(0.0, |d| d.as_millis() as f64)
 }
 
 fn same_mac(a: &Option<String>, b: &Option<String>) -> bool {
@@ -170,19 +181,29 @@ pub struct Registry {
 
 impl Registry {
     pub fn load(path: &Path) -> Self {
-        let mut reg = Self { path: path.to_path_buf(), entries: Vec::new(), load_ok: true };
+        let mut reg = Self {
+            path: path.to_path_buf(),
+            entries: Vec::new(),
+            load_ok: true,
+        };
         let stored: Vec<Stored> = match std::fs::read_to_string(path) {
             Ok(text) => match serde_json::from_str(&text) {
                 Ok(list) => list,
                 Err(e) => {
-                    eprintln!("[devices] {} does not read ({e}), kept as it is", path.display());
+                    eprintln!(
+                        "[devices] {} does not read ({e}), kept as it is",
+                        path.display()
+                    );
                     reg.load_ok = false;
                     return reg;
                 }
             },
             Err(e) if e.kind() == std::io::ErrorKind::NotFound => Vec::new(),
             Err(e) => {
-                eprintln!("[devices] {} does not read ({e}), kept as it is", path.display());
+                eprintln!(
+                    "[devices] {} does not read ({e}), kept as it is",
+                    path.display()
+                );
                 reg.load_ok = false;
                 return reg;
             }
@@ -192,8 +213,14 @@ impl Registry {
             s.name = real_name(s.name.as_deref());
             s.bt_mac = s.bt_mac.as_deref().map(norm_mac);
             s.wifi_mac = s.wifi_mac.as_deref().map(norm_mac);
-            let e = Entry { stored: s, ..Default::default() };
-            let ids = Ids { ip: None, ..e.ids() };
+            let e = Entry {
+                stored: s,
+                ..Default::default()
+            };
+            let ids = Ids {
+                ip: None,
+                ..e.ids()
+            };
             match reg.find_all(&ids).first() {
                 Some(&i) => {
                     reg.entries.push(e);
@@ -214,9 +241,15 @@ impl Registry {
         if !self.load_ok {
             return;
         }
-        let stored: Vec<&Stored> =
-            self.entries.iter().filter(|e| e.listed()).map(|e| &e.stored).collect();
-        let Ok(text) = serde_json::to_string_pretty(&stored) else { return };
+        let stored: Vec<&Stored> = self
+            .entries
+            .iter()
+            .filter(|e| e.listed())
+            .map(|e| &e.stored)
+            .collect();
+        let Ok(text) = serde_json::to_string_pretty(&stored) else {
+            return;
+        };
         let tmp = self.path.with_extension("json.tmp");
         let written = std::fs::write(&tmp, text).and_then(|()| std::fs::rename(&tmp, &self.path));
         if let Err(e) = written {
@@ -436,9 +469,11 @@ pub fn views(reg: &Registry, session_of: SessionOf) -> Vec<DeviceView> {
         (Some(x), Some(y)) => x.cmp(&y),
         (Some(_), None) => std::cmp::Ordering::Less,
         (None, Some(_)) => std::cmp::Ordering::Greater,
-        (None, None) => rank(a.status)
-            .cmp(&rank(b.status))
-            .then(b_seen.partial_cmp(a_seen).unwrap_or(std::cmp::Ordering::Equal)),
+        (None, None) => rank(a.status).cmp(&rank(b.status)).then(
+            b_seen
+                .partial_cmp(a_seen)
+                .unwrap_or(std::cmp::Ordering::Equal),
+        ),
     });
     out.into_iter().map(|(v, _)| v).collect()
 }
@@ -486,7 +521,9 @@ pub fn reconnect_targets(
     }
     let mut known: Vec<&Entry> = reg.entries().iter().collect();
     known.sort_by(|a, b| {
-        b.last_seen().partial_cmp(&a.last_seen()).unwrap_or(std::cmp::Ordering::Equal)
+        b.last_seen()
+            .partial_cmp(&a.last_seen())
+            .unwrap_or(std::cmp::Ordering::Equal)
     });
     known
         .into_iter()
@@ -511,7 +548,12 @@ pub struct Devices {
 
 impl Devices {
     pub fn new(path: &Path, helper: HelperSock) -> Self {
-        Self { registry: Registry::load(path), helper, sent: None, leaving: false }
+        Self {
+            registry: Registry::load(path),
+            helper,
+            sent: None,
+            leaving: false,
+        }
     }
 
     pub fn page(&mut self, targets: Targets, again: bool) {
@@ -554,13 +596,22 @@ impl Devices {
 
 pub async fn shared(line: String, within: Duration) -> Result<Value, String> {
     let exchange = async {
-        let mut sock = UnixStream::connect(SHARED_SOCK).await.map_err(|e| e.to_string())?;
-        sock.write_all(format!("{line}\n").as_bytes()).await.map_err(|e| e.to_string())?;
+        let mut sock = UnixStream::connect(SHARED_SOCK)
+            .await
+            .map_err(|e| e.to_string())?;
+        sock.write_all(format!("{line}\n").as_bytes())
+            .await
+            .map_err(|e| e.to_string())?;
         let mut answer = String::new();
-        BufReader::new(sock).read_line(&mut answer).await.map_err(|e| e.to_string())?;
+        BufReader::new(sock)
+            .read_line(&mut answer)
+            .await
+            .map_err(|e| e.to_string())?;
         serde_json::from_str::<Value>(answer.trim_end()).map_err(|e| e.to_string())
     };
-    tokio::time::timeout(within, exchange).await.map_err(|_| "timed out".to_string())?
+    tokio::time::timeout(within, exchange)
+        .await
+        .map_err(|_| "timed out".to_string())?
 }
 
 pub async fn wake(mac: String, protocol: Option<Protocol>) {
@@ -590,7 +641,9 @@ fn class_of(d: &Value) -> u64 {
 }
 
 async fn paired() -> Option<Vec<Value>> {
-    let answer = shared("list_paired".into(), Duration::from_secs(5)).await.ok()?;
+    let answer = shared("list_paired".into(), Duration::from_secs(5))
+        .await
+        .ok()?;
     answer.get("devices").and_then(Value::as_array).cloned()
 }
 
@@ -616,7 +669,9 @@ pub async fn leave_phones() {
 pub async fn connect_paired(mac: String) {
     let Some(list) = paired().await else { return };
     let phone = list.iter().any(|d| {
-        d.get("mac").and_then(Value::as_str).is_some_and(|m| m.eq_ignore_ascii_case(&mac))
+        d.get("mac")
+            .and_then(Value::as_str)
+            .is_some_and(|m| m.eq_ignore_ascii_case(&mac))
             && phone_like(class_of(d))
     });
     if phone {
@@ -629,12 +684,23 @@ pub async fn connect_paired(mac: String) {
 }
 
 pub async fn nudge_hfp(mac: String) {
-    let _ =
-        shared(format!("disconnect-profile {mac} {HFP_AG_UUID}"), Duration::from_secs(10)).await;
-    let answer = shared(format!("connect {mac} {HFP_AG_UUID}"), Duration::from_secs(32)).await;
+    let _ = shared(
+        format!("disconnect-profile {mac} {HFP_AG_UUID}"),
+        Duration::from_secs(10),
+    )
+    .await;
+    let answer = shared(
+        format!("connect {mac} {HFP_AG_UUID}"),
+        Duration::from_secs(32),
+    )
+    .await;
     let outcome = match answer {
         Ok(v) if v.get("ok").and_then(Value::as_bool) == Some(true) => "sent".to_string(),
-        Ok(v) => v.get("error").and_then(Value::as_str).unwrap_or("refused").to_string(),
+        Ok(v) => v
+            .get("error")
+            .and_then(Value::as_str)
+            .unwrap_or("refused")
+            .to_string(),
         Err(e) => e,
     };
     println!("[devices] HFP nudge {mac}: {outcome}");
@@ -648,7 +714,11 @@ mod tests {
     fn seen(bt: &str, wifi: &str, name: &str, wired: bool) -> Seen {
         let opt = |v: &str| (!v.is_empty()).then(|| v.to_string());
         Seen {
-            ids: Ids { bt_mac: opt(bt), wifi_mac: opt(wifi), ..Default::default() },
+            ids: Ids {
+                bt_mac: opt(bt),
+                wifi_mac: opt(wifi),
+                ..Default::default()
+            },
             name: opt(name),
             protocol: Some(Protocol::Carplay),
             wired,
@@ -725,9 +795,17 @@ mod tests {
         reg.note_device(&seen("aa:00:00:00:00:01", "", "Old", true));
         reg.note_device(&seen("aa:00:00:00:00:02", "", "Held", true));
         reg.note_device(&seen("aa:00:00:00:00:03", "", "Active", true));
-        reg.note_device(&seen("aa:00:00:00:00:04", "11:00:00:00:00:04", "On the AP", false));
+        reg.note_device(&seen(
+            "aa:00:00:00:00:04",
+            "11:00:00:00:00:04",
+            "On the AP",
+            false,
+        ));
         reg.note_status(
-            &Ids { bt_mac: Some("AA:00:00:00:00:03".into()), ..Default::default() },
+            &Ids {
+                bt_mac: Some("AA:00:00:00:00:03".into()),
+                ..Default::default()
+            },
             &Status {
                 battery_level: Some(80.0),
                 carrier_name: Some("Net".into()),
@@ -745,7 +823,10 @@ mod tests {
         assert_eq!(list[0].status, DeviceStatus::Active);
         assert_eq!(list[0].battery_level, Some(80.0));
         assert_eq!(list[0].carrier_name.as_deref(), Some("Net"));
-        assert_eq!((list[1].status, list[1].session), (DeviceStatus::Available, Some(2)));
+        assert_eq!(
+            (list[1].status, list[1].session),
+            (DeviceStatus::Available, Some(2))
+        );
         assert_eq!(list[2].status, DeviceStatus::Available);
         assert_eq!(list[3].status, DeviceStatus::Offline);
         assert_eq!(list[3].protocol, Some(Protocol::Carplay));
@@ -772,7 +853,10 @@ mod tests {
         assert!(
             reconnect_targets(
                 &reg,
-                Paging { auto_connect: false, ..ALL_ON },
+                Paging {
+                    auto_connect: false,
+                    ..ALL_ON
+                },
                 &in_session,
                 &on_cable
             )
@@ -780,7 +864,11 @@ mod tests {
         );
     }
 
-    const ALL_ON: Paging = Paging { auto_connect: true, carplay: true, android_auto: true };
+    const ALL_ON: Paging = Paging {
+        auto_connect: true,
+        carplay: true,
+        android_auto: true,
+    };
 
     #[test]
     fn a_phone_is_paged_only_for_a_wireless_protocol_that_is_on() {
@@ -793,11 +881,33 @@ mod tests {
         let none = |_: &Ids| false;
         let off = |_: &str| false;
         let macs = |paging| -> Vec<String> {
-            reconnect_targets(&reg, paging, &none, &off).into_iter().map(|(m, _)| m).collect()
+            reconnect_targets(&reg, paging, &none, &off)
+                .into_iter()
+                .map(|(m, _)| m)
+                .collect()
         };
-        assert!(macs(Paging { carplay: false, android_auto: false, ..ALL_ON }).is_empty());
-        assert_eq!(macs(Paging { android_auto: false, ..ALL_ON }), ["AA:00:00:00:00:01"]);
-        assert_eq!(macs(Paging { carplay: false, ..ALL_ON }), ["AA:00:00:00:00:02"]);
+        assert!(
+            macs(Paging {
+                carplay: false,
+                android_auto: false,
+                ..ALL_ON
+            })
+            .is_empty()
+        );
+        assert_eq!(
+            macs(Paging {
+                android_auto: false,
+                ..ALL_ON
+            }),
+            ["AA:00:00:00:00:01"]
+        );
+        assert_eq!(
+            macs(Paging {
+                carplay: false,
+                ..ALL_ON
+            }),
+            ["AA:00:00:00:00:02"]
+        );
     }
 
     #[test]
@@ -842,13 +952,21 @@ mod tests {
     fn presence_and_status_need_a_known_phone() {
         let dir = TempDir::new();
         let mut reg = Registry::load(&dir.0.join("devices.json"));
-        let unknown = Ids { wifi_mac: Some("99:99:99:99:99:99".into()), ..Default::default() };
+        let unknown = Ids {
+            wifi_mac: Some("99:99:99:99:99:99".into()),
+            ..Default::default()
+        };
         reg.note_wifi(&unknown, true);
         reg.note_status(&unknown, &Status::default());
         reg.clear_presence(&unknown);
         assert!(reg.entries().is_empty());
 
-        reg.note_device(&seen("aa:00:00:00:00:01", "11:00:00:00:00:01", "One", false));
+        reg.note_device(&seen(
+            "aa:00:00:00:00:01",
+            "11:00:00:00:00:01",
+            "One",
+            false,
+        ));
         let wifi = Ids {
             wifi_mac: Some("11:00:00:00:00:01".into()),
             ip: Some("10.0.0.9".into()),

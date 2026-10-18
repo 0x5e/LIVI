@@ -1,5 +1,3 @@
-// Async byte-stream view of a mux TCP connection, for the lockdown/TLS client.
-
 use std::io;
 use std::pin::Pin;
 use std::sync::Arc;
@@ -45,13 +43,21 @@ impl AsyncMuxStream {
         tokio::spawn(async move {
             while let Some(data) = tx_rx.recv().await {
                 let conn = conn.clone();
-                if tokio::task::spawn_blocking(move || conn.send(&data)).await.is_err() {
+                if tokio::task::spawn_blocking(move || conn.send(&data))
+                    .await
+                    .is_err()
+                {
                     return;
                 }
             }
         });
 
-        Self { rx, tx, leftover: Vec::new(), eof: false }
+        Self {
+            rx,
+            tx,
+            leftover: Vec::new(),
+            eof: false,
+        }
     }
 }
 

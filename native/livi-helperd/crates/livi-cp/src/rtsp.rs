@@ -5,7 +5,6 @@ pub struct Request {
     pub method: String,
     pub path: String,
     pub protocol: String,
-    /// Names in lower case.
     pub headers: HashMap<String, String>,
     pub body: Vec<u8>,
 }
@@ -25,9 +24,14 @@ pub fn parse(buf: &[u8]) -> (Vec<Request>, Vec<u8>) {
     let mut out = Vec::new();
     let mut offset = 0;
     while offset < buf.len() {
-        let Some(head_len) = find(&buf[offset..], HEADER_END) else { break };
+        let Some(head_len) = find(&buf[offset..], HEADER_END) else {
+            break;
+        };
         let head_end = offset + head_len;
-        let head: String = buf[offset..head_end].iter().map(|&b| char::from(b & 0x7f)).collect();
+        let head: String = buf[offset..head_end]
+            .iter()
+            .map(|&b| char::from(b & 0x7f))
+            .collect();
         let mut lines = head.split("\r\n");
         let mut request_line = lines.next().unwrap_or("").split(' ');
         let method = request_line.next().unwrap_or("").to_string();
@@ -63,8 +67,9 @@ fn find(haystack: &[u8], needle: &[u8]) -> Option<usize> {
 }
 
 fn content_length(value: Option<&String>) -> usize {
-    let digits: String =
-        value.map(|v| v.chars().take_while(char::is_ascii_digit).collect()).unwrap_or_default();
+    let digits: String = value
+        .map(|v| v.chars().take_while(char::is_ascii_digit).collect())
+        .unwrap_or_default();
     digits.parse().unwrap_or(0)
 }
 
@@ -80,7 +85,9 @@ fn status_text(status: u16) -> &'static str {
 pub fn build_response(req: &Request, res: Response) -> Vec<u8> {
     let protocol = res.protocol.unwrap_or_else(|| req.protocol.clone());
     let status = res.status.unwrap_or(200);
-    let text = res.status_text.unwrap_or_else(|| status_text(status).to_string());
+    let text = res
+        .status_text
+        .unwrap_or_else(|| status_text(status).to_string());
 
     let mut headers = res.headers;
     let mut set = |name: &str, value: String| match headers.iter_mut().find(|(k, _)| k == name) {
@@ -141,7 +148,10 @@ mod tests {
     fn response_echoes_cseq_and_counts_the_body() {
         let (reqs, _) = parse(b"GET /info RTSP/1.0\r\nCSeq: 9\r\n\r\n");
         let res = Response {
-            headers: vec![("Content-Type".into(), "application/x-apple-binary-plist".into())],
+            headers: vec![(
+                "Content-Type".into(),
+                "application/x-apple-binary-plist".into(),
+            )],
             body: b"xy".to_vec(),
             ..Default::default()
         };
@@ -149,7 +159,10 @@ mod tests {
             build_response(&reqs[0], res),
             b"RTSP/1.0 200 OK\r\nContent-Type: application/x-apple-binary-plist\r\nCSeq: 9\r\nContent-Length: 2\r\n\r\nxy"
         );
-        let missing = Response { status: Some(404), ..Default::default() };
+        let missing = Response {
+            status: Some(404),
+            ..Default::default()
+        };
         assert_eq!(
             build_response(&reqs[0], missing),
             b"RTSP/1.0 404 Not Found\r\nCSeq: 9\r\nContent-Length: 0\r\n\r\n"

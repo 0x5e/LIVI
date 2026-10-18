@@ -1,6 +1,3 @@
-// Rafael Micro R820T/R820T2 tuner behind the RTL2832U I2C repeater. The
-// caller switches the repeater on around every call here.
-
 use std::thread::sleep;
 use std::time::Duration;
 
@@ -12,21 +9,14 @@ pub const CHIP_ID: u8 = 0x69;
 
 const FIRST_REG: usize = 0x05;
 const INIT: [u8; 27] = [
-    0x83, 0x32, 0x75, // 05..07
-    0xc0, 0x40, 0xd6, 0x6c, // 08..0b
-    0xf5, 0x63, 0x75, 0x68, // 0c..0f
-    0x6c, 0x83, 0x80, 0x00, // 10..13
-    0x0f, 0x00, 0xc0, 0x30, // 14..17
-    0x48, 0xcc, 0x60, 0x00, // 18..1b
-    0x54, 0xae, 0x4a, 0xc0, // 1c..1f
+    0x83, 0x32, 0x75, 0xc0, 0x40, 0xd6, 0x6c, 0xf5, 0x63, 0x75, 0x68, 0x6c, 0x83, 0x80, 0x00, 0x0f,
+    0x00, 0xc0, 0x30, 0x48, 0xcc, 0x60, 0x00, 0x54, 0xae, 0x4a, 0xc0,
 ];
-/// One I2C message carries the register address plus at most seven bytes.
 const MAX_WRITE: usize = 7;
 const VCO_MIN_KHZ: u32 = 1_770_000;
 const VCO_POWER_REF: u8 = 2;
 const FILTER_CAL_LO_KHZ: u32 = 56_000;
 
-// Lower edge in MHz, open drain, RF mux/polyphase, tracking filter band.
 const MUX: [(u32, u8, u8, u8); 21] = [
     (0, 0x08, 0x02, 0xdf),
     (50, 0x08, 0x02, 0xbe),
@@ -64,13 +54,16 @@ const HIGH_PASS_2: u32 = 380_000;
 pub struct R820t {
     shadow: [u8; 32],
     pub xtal: u32,
-    /// The IF the tuner mixes down to, the demodulator has to match it.
     pub if_freq: u32,
 }
 
 impl R820t {
     pub fn new(xtal: u32) -> Self {
-        Self { shadow: [0; 32], xtal, if_freq: 3_570_000 }
+        Self {
+            shadow: [0; 32],
+            xtal,
+            if_freq: 3_570_000,
+        }
     }
 
     fn write(&mut self, regs: &Regs, reg: usize, data: &[u8]) -> Result<(), Error> {
@@ -94,10 +87,13 @@ impl R820t {
         self.write(regs, reg, &[merged])
     }
 
-    /// The chip always answers from register 0 and sends every byte LSB first.
     fn read(&self, regs: &Regs, len: usize) -> Result<Vec<u8>, Error> {
         regs.i2c_write(I2C_ADDR, &[0x00])?;
-        Ok(regs.i2c_read(I2C_ADDR, len)?.into_iter().map(u8::reverse_bits).collect())
+        Ok(regs
+            .i2c_read(I2C_ADDR, len)?
+            .into_iter()
+            .map(u8::reverse_bits)
+            .collect())
     }
 
     pub fn init(&mut self, regs: &Regs) -> Result<(), Error> {
@@ -168,7 +164,6 @@ impl R820t {
         self.set_mask(regs, 0x1a, 0x20, 0x30)
     }
 
-    /// Returns whether the PLL locked.
     fn set_pll(&mut self, regs: &Regs, freq: u32) -> Result<bool, Error> {
         let freq_khz = (freq + 500) / 1000;
         let ref_khz = (self.xtal + 500) / 1000;
@@ -261,8 +256,6 @@ impl R820t {
         Ok(())
     }
 
-    /// Picks the IF filter for the sample rate and moves the IF so the
-    /// passband sits inside it. Returns the new IF.
     pub fn set_bandwidth(&mut self, regs: &Regs, bw: u32) -> Result<u32, Error> {
         let (reg_0a, reg_0b) = if bw > 7_000_000 {
             self.if_freq = 4_570_000;
@@ -292,7 +285,10 @@ impl R820t {
             } else {
                 reg_0b |= 0x40;
             }
-            let i = IF_LOW_PASS.iter().position(|&lp| bw > lp).unwrap_or(IF_LOW_PASS.len());
+            let i = IF_LOW_PASS
+                .iter()
+                .position(|&lp| bw > lp)
+                .unwrap_or(IF_LOW_PASS.len());
             let i = i.saturating_sub(1);
             reg_0b |= 15 - i as u8;
             real_bw += IF_LOW_PASS[i];
@@ -304,7 +300,6 @@ impl R820t {
         Ok(self.if_freq)
     }
 
-    /// `gain` in tenths of a dB, with the tuner's own AGC off.
     pub fn set_gain(&mut self, regs: &Regs, gain: i32) -> Result<(), Error> {
         self.set_mask(regs, 0x05, 0x10, 0x10)?;
         self.set_mask(regs, 0x07, 0x00, 0x10)?;
@@ -334,7 +329,6 @@ impl R820t {
     }
 }
 
-/// LNA and mixer steps alternate until the sum reaches the wanted gain.
 fn gain_steps(gain: i32) -> (u8, u8) {
     let (mut lna, mut mixer, mut total) = (0, 0, 0);
     for _ in 0..15 {
@@ -352,7 +346,6 @@ fn gain_steps(gain: i32) -> (u8, u8) {
     (lna as u8, mixer as u8)
 }
 
-/// The gains `gain_steps` can actually reach, tenths of a dB.
 pub fn gains() -> Vec<i32> {
     let mut out = vec![0];
     let mut total = 0;

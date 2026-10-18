@@ -1,6 +1,3 @@
-//! The control side of the microphone channel (9). The samples go from the
-//! pipeline's tap to the helper.
-
 use livi_aa_proto::{MediaStartNotification, MessageStatus, MicrophoneRequest, MicrophoneResponse};
 
 use crate::channels::{Emit, Frame};
@@ -21,14 +18,19 @@ pub struct MicChannel {
     channel: u8,
     sample_rate: u32,
     channel_count: u32,
-    /// Ours, the phone echoes it in its acks.
     session: i32,
     open: bool,
 }
 
 impl MicChannel {
     pub fn new(channel: u8) -> Self {
-        Self { channel, sample_rate: 16000, channel_count: 1, session: 1, open: false }
+        Self {
+            channel,
+            sample_rate: 16000,
+            channel_count: 1,
+            session: 1,
+            open: false,
+        }
     }
 
     pub fn handle_message(&mut self, msg_id: u16, payload: &[u8]) -> Vec<MicOut> {
@@ -60,7 +62,11 @@ impl MicChannel {
         if channel_count != 0 {
             self.channel_count = channel_count;
         }
-        detail!("[MicChannel] setup codec={codec} {}Hz {}ch", self.sample_rate, self.channel_count);
+        detail!(
+            "[MicChannel] setup codec={codec} {}Hz {}ch",
+            self.sample_rate,
+            self.channel_count
+        );
     }
 
     pub fn format(&self) -> (u32, u32) {
@@ -122,18 +128,31 @@ mod tests {
                     media_msg::MICROPHONE_RESPONSE,
                     [0x08, 0x00, 0x10, 0x01]
                 )),
-                Emit::Send(Frame::new(9, 0x0b, media_msg::START, [0x08, 0x01, 0x10, 0x00])),
+                Emit::Send(Frame::new(
+                    9,
+                    0x0b,
+                    media_msg::START,
+                    [0x08, 0x01, 0x10, 0x00]
+                )),
                 Emit::Event(MicEvent::Start),
             ]
         );
-        assert_eq!(m.handle_message(media_msg::MICROPHONE_REQUEST, &[0x08, 0x01]).len(), 1);
         assert_eq!(
-            m.handle_message(media_msg::MICROPHONE_REQUEST, &[0x08, 0x00]).last(),
+            m.handle_message(media_msg::MICROPHONE_REQUEST, &[0x08, 0x01])
+                .len(),
+            1
+        );
+        assert_eq!(
+            m.handle_message(media_msg::MICROPHONE_REQUEST, &[0x08, 0x00])
+                .last(),
             Some(&Emit::Event(MicEvent::Stop))
         );
         assert!(m.handle_message(media_msg::STOP, &[]).is_empty());
         m.handle_message(media_msg::MICROPHONE_REQUEST, &[0x08, 0x01]);
-        assert_eq!(m.handle_message(media_msg::STOP, &[]), [Emit::Event(MicEvent::Stop)]);
+        assert_eq!(
+            m.handle_message(media_msg::STOP, &[]),
+            [Emit::Event(MicEvent::Stop)]
+        );
         assert!(m.handle_message(media_msg::ACK, &[]).is_empty());
         assert!(m.handle_message(media_msg::SETUP, &[]).is_empty());
         assert!(m.handle_message(0x4444, &[]).is_empty());

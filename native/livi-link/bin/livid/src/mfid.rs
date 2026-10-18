@@ -13,7 +13,6 @@ pub fn run(args: Vec<String>) -> i32 {
         .map(|a| a.trim_start_matches("/dev/i2c-"))
         .and_then(|a| a.parse::<u32>().ok())
         .unwrap_or(1);
-    // The dongles power the chip themselves, there is no GPIO to switch.
     let mut chip = match I2cCoprocessor::open(bus, -1) {
         Ok(chip) => chip,
         Err(e) => {
@@ -28,7 +27,10 @@ pub fn run(args: Vec<String>) -> i32 {
         "[mfid] MFi @0x{addr:02X} on i2c-{bus}, protocol major {}",
         major.as_deref().unwrap_or("unknown")
     );
-    let _ = fs::write(STATE, format!("Gen{} @ /dev/i2c-{bus}\n", major.as_deref().unwrap_or("?")));
+    let _ = fs::write(
+        STATE,
+        format!("Gen{} @ /dev/i2c-{bus}\n", major.as_deref().unwrap_or("?")),
+    );
 
     let listener = match TcpListener::bind(("0.0.0.0", MFI)) {
         Ok(l) => l,

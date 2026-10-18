@@ -1,13 +1,9 @@
-//! GSV comes as a sweep of several sentences per talker, so its satellites are
-//! published once that talker's last sentence arrived.
-
 use std::collections::{BTreeMap, BTreeSet, HashMap};
 
 use super::info::{Constellation, FixMode, FixQuality, GpsFix, Satellite};
 use super::{latin1, trim};
 
 const KNOTS_TO_MS: f64 = 0.514444;
-/// A misconfigured receiver or one sending binary would grow the buffer forever.
 const BUFFER_MAX: usize = 16384;
 const BUFFER_KEEP: usize = 4096;
 
@@ -54,14 +50,17 @@ fn body(sentence: &str, star: Option<usize>) -> &str {
     &sentence[start..star.unwrap_or(sentence.len()).max(start)]
 }
 
-/// Some receivers leave the `*hh` trailer out.
 pub fn checksum_valid(sentence: &str) -> bool {
-    let Some(star) = sentence.rfind('*') else { return true };
+    let Some(star) = sentence.rfind('*') else {
+        return true;
+    };
     let want: String = sentence[star + 1..].chars().take(2).collect();
     if want.len() != 2 || !want.chars().all(|c| c.is_ascii_hexdigit()) {
         return false;
     }
-    let sum = body(sentence, Some(star)).chars().fold(0u32, |sum, c| sum ^ u32::from(c));
+    let sum = body(sentence, Some(star))
+        .chars()
+        .fold(0u32, |sum, c| sum ^ u32::from(c));
     u32::from_str_radix(&want, 16) == Ok(sum)
 }
 
@@ -70,7 +69,6 @@ pub struct Decoder {
     buffer: Vec<u8>,
     pending_sweep: HashMap<String, Vec<Satellite>>,
     visible: BTreeMap<Constellation, Vec<Satellite>>,
-    /// GSA names the satellites carrying the fix without their constellation.
     used_ids: Vec<f64>,
     seen: BTreeSet<Constellation>,
     last_date: String,
@@ -106,7 +104,10 @@ impl Decoder {
         if header.chars().count() < 5 {
             return None;
         }
-        let split = header.char_indices().nth(2).map_or(header.len(), |(i, _)| i);
+        let split = header
+            .char_indices()
+            .nth(2)
+            .map_or(header.len(), |(i, _)| i);
         let (talker, kind) = header.split_at(split);
         let f = |i: usize| fields.get(i).copied();
         match kind {
@@ -128,7 +129,10 @@ impl Decoder {
         for list in self.visible.values() {
             let mut sats: Vec<Satellite> = list
                 .iter()
-                .map(|s| Satellite { used: self.used_ids.contains(&s.id), ..s.clone() })
+                .map(|s| Satellite {
+                    used: self.used_ids.contains(&s.id),
+                    ..s.clone()
+                })
                 .collect();
             sats.sort_by(|a, b| a.id.partial_cmp(&b.id).unwrap_or(std::cmp::Ordering::Equal));
             all.extend(sats);
@@ -142,7 +146,10 @@ impl Decoder {
             self.last_date = date.to_string();
         }
         let time = utc_ms(f(1), &self.last_date);
-        let mut update = Update { receiver_time: time, ..Default::default() };
+        let mut update = Update {
+            receiver_time: time,
+            ..Default::default()
+        };
         if !active {
             return update;
         }
@@ -157,7 +164,6 @@ impl Decoder {
             fix_ts: time,
             ..Default::default()
         };
-        // Standing still the course is noise.
         if let (Some(course), Some(knots)) = (num(f(8)), knots)
             && knots > 0.5
         {
@@ -173,7 +179,6 @@ impl Decoder {
             Some(2.0) => FixMode::TwoD,
             _ => FixMode::None,
         };
-        // A multi-constellation receiver sends one GSA per system, so the ids add up.
         for id in (3..=14).filter_map(|i| num(f(i))) {
             if !self.used_ids.contains(&id) {
                 self.used_ids.push(id);
@@ -192,12 +197,10 @@ impl Decoder {
     fn gsv<'a>(&mut self, talker: &str, f: impl Fn(usize) -> Option<&'a str>) -> Option<Update> {
         let (total, index) = (num(f(1))?, num(f(2))?);
         let constellation = constellation(talker);
-        // An empty sweep still shows the receiver covers this system.
         self.seen.insert(constellation);
         let pending = self.pending_sweep.remove(talker).unwrap_or_default();
         let mut sweep = if index == 1.0 { Vec::new() } else { pending };
 
-        // Blocks of id, elevation, azimuth and SNR, a signal id may trail them.
         let mut i = 4;
         while f(i + 2).is_some() {
             if let Some(id) = num(f(i)) {
@@ -209,7 +212,6 @@ impl Decoder {
                     azimuth: num(f(i + 2)),
                     snr: num(f(i + 3)),
                 };
-                // A multi-band receiver lists a satellite once per signal, the strongest stays.
                 match sweep.iter().position(|s| s.id == id) {
                     None => sweep.push(sat),
                     Some(k) if sat.snr.unwrap_or(-1.0) > sweep[k].snr.unwrap_or(-1.0) => {
@@ -230,7 +232,10 @@ impl Decoder {
         } else {
             self.visible.insert(constellation, sweep);
         }
-        Some(Update { satellites: Some(self.satellites_in_view()), ..Default::default() })
+        Some(Update {
+            satellites: Some(self.satellites_in_view()),
+            ..Default::default()
+        })
     }
 }
 
@@ -259,8 +264,14 @@ fn gga<'a>(f: impl Fn(usize) -> Option<&'a str>) -> Update {
 
 fn gst<'a>(f: impl Fn(usize) -> Option<&'a str>) -> Option<Update> {
     let (lat_error, lng_error) = (num(f(6))?, num(f(7))?);
-    let gps = GpsFix { accuracy_m: Some(lat_error.hypot(lng_error)), ..Default::default() };
-    Some(Update { gps: Some(gps), ..Default::default() })
+    let gps = GpsFix {
+        accuracy_m: Some(lat_error.hypot(lng_error)),
+        ..Default::default()
+    };
+    Some(Update {
+        gps: Some(gps),
+        ..Default::default()
+    })
 }
 
 fn number(text: &str) -> Option<f64> {
@@ -268,16 +279,18 @@ fn number(text: &str) -> Option<f64> {
     if t.is_empty() {
         return Some(0.0);
     }
-    let radix =
-        |prefix: [&str; 2], radix: u32| {
-            let digits = t.strip_prefix(prefix[0]).or_else(|| t.strip_prefix(prefix[1]))?;
-            if digits.is_empty() {
-                return Some(None);
-            }
-            Some(digits.chars().try_fold(0f64, |v, c| {
-                c.to_digit(radix).map(|d| v * f64::from(radix) + f64::from(d))
-            }))
-        };
+    let radix = |prefix: [&str; 2], radix: u32| {
+        let digits = t
+            .strip_prefix(prefix[0])
+            .or_else(|| t.strip_prefix(prefix[1]))?;
+        if digits.is_empty() {
+            return Some(None);
+        }
+        Some(digits.chars().try_fold(0f64, |v, c| {
+            c.to_digit(radix)
+                .map(|d| v * f64::from(radix) + f64::from(d))
+        }))
+    };
     if let Some(value) = radix(["0x", "0X"], 16)
         .or_else(|| radix(["0o", "0O"], 8))
         .or_else(|| radix(["0b", "0B"], 2))
@@ -286,7 +299,11 @@ fn number(text: &str) -> Option<f64> {
     }
     let unsigned = t.strip_prefix(['+', '-']).unwrap_or(t);
     if unsigned == "Infinity" {
-        return Some(if t.starts_with('-') { f64::NEG_INFINITY } else { f64::INFINITY });
+        return Some(if t.starts_with('-') {
+            f64::NEG_INFINITY
+        } else {
+            f64::INFINITY
+        });
     }
     if !unsigned
         .bytes()
@@ -301,21 +318,25 @@ fn num(field: Option<&str>) -> Option<f64> {
     number(field.filter(|f| !f.is_empty())?).filter(|n| n.is_finite())
 }
 
-/// ddmm.mmmm and its hemisphere to signed degrees.
 fn coord(value: Option<&str>, hemisphere: Option<&str>) -> Option<f64> {
-    let (value, hemisphere) =
-        (value.filter(|v| !v.is_empty())?, hemisphere.filter(|h| !h.is_empty())?);
+    let (value, hemisphere) = (
+        value.filter(|v| !v.is_empty())?,
+        hemisphere.filter(|h| !h.is_empty())?,
+    );
     let raw = number(value).filter(|n| n.is_finite())?.abs();
     let degrees = (raw / 100.0).floor();
     let decimal = degrees + (raw - degrees * 100.0) / 60.0;
-    Some(if matches!(hemisphere, "S" | "W") { -decimal } else { decimal })
+    Some(if matches!(hemisphere, "S" | "W") {
+        -decimal
+    } else {
+        decimal
+    })
 }
 
 fn chars(s: &str, from: usize, to: usize) -> String {
     s.chars().skip(from).take(to.saturating_sub(from)).collect()
 }
 
-/// hhmmss.sss and ddmmyy to Unix milliseconds.
 fn utc_ms(time: Option<&str>, date: &str) -> Option<f64> {
     let time = time?;
     let time_len = time.chars().count();
@@ -330,7 +351,15 @@ fn utc_ms(time: Option<&str>, date: &str) -> Option<f64> {
     let month = part(date, 2, 4)?;
     let year = part(date, 4, 6)?;
     let millis = round_half_up((seconds % 1.0) * 1000.0);
-    Some(date_utc(2000.0 + year, month - 1.0, day, hours, minutes, seconds.floor(), millis))
+    Some(date_utc(
+        2000.0 + year,
+        month - 1.0,
+        day,
+        hours,
+        minutes,
+        seconds.floor(),
+        millis,
+    ))
 }
 
 pub(super) fn round_half_up(x: f64) -> f64 {
@@ -338,7 +367,6 @@ pub(super) fn round_half_up(x: f64) -> f64 {
     if x - floor >= 0.5 { floor + 1.0 } else { floor }
 }
 
-/// Days from 1970-01-01 to the first of `month` (1 to 12) in `year`.
 fn days_to_month(year: i64, month: i64) -> i64 {
     let y = if month <= 2 { year - 1 } else { year };
     let era = y.div_euclid(400);
@@ -349,8 +377,6 @@ fn days_to_month(year: i64, month: i64) -> i64 {
     era * 146_097 + doe - 719_468
 }
 
-/// Unix milliseconds. Fields past their range carry over, a month of 13 is
-/// January of the next year.
 fn date_utc(
     year: f64,
     month: f64,
@@ -379,7 +405,6 @@ fn date_utc(
 mod tests {
     use super::*;
 
-    // From a NEO-M9N on a Pi 5 during a cold start, before the first lock.
     const COLD: [&str; 6] = [
         "$GNRMC,,V,,,,,,,,,,N,V*37",
         "$GNVTG,,,,,,,,,N*2E",
@@ -390,7 +415,6 @@ mod tests {
     ];
     const GGA_FIX: &str = "$GPGGA,123519.00,4807.038,N,01131.000,E,1,08,0.9,545.4,M,46.9,M,,*69";
     const RMC_FIX: &str = "$GPRMC,123519.00,A,4807.038,N,01131.000,E,022.4,084.4,230326,,,A*5B";
-    /// 2026-03-23 12:35:19 UTC.
     const RMC_TIME: f64 = 1_774_269_319_000.0;
 
     fn one(d: &mut Decoder, line: &str) -> Update {
@@ -415,12 +439,19 @@ mod tests {
     #[test]
     fn sentences_are_framed_from_raw_reads() {
         let mut d = Decoder::default();
-        assert!(!d.push(format!("noise\r\n{}\r\n", COLD.join("\r\n")).as_bytes()).is_empty());
+        assert!(
+            !d.push(format!("noise\r\n{}\r\n", COLD.join("\r\n")).as_bytes())
+                .is_empty()
+        );
 
         let mut d = Decoder::default();
         assert!(d.push(b"$GPGGA,123519.00,4807.038,N,0113").is_empty());
         let updates = d.push(b"1.000,E,1,08,0.9,545.4,M,46.9,M,,*69\r\n");
-        assert!(close(updates[0].gps.as_ref().and_then(|g| g.lat), 48.1173, 4));
+        assert!(close(
+            updates[0].gps.as_ref().and_then(|g| g.lat),
+            48.1173,
+            4
+        ));
 
         let broken = "$GPGGA,123519.00,4807.038,N,01131.000,E,1,08,0.9,545.4,M,46.9,M,,*00\r\n";
         assert!(Decoder::default().push(broken.as_bytes()).is_empty());
@@ -428,12 +459,21 @@ mod tests {
         let mut d = Decoder::default();
         d.push("x".repeat(20000).as_bytes());
         assert!(d.buffer.len() <= BUFFER_KEEP);
-        assert_eq!(one(&mut d, &format!("\r\n{GGA_FIX}")).fix_quality, Some(FixQuality::Gps));
+        assert_eq!(
+            one(&mut d, &format!("\r\n{GGA_FIX}")).fix_quality,
+            Some(FixQuality::Gps)
+        );
 
-        assert!(Decoder::default().push(b"$GPZDA,123519.00,23,03,2026,00,00*6F\r\n").is_empty());
+        assert!(
+            Decoder::default()
+                .push(b"$GPZDA,123519.00,23,03,2026,00,00*6F\r\n")
+                .is_empty()
+        );
         assert!(Decoder::default().push(b"$GP\r\n").is_empty());
         assert_eq!(
-            Decoder::default().decode(&GGA_FIX[1..]).and_then(|u| u.fix_quality),
+            Decoder::default()
+                .decode(&GGA_FIX[1..])
+                .and_then(|u| u.fix_quality),
             Some(FixQuality::Gps)
         );
     }
@@ -458,7 +498,10 @@ mod tests {
         assert!(gps.lat.unwrap() < 0.0 && gps.lng.unwrap() < 0.0);
 
         let unknown = "$GPGGA,123519.00,4807.038,N,01131.000,E,9,08,0.9,545.4,M,,,,*39";
-        assert_eq!(one(&mut Decoder::default(), unknown).fix_quality, Some(FixQuality::None));
+        assert_eq!(
+            one(&mut Decoder::default(), unknown).fix_quality,
+            Some(FixQuality::None)
+        );
     }
 
     #[test]
@@ -473,7 +516,10 @@ mod tests {
         assert_eq!(gps.heading, None);
         assert!(gps.speed_ms.is_some());
 
-        let void = one(&mut Decoder::default(), "$GPRMC,123519.00,V,,,,,,,230326,,,N*76");
+        let void = one(
+            &mut Decoder::default(),
+            "$GPRMC,123519.00,V,,,,,,,230326,,,N*76",
+        );
         assert_eq!((void.gps, void.receiver_time), (None, Some(RMC_TIME)));
 
         let mut d = Decoder::default();
@@ -492,7 +538,10 @@ mod tests {
 
     #[test]
     fn gsa_gives_the_mode_the_dops_and_the_satellites_in_use() {
-        let u = one(&mut Decoder::default(), "$GPGSA,A,3,04,05,,09,12,,,24,,,,,2.5,1.3,2.1*39");
+        let u = one(
+            &mut Decoder::default(),
+            "$GPGSA,A,3,04,05,,09,12,,,24,,,,,2.5,1.3,2.1*39",
+        );
         assert_eq!(u.fix_mode, Some(FixMode::ThreeD));
         assert_eq!((u.pdop, u.hdop, u.vdop), (Some(2.5), Some(1.3), Some(2.1)));
 
@@ -505,8 +554,11 @@ mod tests {
         let mut d = Decoder::default();
         d.push(b"$GPGSV,1,1,02,04,70,050,45,05,44,120,40*7E\r\n");
         d.push(b"$GPGSA,A,3,04,,,,,,,,,,,,2.5,1.3,2.1*30\r\n");
-        let used: Vec<(f64, bool)> =
-            d.satellites_in_view().iter().map(|s| (s.id, s.used)).collect();
+        let used: Vec<(f64, bool)> = d
+            .satellites_in_view()
+            .iter()
+            .map(|s| (s.id, s.used))
+            .collect();
         assert_eq!(used, [(4.0, true), (5.0, false)]);
 
         let bare = one(&mut Decoder::default(), "$GPGSA,A,3,04,,,,,,,,,,,,,,*18");
@@ -533,11 +585,17 @@ mod tests {
         ] {
             d.push(format!("{line}\r\n").as_bytes());
         }
-        let systems: Vec<Constellation> =
-            d.satellites_in_view().iter().map(|s| s.constellation).collect();
+        let systems: Vec<Constellation> = d
+            .satellites_in_view()
+            .iter()
+            .map(|s| s.constellation)
+            .collect();
         use Constellation as C;
         assert_eq!(systems, [C::Beidou, C::Galileo, C::Glonass, C::Gps]);
-        assert_eq!(d.constellations_seen(), [C::Beidou, C::Galileo, C::Glonass, C::Gps]);
+        assert_eq!(
+            d.constellations_seen(),
+            [C::Beidou, C::Galileo, C::Glonass, C::Gps]
+        );
 
         let mut d = Decoder::default();
         d.push(b"$GPGSV,1,1,01,04,70,050,45*4F\r\n");
@@ -554,7 +612,11 @@ mod tests {
         d.push(b"$XXGSV,1,1,01,04,70,050,45*58\r\n");
         assert_eq!(d.satellites_in_view()[0].constellation, C::Unknown);
 
-        assert!(Decoder::default().push(b"$GPGSV,,,01,04,70,050,45*4F\r\n").is_empty());
+        assert!(
+            Decoder::default()
+                .push(b"$GPGSV,,,01,04,70,050,45*4F\r\n")
+                .is_empty()
+        );
 
         let mut d = Decoder::default();
         d.push(b"$GPGSV,2,1,05,04,70,050,45*48\r\n");
@@ -576,7 +638,13 @@ mod tests {
 
         let mut d = Decoder::default();
         d.push(b"$GPGSV,1,1,02,,,,,05,44,120,40*49\r\n");
-        assert_eq!(d.satellites_in_view().iter().map(|s| s.id).collect::<Vec<_>>(), [5.0]);
+        assert_eq!(
+            d.satellites_in_view()
+                .iter()
+                .map(|s| s.id)
+                .collect::<Vec<_>>(),
+            [5.0]
+        );
 
         let strongest = |line: &str| {
             let mut d = Decoder::default();
@@ -593,37 +661,57 @@ mod tests {
             strongest("$GPGSV,1,1,02,04,70,050,48,04,70,050,30*74"),
             (Some(48.0), Some(70.0))
         );
-        assert_eq!(strongest("$GPGSV,1,1,02,04,70,050,45,04,70,050,*7A"), (Some(45.0), Some(70.0)));
+        assert_eq!(
+            strongest("$GPGSV,1,1,02,04,70,050,45,04,70,050,*7A"),
+            (Some(45.0), Some(70.0))
+        );
         assert_eq!(
             strongest("$GPGSV,1,1,02,04,70,050,40,04,10,200,40*7A"),
             (Some(40.0), Some(70.0))
         );
-        assert_eq!(strongest("$GPGSV,1,1,02,04,70,050,,04,10,200,40*7E"), (Some(40.0), Some(10.0)));
+        assert_eq!(
+            strongest("$GPGSV,1,1,02,04,70,050,,04,10,200,40*7E"),
+            (Some(40.0), Some(10.0))
+        );
     }
 
     #[test]
     fn gst_gives_the_horizontal_accuracy() {
-        let u = one(&mut Decoder::default(), "$GPGST,123519.00,1.5,,,,3.0,4.0,2.0*750");
+        let u = one(
+            &mut Decoder::default(),
+            "$GPGST,123519.00,1.5,,,,3.0,4.0,2.0*750",
+        );
         assert!(close(u.gps.and_then(|g| g.accuracy_m), 5.0, 5));
-        assert!(Decoder::default().push(b"$GPGST,123519.00,1.5,,,,,,*5E\r\n").is_empty());
+        assert!(
+            Decoder::default()
+                .push(b"$GPGST,123519.00,1.5,,,,,,*5E\r\n")
+                .is_empty()
+        );
     }
 
     #[test]
     fn malformed_fields_count_as_absent() {
-        let u =
-            one(&mut Decoder::default(), "$GPGGA,123519.00,4807.038,N,01131.000,E,,,,,M,,M,,*4C");
+        let u = one(
+            &mut Decoder::default(),
+            "$GPGGA,123519.00,4807.038,N,01131.000,E,,,,,M,,M,,*4C",
+        );
         assert_eq!(
             (u.fix_quality, u.satellites_used, u.hdop),
             (Some(FixQuality::None), None, None)
         );
 
-        let u =
-            one(&mut Decoder::default(), "$GPGGA,123519.00,4807.038,N,01131.000,E,1,,,,M,,M,,*7D");
+        let u = one(
+            &mut Decoder::default(),
+            "$GPGGA,123519.00,4807.038,N,01131.000,E,1,,,,M,,M,,*7D",
+        );
         let gps = u.gps.unwrap();
         assert!(gps.lat.is_some());
         assert_eq!((gps.alt, gps.satellites), (None, None));
 
-        let u = one(&mut Decoder::default(), "$GPRMC,123519.00,A,,,,,022.4,084.4,230326,,,A*62");
+        let u = one(
+            &mut Decoder::default(),
+            "$GPRMC,123519.00,A,,,,,022.4,084.4,230326,,,A*62",
+        );
         assert_eq!((u.gps, u.receiver_time.is_some()), (None, true));
 
         let u = one(
@@ -634,7 +722,10 @@ mod tests {
         assert!(close(gps.lat, 48.1173, 3));
         assert_eq!((gps.speed_ms, gps.heading), (None, None));
 
-        let u = one(&mut Decoder::default(), "$GPGGA,123519.00,abc,N,def,E,1,xx,yy,zz,M,,M,,*48");
+        let u = one(
+            &mut Decoder::default(),
+            "$GPGGA,123519.00,abc,N,def,E,1,xx,yy,zz,M,,M,,*48",
+        );
         assert_eq!((u.gps, u.hdop), (None, None));
 
         let u = one(
@@ -685,10 +776,22 @@ mod tests {
     fn dates_carry_over_like_a_calendar() {
         assert_eq!(date_utc(2026.0, 2.0, 23.0, 12.0, 35.0, 19.0, 0.0), RMC_TIME);
         assert_eq!(date_utc(1970.0, 0.0, 1.0, 0.0, 0.0, 0.0, 0.0), 0.0);
-        assert_eq!(date_utc(2000.0, 1.0, 29.0, 0.0, 0.0, 0.0, 0.0), 951_782_400_000.0);
-        assert_eq!(date_utc(2026.0, 12.0, 0.0, 25.0, 0.0, 0.0, 0.0), 1_798_765_200_000.0);
-        assert_eq!(date_utc(1999.0, -1.0, 31.0, -1.0, 61.0, 59.0, 999.0), 915_062_519_999.0);
-        assert_eq!(date_utc(2099.0, 98.0, 99.0, 99.0, 99.0, 99.0, 1000.0), 4_337_210_440_000.0);
+        assert_eq!(
+            date_utc(2000.0, 1.0, 29.0, 0.0, 0.0, 0.0, 0.0),
+            951_782_400_000.0
+        );
+        assert_eq!(
+            date_utc(2026.0, 12.0, 0.0, 25.0, 0.0, 0.0, 0.0),
+            1_798_765_200_000.0
+        );
+        assert_eq!(
+            date_utc(1999.0, -1.0, 31.0, -1.0, 61.0, 59.0, 999.0),
+            915_062_519_999.0
+        );
+        assert_eq!(
+            date_utc(2099.0, 98.0, 99.0, 99.0, 99.0, 99.0, 1000.0),
+            4_337_210_440_000.0
+        );
         assert!(date_utc(2026.0, 0.0, 1.0, 0.0, 0.0, 1e300, 0.0).is_nan());
         assert_eq!(utc_ms(Some("123519.123"), "230326"), Some(RMC_TIME + 123.0));
         assert_eq!(utc_ms(Some("12351"), "230326"), None);

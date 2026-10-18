@@ -1,5 +1,3 @@
-//! The phone only needs this port to exist, what it sends there is dropped.
-
 use std::io;
 
 use tokio::task::JoinHandle;
@@ -41,7 +39,10 @@ mod tests {
     async fn it_takes_datagrams() {
         let alive = KeepAlive::listen().unwrap();
         let phone = tokio::net::UdpSocket::bind("127.0.0.1:0").await.unwrap();
-        phone.send_to(b"ka", ("127.0.0.1", alive.port())).await.unwrap();
+        phone
+            .send_to(b"ka", ("127.0.0.1", alive.port()))
+            .await
+            .unwrap();
         assert!(alive.port() > 0);
     }
 }

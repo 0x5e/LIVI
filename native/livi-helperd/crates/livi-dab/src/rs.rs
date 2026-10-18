@@ -1,6 +1,3 @@
-// Reed-Solomon RS(120,110) over GF(256), shortened from RS(255,245), field
-// polynomial x^8 + x^4 + x^3 + x^2 + 1, generator roots alpha^0..alpha^9.
-
 const PRIM: u16 = 0x11d;
 const PARITY: usize = 10;
 pub const N: usize = 120;
@@ -52,13 +49,10 @@ impl Gf {
         self.exp[e % 255]
     }
 
-    /// Evaluates a polynomial with the lowest coefficient first.
     fn eval(&self, p: &[u8], x: u8) -> u8 {
         p.iter().rev().fold(0, |acc, &c| self.mul(acc, x) ^ c)
     }
 
-    /// Corrects one codeword in place, first byte is the highest degree.
-    /// Returns the number of corrected bytes, None when beyond repair.
     pub fn correct(&self, cw: &mut [u8]) -> Option<usize> {
         let n = cw.len();
         let mut synd = [0u8; PARITY];
@@ -72,7 +66,6 @@ impl Gf {
             return Some(0);
         }
 
-        // Berlekamp-Massey, polynomials lowest coefficient first.
         let mut lambda = vec![1u8];
         let mut prev = vec![1u8];
         let mut l = 0;
@@ -112,7 +105,6 @@ impl Gf {
             return None;
         }
 
-        // Chien search over the degrees that exist in the shortened word.
         let mut positions = Vec::new();
         for deg in 0..n {
             let inv = self.pow(255 - deg % 255);
@@ -124,7 +116,6 @@ impl Gf {
             return None;
         }
 
-        // Forney with the first root at alpha^0.
         let mut omega = vec![0u8; PARITY];
         for (i, o) in omega.iter_mut().enumerate() {
             for j in 0..=i.min(lambda.len() - 1) {
@@ -162,7 +153,6 @@ impl Gf {
             }
             g = next;
         }
-        // g lowest first; long division with data highest first.
         let mut rem = vec![0u8; PARITY];
         for &d in data {
             let f = d ^ rem[0];

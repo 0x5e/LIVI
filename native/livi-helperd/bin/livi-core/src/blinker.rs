@@ -11,18 +11,23 @@ use crate::hub::Hub;
 
 const RATE: u32 = 48_000;
 const CHANNELS: u8 = 2;
-/// The renderer's blink phase uses the same period, so sound and lamp agree.
 const BLINK_PERIOD_MS: u64 = 500;
 const GENERATE_EVERY: Duration = Duration::from_millis(30);
-/// The stream stays warm a moment, a blinker that comes right back reuses it.
 const TEARDOWN_GRACE: Duration = Duration::from_millis(600);
 const MAX_CATCHUP_FRAMES: u64 = (RATE / 4) as u64;
 const DEFAULT_VOLUME: f64 = 0.7;
 
-/// The level curve the projection's streams use, -60 dB to 0 dB.
 fn gain(volume: f64) -> f64 {
-    let v = if volume.is_finite() { volume.clamp(0.0, 1.0) } else { 0.0 };
-    if v <= 0.0 { 0.0 } else { 10f64.powf((-60.0 + 60.0 * v) / 20.0) }
+    let v = if volume.is_finite() {
+        volume.clamp(0.0, 1.0)
+    } else {
+        0.0
+    };
+    if v <= 0.0 {
+        0.0
+    } else {
+        10f64.powf((-60.0 + 60.0 * v) / 20.0)
+    }
 }
 
 fn relay_click(on: bool) -> Vec<f32> {
@@ -35,9 +40,17 @@ fn relay_click(on: bool) -> Vec<f32> {
         seed as f64 / f64::from(u32::MAX) * 2.0 - 1.0
     };
     let modes: [(f64, f64, f64); 3] = if on {
-        [(2100.0, 0.009, 1.0), (3450.0, 0.006, 0.5), (5200.0, 0.0038, 0.28)]
+        [
+            (2100.0, 0.009, 1.0),
+            (3450.0, 0.006, 0.5),
+            (5200.0, 0.0038, 0.28),
+        ]
     } else {
-        [(1300.0, 0.012, 1.0), (2050.0, 0.008, 0.46), (3050.0, 0.005, 0.24)]
+        [
+            (1300.0, 0.012, 1.0),
+            (2050.0, 0.008, 0.46),
+            (3050.0, 0.005, 0.24),
+        ]
     };
     let (mut hp_in, mut hp_out) = (0.0, 0.0);
     let hp_coeff = 0.92;
@@ -75,7 +88,9 @@ fn relay_click(on: bool) -> Vec<f32> {
 }
 
 fn now_ms() -> f64 {
-    SystemTime::now().duration_since(UNIX_EPOCH).map_or(0.0, |d| d.as_secs_f64() * 1000.0)
+    SystemTime::now()
+        .duration_since(UNIX_EPOCH)
+        .map_or(0.0, |d| d.as_secs_f64() * 1000.0)
 }
 
 struct Clicks {
@@ -99,7 +114,6 @@ impl Clicks {
         }
     }
 
-    /// s16le stereo.
     fn generate(&mut self, now_ms: f64, active: bool, gain: f64) -> Vec<u8> {
         let rate = f64::from(RATE);
         let target = (((now_ms - self.start_ms) / 1000.0) * rate).max(0.0) as u64;
@@ -142,8 +156,10 @@ impl Clicks {
 
 fn blinking(state: &State) -> bool {
     let t = &state.telemetry;
-    matches!(t.get("turnSignal").and_then(|v| v.as_str()), Some("left" | "right"))
-        || t.get("hazards").and_then(serde_json::Value::as_bool) == Some(true)
+    matches!(
+        t.get("turnSignal").and_then(|v| v.as_str()),
+        Some("left" | "right")
+    ) || t.get("hazards").and_then(serde_json::Value::as_bool) == Some(true)
 }
 
 struct Stream {
@@ -168,7 +184,11 @@ async fn open(gst: &GstHost, device: &str) -> Option<Stream> {
         return None;
     }
     gst.set_audio_active(id, true);
-    Some(Stream { id, device: device.to_string(), clicks: Clicks::new(now_ms()) })
+    Some(Stream {
+        id,
+        device: device.to_string(),
+        clicks: Clicks::new(now_ms()),
+    })
 }
 
 pub async fn run(hub: Arc<Hub>, gst: GstHost) {
@@ -236,7 +256,6 @@ mod tests {
 
     use super::*;
 
-    /// The reference click: length, energy and every 200th sample.
     const ON: (usize, f64, &[f64]) = (
         1632,
         30.34130957554999,
@@ -280,7 +299,11 @@ mod tests {
             let peak = click.iter().fold(0f32, |p, s| p.max(s.abs()));
             assert_eq!(peak, 0.85);
             for (i, want) in every.iter().enumerate() {
-                assert!((f64::from(click[i * 200]) - want).abs() < 1e-6, "sample {}", i * 200);
+                assert!(
+                    (f64::from(click[i * 200]) - want).abs() < 1e-6,
+                    "sample {}",
+                    i * 200
+                );
             }
         }
         assert_eq!(gain(0.0), 0.0);

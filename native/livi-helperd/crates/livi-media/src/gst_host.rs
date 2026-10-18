@@ -79,23 +79,19 @@ pub enum HostEvent {
         stream: u32,
         first_sample: u32,
     },
-    /// What a stream measurably takes from its release to the speaker.
     AudioDelay {
         stream: u32,
         ms: u32,
     },
-    /// Every stream summed, tapped before the fader, 0 to 1 per band.
     Spectrum {
         bands: Vec<f32>,
     },
-    /// Where a plane that plays a URL stands, twice a second.
     UrlStatus {
         plane: u32,
         status: livi_host_proto::UrlStatus,
     },
 }
 
-/// Where a fed stream of its own ends.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum FeedTarget {
     Plane(u32),
@@ -111,7 +107,6 @@ pub enum AudioCodec {
     AacRaw = 4,
 }
 
-/// A fed AacRaw stream has no key, the slot carries the AudioSpecificConfig.
 pub fn aac_raw_key(asc: &[u8]) -> [u8; 32] {
     let mut key = [0u8; 32];
     let len = asc.len().min(31);
@@ -123,14 +118,11 @@ pub fn aac_raw_key(asc: &[u8]) -> [u8; 32] {
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct AudioOpts {
     pub codec: AudioCodec,
-    /// The RTP payload type, which is the CarPlay stream type.
     pub payload_type: u8,
     pub clock_rate: u32,
     pub channels: u8,
     pub latency_ms: u32,
-    /// Voice and call streams take the short path to the sink.
     pub realtime: bool,
-    /// We push the samples, the host binds no ports.
     pub fed: bool,
     pub device: String,
 }
@@ -143,7 +135,6 @@ pub struct MicOpts {
     pub channels: u8,
     pub bitrate: u32,
     pub frame_ms: u32,
-    /// Where the phone listens.
     pub port: u16,
     pub phone: String,
     pub device: String,
@@ -168,7 +159,6 @@ struct State {
     feed_waiter: Option<oneshot::Sender<String>>,
     feed_path: Option<String>,
     accept_task: Option<tokio::task::JoinHandle<()>>,
-    /// Told to every host that connects, one that started again knows nothing.
     tap: bool,
 }
 
@@ -206,7 +196,6 @@ impl GstHost {
         }
     }
 
-    /// Used the next time the host starts.
     pub fn set_launch(&self, launch: Launch) {
         *self.inner.launch.lock().unwrap_or_else(|e| e.into_inner()) = Some(launch);
     }
@@ -224,7 +213,12 @@ impl GstHost {
     }
 
     fn start(&self) {
-        let launch = self.inner.launch.lock().unwrap_or_else(|e| e.into_inner()).clone();
+        let launch = self
+            .inner
+            .launch
+            .lock()
+            .unwrap_or_else(|e| e.into_inner())
+            .clone();
         {
             let mut st = self.state();
             if st.running || st.unavailable {
@@ -252,12 +246,13 @@ impl GstHost {
         let _ = std::fs::remove_file(&launch.crash);
         {
             use std::os::unix::fs::PermissionsExt;
-            // The packaged copy can lose its exec bit.
             let _ = std::fs::set_permissions(&launch.bin, std::fs::Permissions::from_mode(0o755));
         }
         let (stdout, stderr) = match log_file(&launch.log) {
             Some(f) => (
-                f.try_clone().map(Stdio::from).unwrap_or_else(|_| Stdio::inherit()),
+                f.try_clone()
+                    .map(Stdio::from)
+                    .unwrap_or_else(|_| Stdio::inherit()),
                 Stdio::from(f),
             ),
             None => (Stdio::inherit(), Stdio::inherit()),
@@ -371,10 +366,13 @@ impl GstHost {
     }
 
     fn on_reply(&self, op: u8, id: u32, rest: &[u8]) {
-        let u16_at =
-            |at: usize| rest.get(at..at + 2).map_or(0, |b| u16::from_le_bytes([b[0], b[1]]));
+        let u16_at = |at: usize| {
+            rest.get(at..at + 2)
+                .map_or(0, |b| u16::from_le_bytes([b[0], b[1]]))
+        };
         let u32_at = |at: usize| {
-            rest.get(at..at + 4).map_or(0, |b| u32::from_le_bytes([b[0], b[1], b[2], b[3]]))
+            rest.get(at..at + 4)
+                .map_or(0, |b| u32::from_le_bytes([b[0], b[1], b[2], b[3]]))
         };
         match op {
             REPLY_PORT => {
@@ -383,28 +381,44 @@ impl GstHost {
                 }
             }
             REPLY_CONFIG => {
-                let codec = if rest.first() == Some(&1) { Codec::H265 } else { Codec::H264 };
+                let codec = if rest.first() == Some(&1) {
+                    Codec::H265
+                } else {
+                    Codec::H264
+                };
                 let atom = rest.get(1..).unwrap_or_default().to_vec();
-                let _ = self.inner.events.send(HostEvent::Config { plane: id, codec, atom });
+                let _ = self.inner.events.send(HostEvent::Config {
+                    plane: id,
+                    codec,
+                    atom,
+                });
             }
             REPLY_STARTED => {
                 let _ = self.inner.events.send(HostEvent::Started { plane: id });
             }
             REPLY_AUDIO_PORTS => {
                 if let Some(w) = self.state().audio_waiters.remove(&id) {
-                    let ports = if rest.len() >= 4 { (u16_at(0), u16_at(2)) } else { (0, 0) };
+                    let ports = if rest.len() >= 4 {
+                        (u16_at(0), u16_at(2))
+                    } else {
+                        (0, 0)
+                    };
                     let _ = w.send(ports);
                 }
             }
             REPLY_AUDIO_STARTED => {
-                let _ = self
-                    .inner
-                    .events
-                    .send(HostEvent::AudioStarted { stream: id, first_sample: u32_at(0) });
+                let _ = self.inner.events.send(HostEvent::AudioStarted {
+                    stream: id,
+                    first_sample: u32_at(0),
+                });
             }
             REPLY_VISUALIZER => {
-                let bands =
-                    rest.as_chunks::<4>().0.iter().map(|b| f32::from_le_bytes(*b)).collect();
+                let bands = rest
+                    .as_chunks::<4>()
+                    .0
+                    .iter()
+                    .map(|b| f32::from_le_bytes(*b))
+                    .collect();
                 let _ = self.inner.events.send(HostEvent::Spectrum { bands });
             }
             REPLY_FEED => {
@@ -413,11 +427,17 @@ impl GstHost {
                 }
             }
             REPLY_AUDIO_DELAY => {
-                let _ = self.inner.events.send(HostEvent::AudioDelay { stream: id, ms: u32_at(0) });
+                let _ = self.inner.events.send(HostEvent::AudioDelay {
+                    stream: id,
+                    ms: u32_at(0),
+                });
             }
             REPLY_URL_STATUS => {
                 if let Some(status) = livi_host_proto::parse_url_status(rest) {
-                    let _ = self.inner.events.send(HostEvent::UrlStatus { plane: id, status });
+                    let _ = self
+                        .inner
+                        .events
+                        .send(HostEvent::UrlStatus { plane: id, status });
                 }
             }
             _ => {}
@@ -459,7 +479,10 @@ impl GstHost {
         rest.push(u8::from(cluster));
         rest.extend_from_slice(key);
         self.send(frame(OP_LISTEN, receiver, &rest));
-        let port = tokio::time::timeout(ANSWER_TIMEOUT, rx).await.ok().and_then(Result::ok);
+        let port = tokio::time::timeout(ANSWER_TIMEOUT, rx)
+            .await
+            .ok()
+            .and_then(Result::ok);
         if port.is_none() {
             self.state().port_waiters.remove(&receiver);
         }
@@ -474,8 +497,6 @@ impl GstHost {
         self.send(frame(OP_TEARDOWN, receiver, &[]));
     }
 
-    /// A fed stream of its own into a plane or an audio stream, switched like a receiver: the
-    /// active one plays and holds the others of the same target.
     pub fn open_feed_route(&self, target: FeedTarget, active: bool) -> u32 {
         let id = self.next_id();
         let (kind, target) = match target {
@@ -493,7 +514,6 @@ impl GstHost {
         self.send(frame(OP_FEED_CLOSE, id, &[]));
     }
 
-    /// (stream id, data port, control port), ports 0 on a timeout.
     pub async fn open_audio(&self, key: &[u8; 32], o: &AudioOpts) -> (u32, u16, u16) {
         let stream = self.next_id();
         let (tx, rx) = oneshot::channel();
@@ -506,7 +526,10 @@ impl GstHost {
         rest.extend_from_slice(key);
         rest.extend_from_slice(o.device.as_bytes());
         self.send(frame(OP_AUDIO_OPEN, stream, &rest));
-        let ports = tokio::time::timeout(ANSWER_TIMEOUT, rx).await.ok().and_then(Result::ok);
+        let ports = tokio::time::timeout(ANSWER_TIMEOUT, rx)
+            .await
+            .ok()
+            .and_then(Result::ok);
         if ports.is_none() {
             self.state().audio_waiters.remove(&stream);
         }
@@ -531,21 +554,18 @@ impl GstHost {
         }
     }
 
-    /// `ramp_ms` 0 sets it at once, a ramp runs on the pipeline clock.
     pub fn set_audio_volume(&self, stream: u32, level: f64, ramp_ms: u32) {
         let mut rest = level.to_le_bytes().to_vec();
         rest.extend_from_slice(&ramp_ms.to_le_bytes());
         self.send(frame(OP_AUDIO_VOLUME, stream, &rest));
     }
 
-    /// Moves every open stream, empty for the system's default.
     pub fn set_audio_output(&self, device: &str) {
         if self.state().running {
             self.send(frame(OP_AUDIO_OUTPUT, 0, device.as_bytes()));
         }
     }
 
-    /// Only the active phone's streams reach the sink.
     pub fn set_audio_active(&self, stream: u32, active: bool) {
         self.send(frame(OP_AUDIO_ACTIVE, stream, &[u8::from(active)]));
     }
@@ -599,12 +619,14 @@ impl GstHost {
         ));
     }
 
-    /// The host fetches and times the stream itself, an empty device is the system default.
     pub fn play_url(&self, plane: u32, url: &str, audio_device: &str) {
-        self.send(frame(OP_PLAY_URL, plane, &livi_host_proto::url_body(url, audio_device)));
+        self.send(frame(
+            OP_PLAY_URL,
+            plane,
+            &livi_host_proto::url_body(url, audio_device),
+        ));
     }
 
-    /// 0 pauses.
     pub fn set_play_rate(&self, plane: u32, rate: f64) {
         self.send(frame(OP_PLAY_RATE, plane, &rate.to_le_bytes()));
     }
@@ -662,7 +684,10 @@ mod tests {
         async fn connect(host: &GstHost) -> Self {
             host.start();
             let stream = UnixStream::connect(&host.inner.sock_path).await.unwrap();
-            Self { stream, framer: Framer::new() }
+            Self {
+                stream,
+                framer: Framer::new(),
+            }
         }
 
         async fn next(&mut self) -> livi_host_proto::Message {
@@ -681,7 +706,10 @@ mod tests {
         }
 
         async fn reply(&mut self, op: u8, id: u32, rest: &[u8]) {
-            self.stream.write_all(&encode_reply(op, id, rest)).await.unwrap();
+            self.stream
+                .write_all(&encode_reply(op, id, rest))
+                .await
+                .unwrap();
         }
     }
 
@@ -697,7 +725,10 @@ mod tests {
         gst.stop(0x7a00_0001);
         let mut fake = FakeHost::connect(&gst).await;
         let first = fake.next().await;
-        assert_eq!((first.op, first.rest.as_slice()), (OP_VISUALIZER, &[1u8][..]));
+        assert_eq!(
+            (first.op, first.rest.as_slice()),
+            (OP_VISUALIZER, &[1u8][..])
+        );
         assert_eq!(fake.next().await.op, OP_STOP);
         gst.create_player(0x7a00_0001, Codec::H265, &[9, 9]);
         let create = fake.next().await;
@@ -713,22 +744,43 @@ mod tests {
         gst.set_visualizer_tap(true);
         let mut first = FakeHost::connect(&gst).await;
         assert_eq!(first.next().await.rest, [1]);
-        let bands: Vec<u8> = [0.25f32, 1.0].iter().flat_map(|b| b.to_le_bytes()).collect();
+        let bands: Vec<u8> = [0.25f32, 1.0]
+            .iter()
+            .flat_map(|b| b.to_le_bytes())
+            .collect();
         first.reply(REPLY_VISUALIZER, 0, &bands).await;
-        assert_eq!(events.recv().await.unwrap(), HostEvent::Spectrum { bands: vec![0.25, 1.0] });
-        let status = livi_host_proto::UrlStatus { position: Some(2.0), ..Default::default() };
+        assert_eq!(
+            events.recv().await.unwrap(),
+            HostEvent::Spectrum {
+                bands: vec![0.25, 1.0]
+            }
+        );
+        let status = livi_host_proto::UrlStatus {
+            position: Some(2.0),
+            ..Default::default()
+        };
         first
-            .reply(REPLY_URL_STATUS, 0x7a00_0002, &livi_host_proto::url_status_body(&status))
+            .reply(
+                REPLY_URL_STATUS,
+                0x7a00_0002,
+                &livi_host_proto::url_status_body(&status),
+            )
             .await;
         first.reply(REPLY_URL_STATUS, 0x7a00_0002, &[1]).await;
         assert_eq!(
             events.recv().await.unwrap(),
-            HostEvent::UrlStatus { plane: 0x7a00_0002, status }
+            HostEvent::UrlStatus {
+                plane: 0x7a00_0002,
+                status
+            }
         );
         drop(first);
 
         let mut again = FakeHost::connect(&gst).await;
-        assert_eq!((again.next().await.op, gst.state().tap), (OP_VISUALIZER, true));
+        assert_eq!(
+            (again.next().await.op, gst.state().tap),
+            (OP_VISUALIZER, true)
+        );
         gst.set_visualizer_tap(false);
         assert_eq!(again.next().await.rest, [0]);
     }
@@ -742,7 +794,10 @@ mod tests {
         let mut fake = FakeHost::connect(&gst).await;
         gst.set_audio_output("headphones");
         let output = fake.next().await;
-        assert_eq!((output.op, output.rest.as_slice()), (OP_AUDIO_OUTPUT, &b"headphones"[..]));
+        assert_eq!(
+            (output.op, output.rest.as_slice()),
+            (OP_AUDIO_OUTPUT, &b"headphones"[..])
+        );
     }
 
     #[tokio::test]
@@ -767,7 +822,10 @@ mod tests {
         assert_eq!((first.op, first.id), (OP_FEED_ROUTE, video));
         assert_eq!(first.rest, [0, 1, 0, 0, 0x7a, 1]);
         let second = fake.next().await;
-        assert_eq!((second.id, second.rest.as_slice()), (audio, &[1, 9, 0, 0, 0x7b, 0][..]));
+        assert_eq!(
+            (second.id, second.rest.as_slice()),
+            (audio, &[1, 9, 0, 0, 0x7b, 0][..])
+        );
         gst.close_feed_route(video);
         let close = fake.next().await;
         assert_eq!((close.op, close.id), (OP_FEED_CLOSE, video));
@@ -786,7 +844,8 @@ mod tests {
         assert_eq!(listen.op, OP_LISTEN);
         assert_eq!(&listen.rest[..5], &[1, 0, 0, 0x7a, 0]);
         assert_eq!(&listen.rest[5..], &[7; 32]);
-        fake.reply(REPLY_PORT, listen.id, &7100u16.to_le_bytes()).await;
+        fake.reply(REPLY_PORT, listen.id, &7100u16.to_le_bytes())
+            .await;
         assert_eq!(open.await.unwrap(), (7100, listen.id));
     }
 
@@ -811,23 +870,43 @@ mod tests {
             async move { gst.open_audio(&[1; 32], &opts).await }
         });
         let req = fake.next().await;
-        assert_eq!(&req.rest[..12], &[1, 100, 0x80, 0xbb, 0, 0, 1, 0xe8, 3, 0, 0, 1]);
+        assert_eq!(
+            &req.rest[..12],
+            &[1, 100, 0x80, 0xbb, 0, 0, 1, 0xe8, 3, 0, 0, 1]
+        );
         assert_eq!(&req.rest[44..], b"sink");
-        fake.reply(REPLY_AUDIO_PORTS, req.id, &[0x10, 0x27, 0x11, 0x27]).await;
+        fake.reply(REPLY_AUDIO_PORTS, req.id, &[0x10, 0x27, 0x11, 0x27])
+            .await;
         assert_eq!(open.await.unwrap(), (req.id, 10000, 10001));
 
-        fake.reply(REPLY_CONFIG, 0x7a00_0001, &[1, 0xaa, 0xbb]).await;
-        fake.reply(REPLY_AUDIO_STARTED, req.id, &5u32.to_le_bytes()).await;
-        fake.reply(REPLY_AUDIO_DELAY, req.id, &120u32.to_le_bytes()).await;
+        fake.reply(REPLY_CONFIG, 0x7a00_0001, &[1, 0xaa, 0xbb])
+            .await;
+        fake.reply(REPLY_AUDIO_STARTED, req.id, &5u32.to_le_bytes())
+            .await;
+        fake.reply(REPLY_AUDIO_DELAY, req.id, &120u32.to_le_bytes())
+            .await;
         assert_eq!(
             events.recv().await.unwrap(),
-            HostEvent::Config { plane: 0x7a00_0001, codec: Codec::H265, atom: vec![0xaa, 0xbb] }
+            HostEvent::Config {
+                plane: 0x7a00_0001,
+                codec: Codec::H265,
+                atom: vec![0xaa, 0xbb]
+            }
         );
         assert_eq!(
             events.recv().await.unwrap(),
-            HostEvent::AudioStarted { stream: req.id, first_sample: 5 }
+            HostEvent::AudioStarted {
+                stream: req.id,
+                first_sample: 5
+            }
         );
-        assert_eq!(events.recv().await.unwrap(), HostEvent::AudioDelay { stream: req.id, ms: 120 });
+        assert_eq!(
+            events.recv().await.unwrap(),
+            HostEvent::AudioDelay {
+                stream: req.id,
+                ms: 120
+            }
+        );
     }
 
     #[tokio::test]

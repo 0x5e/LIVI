@@ -1,7 +1,3 @@
-//! iPhone -> Mac control transport through the system daemon, without claiming USB
-//! interfaces or changing configurations. `open` hands the live carkit stream to
-//! iAP2; `probe` only checks that it opens. Neither authenticates a CarPlay accessory.
-
 use std::future::Future;
 use std::time::Duration;
 
@@ -50,11 +46,13 @@ async fn step<T>(
             };
             Err(ProbeError { stage, detail })
         }
-        Err(_) => Err(ProbeError { stage, detail: "timed out after 5 seconds".into() }),
+        Err(_) => Err(ProbeError {
+            stage,
+            detail: "timed out after 5 seconds".into(),
+        }),
     }
 }
 
-/// Always the local system socket, ignoring remote USB/dongle environment overrides.
 pub async fn devices() -> Result<Vec<UsbmuxdDevice>, ProbeError> {
     let mut mux = step(Stage::Discovery, UsbmuxdAddr::default().connect(0)).await?;
     let devices = step(Stage::Discovery, mux.get_devices()).await?;
@@ -62,17 +60,16 @@ pub async fn devices() -> Result<Vec<UsbmuxdDevice>, ProbeError> {
 }
 
 fn usb_only(devices: Vec<UsbmuxdDevice>) -> Vec<UsbmuxdDevice> {
-    devices.into_iter().filter(|d| d.connection_type == Connection::Usb).collect()
+    devices
+        .into_iter()
+        .filter(|d| d.connection_type == Connection::Usb)
+        .collect()
 }
 
-/// Use the existing macOS trust record in memory, without copying or rewriting it.
-/// The caller should ask the user to trust the Mac in Finder if it is unavailable.
 pub async fn probe(device: &UsbmuxdDevice) -> Result<(), ProbeError> {
     open(device).await.map(drop)
 }
 
-/// Keeps the carkit stream alive for the caller's iAP2 session. Dropping it closes the USB
-/// tunnel. The macOS pairing record stays owned by the system daemon.
 pub async fn open(device: &UsbmuxdDevice) -> Result<Box<dyn idevice::ReadWrite>, ProbeError> {
     if device.connection_type != Connection::Usb {
         return Err(ProbeError {
@@ -98,10 +95,17 @@ async fn probe_provider(provider: &dyn IdeviceProvider) -> Result<(), ProbeError
 async fn open_provider(
     provider: &dyn IdeviceProvider,
 ) -> Result<Box<dyn idevice::ReadWrite>, ProbeError> {
-    let connection =
-        step(Stage::Lockdown, provider.connect(LockdownClient::LOCKDOWND_PORT)).await?;
+    let connection = step(
+        Stage::Lockdown,
+        provider.connect(LockdownClient::LOCKDOWND_PORT),
+    )
+    .await?;
     let mut lockdown = LockdownClient::new(connection);
-    let product = step(Stage::Product, lockdown.get_value(Some("ProductType"), None)).await?;
+    let product = step(
+        Stage::Product,
+        lockdown.get_value(Some("ProductType"), None),
+    )
+    .await?;
     if !product.as_string().is_some_and(|s| s.starts_with("iPhone")) {
         return Err(ProbeError {
             stage: Stage::Product,

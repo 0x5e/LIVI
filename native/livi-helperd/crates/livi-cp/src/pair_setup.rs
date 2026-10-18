@@ -1,5 +1,3 @@
-//! SRP with the fixed code, then the long-term keys traded inside an encrypted TLV.
-
 use crate::crypto::{
     chacha_open, chacha_seal, ed25519_sign, ed25519_verify, hkdf_sha512, nonce_label,
 };
@@ -42,8 +40,6 @@ impl PairSetup {
         self.complete
     }
 
-    /// A step that cannot go on answers with its own next state, a message
-    /// that does not decrypt with the state it came in.
     pub fn handle(&mut self, body: &[u8], identity: &Identity, pairings: &Pairings) -> Vec<u8> {
         let msg = tlv8::decode(body);
         let state = msg.get(&tlv::STATE).and_then(|s| s.first().copied());
@@ -80,7 +76,10 @@ impl PairSetup {
         let verified = srp.verify(a, proof).ok_or("SRP proof does not match")?;
         self.session_key = Some(verified.session_key);
         println!("[cp] pair-setup M3->M4");
-        Ok(tlv8::encode(&[(tlv::STATE, &[4]), (tlv::PROOF, &verified.server_proof)]))
+        Ok(tlv8::encode(&[
+            (tlv::STATE, &[4]),
+            (tlv::PROOF, &verified.server_proof),
+        ]))
     }
 
     fn m6(
@@ -96,14 +95,19 @@ impl PairSetup {
         let plain = chacha_open(&key, &nonce_label("PS-Msg05"), sealed, &[])
             .ok_or((5, "M5 does not authenticate".to_string()))?;
         let sub = tlv8::decode(&plain);
-        let (Some(ctrl_id), Some(ctrl_ltpk), Some(ctrl_sig)) =
-            (sub.get(&tlv::IDENTIFIER), sub.get(&tlv::PUBLIC_KEY), sub.get(&tlv::SIGNATURE))
-        else {
+        let (Some(ctrl_id), Some(ctrl_ltpk), Some(ctrl_sig)) = (
+            sub.get(&tlv::IDENTIFIER),
+            sub.get(&tlv::PUBLIC_KEY),
+            sub.get(&tlv::SIGNATURE),
+        ) else {
             return Err((6, "M5 lacks identifier, key or signature".into()));
         };
 
-        let ctrl_sign_key =
-            hkdf_sha512(k, b"Pair-Setup-Controller-Sign-Salt", b"Pair-Setup-Controller-Sign-Info");
+        let ctrl_sign_key = hkdf_sha512(
+            k,
+            b"Pair-Setup-Controller-Sign-Salt",
+            b"Pair-Setup-Controller-Sign-Info",
+        );
         let signed = [ctrl_sign_key.as_slice(), ctrl_id, ctrl_ltpk].concat();
         if !ed25519_verify(ctrl_ltpk, &signed, ctrl_sig) {
             return Err((6, "controller signature invalid".into()));
@@ -112,8 +116,11 @@ impl PairSetup {
         pairings.save(&controller, ctrl_ltpk);
 
         let acc_id = identity.pairing_id.as_bytes();
-        let acc_sign_key =
-            hkdf_sha512(k, b"Pair-Setup-Accessory-Sign-Salt", b"Pair-Setup-Accessory-Sign-Info");
+        let acc_sign_key = hkdf_sha512(
+            k,
+            b"Pair-Setup-Accessory-Sign-Salt",
+            b"Pair-Setup-Accessory-Sign-Info",
+        );
         let acc_sig = ed25519_sign(
             &identity.secret,
             &[acc_sign_key.as_slice(), acc_id, &identity.public].concat(),
@@ -126,7 +133,10 @@ impl PairSetup {
         let sealed = chacha_seal(&key, &nonce_label("PS-Msg06"), &sub, &[]);
         self.complete = true;
         println!("[cp] pair-setup M5->M6, paired with {controller}");
-        Ok(tlv8::encode(&[(tlv::STATE, &[6]), (tlv::ENCRYPTED_DATA, &sealed)]))
+        Ok(tlv8::encode(&[
+            (tlv::STATE, &[6]),
+            (tlv::ENCRYPTED_DATA, &sealed),
+        ]))
     }
 }
 
@@ -148,7 +158,11 @@ mod tests {
         let dir = TempDir::new();
         let identity = load_or_create(&dir.0.join("identity.json"));
         let pairings = Pairings::new(dir.0.join("pairings.json"));
-        Env { _dir: dir, identity, pairings }
+        Env {
+            _dir: dir,
+            identity,
+            pairings,
+        }
     }
 
     fn state_and_error(reply: &[u8]) -> (u8, Option<u8>) {
@@ -197,26 +211,47 @@ mod tests {
         let mut setup = PairSetup::new();
         let key = through_m4(&mut setup, &env, "3939").unwrap();
         let ctrl_secret = random_bytes::<32>();
-        let reply =
-            setup.handle(&m5(&key, &ctrl_secret, b"phone-1", false), &env.identity, &env.pairings);
+        let reply = setup.handle(
+            &m5(&key, &ctrl_secret, b"phone-1", false),
+            &env.identity,
+            &env.pairings,
+        );
         assert!(setup.complete());
-        assert_eq!(env.pairings.get("phone-1"), Some(ed25519_public(&ctrl_secret).to_vec()));
+        assert_eq!(
+            env.pairings.get("phone-1"),
+            Some(ed25519_public(&ctrl_secret).to_vec())
+        );
 
         let m6 = tlv8::decode(&reply);
         assert_eq!(m6[&tlv::STATE], vec![6]);
         let enc_key = hkdf_sha512(&key, b"Pair-Setup-Encrypt-Salt", b"Pair-Setup-Encrypt-Info");
         let sub = tlv8::decode(
-            &chacha_open(&enc_key, &nonce_label("PS-Msg06"), &m6[&tlv::ENCRYPTED_DATA], &[])
-                .unwrap(),
+            &chacha_open(
+                &enc_key,
+                &nonce_label("PS-Msg06"),
+                &m6[&tlv::ENCRYPTED_DATA],
+                &[],
+            )
+            .unwrap(),
         );
         assert_eq!(sub[&tlv::IDENTIFIER], env.identity.pairing_id.as_bytes());
         assert_eq!(sub[&tlv::PUBLIC_KEY], env.identity.public);
-        let sign_key =
-            hkdf_sha512(&key, b"Pair-Setup-Accessory-Sign-Salt", b"Pair-Setup-Accessory-Sign-Info");
-        let signed =
-            [sign_key.as_slice(), env.identity.pairing_id.as_bytes(), &env.identity.public]
-                .concat();
-        assert!(ed25519_verify(&env.identity.public, &signed, &sub[&tlv::SIGNATURE]));
+        let sign_key = hkdf_sha512(
+            &key,
+            b"Pair-Setup-Accessory-Sign-Salt",
+            b"Pair-Setup-Accessory-Sign-Info",
+        );
+        let signed = [
+            sign_key.as_slice(),
+            env.identity.pairing_id.as_bytes(),
+            &env.identity.public,
+        ]
+        .concat();
+        assert!(ed25519_verify(
+            &env.identity.public,
+            &signed,
+            &sub[&tlv::SIGNATURE]
+        ));
     }
 
     #[test]

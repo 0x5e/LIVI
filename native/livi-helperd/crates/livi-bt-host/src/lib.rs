@@ -1,5 +1,3 @@
-//! A Bluetooth host for the controller behind the dongle's HCI tunnel, where no BlueZ drives it.
-
 pub mod hci;
 mod host;
 pub mod keys;

@@ -13,7 +13,6 @@ pub fn to_stderr() -> Say {
     Arc::new(|line| eprintln!("{}", stamped(line)))
 }
 
-/// With the local time of day, so the line can be laid next to the core's log.
 pub fn stamped(line: &str) -> String {
     let at = gst::glib::DateTime::now_local()
         .and_then(|now| now.format("%H:%M:%S.%f"))
@@ -24,8 +23,6 @@ pub fn stamped(line: &str) -> String {
 
 static INIT: Once = Once::new();
 
-/// `LIVI_GST_DEBUG=1` stands for the decoder and sink categories the video path is usually
-/// debugged with.
 pub fn ensure_init() {
     INIT.call_once(|| {
         if gst::init().is_err() {
@@ -67,7 +64,6 @@ pub fn log_bus_messages(pipeline: &gst::Pipeline) {
     });
 }
 
-/// The phone's stream is the clock.
 pub fn force_sinks_realtime(pipeline: &gst::Pipeline) {
     for element in pipeline.iterate_recurse().into_iter().flatten() {
         if element.is::<gst_base::BaseSink>() {
@@ -78,7 +74,6 @@ pub fn force_sinks_realtime(pipeline: &gst::Pipeline) {
     }
 }
 
-/// Colorimetry the Pi 4 stateful v4l2 decoders reject, and what they accept.
 const BAD_COLORIMETRY: &str = "1:4:5:1";
 const GOOD_COLORIMETRY: &str = "1:4:7:1";
 
@@ -110,7 +105,10 @@ fn colorimetry(caps: &gst::CapsRef) -> Option<String> {
 fn decoded_caps(caps: &gst::CapsRef) -> Option<String> {
     let s = caps.structure(0)?;
     let fmt = s.get::<String>("format").unwrap_or_else(|_| "?".to_owned());
-    let drm = s.get::<String>("drm-format").map(|d| format!(" drm={d}")).unwrap_or_default();
+    let drm = s
+        .get::<String>("drm-format")
+        .map(|d| format!(" drm={d}"))
+        .unwrap_or_default();
     let w = s.get::<i32>("width").unwrap_or(0);
     let h = s.get::<i32>("height").unwrap_or(0);
     let mem = caps
@@ -123,7 +121,6 @@ fn decoded_caps(caps: &gst::CapsRef) -> Option<String> {
 
 fn install_decoder_probes(dec: &gst::Element, decoder_name: &str, say: &Say) {
     if let Some(src) = dec.static_pad("src") {
-        // A fetched stream repeats its caps with every fragment.
         let last = std::sync::Mutex::new(String::new());
         let say = say.clone();
         src.add_probe(gst::PadProbeType::EVENT_DOWNSTREAM, move |_, info| {
@@ -144,7 +141,9 @@ fn install_decoder_probes(dec: &gst::Element, decoder_name: &str, say: &Say) {
     if !NEEDS_COLORIMETRY_FIXUP.contains(&decoder_name) {
         return;
     }
-    let Some(sink) = dec.static_pad("sink") else { return };
+    let Some(sink) = dec.static_pad("sink") else {
+        return;
+    };
 
     sink.add_probe(gst::PadProbeType::QUERY_DOWNSTREAM, |pad, info| {
         let Some(gst::PadProbeData::Query(query)) = &mut info.data else {
@@ -189,7 +188,10 @@ fn install_decoder_probes(dec: &gst::Element, decoder_name: &str, say: &Say) {
             return gst::PadProbeReturn::Ok;
         }
         let mut fixed = c.caps().to_owned();
-        fixed.get_mut().unwrap().set("colorimetry", GOOD_COLORIMETRY);
+        fixed
+            .get_mut()
+            .unwrap()
+            .set("colorimetry", GOOD_COLORIMETRY);
         eprintln!(
             "[gst_video] colorimetry {BAD_COLORIMETRY} -> {GOOD_COLORIMETRY} (pi4 v4l2 decoder)"
         );
@@ -198,7 +200,6 @@ fn install_decoder_probes(dec: &gst::Element, decoder_name: &str, say: &Say) {
     });
 }
 
-// The window view entry points in gst_video_mac.mm.
 #[cfg(all(target_os = "macos", feature = "window-view"))]
 unsafe extern "C" {
     fn livi_attach_view(parent: usize, rank: i32, out_view: *mut *mut core::ffi::c_void) -> usize;
@@ -217,7 +218,6 @@ unsafe extern "C" {
 }
 
 const RANK_FRAMES: i32 = 0;
-/// A fetched video covers the projection it was started from.
 const RANK_URL: i32 = 1;
 
 #[derive(Default)]
@@ -227,7 +227,6 @@ struct WindowView {
 }
 
 impl WindowView {
-    /// Above every view of a lower rank, below the web content.
     #[cfg(all(target_os = "macos", feature = "window-view"))]
     fn attach(&self, handle: usize, rank: i32, sink: Option<&gst::Element>) {
         use gstreamer_video::prelude::VideoOverlayExtManual;
@@ -287,11 +286,12 @@ impl WindowView {
         self.view.load(core::sync::atomic::Ordering::Acquire)
     }
 
-    // Swapped out atomically, so a shared player can be stopped from any thread.
     fn remove(&self) {
         #[cfg(all(target_os = "macos", feature = "window-view"))]
         {
-            let view = self.view.swap(core::ptr::null_mut(), core::sync::atomic::Ordering::AcqRel);
+            let view = self
+                .view
+                .swap(core::ptr::null_mut(), core::sync::atomic::Ordering::AcqRel);
             if !view.is_null() {
                 unsafe { livi_remove_view(view) };
             }
@@ -311,12 +311,16 @@ impl Player {
         ensure_init();
 
         let sw_only = std::env::var_os("LIVI_GST_SWDEC").is_some();
-        let decoder = candidates(codec, sw_only).into_iter().find(|name| usable(name));
+        let decoder = candidates(codec, sw_only)
+            .into_iter()
+            .find(|name| usable(name));
         let Some(decoder) = decoder.as_deref() else {
             eprintln!(
                 "[gst_video] no decoder registered for {codec}. Install the GStreamer plugin \
                  providing it, software decoding needs gstreamer1.0-libav ({}).",
-                livi_video_codec::sw_decoder_for(codec).to_str().unwrap_or("")
+                livi_video_codec::sw_decoder_for(codec)
+                    .to_str()
+                    .unwrap_or("")
             );
             return None;
         };
@@ -324,7 +328,9 @@ impl Player {
         let with_cal = !livi_video_codec::calibration().is_empty();
         let pipeline = Self::parse(codec, decoder, with_cal, handle)?;
 
-        let appsrc = pipeline.by_name("src").and_then(|e| e.downcast::<gst_app::AppSrc>().ok());
+        let appsrc = pipeline
+            .by_name("src")
+            .and_then(|e| e.downcast::<gst_app::AppSrc>().ok());
         if let Some(src) = &appsrc
             && !codec_data.is_empty()
             && (codec == "h265" || codec == "h264")
@@ -346,7 +352,6 @@ impl Player {
 
         force_sinks_realtime(&player.pipeline);
         if let Some(dec) = player.pipeline.by_name("dec") {
-            // libavcodec 61 deadlocks in HEVC slice threading on macOS.
             if cfg!(target_os = "macos") && decoder == "avdec_h265" {
                 dec.set_property_from_str("thread-type", "frame");
                 dec.set_property("max-threads", 1i32);
@@ -362,7 +367,11 @@ impl Player {
             install_decoder_probes(&dec, decoder, &to_stderr());
         }
         log_bus_messages(&player.pipeline);
-        player.view.attach(handle, RANK_FRAMES, player.pipeline.by_name("sink").as_ref());
+        player.view.attach(
+            handle,
+            RANK_FRAMES,
+            player.pipeline.by_name("sink").as_ref(),
+        );
 
         Some(player)
     }
@@ -372,7 +381,11 @@ impl Player {
             livi_video_codec::pipeline_desc(
                 codec,
                 decoder,
-                if cal { livi_video_codec::calibration() } else { "" },
+                if cal {
+                    livi_video_codec::calibration()
+                } else {
+                    ""
+                },
                 std::env::var("LIVI_GST_SINK").ok().as_deref(),
             )
         };
@@ -380,7 +393,11 @@ impl Player {
         let desc = describe(with_cal);
         eprintln!(
             "[gst_video] window={handle:#x} codec={codec} decoder={decoder} ({}) | {desc}",
-            if livi_video_codec::is_hw_decoder(decoder) { "hw" } else { "sw" }
+            if livi_video_codec::is_hw_decoder(decoder) {
+                "hw"
+            } else {
+                "sw"
+            }
         );
 
         match gst::parse::launch(&desc) {
@@ -411,11 +428,14 @@ impl Player {
     }
 
     pub fn push(&self, data: &[u8]) -> bool {
-        let Some(src) = &self.appsrc else { return false };
+        let Some(src) = &self.appsrc else {
+            return false;
+        };
         if data.is_empty() {
             return false;
         }
-        src.push_buffer(gst::Buffer::from_slice(data.to_vec())).is_ok()
+        src.push_buffer(gst::Buffer::from_slice(data.to_vec()))
+            .is_ok()
     }
 
     pub fn set_visible(&self, visible: bool) {
@@ -431,7 +451,8 @@ impl Player {
         tier_w: f64,
         tier_h: f64,
     ) {
-        self.view.set_region(crop_l, crop_t, vis_w, vis_h, tier_w, tier_h);
+        self.view
+            .set_region(crop_l, crop_t, vis_w, vis_h, tier_w, tier_h);
     }
 
     pub fn flush(&self) {
@@ -460,11 +481,12 @@ impl Drop for Player {
     }
 }
 
-/// CarPlay ships the parameter sets once as an hvcC/avcC record and every frame
-/// as length-prefixed NALs, which is the hvc1/avc stream format.
 fn length_prefixed_caps(codec: &str, codec_data: &[u8]) -> gst::Caps {
-    let (media, stream_format) =
-        if codec == "h265" { ("video/x-h265", "hvc1") } else { ("video/x-h264", "avc") };
+    let (media, stream_format) = if codec == "h265" {
+        ("video/x-h265", "hvc1")
+    } else {
+        ("video/x-h264", "avc")
+    };
     gst::Caps::builder(media)
         .field("stream-format", stream_format)
         .field("alignment", "au")
@@ -477,12 +499,17 @@ pub fn version() -> String {
     gst::version_string().to_string()
 }
 
-/// livi-compositor hands its inner UI the node it renders on.
 fn render_gpu() -> Option<livi_video_codec::RenderGpu> {
     let node = std::env::var("LIVI_RENDER_NODE").ok()?;
-    let name = std::path::Path::new(&node).file_name()?.to_str()?.to_owned();
+    let name = std::path::Path::new(&node)
+        .file_name()?
+        .to_str()?
+        .to_owned();
     let driver = std::fs::read_link(format!("/sys/class/drm/{name}/device/driver")).ok();
-    let nvidia = driver.as_deref().and_then(|d| d.file_name()).is_some_and(|d| d == "nvidia");
+    let nvidia = driver
+        .as_deref()
+        .and_then(|d| d.file_name())
+        .is_some_and(|d| d == "nvidia");
     Some(if nvidia {
         livi_video_codec::RenderGpu::Nvidia
     } else {
@@ -501,7 +528,6 @@ fn candidates(codec: &str, sw_only: bool) -> Vec<String> {
     }
 }
 
-/// Registered, and for the unnamed VA decoder also on the compositor's node.
 fn usable(name: &str) -> bool {
     if gst::ElementFactory::find(name).is_none() {
         return false;
@@ -519,14 +545,19 @@ fn usable(name: &str) -> bool {
         || dec.property::<Option<String>>("device-path").as_deref() == Some(node.as_str())
 }
 
-/// (hardware, software)
 pub fn probe(codec: &str) -> (bool, bool) {
     ensure_init();
     let exists = |name: &str| gst::ElementFactory::find(name).is_some();
 
-    let best = candidates(codec, false).into_iter().find(|name| usable(name));
+    let best = candidates(codec, false)
+        .into_iter()
+        .find(|name| usable(name));
 
     let hw = best.as_deref().is_some_and(livi_video_codec::is_hw_decoder);
-    let sw = exists(livi_video_codec::sw_decoder_for(codec).to_str().unwrap_or(""));
+    let sw = exists(
+        livi_video_codec::sw_decoder_for(codec)
+            .to_str()
+            .unwrap_or(""),
+    );
     (hw, sw)
 }

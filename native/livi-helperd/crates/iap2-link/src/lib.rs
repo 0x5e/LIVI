@@ -99,7 +99,11 @@ impl LinkSynchronizationPayload {
             .as_chunks::<3>()
             .0
             .iter()
-            .map(|c| LspSession { id: c[0], kind: c[1], version: c[2] })
+            .map(|c| LspSession {
+                id: c[0],
+                kind: c[1],
+                version: c[2],
+            })
             .collect();
         Some(Self {
             max_outgoing: payload[1],
@@ -223,9 +227,21 @@ impl LinkEngine {
                 max_retransmissions: if z { 0 } else { 4 },
                 max_ack: if z { 0 } else { 3 },
                 sessions: vec![
-                    LspSession { id: CONTROL_SESSION_ID, kind: 0, version: cfg.control_version },
-                    LspSession { id: EA_SESSION_ID, kind: 2, version: 1 },
-                    LspSession { id: FILE_TRANSFER_SESSION_ID, kind: 1, version: 2 },
+                    LspSession {
+                        id: CONTROL_SESSION_ID,
+                        kind: 0,
+                        version: cfg.control_version,
+                    },
+                    LspSession {
+                        id: EA_SESSION_ID,
+                        kind: 2,
+                        version: 1,
+                    },
+                    LspSession {
+                        id: FILE_TRANSFER_SESSION_ID,
+                        kind: 1,
+                        version: 2,
+                    },
                 ],
             },
             max_outgoing_delta: cfg.max_outgoing_delta,
@@ -361,7 +377,9 @@ impl LinkEngine {
 
     pub fn advance_time(&mut self, now: u64) {
         loop {
-            let Some(deadline) = self.next_deadline() else { return };
+            let Some(deadline) = self.next_deadline() else {
+                return;
+            };
             if deadline > now {
                 return;
             }
@@ -391,7 +409,16 @@ impl LinkEngine {
     }
 
     pub fn send(&mut self, session_id: u8, data: Vec<u8>, now: u64) {
-        self.send_packet(Packet { psn: 0, session_id, data, counter: 0, timeout: 0 }, now);
+        self.send_packet(
+            Packet {
+                psn: 0,
+                session_id,
+                data,
+                counter: 0,
+                timeout: 0,
+            },
+            now,
+        );
     }
 
     pub fn send_ea(&mut self, stream_id: u16, data: &[u8], now: u64) {
@@ -496,7 +523,10 @@ impl LinkEngine {
             self.bailout(Some("device sent reset message".into()));
         }
         if header.control & CONTROL_SYN != 0 {
-            let Some(lsp) = payload.as_deref().and_then(LinkSynchronizationPayload::parse) else {
+            let Some(lsp) = payload
+                .as_deref()
+                .and_then(LinkSynchronizationPayload::parse)
+            else {
                 return;
             };
             self.handle_syn(lsp, header.seq);
@@ -566,7 +596,9 @@ impl LinkEngine {
         while distance(self.sent_psn, self.last_sent_acknowledged_psn)
             < self.lsp.max_outgoing as u16
         {
-            let Some(p) = self.queued_packets.pop_front() else { break };
+            let Some(p) = self.queued_packets.pop_front() else {
+                break;
+            };
             self.send_packet(p, now);
             self.set_writable(true);
         }
@@ -676,7 +708,10 @@ impl LinkEngine {
             CONTROL_SESSION_ID => self.events.push_back(Event::Control(p.data)),
             EA_SESSION_ID if p.data.len() >= 2 => {
                 let stream_id = u16::from_be_bytes([p.data[0], p.data[1]]);
-                self.events.push_back(Event::Ea { stream_id, data: p.data[2..].to_vec() });
+                self.events.push_back(Event::Ea {
+                    stream_id,
+                    data: p.data[2..].to_vec(),
+                });
             }
             FILE_TRANSFER_SESSION_ID => self.events.push_back(Event::FileTransfer(p.data)),
             _ => {}

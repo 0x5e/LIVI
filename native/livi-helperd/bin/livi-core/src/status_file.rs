@@ -1,5 +1,3 @@
-//! What state/status.json says.
-
 use livi_core_proto::state::Protocol;
 use livi_cp::stack::AudioKind;
 use serde::Serialize;
@@ -63,7 +61,6 @@ struct Ui {
     path: String,
 }
 
-/// The field order is part of the file format.
 #[derive(Serialize)]
 #[serde(rename_all = "camelCase")]
 pub struct Payload {
@@ -82,16 +79,26 @@ pub fn payload(path: &str, active: Option<Protocol>, a: Activity) -> Payload {
         None => (None, None),
     };
     Payload {
-        ui: Ui { path: path.to_string() },
-        projection: Projection { active: protocol, streaming: active.is_some(), phone_type },
+        ui: Ui {
+            path: path.to_string(),
+        },
+        projection: Projection {
+            active: protocol,
+            streaming: active.is_some(),
+            phone_type,
+        },
         audio: Audio {
             media: Playing { playing: a.media },
             speech: Playing { playing: a.speech },
             system: Playing { playing: a.system },
         },
         phone: Active { active: a.phone },
-        voice_assistant: Active { active: a.voice_assistant },
-        nav: Nav { announcing: a.nav_announcing },
+        voice_assistant: Active {
+            active: a.voice_assistant,
+        },
+        nav: Nav {
+            announcing: a.nav_announcing,
+        },
     }
 }
 
@@ -129,7 +136,17 @@ mod tests {
             .filter(|l| l.starts_with("  \"") && l.ends_with('{'))
             .map(|l| l.trim().split('"').nth(1).unwrap())
             .collect();
-        assert_eq!(keys, ["ui", "projection", "audio", "phone", "voiceAssistant", "nav"]);
+        assert_eq!(
+            keys,
+            [
+                "ui",
+                "projection",
+                "audio",
+                "phone",
+                "voiceAssistant",
+                "nav"
+            ]
+        );
     }
 
     #[test]

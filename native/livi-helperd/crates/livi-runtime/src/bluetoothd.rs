@@ -1,6 +1,3 @@
-// bluetoothd host setup: --noplugin=sap,midi (sap squats RFCOMM channel 8, the AA slot;
-// BLE MIDI takes a 128-bit UUID slot in the CarPlay EIR) and the car-kit device class.
-
 const BT_CLASS: &str = "0x200418";
 
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
@@ -34,7 +31,9 @@ fn is_class_line(line: &str) -> bool {
 fn is_livis_class(line: &str) -> bool {
     !line.trim().starts_with('#')
         && is_class_line(line)
-        && line.split_once('=').is_some_and(|(_, v)| v.trim().eq_ignore_ascii_case(BT_CLASS))
+        && line
+            .split_once('=')
+            .is_some_and(|(_, v)| v.trim().eq_ignore_ascii_case(BT_CLASS))
 }
 
 pub fn class_line(conf: &str) -> Option<String> {
@@ -195,7 +194,9 @@ mod linux {
             return false;
         };
         if !Path::new(CLASS_BEFORE).exists() {
-            let before = class_line(&original).filter(|l| !is_livis_class(l)).unwrap_or_default();
+            let before = class_line(&original)
+                .filter(|l| !is_livis_class(l))
+                .unwrap_or_default();
             let _ = std::fs::create_dir_all("/var/lib/livi");
             if let Err(e) = std::fs::write(CLASS_BEFORE, before) {
                 eprintln!("[helperd] could not write {CLASS_BEFORE}, the class stays: {e}");
@@ -213,7 +214,10 @@ mod linux {
             Err(_) if dropin_was_ours => None,
             Err(_) => return false,
         };
-        let original = before.as_deref().map(str::trim_end).filter(|l| !l.is_empty());
+        let original = before
+            .as_deref()
+            .map(str::trim_end)
+            .filter(|l| !l.is_empty());
         let changed = write_main_conf(&current, without_class(&current, original));
         let _ = std::fs::remove_file(CLASS_BEFORE);
         changed
@@ -232,7 +236,11 @@ mod linux {
             println!(
                 "[helperd] restarting bluetoothd (--noplugin={}, class {})",
                 plugins.join(","),
-                if wireless.any() { "car kit" } else { "as it was" }
+                if wireless.any() {
+                    "car kit"
+                } else {
+                    "as it was"
+                }
             );
             let _ = std::process::Command::new(crate::sys::tool("systemctl"))
                 .arg("daemon-reload")
@@ -267,13 +275,19 @@ mod tests {
     #[test]
     fn adds_class_to_an_existing_general_section() {
         let conf = "[General]\nName = x\n\n[Policy]\n";
-        assert_eq!(with_class(conf), "[General]\nName = x\n\nClass = 0x200418\n[Policy]\n");
+        assert_eq!(
+            with_class(conf),
+            "[General]\nName = x\n\nClass = 0x200418\n[Policy]\n"
+        );
     }
 
     #[test]
     fn appends_a_general_section_when_missing() {
         let conf = "[Policy]\nAutoEnable=true\n";
-        assert_eq!(with_class(conf), "[Policy]\nAutoEnable=true\n\n[General]\nClass = 0x200418\n");
+        assert_eq!(
+            with_class(conf),
+            "[Policy]\nAutoEnable=true\n\n[General]\nClass = 0x200418\n"
+        );
     }
 
     #[test]
@@ -284,7 +298,13 @@ mod tests {
 
     #[test]
     fn each_protocol_turns_off_only_the_plugin_in_its_way() {
-        let w = |carplay, android_auto| Wireless { carplay, android_auto }.disabled_plugins();
+        let w = |carplay, android_auto| {
+            Wireless {
+                carplay,
+                android_auto,
+            }
+            .disabled_plugins()
+        };
         assert!(w(false, false).is_empty());
         assert_eq!(w(true, false), ["midi"]);
         assert_eq!(w(false, true), ["sap"]);
@@ -314,7 +334,10 @@ mod tests {
     #[test]
     fn livis_class_goes_when_there_was_none() {
         let original = "[General]\nName = x\n\n[Policy]\n";
-        assert_eq!(without_class(&with_class(original), None), "[General]\nName = x\n\n[Policy]\n");
+        assert_eq!(
+            without_class(&with_class(original), None),
+            "[General]\nName = x\n\n[Policy]\n"
+        );
     }
 
     #[test]

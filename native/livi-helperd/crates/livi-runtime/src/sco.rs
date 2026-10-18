@@ -1,8 +1,3 @@
-// Call audio bridge, CVSD = raw PCM s16le 8kHz. On Linux it accepts the phone's SCO connection
-// itself, on the Mac our own host hands it over as a datagram socket. The caller's samples go
-// straight into the pipeline's feed as audio records, the microphone comes back from the
-// pipeline's tap over MIC_SOCK. The main process only says which feed and stream id to use.
-
 use std::collections::VecDeque;
 use std::io::{Read, Write};
 use std::os::unix::net::{UnixListener, UnixStream};
@@ -10,12 +5,9 @@ use std::sync::{Arc, Mutex};
 
 use livi_host_proto::feed::{self as feedproto, Framer};
 
-/// Where the main process's microphone tap connects for a call.
 pub const MIC_SOCK: &str = "/tmp/aa-sco.mic";
-/// Microphone samples waiting for their SCO frame, beyond that the oldest go.
 const MIC_BACKLOG: usize = 8000 * 2;
 
-/// The feed path and stream id the call audio goes to, set by the main process.
 #[derive(Clone, Default)]
 pub struct ScoSink(Arc<Mutex<Option<(String, u32)>>>);
 
@@ -32,12 +24,14 @@ impl ScoSink {
 pub fn mic_socket() -> std::io::Result<UnixListener> {
     let _ = std::fs::remove_file(MIC_SOCK);
     let mic = UnixListener::bind(MIC_SOCK)?;
-    std::fs::set_permissions(MIC_SOCK, std::os::unix::fs::PermissionsExt::from_mode(0o666))?;
+    std::fs::set_permissions(
+        MIC_SOCK,
+        std::os::unix::fs::PermissionsExt::from_mode(0o666),
+    )?;
     mic.set_nonblocking(true)?;
     Ok(mic)
 }
 
-/// The feed connection for the caller's samples, opened once the target is known.
 struct Downlink {
     target: (String, u32),
     sock: UnixStream,
@@ -46,7 +40,10 @@ struct Downlink {
 fn open_downlink(target: (String, u32)) -> Option<Downlink> {
     match UnixStream::connect(&target.0) {
         Ok(sock) => {
-            println!("[sco] call audio goes to the feed as stream 0x{:x}", target.1);
+            println!(
+                "[sco] call audio goes to the feed as stream 0x{:x}",
+                target.1
+            );
             Some(Downlink { target, sock })
         }
         Err(e) => {
@@ -79,10 +76,13 @@ impl<'a> Call<'a> {
         }
     }
 
-    /// The caller into the feed, reconnecting when the target changes.
     fn caller(&mut self, pcm: &[u8]) {
         let target = self.sink.get();
-        if self.downlink.as_ref().is_some_and(|d| Some(&d.target) != target.as_ref()) {
+        if self
+            .downlink
+            .as_ref()
+            .is_some_and(|d| Some(&d.target) != target.as_ref())
+        {
             self.downlink = None;
         }
         if self.downlink.is_none()
@@ -99,7 +99,6 @@ impl<'a> Call<'a> {
         }
     }
 
-    /// Whatever the tap delivered since the last time.
     fn listen(&mut self) {
         if let Ok((s, _)) = self.mic.accept() {
             s.set_nonblocking(true).ok();
@@ -133,7 +132,6 @@ impl<'a> Call<'a> {
         }
     }
 
-    /// Zeros where the microphone has nothing yet.
     fn fill(&mut self, up: &mut [u8]) {
         for byte in up {
             *byte = self.pending.pop_front().unwrap_or(0);
@@ -158,7 +156,6 @@ fn announce(events: &crate::livi_sock::Broadcaster, up: bool, mtu: usize) {
     }
 }
 
-/// One call from its first packet to its last.
 pub fn call(
     events: &crate::livi_sock::Broadcaster,
     link: &livi_hfp::sco::Link,
@@ -170,7 +167,6 @@ pub fn call(
     announce(events, false, link.mtu);
 }
 
-/// One frame down, one frame up per cycle, the SCO read paces the uplink.
 fn bridge(link: &livi_hfp::sco::Link, mic: &UnixListener, sink: &ScoSink) {
     let mut call = Call::new(sink, mic);
     let mut down = [0u8; livi_hfp::sco::MAX_PACKET];

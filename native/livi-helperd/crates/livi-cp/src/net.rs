@@ -1,5 +1,3 @@
-//! CarPlay over Wi-Fi comes in on IPv6 link-local, over the cable on IPv4.
-
 use std::io;
 use std::net::{Ipv6Addr, SocketAddr, SocketAddrV6};
 
@@ -24,7 +22,6 @@ pub fn udp_socket() -> io::Result<UdpSocket> {
     UdpSocket::from_std(any(Type::DGRAM, Protocol::UDP)?.into())
 }
 
-/// The dual-stack sockets only send to IPv4 peers mapped into IPv6.
 pub fn v6(addr: SocketAddr) -> SocketAddr {
     match addr {
         SocketAddr::V4(a) => {
@@ -56,7 +53,6 @@ pub fn host_of(addr: &SocketAddr) -> String {
     }
 }
 
-/// The host to send to: a link-local address keeps its interface, `fe80::2%3`.
 pub fn route_of(addr: &SocketAddr) -> String {
     match addr {
         SocketAddr::V6(a) if a.scope_id() != 0 && a.ip().to_ipv4_mapped().is_none() => {
@@ -105,7 +101,9 @@ mod tests {
         let tcp = tcp_listener().unwrap();
         let port = local_port(tcp.local_addr());
         assert!(port > 0);
-        tokio::net::TcpStream::connect(("127.0.0.1", port)).await.unwrap();
+        tokio::net::TcpStream::connect(("127.0.0.1", port))
+            .await
+            .unwrap();
         let udp = udp_socket().unwrap();
         assert!(local_port(udp.local_addr()) > 0);
         assert_eq!(local_port(Err(io::Error::other("x"))), 0);

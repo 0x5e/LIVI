@@ -1,6 +1,3 @@
-//! The vendor firmware exists only on the device, so the install reads all of it off before it
-//! writes anything.
-
 use std::io::Read;
 use std::net::TcpStream;
 use std::path::{Path, PathBuf};
@@ -11,7 +8,6 @@ use sha2::{Digest, Sha256};
 
 use super::shell::{PUSH_PORT, Shell};
 
-/// Read timeout per 64 KiB slice, the link does about 1 MB/s.
 const READ_SLICE: Duration = Duration::from_secs(30);
 const HASH_TIMEOUT: Duration = Duration::from_secs(240);
 
@@ -22,19 +18,19 @@ pub struct Partition {
     pub bytes: u64,
 }
 
-/// Partitions go by name, as the numbering differs between dongle generations.
 pub fn partitions(sh: &Shell) -> Result<Vec<Partition>, String> {
     let out = sh.sh("cat /proc/mtd")?;
     let mut parts = Vec::new();
     for line in out.lines().skip(1) {
-        // mtd2: 00c80000 00010000 "rootfs"
         let mut fields = line.split_whitespace();
         let (Some(dev), Some(size), Some(_erase), Some(name)) =
             (fields.next(), fields.next(), fields.next(), fields.next())
         else {
             continue;
         };
-        let Ok(bytes) = u64::from_str_radix(size, 16) else { continue };
+        let Ok(bytes) = u64::from_str_radix(size, 16) else {
+            continue;
+        };
         parts.push(Partition {
             name: name.trim_matches('"').to_string(),
             device: format!("/dev/{}", dev.trim_end_matches(':')),
@@ -47,7 +43,6 @@ pub fn partitions(sh: &Shell) -> Result<Vec<Partition>, String> {
     Ok(parts)
 }
 
-/// The dongle's own hash keeps a truncated read from passing as a backup.
 pub fn pull(sh: &Shell, part: &Partition, progress: &dyn Fn(&str)) -> Result<Vec<u8>, String> {
     let port = PUSH_PORT;
     sh.sh(&format!(
@@ -60,7 +55,9 @@ pub fn pull(sh: &Shell, part: &Partition, progress: &dyn Fn(&str)) -> Result<Vec
     let addr = sh.socket_addr(port)?;
     let mut stream = TcpStream::connect_timeout(&addr, Duration::from_secs(8))
         .map_err(|e| format!("connect {}:{port}: {e}", sh.host()))?;
-    stream.set_read_timeout(Some(READ_SLICE)).map_err(|e| e.to_string())?;
+    stream
+        .set_read_timeout(Some(READ_SLICE))
+        .map_err(|e| e.to_string())?;
 
     let mut image = Vec::with_capacity(part.bytes as usize);
     let mut buf = vec![0u8; 65536];
@@ -76,7 +73,12 @@ pub fn pull(sh: &Shell, part: &Partition, progress: &dyn Fn(&str)) -> Result<Vec
         }
     }
     if image.len() as u64 != part.bytes {
-        return Err(format!("{}: read {} of {} bytes", part.name, image.len(), part.bytes));
+        return Err(format!(
+            "{}: read {} of {} bytes",
+            part.name,
+            image.len(),
+            part.bytes
+        ));
     }
     progress(&format!(
         "read {} ({} bytes in {:.0}s), verifying",
@@ -89,16 +91,33 @@ pub fn pull(sh: &Shell, part: &Partition, progress: &dyn Fn(&str)) -> Result<Vec
     let there = sh.run(&format!("sha256sum {}", part.device), HASH_TIMEOUT)?;
     let there = there.split_whitespace().next().unwrap_or("");
     if there != here {
-        return Err(format!("{}: dongle says {there}, we read {here}", part.name));
+        return Err(format!(
+            "{}: dongle says {there}, we read {here}",
+            part.name
+        ));
     }
     Ok(image)
 }
 
 pub fn backup(sh: &Shell, root: &Path, progress: &dyn Fn(&str)) -> Result<PathBuf, String> {
-    let model = sh.sh("cat /etc/box_product_type 2>/dev/null")?.trim().to_string();
-    let firmware = sh.sh("cat /etc/software_version 2>/dev/null")?.trim().to_string();
-    let model = if model.is_empty() { "dongle".to_string() } else { model };
-    let firmware = if firmware.is_empty() { "unknown".to_string() } else { firmware };
+    let model = sh
+        .sh("cat /etc/box_product_type 2>/dev/null")?
+        .trim()
+        .to_string();
+    let firmware = sh
+        .sh("cat /etc/software_version 2>/dev/null")?
+        .trim()
+        .to_string();
+    let model = if model.is_empty() {
+        "dongle".to_string()
+    } else {
+        model
+    };
+    let firmware = if firmware.is_empty() {
+        "unknown".to_string()
+    } else {
+        firmware
+    };
 
     let state = match super::running(sh) {
         Ok(super::Running::Vendor) | Err(_) => "stock",
@@ -135,7 +154,10 @@ pub fn backup(sh: &Shell, root: &Path, progress: &dyn Fn(&str)) -> Result<PathBu
 }
 
 pub fn sha256_hex(data: &[u8]) -> String {
-    Sha256::digest(data).iter().map(|b| format!("{b:02x}")).collect()
+    Sha256::digest(data)
+        .iter()
+        .map(|b| format!("{b:02x}"))
+        .collect()
 }
 
 pub(crate) fn stamp() -> String {

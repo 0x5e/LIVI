@@ -70,14 +70,18 @@ pub struct MainPlane {
 impl MainPlane {
     pub fn new(gst: GstHost, comp: CompositorControl) -> Arc<Self> {
         let (created, _) = broadcast::channel(8);
-        Arc::new(Self { gst, comp, state: Mutex::new(State::default()), created })
+        Arc::new(Self {
+            gst,
+            comp,
+            state: Mutex::new(State::default()),
+            created,
+        })
     }
 
     fn state(&self) -> MutexGuard<'_, State> {
         self.state.lock().unwrap_or_else(|e| e.into_inner())
     }
 
-    /// A new player needs a keyframe from the phone.
     pub fn player_created(&self) -> broadcast::Receiver<()> {
         self.created.subscribe()
     }
@@ -123,7 +127,9 @@ impl MainPlane {
             tier_w: 0.0,
             tier_h: 0.0,
         });
-        self.comp.videocfg(TAG, SCREEN, c.crop_l, c.crop_t, c.vis_w, c.vis_h, c.tier_w, c.tier_h);
+        self.comp.videocfg(
+            TAG, SCREEN, c.crop_l, c.crop_t, c.vis_w, c.vis_h, c.tier_w, c.tier_h,
+        );
     }
 
     pub fn set_visible(&self, visible: bool) {
@@ -145,8 +151,6 @@ impl MainPlane {
     }
 }
 
-/// A plane of its own above the main one, so video LIVI fetches itself never touches the
-/// projection's player and its decoder.
 pub struct VideoPlane {
     gst: GstHost,
     comp: CompositorControl,
@@ -156,22 +160,26 @@ pub struct VideoPlane {
 
 impl VideoPlane {
     pub fn new(gst: GstHost, comp: CompositorControl) -> Arc<Self> {
-        Arc::new(Self { gst, comp, stops: AtomicU64::new(0), shown: AtomicBool::new(true) })
+        Arc::new(Self {
+            gst,
+            comp,
+            stops: AtomicU64::new(0),
+            shown: AtomicBool::new(true),
+        })
     }
 
-    /// Taken when a play is handed to a task, a stop before it gets going cancels it.
     pub fn turn(&self) -> u64 {
         self.stops.load(Ordering::SeqCst)
     }
 
-    /// The plane takes the whole main screen, the sink keeps the picture's shape. False when a
-    /// stop came first.
     pub async fn play(&self, turn: u64, url: &str, audio_device: &str) -> bool {
         if self.turn() != turn {
             return false;
         }
-        self.comp.videocfg(VIDEO_TAG, SCREEN, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0);
-        self.comp.videoshow(VIDEO_TAG, self.shown.load(Ordering::SeqCst));
+        self.comp
+            .videocfg(VIDEO_TAG, SCREEN, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0);
+        self.comp
+            .videoshow(VIDEO_TAG, self.shown.load(Ordering::SeqCst));
         self.comp.claim(VIDEO_TAG).await;
         if self.turn() != turn {
             return false;
@@ -180,7 +188,6 @@ impl VideoPlane {
         true
     }
 
-    /// 0 pauses.
     pub fn set_rate(&self, rate: f64) {
         self.gst.set_play_rate(PLANE_VIDEO, rate);
     }
@@ -206,7 +213,6 @@ impl VideoPlane {
     }
 }
 
-/// In the order of the cluster plane ids.
 const CLUSTER_SCREENS: [&str; 3] = SCREENS;
 
 fn cluster_tag(i: usize) -> String {
@@ -233,7 +239,6 @@ struct ClusterState {
     slots: [Slot; 3],
 }
 
-/// gst-host feeds every cluster plane from the one cluster receiver.
 pub struct ClusterPlanes {
     gst: GstHost,
     comp: CompositorControl,
@@ -244,14 +249,18 @@ pub struct ClusterPlanes {
 impl ClusterPlanes {
     pub fn new(gst: GstHost, comp: CompositorControl) -> Arc<Self> {
         let (created, _) = broadcast::channel(8);
-        Arc::new(Self { gst, comp, state: Mutex::new(ClusterState::default()), created })
+        Arc::new(Self {
+            gst,
+            comp,
+            state: Mutex::new(ClusterState::default()),
+            created,
+        })
     }
 
     fn state(&self) -> MutexGuard<'_, ClusterState> {
         self.state.lock().unwrap_or_else(|e| e.into_inner())
     }
 
-    /// A new player needs a keyframe from the phone.
     pub fn player_created(&self) -> broadcast::Receiver<()> {
         self.created.subscribe()
     }
@@ -272,7 +281,6 @@ impl ClusterPlanes {
         }
     }
 
-    /// Indexed main, dash, aux.
     pub fn show_on(self: &Arc<Self>, shown: [bool; 3]) {
         for (i, on) in shown.into_iter().enumerate() {
             let was = std::mem::replace(&mut self.state().slots[i].shown, on);
@@ -288,14 +296,15 @@ impl ClusterPlanes {
         let started: Vec<usize> = {
             let mut st = self.state();
             st.crop = crop;
-            (0..CLUSTER_SCREENS.len()).filter(|&i| st.slots[i].started).collect()
+            (0..CLUSTER_SCREENS.len())
+                .filter(|&i| st.slots[i].started)
+                .collect()
         };
         for i in started {
             self.place(i, crop);
         }
     }
 
-    /// Which screens show the cluster stays set.
     pub fn dispose(&self) {
         self.state().codec = None;
         for i in 0..CLUSTER_SCREENS.len() {
@@ -387,7 +396,10 @@ mod tests {
     #[test]
     fn carplay_streams_at_the_display_size_need_no_crop() {
         let c = crop_for((1280, 720), (1280, 720)).unwrap();
-        assert_eq!((c.crop_l, c.crop_t, c.vis_w, c.vis_h), (0.0, 0.0, 1280.0, 720.0));
+        assert_eq!(
+            (c.crop_l, c.crop_t, c.vis_w, c.vis_h),
+            (0.0, 0.0, 1280.0, 720.0)
+        );
         assert_eq!(crop_for((0, 720), (1280, 720)), None);
     }
 
@@ -402,10 +414,19 @@ mod tests {
 
     #[test]
     fn only_the_same_stream_keeps_the_running_player() {
-        assert!(same_stream(Some(Codec::H265), &[1, 2], Codec::H265, &[1, 2]));
-        // CarPlay hands its parameter sets over, Android Auto sends them in the stream.
+        assert!(same_stream(
+            Some(Codec::H265),
+            &[1, 2],
+            Codec::H265,
+            &[1, 2]
+        ));
         assert!(!same_stream(Some(Codec::H265), &[1, 2], Codec::H265, &[]));
-        assert!(!same_stream(Some(Codec::H265), &[1, 2], Codec::H265, &[3, 4]));
+        assert!(!same_stream(
+            Some(Codec::H265),
+            &[1, 2],
+            Codec::H265,
+            &[3, 4]
+        ));
         assert!(!same_stream(Some(Codec::H264), &[], Codec::H265, &[]));
         assert!(!same_stream(None, &[], Codec::H265, &[]));
     }
@@ -421,7 +442,10 @@ mod tests {
         plane.set_visible(true);
         plane.prepare(Codec::H264, vec![1, 2]);
         plane.prepare(Codec::H264, vec![1, 2]);
-        tokio::time::timeout(Duration::from_secs(5), created.recv()).await.unwrap().unwrap();
+        tokio::time::timeout(Duration::from_secs(5), created.recv())
+            .await
+            .unwrap()
+            .unwrap();
 
         let (ctrl, _) = tokio::time::timeout(Duration::from_secs(5), comp_listener.accept())
             .await
@@ -492,7 +516,10 @@ mod tests {
         planes.show_on([false, true, false]);
         planes.set_crop(None);
         planes.prepare(Codec::H264, vec![7]);
-        tokio::time::timeout(Duration::from_secs(5), created.recv()).await.unwrap().unwrap();
+        tokio::time::timeout(Duration::from_secs(5), created.recv())
+            .await
+            .unwrap()
+            .unwrap();
 
         let (ctrl, _) = tokio::time::timeout(Duration::from_secs(5), comp_listener.accept())
             .await
@@ -513,7 +540,6 @@ mod tests {
         assert_eq!((msg.op, msg.id), (1, CLUSTER_PLANE_MIN + 1));
 
         planes.show_on([false, false, false]);
-        // This compositor never confirms, so the open claim is dropped too.
         let mut after = Vec::new();
         while !after.contains(&"videoshow cluster-cluster 0".to_string()) {
             after.push(next_line(&mut lines).await);
@@ -532,7 +558,11 @@ mod tests {
         let gst = GstHost::new(dir.0.join("gst.sock"));
         let plane = VideoPlane::new(gst.clone(), CompositorControl::connect(dir.0.join("ctrl")));
 
-        assert!(plane.play(plane.turn(), "http://127.0.0.1:9/i.m3u8", "car").await);
+        assert!(
+            plane
+                .play(plane.turn(), "http://127.0.0.1:9/i.m3u8", "car")
+                .await
+        );
         let (ctrl, _) = tokio::time::timeout(Duration::from_secs(5), comp_listener.accept())
             .await
             .unwrap()
@@ -575,9 +605,16 @@ mod tests {
 
         let turn = plane.turn();
         plane.stop();
-        assert!(!plane.play(turn, "http://127.0.0.1:9/i.m3u8", "car").await, "stopped first");
+        assert!(
+            !plane.play(turn, "http://127.0.0.1:9/i.m3u8", "car").await,
+            "stopped first"
+        );
         let msg = next_msg(&mut host, &mut framer).await;
-        assert_eq!((msg.op, msg.id), (3, PLANE_VIDEO), "no play behind the stop");
+        assert_eq!(
+            (msg.op, msg.id),
+            (3, PLANE_VIDEO),
+            "no play behind the stop"
+        );
     }
 
     #[tokio::test]
@@ -593,14 +630,21 @@ mod tests {
             .unwrap();
         let mut lines = BufReader::new(ctrl).lines();
         plane.set_shown(false);
-        assert!(plane.play(plane.turn(), "http://127.0.0.1:9/i.m3u8", "").await);
+        assert!(
+            plane
+                .play(plane.turn(), "http://127.0.0.1:9/i.m3u8", "")
+                .await
+        );
         plane.set_shown(true);
         let mut seen = Vec::new();
         while !seen.contains(&"videoshow video 1".to_string()) {
             seen.push(next_line(&mut lines).await);
         }
-        let shows: Vec<&str> =
-            seen.iter().map(String::as_str).filter(|l| l.starts_with("videoshow")).collect();
+        let shows: Vec<&str> = seen
+            .iter()
+            .map(String::as_str)
+            .filter(|l| l.starts_with("videoshow"))
+            .collect();
         let (last, before) = shows.split_last().unwrap();
         assert_eq!(*last, "videoshow video 1");
         assert!(!before.is_empty() && before.iter().all(|l| *l == "videoshow video 0"));

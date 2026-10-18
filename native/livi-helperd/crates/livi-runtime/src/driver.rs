@@ -103,7 +103,15 @@ async fn pump(
         engine.advance_time(now());
         pending.extend(engine.take_output());
 
-        if !drain_events(&mut engine, &mut reader, &mut ft, &in_tx, &art_tx, &mut pending, now()) {
+        if !drain_events(
+            &mut engine,
+            &mut reader,
+            &mut ft,
+            &in_tx,
+            &art_tx,
+            &mut pending,
+            now(),
+        ) {
             return Ok(());
         }
     }
@@ -157,7 +165,6 @@ fn drain_events(
     engine.state() != LinkState::Dead
 }
 
-/// Split, so reads never block outgoing ACKs.
 pub fn spawn_link_stream<S>(
     stream: S,
     cfg: LinkConfig,
@@ -247,10 +254,21 @@ where
         engine.advance_time(now());
         pending.extend(engine.take_output());
 
-        let alive =
-            drain_events(&mut engine, &mut reader, &mut ft, &in_tx, &art_tx, &mut pending, now());
+        let alive = drain_events(
+            &mut engine,
+            &mut reader,
+            &mut ft,
+            &in_tx,
+            &art_tx,
+            &mut pending,
+            now(),
+        );
         if engine.state() != state {
-            println!("[link] {state:?} -> {:?} after {} ms", engine.state(), now());
+            println!(
+                "[link] {state:?} -> {:?} after {} ms",
+                engine.state(),
+                now()
+            );
             state = engine.state();
         }
         if !alive {
@@ -270,10 +288,18 @@ fn set_nonblocking(fd: RawFd) {
 
 fn read_fd(fd: RawFd, buf: &mut [u8]) -> io::Result<usize> {
     let n = unsafe { libc::read(fd, buf.as_mut_ptr() as *mut libc::c_void, buf.len()) };
-    if n < 0 { Err(io::Error::last_os_error()) } else { Ok(n as usize) }
+    if n < 0 {
+        Err(io::Error::last_os_error())
+    } else {
+        Ok(n as usize)
+    }
 }
 
 fn write_fd(fd: RawFd, buf: &[u8]) -> io::Result<usize> {
     let n = unsafe { libc::write(fd, buf.as_ptr() as *const libc::c_void, buf.len()) };
-    if n < 0 { Err(io::Error::last_os_error()) } else { Ok(n as usize) }
+    if n < 0 {
+        Err(io::Error::last_os_error())
+    } else {
+        Ok(n as usize)
+    }
 }

@@ -1,5 +1,3 @@
-// NTB16 framing (CDC NCM): ethernet frames packed into NTB blocks.
-
 pub const NTH16_SIG: u32 = 0x484D_434E;
 pub const NDP16_SIG: u32 = 0x304D_434E;
 
@@ -11,7 +9,6 @@ fn u32le(b: &[u8], off: usize) -> u32 {
     u32::from_le_bytes([b[off], b[off + 1], b[off + 2], b[off + 3]])
 }
 
-/// Extracts the ethernet frames carried in one NTB block.
 pub fn parse_ntb(ntb: &[u8]) -> Vec<Vec<u8>> {
     let mut frames = Vec::new();
     if ntb.len() < 12 || u32le(ntb, 0) != NTH16_SIG {
@@ -43,8 +40,6 @@ pub fn parse_ntb(ntb: &[u8]) -> Vec<Vec<u8>> {
     frames
 }
 
-/// Wraps one ethernet frame in an NTB block. A block that lands exactly on a USB packet
-/// boundary gets a pad byte so the transfer is not read as a short packet.
 pub fn build_ntb(frame: &[u8], seq: u16) -> Vec<u8> {
     const D_IDX: u16 = 28;
     let blen = D_IDX as usize + frame.len();
@@ -92,7 +87,6 @@ mod tests {
 
     #[test]
     fn parses_multiple_datagrams() {
-        // Two datagrams in one NDP table.
         let a = vec![1u8; 10];
         let b = vec![2u8; 20];
         let d_a = 32usize;

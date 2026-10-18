@@ -11,7 +11,6 @@ use crate::log::detail;
 use crate::media::AudioKind;
 use crate::session::{PhoneCall, SessionEvent};
 
-/// Only the fields one message carried.
 #[derive(Debug, Clone, Default, PartialEq, Eq)]
 pub struct NowPlaying {
     pub title: Option<String>,
@@ -21,7 +20,6 @@ pub struct NowPlaying {
     pub duration_ms: Option<u64>,
     pub elapsed_ms: Option<u64>,
     pub playing: Option<bool>,
-    /// JPEG or PNG as the phone sent it.
     pub artwork: Option<Vec<u8>>,
 }
 
@@ -31,7 +29,6 @@ impl NowPlaying {
     }
 }
 
-/// Every field as last told.
 #[derive(Debug, Clone, Default, PartialEq, Eq)]
 pub struct Navigation {
     pub active: Option<bool>,
@@ -41,16 +38,12 @@ pub struct Navigation {
     pub turn_side: Option<DrivingSide>,
     pub turn_angle: Option<u32>,
     pub roundabout_exit_number: Option<u32>,
-    /// Metres to the next maneuver.
     pub remain_distance: Option<u32>,
-    /// The shown distance times 1000 in `display_distance_unit`.
     pub display_distance_e3: Option<u32>,
     pub display_distance_unit: Option<u32>,
     pub destination_name: Option<String>,
     pub distance_to_destination: Option<u32>,
-    /// Seconds.
     pub time_to_destination: Option<u32>,
-    /// Arrival on the clock, "21:58".
     pub eta: Option<String>,
 }
 
@@ -67,12 +60,18 @@ impl Navigation {
         take(&mut self.maneuver_type, patch.maneuver_type);
         take(&mut self.turn_side, patch.turn_side);
         take(&mut self.turn_angle, patch.turn_angle);
-        take(&mut self.roundabout_exit_number, patch.roundabout_exit_number);
+        take(
+            &mut self.roundabout_exit_number,
+            patch.roundabout_exit_number,
+        );
         take(&mut self.remain_distance, patch.remain_distance);
         take(&mut self.display_distance_e3, patch.display_distance_e3);
         take(&mut self.display_distance_unit, patch.display_distance_unit);
         take(&mut self.destination_name, patch.destination_name);
-        take(&mut self.distance_to_destination, patch.distance_to_destination);
+        take(
+            &mut self.distance_to_destination,
+            patch.distance_to_destination,
+        );
         take(&mut self.time_to_destination, patch.time_to_destination);
         take(&mut self.eta, patch.eta);
     }
@@ -82,7 +81,6 @@ impl Navigation {
     }
 }
 
-/// Only the fields one message carried.
 #[derive(Debug, Clone, Default, PartialEq, Eq)]
 pub struct PhoneStatus {
     pub ip: String,
@@ -92,7 +90,6 @@ pub struct PhoneStatus {
     pub signal_strength: Option<u32>,
 }
 
-/// The manager adds the session id.
 #[derive(Debug, Clone, PartialEq)]
 pub enum Report {
     Connected,
@@ -109,7 +106,6 @@ pub enum Report {
         cluster: bool,
         codec: VideoCodec,
     },
-    /// `projected: false` only comes for the main screen.
     VideoFocus {
         cluster: bool,
         projected: bool,
@@ -135,10 +131,22 @@ pub enum BridgeOut {
     Report(Report),
     StartMic(&'static str),
     StopMic(&'static str),
-    VideoSink { cluster: bool, codec: VideoCodec },
+    VideoSink {
+        cluster: bool,
+        codec: VideoCodec,
+    },
     AudioSinks,
-    PrimeAudio { kind: AudioKind, sample_rate: u32, channels: u32, tag: AudioChannelType },
-    VideoStarted { cluster: bool, width: u32, height: u32 },
+    PrimeAudio {
+        kind: AudioKind,
+        sample_rate: u32,
+        channels: u32,
+        tag: AudioChannelType,
+    },
+    VideoStarted {
+        cluster: bool,
+        width: u32,
+        height: u32,
+    },
 }
 
 const GOOGLE_MAPS: &str = "Google Maps";
@@ -164,12 +172,17 @@ impl Bridge {
         self.navi_app = None;
         if self.video_focus {
             self.video_focus = false;
-            report(&mut out, Report::VideoFocus { cluster: false, projected: false });
+            report(
+                &mut out,
+                Report::VideoFocus {
+                    cluster: false,
+                    projected: false,
+                },
+            );
         }
         out
     }
 
-    /// `cfg` is the config the phone was told about.
     pub fn on_event(&mut self, event: SessionEvent, cfg: &AaConfig) -> Vec<BridgeOut> {
         let mut out = Vec::new();
         match event {
@@ -184,10 +197,28 @@ impl Bridge {
                 report(&mut out, Report::Disconnected);
             }
             SessionEvent::Error(e) => println!("[AaEventBridge] session error: {e}"),
-            SessionEvent::DeviceInfo { name, model, instance_id, ip } => {
-                report(&mut out, Report::Device { name, model, instance_id, ip });
+            SessionEvent::DeviceInfo {
+                name,
+                model,
+                instance_id,
+                ip,
+            } => {
+                report(
+                    &mut out,
+                    Report::Device {
+                        name,
+                        model,
+                        instance_id,
+                        ip,
+                    },
+                );
             }
-            SessionEvent::Battery { ip, level, critical, time_remaining_s } => {
+            SessionEvent::Battery {
+                ip,
+                level,
+                critical,
+                time_remaining_s,
+            } => {
                 report(
                     &mut out,
                     Report::Status(PhoneStatus {
@@ -212,11 +243,23 @@ impl Bridge {
             SessionEvent::Calls { calls, .. } => report(&mut out, Report::Calls(calls)),
             SessionEvent::VideoFocusProjected => {
                 self.video_focus = true;
-                report(&mut out, Report::VideoFocus { cluster: false, projected: true });
+                report(
+                    &mut out,
+                    Report::VideoFocus {
+                        cluster: false,
+                        projected: true,
+                    },
+                );
             }
             SessionEvent::ClusterVideoFocusProjected => {
                 self.cluster_focus = true;
-                report(&mut out, Report::VideoFocus { cluster: true, projected: true });
+                report(
+                    &mut out,
+                    Report::VideoFocus {
+                        cluster: true,
+                        projected: true,
+                    },
+                );
             }
             SessionEvent::VideoCodec(codec) | SessionEvent::ClusterVideoCodec(codec) => {
                 let cluster = matches!(event, SessionEvent::ClusterVideoCodec(_));
@@ -231,7 +274,13 @@ impl Bridge {
             SessionEvent::VideoStarted => {
                 if !self.video_focus {
                     self.video_focus = true;
-                    report(&mut out, Report::VideoFocus { cluster: false, projected: true });
+                    report(
+                        &mut out,
+                        Report::VideoFocus {
+                            cluster: false,
+                            projected: true,
+                        },
+                    );
                 }
                 out.push(BridgeOut::VideoStarted {
                     cluster: false,
@@ -242,17 +291,25 @@ impl Bridge {
             SessionEvent::ClusterVideoStarted => {
                 if !self.cluster_focus {
                     self.cluster_focus = true;
-                    report(&mut out, Report::VideoFocus { cluster: true, projected: true });
+                    report(
+                        &mut out,
+                        Report::VideoFocus {
+                            cluster: true,
+                            projected: true,
+                        },
+                    );
                 }
-                // Without a cluster tier the size is unknown, 0 leaves the crop alone.
                 out.push(BridgeOut::VideoStarted {
                     cluster: true,
                     width: cfg.cluster_tier_width.unwrap_or(0),
                     height: cfg.cluster_tier_height.unwrap_or(0),
                 });
             }
-            SessionEvent::AudioSetup { channel, sample_rate, channels } => {
-                // One host stream per channel, speech and system never share a decoder.
+            SessionEvent::AudioSetup {
+                channel,
+                sample_rate,
+                channels,
+            } => {
                 out.push(BridgeOut::PrimeAudio {
                     kind: AudioKind::of(channel),
                     sample_rate,
@@ -260,17 +317,33 @@ impl Bridge {
                     tag: channel,
                 });
             }
-            SessionEvent::Audio { channel, sample_rate, channels, active } => {
+            SessionEvent::Audio {
+                channel,
+                sample_rate,
+                channels,
+                active,
+            } => {
                 detail!(
                     "[AaEventBridge] audio {} {} ({sample_rate}Hz {channels}ch)",
                     channel.name(),
                     if active { "start" } else { "stop" }
                 );
-                report(&mut out, Report::Audio { stream: channel, sample_rate, channels, active });
+                report(
+                    &mut out,
+                    Report::Audio {
+                        stream: channel,
+                        sample_rate,
+                        channels,
+                        active,
+                    },
+                );
             }
             SessionEvent::AudioFocus(focus_type) => {
-                // Type 3 is a transient request that may duck.
-                let (level, duration_ms) = if focus_type == 3 { (0.2, 500) } else { (1.0, 1500) };
+                let (level, duration_ms) = if focus_type == 3 {
+                    (0.2, 500)
+                } else {
+                    (1.0, 1500)
+                };
                 detail!("[AaEventBridge] audio-focus type={focus_type} -> duck level={level}");
                 report(&mut out, Report::Duck { level, duration_ms });
             }
@@ -333,13 +406,25 @@ impl Bridge {
             }
             NavigationEvent::Stop => {
                 self.navi_active = false;
-                self.publish(out, Navigation { active: Some(false), ..Default::default() });
+                self.publish(
+                    out,
+                    Navigation {
+                        active: Some(false),
+                        ..Default::default()
+                    },
+                );
             }
             NavigationEvent::Status(state) => {
                 self.navi_active =
                     matches!(state, NavigationState::Active | NavigationState::Rerouting);
                 let active = Some(self.navi_active);
-                self.publish(out, Navigation { active, ..Default::default() });
+                self.publish(
+                    out,
+                    Navigation {
+                        active,
+                        ..Default::default()
+                    },
+                );
             }
             NavigationEvent::Turn(t) => {
                 let patch = Navigation {
@@ -443,11 +528,19 @@ mod tests {
             ..Default::default()
         };
         let out = nav(&mut b, NavigationEvent::Turn(turn));
-        let Report::Navigation(n) = &out[0] else { panic!() };
+        let Report::Navigation(n) = &out[0] else {
+            panic!()
+        };
         assert_eq!(n.maneuver_type, Some(ManeuverType::RightTurn));
         assert_eq!(n.turn_side, Some(DrivingSide::Right));
         assert_eq!(out[1], Report::NavigationImage(vec![1]));
-        assert!(nav(&mut b, NavigationEvent::Turn(NavigationTurnUpdate::default())).is_empty());
+        assert!(
+            nav(
+                &mut b,
+                NavigationEvent::Turn(NavigationTurnUpdate::default())
+            )
+            .is_empty()
+        );
         let out = nav(
             &mut b,
             NavigationEvent::Distance(NavigationDistanceUpdate {
@@ -455,8 +548,13 @@ mod tests {
                 ..Default::default()
             }),
         );
-        let Report::Navigation(n) = &out[0] else { panic!() };
-        assert_eq!((n.remain_distance, n.road_name.as_deref()), (Some(80), Some("A9")));
+        let Report::Navigation(n) = &out[0] else {
+            panic!()
+        };
+        assert_eq!(
+            (n.remain_distance, n.road_name.as_deref()),
+            (Some(80), Some("A9"))
+        );
         let out = nav(
             &mut b,
             NavigationEvent::State(NavigationStateUpdate {
@@ -465,30 +563,58 @@ mod tests {
                 ..Default::default()
             }),
         );
-        let Report::Navigation(n) = &out[0] else { panic!() };
+        let Report::Navigation(n) = &out[0] else {
+            panic!()
+        };
         assert_eq!(n.maneuver_type, Some(ManeuverType::ArrivedLeft));
         assert_eq!(n.road_name.as_deref(), Some("A9"));
-        assert!(nav(&mut b, NavigationEvent::State(NavigationStateUpdate::default())).is_empty());
         assert!(
-            nav(&mut b, NavigationEvent::Position(NavigationPositionUpdate::default())).is_empty()
+            nav(
+                &mut b,
+                NavigationEvent::State(NavigationStateUpdate::default())
+            )
+            .is_empty()
+        );
+        assert!(
+            nav(
+                &mut b,
+                NavigationEvent::Position(NavigationPositionUpdate::default())
+            )
+            .is_empty()
         );
         let out = nav(&mut b, NavigationEvent::Status(NavigationState::Rerouting));
-        let Report::Navigation(n) = &out[0] else { panic!() };
+        let Report::Navigation(n) = &out[0] else {
+            panic!()
+        };
         assert_eq!(n.active, Some(true));
         let out = nav(&mut b, NavigationEvent::Stop);
-        let Report::Navigation(n) = &out[0] else { panic!() };
-        assert_eq!((n.active, n.app_name.as_deref()), (Some(false), Some("Google Maps")));
+        let Report::Navigation(n) = &out[0] else {
+            panic!()
+        };
+        assert_eq!(
+            (n.active, n.app_name.as_deref()),
+            (Some(false), Some("Google Maps"))
+        );
 
         b.on_event(SessionEvent::VideoFocusProjected, &cfg);
         let out = reports(b.on_event(SessionEvent::Disconnected("x".into()), &cfg));
         assert_eq!(
             out,
-            [Report::VideoFocus { cluster: false, projected: false }, Report::Disconnected]
+            [
+                Report::VideoFocus {
+                    cluster: false,
+                    projected: false
+                },
+                Report::Disconnected
+            ]
         );
         let out = nav(&mut b, NavigationEvent::Stop);
         assert_eq!(
             out,
-            [Report::Navigation(Navigation { active: Some(false), ..Default::default() })]
+            [Report::Navigation(Navigation {
+                active: Some(false),
+                ..Default::default()
+            })]
         );
     }
 
@@ -504,23 +630,49 @@ mod tests {
         assert_eq!(
             out,
             [
-                BridgeOut::Report(Report::VideoFocus { cluster: false, projected: true }),
-                BridgeOut::VideoStarted { cluster: false, width: 1280, height: 720 },
+                BridgeOut::Report(Report::VideoFocus {
+                    cluster: false,
+                    projected: true
+                }),
+                BridgeOut::VideoStarted {
+                    cluster: false,
+                    width: 1280,
+                    height: 720
+                },
             ]
         );
         assert_eq!(b.on_event(SessionEvent::VideoStarted, &cfg).len(), 1);
         let out = b.on_event(SessionEvent::ClusterVideoStarted, &cfg);
-        assert_eq!(out[1], BridgeOut::VideoStarted { cluster: true, width: 800, height: 480 });
+        assert_eq!(
+            out[1],
+            BridgeOut::VideoStarted {
+                cluster: true,
+                width: 800,
+                height: 480
+            }
+        );
         assert_eq!(
             reports(b.on_event(SessionEvent::AudioFocus(3), &cfg)),
-            [Report::Duck { level: 0.2, duration_ms: 500 }]
+            [Report::Duck {
+                level: 0.2,
+                duration_ms: 500
+            }]
         );
         assert_eq!(
             reports(b.on_event(SessionEvent::AudioFocus(1), &cfg)),
-            [Report::Duck { level: 1.0, duration_ms: 1500 }]
+            [Report::Duck {
+                level: 1.0,
+                duration_ms: 1500
+            }]
         );
-        let meta = MediaPlaybackMetadata { album_art: Some(Vec::new()), ..Default::default() };
-        assert!(b.on_event(SessionEvent::MediaMetadata(meta), &cfg).is_empty());
+        let meta = MediaPlaybackMetadata {
+            album_art: Some(Vec::new()),
+            ..Default::default()
+        };
+        assert!(
+            b.on_event(SessionEvent::MediaMetadata(meta), &cfg)
+                .is_empty()
+        );
         let meta = MediaPlaybackMetadata {
             song: Some("S".into()),
             duration_seconds: Some(3),
@@ -536,7 +688,10 @@ mod tests {
                 ..Default::default()
             })]
         );
-        let status = MediaPlaybackStatus { playback_seconds: Some(2), ..Default::default() };
+        let status = MediaPlaybackStatus {
+            playback_seconds: Some(2),
+            ..Default::default()
+        };
         assert_eq!(
             reports(b.on_event(SessionEvent::MediaStatus(status), &cfg)),
             [Report::NowPlaying(NowPlaying {
@@ -565,7 +720,10 @@ mod tests {
             b.on_event(SessionEvent::VoiceSession(true), &cfg),
             [BridgeOut::StartMic("voice-session START")]
         );
-        assert_eq!(b.on_event(SessionEvent::MicStop, &cfg), [BridgeOut::StopMic("mic-stop")]);
+        assert_eq!(
+            b.on_event(SessionEvent::MicStop, &cfg),
+            [BridgeOut::StopMic("mic-stop")]
+        );
         assert_eq!(
             b.on_event(SessionEvent::Connected, &cfg),
             [BridgeOut::Report(Report::Connected), BridgeOut::AudioSinks]

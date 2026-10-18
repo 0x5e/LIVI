@@ -1,6 +1,3 @@
-// The head-unit certificate a phone accepts in the TLS handshake, the same one
-// the main process presents.
-
 pub const HU_CERT_PEM: &str = "-----BEGIN CERTIFICATE-----
 MIIDKjCCAhICARswDQYJKoZIhvcNAQELBQAwWzELMAkGA1UEBhMCVVMxEzARBgNV
 BAgMCkNhbGlmb3JuaWExFjAUBgNVBAcMDU1vdW50YWluIFZpZXcxHzAdBgNVBAoM

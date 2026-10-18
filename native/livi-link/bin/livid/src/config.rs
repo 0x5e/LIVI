@@ -15,7 +15,6 @@ const TMPFS_HOSTAPD: &str = "/tmp/livi/hostapd.conf.saved";
 const TMPFS_BT_KEYS: &str = "/tmp/livi/bt-keys";
 const TMPFS_UPDATE: &str = "/tmp/livi/update.conf";
 const TMPFS_RADIO: &str = livi_wifid::radio::PATH;
-/// The address wlan0 had on its first boot, which livi-radio sets again on every later one.
 const TMPFS_WLAN_MAC: &str = "/tmp/livi/wlan-mac";
 const DEFAULT_LED: &str = "/etc/livi/led.toml";
 const DEFAULT_HOSTAPD: &str = "/etc/hostapd.conf";
@@ -27,16 +26,15 @@ const ENTRY_UPDATE: &str = "update.conf";
 const ENTRY_RADIO: &str = "radio.conf";
 const ENTRY_WLAN_MAC: &str = "wlan-mac";
 
-/// The partition table differs per board, so the config lives on whichever MTD is named
-/// "customer".
 fn mtd_dev() -> std::io::Result<&'static str> {
     static DEV: std::sync::OnceLock<Option<String>> = std::sync::OnceLock::new();
     DEV.get_or_init(|| {
         fs::read_dir("/sys/class/mtd").ok().and_then(|dir| {
             dir.flatten().find_map(|e| {
                 let name = e.file_name().into_string().ok()?;
-                let n =
-                    name.strip_prefix("mtd").filter(|n| n.bytes().all(|b| b.is_ascii_digit()))?;
+                let n = name
+                    .strip_prefix("mtd")
+                    .filter(|n| n.bytes().all(|b| b.is_ascii_digit()))?;
                 let label = fs::read_to_string(e.path().join("name")).ok()?;
                 (label.trim() == "customer").then(|| format!("/dev/mtdblock{n}"))
             })
@@ -84,7 +82,10 @@ fn cmd_load() -> i32 {
                     return 1;
                 }
             }
-            eprintln!("[livid config load] restored from {}", mtd_dev().unwrap_or_default());
+            eprintln!(
+                "[livid config load] restored from {}",
+                mtd_dev().unwrap_or_default()
+            );
         }
         Err(err) => {
             eprintln!("[livid config load] not usable ({err}), seeding defaults");
@@ -136,7 +137,10 @@ fn cmd_save() -> i32 {
     ] {
         match fs::read(path) {
             Ok(data) if !data.is_empty() && data.len() <= MAX_ENTRY => {
-                entries.push(Entry { name: name.to_string(), data });
+                entries.push(Entry {
+                    name: name.to_string(),
+                    data,
+                });
             }
             Ok(_) => {}
             Err(_) => {}
@@ -160,7 +164,10 @@ fn cmd_save() -> i32 {
     match read_blob() {
         Ok(back) => {
             let same = back.len() == entries.len()
-                && back.iter().zip(&entries).all(|(a, b)| a.name == b.name && a.data == b.data);
+                && back
+                    .iter()
+                    .zip(&entries)
+                    .all(|(a, b)| a.name == b.name && a.data == b.data);
             if !same {
                 eprintln!("[livid config save] verify: read-back differs");
                 return 2;
@@ -198,7 +205,10 @@ fn read_blob() -> std::io::Result<Vec<Entry>> {
         return Err(io_err("crc mismatch"));
     }
     match version {
-        VERSION_V1 => Ok(vec![Entry { name: ENTRY_LED.into(), data: payload }]),
+        VERSION_V1 => Ok(vec![Entry {
+            name: ENTRY_LED.into(),
+            data: payload,
+        }]),
         VERSION_V2 => unpack_v2(&payload),
         _ => Err(io_err(&format!("unknown version {version}"))),
     }
@@ -220,7 +230,10 @@ fn unpack_v2(payload: &[u8]) -> std::io::Result<Vec<Entry>> {
     let mut cursor = table_end;
     for i in 0..count {
         let off = 4 + i * V2_ENTRY_LEN;
-        let name_end = payload[off..off + 32].iter().position(|&b| b == 0).unwrap_or(32);
+        let name_end = payload[off..off + 32]
+            .iter()
+            .position(|&b| b == 0)
+            .unwrap_or(32);
         let name = std::str::from_utf8(&payload[off..off + name_end])
             .map_err(|_| io_err("v2 non-utf8 name"))?
             .to_string();
@@ -279,7 +292,10 @@ fn pack_v2(entries: &[Entry]) -> Result<Vec<u8>, String> {
 
 fn write_blob(blob: &[u8]) -> std::io::Result<()> {
     use std::os::unix::fs::OpenOptionsExt;
-    let mut f = fs::OpenOptions::new().write(true).custom_flags(libc::O_SYNC).open(mtd_dev()?)?;
+    let mut f = fs::OpenOptions::new()
+        .write(true)
+        .custom_flags(libc::O_SYNC)
+        .open(mtd_dev()?)?;
     f.write_all(blob)?;
     f.sync_all()?;
     unsafe {

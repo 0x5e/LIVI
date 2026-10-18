@@ -11,7 +11,6 @@ use crate::{AudioConfig, MediaSink, Outside, Speaker, TapConfig, UplinkConfig};
 #[cfg(not(target_os = "macos"))]
 use crate::{Plane, UrlPlay};
 
-/// Captures for as long as it is held.
 pub struct Tap(#[allow(dead_code)] SocketTap);
 
 #[cfg(not(target_os = "macos"))]
@@ -106,13 +105,18 @@ impl Outside for Gst {
     type Tap = Tap;
 
     fn open_tap(&self, cfg: TapConfig) -> Option<Tap> {
-        SocketTap::open(&cfg.path, cfg.sample_rate, cfg.channels, cfg.device.as_deref(), "tap")
-            .map(Tap)
+        SocketTap::open(
+            &cfg.path,
+            cfg.sample_rate,
+            cfg.channels,
+            cfg.device.as_deref(),
+            "tap",
+        )
+        .map(Tap)
     }
 
     #[cfg(not(target_os = "macos"))]
     fn create_plane(&self, _id: u32, codec: &str, codec_data: &[u8]) -> Option<Player> {
-        // the window comes from the sink, so the player needs no handle
         Player::new(codec, 0, codec_data)
     }
 

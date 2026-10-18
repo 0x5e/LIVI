@@ -1,13 +1,7 @@
-// Channel coding shared by FIC and MSC: depuncturing to the rate 1/4 mother
-// code, Viterbi decoding, energy dispersal and the CRCs.
-
-/// Generators of the mother code, MSB is the current input bit.
 const POLYS: [u8; 4] = [0o133, 0o171, 0o145, 0o133];
 const STATES: usize = 64;
 pub const TAIL_BITS: usize = 6;
 
-/// Puncturing vector PI_n: 8 + n of 32 mother bits kept. Every group of four
-/// keeps one bit, the extra ones go to the groups in this order.
 fn pi(n: usize) -> [bool; 32] {
     const ORDER: [usize; 8] = [0, 4, 2, 6, 1, 5, 3, 7];
     let mut ones = [1usize; 8];
@@ -28,8 +22,6 @@ const TAIL: [bool; 24] = [
     false, false, true, true, false, false, true, true, false, false,
 ];
 
-/// Puncturing of one protected unit: runs of 128 bit blocks, each run with
-/// its PI index, followed by the punctured tail.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct Puncturing {
     pub runs: Vec<(usize, usize)>,
@@ -41,11 +33,13 @@ impl Puncturing {
     }
 
     pub fn coded_bits(&self) -> usize {
-        self.runs.iter().map(|&(blocks, n)| blocks * 4 * (8 + n)).sum::<usize>() + 12
+        self.runs
+            .iter()
+            .map(|&(blocks, n)| blocks * 4 * (8 + n))
+            .sum::<usize>()
+            + 12
     }
 
-    /// Spreads the received soft bits over the mother code, zero where the
-    /// transmitter dropped a bit.
     pub fn depuncture(&self, input: &[i8]) -> Vec<i8> {
         let mut out = Vec::with_capacity(4 * (self.info_bits() + TAIL_BITS));
         let mut it = input.iter().copied();
@@ -68,8 +62,6 @@ fn parity(x: u8) -> u8 {
     (x.count_ones() & 1) as u8
 }
 
-/// Soft input, positive means 0, four soft values per info bit including
-/// the six tail bits. Returns the info bits without the tail.
 pub fn viterbi(soft: &[i8]) -> Vec<u8> {
     let steps = soft.len() / 4;
     let mut outputs = [[0u8; 4]; 128];
@@ -119,7 +111,6 @@ pub fn viterbi(soft: &[i8]) -> Vec<u8> {
     bits
 }
 
-/// Energy dispersal: PRBS x^9 + x^5 + 1 from all ones, XORed onto the bits.
 pub fn descramble(bits: &mut [u8]) {
     let mut reg: u16 = 0x1ff;
     for b in bits.iter_mut() {
@@ -130,10 +121,11 @@ pub fn descramble(bits: &mut [u8]) {
 }
 
 pub fn pack(bits: &[u8]) -> Vec<u8> {
-    bits.chunks(8).map(|c| c.iter().fold(0u8, |a, &b| (a << 1) | b)).collect()
+    bits.chunks(8)
+        .map(|c| c.iter().fold(0u8, |a, &b| (a << 1) | b))
+        .collect()
 }
 
-/// CRC-16 CCITT with all ones preset, sent inverted.
 pub fn crc16_ok(data: &[u8]) -> bool {
     if data.len() < 2 {
         return false;
@@ -147,7 +139,11 @@ pub fn crc16(data: &[u8]) -> u16 {
     for &byte in data {
         crc ^= (byte as u16) << 8;
         for _ in 0..8 {
-            crc = if crc & 0x8000 != 0 { (crc << 1) ^ 0x1021 } else { crc << 1 };
+            crc = if crc & 0x8000 != 0 {
+                (crc << 1) ^ 0x1021
+            } else {
+                crc << 1
+            };
         }
     }
     crc
@@ -207,7 +203,9 @@ mod tests {
 
     #[test]
     fn viterbi_recovers_punctured_fic_block_with_errors() {
-        let p = Puncturing { runs: vec![(21, 16), (3, 15)] };
+        let p = Puncturing {
+            runs: vec![(21, 16), (3, 15)],
+        };
         assert_eq!(p.coded_bits(), 2304);
         let info: Vec<u8> = (0..768u32).map(|i| ((i * 7 + i / 3) % 2) as u8).collect();
         let mut rx = punct(&encode(&info), &p);

@@ -1,5 +1,3 @@
-//! The maneuver and driving-side codes LIVI uses for every phone.
-
 use crate::channels::navigation::{NavigationTurnEvent, NavigationTurnSide};
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
@@ -61,7 +59,6 @@ pub enum ManeuverType {
     ChangeHighwayRight = 53,
 }
 
-/// On roundabouts, right is anti-clockwise.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 #[repr(u8)]
 pub enum DrivingSide {
@@ -98,7 +95,6 @@ pub fn turn_event_to_maneuver_type(
         E::Merge => M::RampOn,
         E::RoundaboutEnter => M::EnterRoundabout,
         E::RoundaboutExit => M::ExitRoundabout,
-        // The turn event carries no exit number.
         E::RoundaboutEnterAndExit => M::EnterRoundabout,
         E::Straight => M::Straight,
         E::FerryBoat | E::FerryTrain => M::EnterFerry,
@@ -168,8 +164,14 @@ mod tests {
         let r = Some(NavigationTurnSide::Right);
         let u = Some(NavigationTurnSide::Unspecified);
         assert_eq!(turn_event_to_maneuver_type(None, r), None);
-        assert_eq!(turn_event_to_maneuver_type(Some(E::Turn), r), Some(ManeuverType::RightTurn));
-        assert_eq!(turn_event_to_maneuver_type(Some(E::Turn), u), Some(ManeuverType::LeftTurn));
+        assert_eq!(
+            turn_event_to_maneuver_type(Some(E::Turn), r),
+            Some(ManeuverType::RightTurn)
+        );
+        assert_eq!(
+            turn_event_to_maneuver_type(Some(E::Turn), u),
+            Some(ManeuverType::LeftTurn)
+        );
         assert_eq!(
             turn_event_to_maneuver_type(Some(E::OffRamp), l),
             Some(ManeuverType::RampOffLeft)
@@ -184,10 +186,16 @@ mod tests {
         );
         assert_eq!(turn_side_to_navi_code(u), None);
         assert_eq!(turn_side_to_navi_code(l), Some(DrivingSide::Left));
-        assert_eq!(nav_maneuver_type_to_code(Some(18)), Some(ManeuverType::RampOn));
+        assert_eq!(
+            nav_maneuver_type_to_code(Some(18)),
+            Some(ManeuverType::RampOn)
+        );
         assert_eq!(nav_maneuver_type_to_code(Some(43)), None);
         assert_eq!(nav_maneuver_type_to_code(None), None);
-        assert_eq!(nav_maneuver_type_to_side(Some(12)), Some(DrivingSide::Right));
+        assert_eq!(
+            nav_maneuver_type_to_side(Some(12)),
+            Some(DrivingSide::Right)
+        );
         assert_eq!(nav_maneuver_type_to_side(Some(13)), None);
     }
 }

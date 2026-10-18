@@ -11,7 +11,7 @@ use nusb::transfer::{
 };
 use nusb::{Device, Endpoint, Interface, MaybeFuture};
 
-use crate::linux::{IPhoneDev, find_iphones, open_by_address}; // NcmBridge is local-USB only
+use crate::linux::{IPhoneDev, find_iphones, open_by_address};
 use crate::ntb::{build_ntb, parse_ntb};
 
 const NCM_CONTROL_CLASS: u8 = 0x02;
@@ -26,7 +26,6 @@ const SET_NTB_FORMAT: u8 = 0x84;
 const SET_NTB_INPUT_SIZE: u8 = 0x86;
 const SET_CRC_MODE: u8 = 0x8a;
 const SET_ETHERNET_PACKET_FILTER: u8 = 0x43;
-/// Directed, broadcast and all multicast.
 const PACKET_FILTER: u16 = 0x000e;
 const NTB_INPUT_SIZE: u32 = 16384;
 const CONTROL_TIMEOUT: Duration = Duration::from_secs(1);
@@ -36,7 +35,6 @@ static TAP_SEQ: AtomicU16 = AtomicU16::new(0);
 pub struct NcmBridge {
     pub ifname: String,
     run: Option<Arc<AtomicBool>>,
-    /// Held for the bridge's life: letting go hands the function back to cdc_ncm.
     _control: Option<Interface>,
 }
 
@@ -48,7 +46,6 @@ impl Drop for NcmBridge {
     }
 }
 
-/// Read from the descriptors, since they differ between iPhone models.
 struct NcmFunction {
     control: u8,
     data: u8,
@@ -101,7 +98,9 @@ fn find_ncm_function(device: &Device) -> Option<NcmFunction> {
 fn kernel_ncm_iface(sysfs: &Path) -> Option<String> {
     let root = sysfs.canonicalize().ok()?;
     for e in fs::read_dir("/sys/class/net").ok()?.flatten() {
-        let Ok(driver) = e.path().join("device/driver").canonicalize() else { continue };
+        let Ok(driver) = e.path().join("device/driver").canonicalize() else {
+            continue;
+        };
         if driver.file_name().and_then(|n| n.to_str()) != Some("cdc_ncm") {
             continue;
         }
@@ -121,7 +120,10 @@ fn open_tap(ifname: &str) -> Result<OwnedFd, String> {
 
     let fd = unsafe { libc::open(c"/dev/net/tun".as_ptr(), libc::O_RDWR | libc::O_CLOEXEC) };
     if fd < 0 {
-        return Err(format!("open /dev/net/tun: {}", std::io::Error::last_os_error()));
+        return Err(format!(
+            "open /dev/net/tun: {}",
+            std::io::Error::last_os_error()
+        ));
     }
     let mut ifr: libc::ifreq = unsafe { std::mem::zeroed() };
     for (i, b) in ifname.as_bytes().iter().take(15).enumerate() {
@@ -137,13 +139,14 @@ fn open_tap(ifname: &str) -> Result<OwnedFd, String> {
 }
 
 fn run_cmd(program: &str, args: &[&str]) -> bool {
-    Command::new(program).args(args).output().is_ok_and(|o| o.status.success())
+    Command::new(program)
+        .args(args)
+        .output()
+        .is_ok_and(|o| o.status.success())
 }
 
 const PROFILE_PREFIX: &str = "livi-carkit-";
 
-/// Older LIVI named its profile after the interface and bound it there. On a usb0 it keeps a
-/// LIVI Link from its DHCP address, so the dongle is never found.
 fn bound_to_a_name(profile: &str) -> bool {
     profile
         .strip_prefix(PROFILE_PREFIX)
@@ -151,10 +154,16 @@ fn bound_to_a_name(profile: &str) -> bool {
 }
 
 pub fn drop_name_bound_profiles() {
-    let Ok(out) = Command::new("nmcli").args(["-g", "NAME", "connection", "show"]).output() else {
+    let Ok(out) = Command::new("nmcli")
+        .args(["-g", "NAME", "connection", "show"])
+        .output()
+    else {
         return;
     };
-    for name in String::from_utf8_lossy(&out.stdout).lines().filter(|n| bound_to_a_name(n)) {
+    for name in String::from_utf8_lossy(&out.stdout)
+        .lines()
+        .filter(|n| bound_to_a_name(n))
+    {
         let gone = run_cmd("nmcli", &["connection", "delete", name]);
         println!(
             "[ncm] NetworkManager profile {name} bound to an interface name: {}",
@@ -163,15 +172,18 @@ pub fn drop_name_bound_profiles() {
     }
 }
 
-/// Link-local only, since NetworkManager takes a link down when its DHCP gets no answer. Bound
-/// to the MAC, because a LIVI Link is a usb0 too and there the host is a DHCP client.
 fn link_local_profile(ifname: &str) {
     let _ = fs::write(format!("/proc/sys/net/ipv6/conf/{ifname}/accept_dad"), "0");
     run_cmd("ip", &["link", "set", ifname, "up"]);
-    let Ok(mac) = fs::read_to_string(format!("/sys/class/net/{ifname}/address")) else { return };
+    let Ok(mac) = fs::read_to_string(format!("/sys/class/net/{ifname}/address")) else {
+        return;
+    };
     let mac = mac.trim().to_uppercase();
     let name = format!("{PROFILE_PREFIX}{}", mac.replace(':', ""));
-    if !run_cmd("nmcli", &["-g", "connection.id", "connection", "show", &name]) {
+    if !run_cmd(
+        "nmcli",
+        &["-g", "connection.id", "connection", "show", &name],
+    ) {
         let added = run_cmd(
             "nmcli",
             &[
@@ -217,7 +229,11 @@ impl NcmBridge {
             let ifname = kernel_ncm_iface(&dev.sysfs).ok_or(e)?;
             println!("[ncm] using kernel cdc_ncm interface {ifname}");
             link_local_profile(&ifname);
-            Ok(Self { ifname, run: None, _control: None })
+            Ok(Self {
+                ifname,
+                run: None,
+                _control: None,
+            })
         })
     }
 
@@ -231,12 +247,17 @@ impl NcmBridge {
             .wait()
             .map_err(|e| format!("claim NCM data {}: {e}", func.data))?;
         ncm_setup(&control, func.control);
-        // Alt setting 1 has the bulk endpoints, alt 0 carries no data.
-        data_iface.set_alt_setting(1).wait().map_err(|e| format!("NCM alt setting: {e}"))?;
-        // The phone reports the link up, and passes traffic, only once a packet filter is set.
-        if let Err(e) =
-            class_out(&control, func.control, SET_ETHERNET_PACKET_FILTER, PACKET_FILTER, &[])
-        {
+        data_iface
+            .set_alt_setting(1)
+            .wait()
+            .map_err(|e| format!("NCM alt setting: {e}"))?;
+        if let Err(e) = class_out(
+            &control,
+            func.control,
+            SET_ETHERNET_PACKET_FILTER,
+            PACKET_FILTER,
+            &[],
+        ) {
             eprintln!("[ncm] packet filter: {e}");
         }
 
@@ -255,7 +276,6 @@ impl NcmBridge {
             run_cmd("ip", &["link", "set", &ifname, "address", mac]);
         }
         run_cmd("nmcli", &["device", "set", &ifname, "managed", "no"]);
-        // One peer on this link, so duplicate address detection only costs time.
         let _ = fs::write(format!("/proc/sys/net/ipv6/conf/{ifname}/accept_dad"), "0");
         run_cmd("ip", &["link", "set", &ifname, "up"]);
 
@@ -264,7 +284,10 @@ impl NcmBridge {
 
         spawn_usb_to_tap(ep_in, tap.clone(), run.clone());
         spawn_tap_to_usb(ep_out, tap, run.clone());
-        if let Some(ep) = func.ep_notify.and_then(|a| control.endpoint::<Interrupt, In>(a).ok()) {
+        if let Some(ep) = func
+            .ep_notify
+            .and_then(|a| control.endpoint::<Interrupt, In>(a).ok())
+        {
             spawn_notifications(ep, run.clone());
         }
 
@@ -276,7 +299,11 @@ impl NcmBridge {
             func.ep_out,
             host_mac.as_deref().unwrap_or("?")
         );
-        Ok(Self { ifname, run: Some(run), _control: Some(control) })
+        Ok(Self {
+            ifname,
+            run: Some(run),
+            _control: Some(control),
+        })
     }
 }
 
@@ -303,7 +330,6 @@ fn class_out(
         .map_err(|e| format!("request 0x{request:02x}: {e}"))
 }
 
-/// Value 0 selects no CRC and 16-bit NTBs.
 fn ncm_setup(control: &Interface, iface: u8) {
     let params = control
         .control_in(
@@ -333,7 +359,6 @@ fn ncm_setup(control: &Interface, iface: u8) {
     }
 }
 
-/// The phone needs its link notifications read.
 fn spawn_notifications(mut ep: Endpoint<Interrupt, In>, run: Arc<AtomicBool>) {
     std::thread::spawn(move || {
         while run.load(Ordering::SeqCst) {
@@ -402,16 +427,22 @@ fn is_timeout(e: &nusb::transfer::TransferError) -> bool {
 
 fn read_fd(fd: RawFd, buf: &mut [u8]) -> std::io::Result<usize> {
     let n = unsafe { libc::read(fd, buf.as_mut_ptr() as *mut libc::c_void, buf.len()) };
-    if n < 0 { Err(std::io::Error::last_os_error()) } else { Ok(n as usize) }
+    if n < 0 {
+        Err(std::io::Error::last_os_error())
+    } else {
+        Ok(n as usize)
+    }
 }
 
 fn write_fd(fd: RawFd, buf: &[u8]) -> std::io::Result<()> {
     let n = unsafe { libc::write(fd, buf.as_ptr() as *const libc::c_void, buf.len()) };
-    if n < 0 { Err(std::io::Error::last_os_error()) } else { Ok(()) }
+    if n < 0 {
+        Err(std::io::Error::last_os_error())
+    } else {
+        Ok(())
+    }
 }
 
-/// Type 0x24 subtype 0x0F is the CDC Ethernet functional descriptor, its byte 3 indexes the
-/// string that holds the MAC.
 fn host_mac(device: &Device, sysfs: &Path, control_if: u8) -> Option<String> {
     let raw = fs::read(sysfs.join("descriptors")).ok()?;
     let mut idx = 0usize;
@@ -453,13 +484,23 @@ fn host_mac(device: &Device, sysfs: &Path, control_if: u8) -> Option<String> {
         return None;
     }
     let end = (buf[0] as usize).min(buf.len());
-    let utf16: Vec<u16> =
-        buf[2..end].as_chunks::<2>().0.iter().map(|c| u16::from_le_bytes(*c)).collect();
+    let utf16: Vec<u16> = buf[2..end]
+        .as_chunks::<2>()
+        .0
+        .iter()
+        .map(|c| u16::from_le_bytes(*c))
+        .collect();
     let s = String::from_utf16(&utf16).ok()?;
     if s.len() != 12 {
         return None;
     }
-    Some((0..12).step_by(2).map(|i| s[i..i + 2].to_lowercase()).collect::<Vec<_>>().join(":"))
+    Some(
+        (0..12)
+            .step_by(2)
+            .map(|i| s[i..i + 2].to_lowercase())
+            .collect::<Vec<_>>()
+            .join(":"),
+    )
 }
 
 #[cfg(test)]

@@ -1,5 +1,3 @@
-//! Without a request a second the phone ends the session after a few seconds.
-
 use std::io;
 use std::net::SocketAddr;
 use std::sync::{Arc, Mutex};
@@ -33,7 +31,13 @@ impl TimingSync {
         let clock = Arc::new(Mutex::new(TimingClock::new()));
         let heard = Arc::new(Mutex::new(None));
         let answering = tokio::spawn(answer(sock.clone(), clock.clone(), heard.clone()));
-        Ok(Self { clock, sock, heard, port, tasks: vec![answering] })
+        Ok(Self {
+            clock,
+            sock,
+            heard,
+            port,
+            tasks: vec![answering],
+        })
     }
 
     pub fn port(&self) -> u16 {
@@ -57,7 +61,6 @@ impl TimingSync {
         lock(&self.clock).synced_ntp()
     }
 
-    /// None until the phone took part in the exchange.
     pub fn last_heard(&self) -> Option<Instant> {
         *lock(&self.heard)
     }
@@ -115,7 +118,10 @@ mod tests {
         ask[0] = 0x80;
         ask[1] = 210;
         ask[24..32].copy_from_slice(&7u64.to_be_bytes());
-        phone.send_to(&ask, ("127.0.0.1", sync.port())).await.unwrap();
+        phone
+            .send_to(&ask, ("127.0.0.1", sync.port()))
+            .await
+            .unwrap();
         loop {
             let (n, _) = phone.recv_from(&mut buf).await.unwrap();
             if buf[1] == 211 {

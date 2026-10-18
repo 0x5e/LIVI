@@ -28,7 +28,10 @@ pub struct Broadcaster {
 
 impl Broadcaster {
     pub fn push_json(&self, line: String) {
-        self.subs.lock().unwrap().retain(|tx| tx.send(line.clone()).is_ok());
+        self.subs
+            .lock()
+            .unwrap()
+            .retain(|tx| tx.send(line.clone()).is_ok());
     }
 
     pub fn subscribe(&self) -> mpsc::UnboundedReceiver<String> {
@@ -38,7 +41,6 @@ impl Broadcaster {
         rx
     }
 
-    /// A line pushed before the first subscriber reaches nobody.
     pub async fn subscribed(&self) {
         loop {
             let joined = self.joined.notified();
@@ -50,7 +52,6 @@ impl Broadcaster {
     }
 }
 
-/// Wired CarPlay needs none of it, so the socket serves before it is there.
 #[derive(Clone)]
 pub struct Bluez {
     pub bus: zbus::Connection,
@@ -63,12 +64,8 @@ pub struct LiviSockConfig {
     pub path: String,
     pub identity: Identity,
     pub cp: CpConfig,
-    /// Used where there is no BlueZ.
     pub disconnect: Option<DropLink>,
-    /// Used where there is no BlueZ.
     pub targets: Option<PushTargets>,
-    /// Takes the place of `cp`. The access point can change its MAC, SSID and channel, and a
-    /// stale `device_identifier` makes the phone drop the session.
     pub cp_live: Option<CpFactory>,
 }
 
@@ -76,7 +73,6 @@ pub type DropLink = Arc<dyn Fn(String) -> Result<(), String> + Send + Sync>;
 
 pub type CpFactory = Arc<dyn Fn() -> CpConfig + Send + Sync>;
 
-/// In paging order, each phone with the profile that wakes it.
 pub type PushTargets =
     Arc<dyn Fn(Vec<(String, Option<String>)>) -> Result<(), String> + Send + Sync>;
 
@@ -151,7 +147,6 @@ where
     match verb {
         "subscribe" => run_subscriber(stream, bcast).await,
         "tunnel" => {
-            // "tunnel <cid> [btMac]", the MAC is told apart by its colons.
             let (cid, bt_mac) = match arg.rsplit_once(' ') {
                 Some((c, m)) if m.contains(':') => (c.trim(), m),
                 _ => (arg, ""),
@@ -169,16 +164,25 @@ where
             );
             let cfg = match &bluez {
                 Some(bluez) => LiviSockConfig {
-                    identity: Identity { bt_mac: bluez.bt_mac, ..cfg.identity },
+                    identity: Identity {
+                        bt_mac: bluez.bt_mac,
+                        ..cfg.identity
+                    },
                     ..cfg
                 },
                 None => cfg,
             };
-            run_tunnel(stream, auth, cfg, bcast, cid.to_string(), state.vehicle_feed());
+            run_tunnel(
+                stream,
+                auth,
+                cfg,
+                bcast,
+                cid.to_string(),
+                state.vehicle_feed(),
+            );
             Ok(())
         }
         "certificate" => {
-            // An unknown generation is an error, not a guess.
             let json = match (auth.read_certificate().await, auth.protocol_major().await) {
                 (Ok(cert), Ok(major)) => format!(
                     "{{\"ok\":true,\"data\":\"{}\",\"protocolMajor\":{}}}",
@@ -226,7 +230,6 @@ where
         "reconnect-targets" => {
             let json = match parse_reconnect_targets(arg) {
                 Ok(targets) => {
-                    // LIVI refreshes this once a second, so logging every call is noise.
                     let before = state.reconnect_targets();
                     state.set_reconnect_targets(targets);
                     let after = state.reconnect_targets();
@@ -284,10 +287,11 @@ where
     }
 }
 
-// [["MAC", "uuid" | null], ...]. The array order is the paging order.
 fn parse_reconnect_targets(arg: &str) -> Result<Vec<(String, Option<String>)>, String> {
     let value: serde_json::Value = serde_json::from_str(arg).map_err(|e| e.to_string())?;
-    let list = value.as_array().ok_or("reconnect-targets expects a JSON array")?;
+    let list = value
+        .as_array()
+        .ok_or("reconnect-targets expects a JSON array")?;
     list.iter()
         .map(|pair| {
             let mac = pair
@@ -340,8 +344,12 @@ fn run_tunnel<A>(
         return;
     };
     let fd: OwnedFd = std_stream.into();
-    let link_cfg =
-        LinkConfig { max_outgoing: 4, control_version: 2, zero_ack: true, ..LinkConfig::default() };
+    let link_cfg = LinkConfig {
+        max_outgoing: 4,
+        control_version: 2,
+        zero_ack: true,
+        ..LinkConfig::default()
+    };
     let (channel, art_rx) = spawn_link(fd, link_cfg, true);
     let (tx, rx) = mpsc::channel(64);
     let cp = match &cfg.cp_live {
@@ -353,7 +361,13 @@ fn run_tunnel<A>(
         cid: (!cid.is_empty()).then_some(cid),
         ..Default::default()
     }));
-    tokio::spawn(pump_events_for(rx, bcast.clone(), "tunnel", None, ident.clone()));
+    tokio::spawn(pump_events_for(
+        rx,
+        bcast.clone(),
+        "tunnel",
+        None,
+        ident.clone(),
+    ));
     tokio::spawn(pump_artwork(art_rx, bcast, ident));
 }
 
@@ -366,14 +380,16 @@ pub async fn pump_artwork(
         if data.is_empty() {
             continue;
         }
-        let json = format!("{{\"type\":\"albumart\",\"dataB64\":\"{}\"}}", STANDARD.encode(&data));
+        let json = format!(
+            "{{\"type\":\"albumart\",\"dataB64\":\"{}\"}}",
+            STANDARD.encode(&data)
+        );
         bcast.push_json(ident.lock().unwrap().apply(json));
     }
 }
 
 pub type SharedTag = Arc<Mutex<events::EventTag>>;
 
-/// `usb_udid` marks a wired session.
 pub async fn pump_events_for(
     mut rx: mpsc::Receiver<BringupEvent>,
     bcast: Broadcaster,
@@ -426,9 +442,19 @@ pub async fn device_disconnect(
     adapter: &str,
     mac: &str,
 ) -> Result<(), String> {
-    let path = format!("/org/bluez/{}/dev_{}", adapter, mac.replace(':', "_").to_uppercase());
-    bus.call_method(Some("org.bluez"), path.as_str(), Some("org.bluez.Device1"), "Disconnect", &())
-        .await
-        .map(|_| ())
-        .map_err(|e| e.to_string())
+    let path = format!(
+        "/org/bluez/{}/dev_{}",
+        adapter,
+        mac.replace(':', "_").to_uppercase()
+    );
+    bus.call_method(
+        Some("org.bluez"),
+        path.as_str(),
+        Some("org.bluez.Device1"),
+        "Disconnect",
+        &(),
+    )
+    .await
+    .map(|_| ())
+    .map_err(|e| e.to_string())
 }

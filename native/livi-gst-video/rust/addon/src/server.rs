@@ -17,7 +17,10 @@ const STATUS_EVERY: Duration = Duration::from_millis(500);
 
 fn bind(path: &Path) -> std::io::Result<UnixListener> {
     if let Some(dir) = path.parent() {
-        std::fs::DirBuilder::new().recursive(true).mode(0o700).create(dir)?;
+        std::fs::DirBuilder::new()
+            .recursive(true)
+            .mode(0o700)
+            .create(dir)?;
     }
     let _ = std::fs::remove_file(path);
     UnixListener::bind(path)
@@ -25,11 +28,15 @@ fn bind(path: &Path) -> std::io::Result<UnixListener> {
 
 fn accept(name: &str, listener: UnixListener, serve: fn(UnixStream)) -> std::io::Result<()> {
     let name = name.to_string();
-    std::thread::Builder::new().name(name.clone()).spawn(move || {
-        for conn in listener.incoming().flatten() {
-            let _ = std::thread::Builder::new().name(name.clone()).spawn(move || serve(conn));
-        }
-    })?;
+    std::thread::Builder::new()
+        .name(name.clone())
+        .spawn(move || {
+            for conn in listener.incoming().flatten() {
+                let _ = std::thread::Builder::new()
+                    .name(name.clone())
+                    .spawn(move || serve(conn));
+            }
+        })?;
     Ok(())
 }
 
@@ -39,10 +46,14 @@ pub fn serve(control: &Path, planes: &Path) -> std::io::Result<()> {
 }
 
 fn serve_control(conn: UnixStream) {
-    let Ok(mut answers) = conn.try_clone() else { return };
+    let Ok(mut answers) = conn.try_clone() else {
+        return;
+    };
     for line in BufReader::new(conn).lines() {
         let Ok(line) = line else { return };
-        let Some(answer) = control::parse(&line).and_then(screens::apply) else { continue };
+        let Some(answer) = control::parse(&line).and_then(screens::apply) else {
+            continue;
+        };
         if answers.write_all(answer.as_bytes()).is_err() {
             return;
         }
@@ -124,7 +135,6 @@ fn f64_of(rest: &[u8]) -> Option<f64> {
     Some(f64::from_le_bytes(rest.get(..8)?.try_into().ok()?))
 }
 
-/// Status and log lines share it, a whole message goes out under the lock.
 type Back = Arc<Mutex<UnixStream>>;
 
 fn send(back: &Back, op: u8, id: u32, rest: &[u8]) -> bool {
@@ -132,7 +142,6 @@ fn send(back: &Back, op: u8, id: u32, rest: &[u8]) -> bool {
     sock.write_all(&encode_reply(op, id, rest)).is_ok()
 }
 
-/// The player's lines end up in gst-host's log, like on Linux.
 fn to_host(back: Option<Back>, id: u32) -> Say {
     Arc::new(move |line| match &back {
         Some(back) => {
@@ -144,16 +153,21 @@ fn to_host(back: Option<Back>, id: u32) -> Say {
 
 fn report_status(back: Back, id: u32, player: Option<Weak<UrlPlayer>>) {
     let Some(player) = player else {
-        let failed = UrlStatus { failed: true, ..UrlStatus::default() };
+        let failed = UrlStatus {
+            failed: true,
+            ..UrlStatus::default()
+        };
         send(&back, ui_planes::STATUS, id, &url_status_body(&failed));
         return;
     };
-    let _ = std::thread::Builder::new().name("video-status".into()).spawn(move || {
-        while let Some(status) = player.upgrade().map(|p| p.status()) {
-            if !send(&back, ui_planes::STATUS, id, &url_status_body(&status)) {
-                return;
+    let _ = std::thread::Builder::new()
+        .name("video-status".into())
+        .spawn(move || {
+            while let Some(status) = player.upgrade().map(|p| p.status()) {
+                if !send(&back, ui_planes::STATUS, id, &url_status_body(&status)) {
+                    return;
+                }
+                std::thread::sleep(STATUS_EVERY);
             }
-            std::thread::sleep(STATUS_EVERY);
-        }
-    });
+        });
 }

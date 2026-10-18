@@ -22,7 +22,9 @@ pub struct IPhoneDev {
 }
 
 fn read_trim(path: &Path, name: &str) -> Option<String> {
-    fs::read_to_string(path.join(name)).ok().map(|s| s.trim().to_string())
+    fs::read_to_string(path.join(name))
+        .ok()
+        .map(|s| s.trim().to_string())
 }
 
 pub fn find_iphones() -> Vec<IPhoneDev> {
@@ -39,12 +41,24 @@ pub fn find_iphones() -> Vec<IPhoneDev> {
         let Some(serial) = read_trim(&path, "serial").filter(|s| !s.is_empty()) else {
             continue;
         };
-        let bus = read_trim(&path, "busnum").and_then(|s| s.parse().ok()).unwrap_or(0);
-        let address = read_trim(&path, "devnum").and_then(|s| s.parse().ok()).unwrap_or(0);
-        let num_configs =
-            read_trim(&path, "bNumConfigurations").and_then(|s| s.parse().ok()).unwrap_or(0);
+        let bus = read_trim(&path, "busnum")
+            .and_then(|s| s.parse().ok())
+            .unwrap_or(0);
+        let address = read_trim(&path, "devnum")
+            .and_then(|s| s.parse().ok())
+            .unwrap_or(0);
+        let num_configs = read_trim(&path, "bNumConfigurations")
+            .and_then(|s| s.parse().ok())
+            .unwrap_or(0);
         let config_value = read_trim(&path, "bConfigurationValue").and_then(|s| s.parse().ok());
-        out.push(IPhoneDev { serial, sysfs: path, bus, address, num_configs, config_value });
+        out.push(IPhoneDev {
+            serial,
+            sysfs: path,
+            bus,
+            address,
+            num_configs,
+            config_value,
+        });
     }
     let _ = APPLE_VID;
     out
@@ -54,8 +68,6 @@ fn find_by_serial(serial: &str) -> Option<IPhoneDev> {
     find_iphones().into_iter().find(|d| d.serial == serial)
 }
 
-/// Ask the phone to expose its CarPlay configurations (Apple vendor request), then select
-/// config 6. Returns the device as seen after the switch.
 pub fn ensure_carplay_config(serial: &str) -> Result<IPhoneDev, String> {
     let dev = find_by_serial(serial).ok_or_else(|| format!("iphone {serial} not found"))?;
 
@@ -86,23 +98,26 @@ pub fn ensure_carplay_config(serial: &str) -> Result<IPhoneDev, String> {
     find_by_serial(serial).ok_or_else(|| "iphone gone after config select".to_string())
 }
 
-/// Hands every attached iPhone back to the system configuration, for shutdown.
 pub fn restore_all_default_config() {
     for dev in find_iphones() {
         if dev.config_value == Some(CP_CONFIG) {
-            let _ = fs::write(dev.sysfs.join("bConfigurationValue"), DEFAULT_CONFIG.to_string());
+            let _ = fs::write(
+                dev.sysfs.join("bConfigurationValue"),
+                DEFAULT_CONFIG.to_string(),
+            );
         }
     }
 }
 
 pub fn restore_default_config(serial: &str) {
     if let Some(dev) = find_by_serial(serial) {
-        let _ = fs::write(dev.sysfs.join("bConfigurationValue"), DEFAULT_CONFIG.to_string());
+        let _ = fs::write(
+            dev.sysfs.join("bConfigurationValue"),
+            DEFAULT_CONFIG.to_string(),
+        );
     }
 }
 
-// The Apple vendor request that makes the phone re-enumerate with the CarPlay
-// configurations. wIndex 4 selects the CarPlay set.
 fn request_carplay_configs(dev: &IPhoneDev) -> Result<(), String> {
     let device = open_by_address(dev.bus, dev.address)?;
     device
@@ -122,7 +137,6 @@ fn request_carplay_configs(dev: &IPhoneDev) -> Result<(), String> {
     Ok(())
 }
 
-/// Opens the USB device sitting at this bus address.
 pub fn open_by_address(bus: u8, address: u8) -> Result<nusb::Device, String> {
     nusb::list_devices()
         .wait()

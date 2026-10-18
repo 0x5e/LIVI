@@ -1,5 +1,3 @@
-//! The kernel does the pairing and keeps the link keys.
-
 use std::io::{Read, Write};
 use std::os::fd::{AsRawFd, FromRawFd, OwnedFd};
 
@@ -9,7 +7,6 @@ const HCI_CHANNEL_CONTROL: u16 = 3;
 const HCI_DEV_NONE: u16 = 0xffff;
 
 pub const INDEX: u16 = 0;
-/// Largest management packet the kernel sends.
 const PACKET_MAX: usize = 1024;
 const HEADER: usize = 6;
 
@@ -67,8 +64,13 @@ pub struct Mgmt {
 
 impl Mgmt {
     pub fn open() -> Result<Self, String> {
-        let raw =
-            unsafe { libc::socket(AF_BLUETOOTH, libc::SOCK_RAW | libc::SOCK_CLOEXEC, BTPROTO_HCI) };
+        let raw = unsafe {
+            libc::socket(
+                AF_BLUETOOTH,
+                libc::SOCK_RAW | libc::SOCK_CLOEXEC,
+                BTPROTO_HCI,
+            )
+        };
         if raw < 0 {
             return Err(format!("socket: {}", std::io::Error::last_os_error()));
         }
@@ -98,7 +100,8 @@ impl Mgmt {
         out.extend_from_slice(&(params.len() as u16).to_le_bytes());
         out.extend_from_slice(params);
         let mut sock = self.file();
-        sock.write_all(&out).map_err(|e| format!("send {opcode:#06x}: {e}"))?;
+        sock.write_all(&out)
+            .map_err(|e| format!("send {opcode:#06x}: {e}"))?;
         loop {
             let (event, _, body) = self.event()?;
             if body.len() < 3 {
@@ -172,10 +175,15 @@ pub fn commands(body: &[u8]) -> Vec<u16> {
         return Vec::new();
     }
     let count = u16::from_le_bytes([body[0], body[1]]) as usize;
-    body[4..].as_chunks::<2>().0.iter().take(count).map(|c| u16::from_le_bytes(*c)).collect()
+    body[4..]
+        .as_chunks::<2>()
+        .0
+        .iter()
+        .take(count)
+        .map(|c| u16::from_le_bytes(*c))
+        .collect()
 }
 
-/// The settings bits, in the order the kernel reports them.
 pub const SETTINGS: [&str; 16] = [
     "powered",
     "connectable",
@@ -215,7 +223,11 @@ pub fn probe() -> std::process::ExitCode {
     };
     match mgmt.call(READ_VERSION, HCI_DEV_NONE, &[]) {
         Ok(v) if v.len() >= 3 => {
-            println!("[mgmt] version {}.{}", v[0], u16::from_le_bytes([v[1], v[2]]))
+            println!(
+                "[mgmt] version {}.{}",
+                v[0],
+                u16::from_le_bytes([v[1], v[2]])
+            )
         }
         Ok(v) => println!("[mgmt] version reply of {} bytes", v.len()),
         Err(e) => {
@@ -242,9 +254,17 @@ pub fn probe() -> std::process::ExitCode {
     }
     match mgmt.call(READ_INFO, INDEX, &[]).and_then(|b| info(&b)) {
         Ok(i) => {
-            let mac =
-                i.address.iter().rev().map(|b| format!("{b:02X}")).collect::<Vec<_>>().join(":");
-            println!("[mgmt] controller {mac} class {:#08x} name {:?}", i.class, i.name);
+            let mac = i
+                .address
+                .iter()
+                .rev()
+                .map(|b| format!("{b:02X}"))
+                .collect::<Vec<_>>()
+                .join(":");
+            println!(
+                "[mgmt] controller {mac} class {:#08x} name {:?}",
+                i.class, i.name
+            );
             println!("[mgmt] supported: {}", settings(i.supported));
             println!("[mgmt] current:   {}", settings(i.current));
             std::process::ExitCode::SUCCESS
@@ -257,8 +277,6 @@ pub fn probe() -> std::process::ExitCode {
     }
 }
 
-/// A controller whose firmware carries no valid BD_ADDR stays unconfigured until a public address
-/// is set.
 fn unconfigured(mgmt: &Mgmt) {
     match mgmt.call(READ_UNCONF_INDEX_LIST, HCI_DEV_NONE, &[]) {
         Ok(list) if list.len() >= 2 => {
@@ -272,7 +290,11 @@ fn unconfigured(mgmt: &Mgmt) {
                 .collect();
             println!(
                 "[mgmt] unconfigured controllers: {}",
-                if indexes.is_empty() { "none".to_string() } else { indexes.join(" ") }
+                if indexes.is_empty() {
+                    "none".to_string()
+                } else {
+                    indexes.join(" ")
+                }
             );
         }
         Ok(list) => println!("[mgmt] unconfigured list: {} byte reply", list.len()),
@@ -302,5 +324,9 @@ fn options(bits: u32) -> String {
     if (bits & 2) != 0 {
         out.push("public-address");
     }
-    if out.is_empty() { "none".to_string() } else { out.join(" ") }
+    if out.is_empty() {
+        "none".to_string()
+    } else {
+        out.join(" ")
+    }
 }

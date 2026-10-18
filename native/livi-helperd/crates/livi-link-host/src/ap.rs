@@ -33,10 +33,14 @@ fn fields(answer: impl BufRead) -> HashMap<String, String> {
 pub(crate) fn order(command: &str) -> Result<(), String> {
     let mut stream = livi_net::connect((link::LINK_NAME, livi_net::port::CONTROL), TIMEOUT)
         .map_err(|e| format!("dongle: {e}"))?;
-    stream.set_read_timeout(Some(TIMEOUT)).map_err(|e| format!("dongle: {e}"))?;
+    stream
+        .set_read_timeout(Some(TIMEOUT))
+        .map_err(|e| format!("dongle: {e}"))?;
     writeln!(stream, "{command}").map_err(|e| format!("dongle: {e}"))?;
     let mut answer = String::new();
-    BufReader::new(&stream).read_line(&mut answer).map_err(|e| format!("dongle: {e}"))?;
+    BufReader::new(&stream)
+        .read_line(&mut answer)
+        .map_err(|e| format!("dongle: {e}"))?;
     answered(&answer)
 }
 
@@ -51,16 +55,16 @@ pub fn status() -> Option<HashMap<String, String>> {
     ask("status")
 }
 
-/// Costs the dongle's Wi-Fi driver a firmware round trip, older dongles answer with nothing.
 pub fn rates() -> Option<HashMap<String, String>> {
     ask("rates")
 }
 
-/// `within` is per answer, since applying waits for the radio.
 pub fn talk(commands: &[String], within: Duration) -> Result<HashMap<String, String>, String> {
     let stream = livi_net::connect((link::LINK_NAME, livi_net::port::CONTROL), TIMEOUT)
         .map_err(|e| format!("dongle: {e}"))?;
-    stream.set_read_timeout(Some(within)).map_err(|e| format!("dongle: {e}"))?;
+    stream
+        .set_read_timeout(Some(within))
+        .map_err(|e| format!("dongle: {e}"))?;
     exchange(stream, commands)
 }
 
@@ -74,7 +78,11 @@ fn exchange(
         writeln!(reader.get_mut(), "{command}").map_err(|e| format!("dongle: {e}"))?;
         loop {
             let mut line = String::new();
-            if reader.read_line(&mut line).map_err(|e| format!("dongle: {e}"))? == 0 {
+            if reader
+                .read_line(&mut line)
+                .map_err(|e| format!("dongle: {e}"))?
+                == 0
+            {
                 return Err("the dongle closed the link".into());
             }
             let line = line.trim_end();
@@ -120,8 +128,6 @@ pub fn status_field(key: &str) -> Option<String> {
     status()?.remove(key)
 }
 
-/// The dongle has no 6 GHz, so its bare channel number is enough. A dongle from before it
-/// told its security runs WPA2.
 pub fn on_air() -> Option<OnAir> {
     on_air_in(status()?)
 }
@@ -133,7 +139,10 @@ fn on_air_in(mut status: HashMap<String, String>) -> Option<OnAir> {
     Some(OnAir {
         ssid: status.remove("ssid")?,
         channel: Channel::of_number(status.get("channel")?.parse().ok()?),
-        security: status.get("security").and_then(|s| Security::of_name(s)).unwrap_or_default(),
+        security: status
+            .get("security")
+            .and_then(|s| Security::of_name(s))
+            .unwrap_or_default(),
     })
 }
 
@@ -150,7 +159,6 @@ pub fn ready(within: Duration) -> bool {
     }
 }
 
-/// The SSID on air, which is what the phone must look for.
 pub fn ssid() -> Option<String> {
     status_field("ssid")
 }
@@ -159,7 +167,6 @@ pub fn mac() -> Option<String> {
     status_field("mac")
 }
 
-/// Most significant byte first.
 pub fn bt_mac() -> Option<[u8; 6]> {
     let text = status_field("btmac")?;
     let mut out = [0u8; 6];
@@ -180,8 +187,9 @@ mod tests {
 
     #[test]
     fn the_dongle_on_air_carries_its_channel_and_security() {
-        let live =
-            on_air_in(status_of("state on\nssid LIVI\nchannel 149\nsecurity wpa2-wpa3\nok\n"));
+        let live = on_air_in(status_of(
+            "state on\nssid LIVI\nchannel 149\nsecurity wpa2-wpa3\nok\n",
+        ));
         assert_eq!(
             live,
             Some(OnAir {
@@ -196,7 +204,10 @@ mod tests {
     fn a_dongle_that_names_no_security_runs_wpa2() {
         let live = on_air_in(status_of("state on\nssid LIVI\nchannel 6\nok\n")).unwrap();
         assert_eq!(live.security, Security::Wpa2);
-        assert_eq!(on_air_in(status_of("state off\nssid LIVI\nchannel 6\nok\n")), None);
+        assert_eq!(
+            on_air_in(status_of("state off\nssid LIVI\nchannel 6\nok\n")),
+            None
+        );
     }
 
     struct Wire {
@@ -220,7 +231,10 @@ mod tests {
     }
 
     fn wire(answer: &str) -> Wire {
-        Wire { answer: std::io::Cursor::new(answer.as_bytes().to_vec()), sent: Vec::new() }
+        Wire {
+            answer: std::io::Cursor::new(answer.as_bytes().to_vec()),
+            sent: Vec::new(),
+        }
     }
 
     #[test]
@@ -231,7 +245,10 @@ mod tests {
 
         let refused = exchange(wire("ok\nerror bad ssid\nok\n"), &cmds);
         assert_eq!(refused, Err("set ssid Car: bad ssid".to_string()));
-        assert_eq!(exchange(wire("ok\n"), &cmds), Err("the dongle closed the link".to_string()));
+        assert_eq!(
+            exchange(wire("ok\n"), &cmds),
+            Err("the dongle closed the link".to_string())
+        );
     }
 
     #[test]
@@ -245,14 +262,23 @@ mod tests {
     #[test]
     fn an_order_is_done_on_ok_and_names_what_went_wrong_otherwise() {
         assert_eq!(answered("ok\n"), Ok(()));
-        assert_eq!(answered("error not an address\n").unwrap_err(), "not an address");
+        assert_eq!(
+            answered("error not an address\n").unwrap_err(),
+            "not an address"
+        );
         assert!(answered("").is_err());
     }
 
     #[test]
     fn a_watch_line_names_the_phone_and_which_way_it_went() {
-        assert_eq!(station("joined 9a:c4:e2:44:5e:0f"), Some((true, "9a:c4:e2:44:5e:0f")));
-        assert_eq!(station("left 9a:c4:e2:44:5e:0f\n"), Some((false, "9a:c4:e2:44:5e:0f")));
+        assert_eq!(
+            station("joined 9a:c4:e2:44:5e:0f"),
+            Some((true, "9a:c4:e2:44:5e:0f"))
+        );
+        assert_eq!(
+            station("left 9a:c4:e2:44:5e:0f\n"),
+            Some((false, "9a:c4:e2:44:5e:0f"))
+        );
         assert_eq!(station(""), None);
         assert_eq!(station("ok"), None);
         assert_eq!(station("moved 9a:c4:e2:44:5e:0f"), None);

@@ -49,7 +49,6 @@ fn wh(kwh: f64) -> Value {
     ((kwh * 1000.0).round().clamp(0.0, f64::from(u32::MAX)) as u32).into()
 }
 
-/// The phone's number for each `EvConnectorType`, a GB/T plug counts as DC.
 fn connector(name: &str) -> Option<u8> {
     match name {
         "Combo1" => Some(0),
@@ -65,7 +64,13 @@ fn connector(name: &str) -> Option<u8> {
 
 impl CpTelemetry {
     pub fn new(helper: HelperSock) -> Self {
-        Self { helper, night: None, cluster_night: None, limited_ui: None, video_allowed: None }
+        Self {
+            helper,
+            night: None,
+            cluster_night: None,
+            limited_ui: None,
+            video_allowed: None,
+        }
     }
 
     pub fn follow(&mut self, prev: &Map<String, Value>, next: &Map<String, Value>, cp: &CpHandle) {
@@ -87,7 +92,10 @@ impl CpTelemetry {
             cp.send(CpCmd::ClusterNightMode(night));
         }
         if (changed(prev, next, "gear") || changed(prev, next, "reverse"))
-            && let Some(g) = gear(next.get("gear"), next.get("reverse").and_then(Value::as_bool))
+            && let Some(g) = gear(
+                next.get("gear"),
+                next.get("reverse").and_then(Value::as_bool),
+            )
         {
             let limited = !matches!(g, NEUTRAL | PARK);
             if self.limited_ui != Some(limited) {
@@ -110,9 +118,14 @@ impl CpTelemetry {
             put("range", num(next, "rangeKm").map(km));
             put("rangeFuel", num(next, "rangeFuelKm").map(km));
             put("rangeElectric", num(next, "rangeElectricKm").map(km));
-            put("outsideTemperature", num(next, "ambientC").map(|c| (c.round() as i64).into()));
-            put("rangeWarning", num(next, "fuelPct").map(|pct| (pct < LOW_FUEL_PCT).into()));
-            // The helper sends the battery only for a car that charges.
+            put(
+                "outsideTemperature",
+                num(next, "ambientC").map(|c| (c.round() as i64).into()),
+            );
+            put(
+                "rangeWarning",
+                num(next, "fuelPct").map(|pct| (pct < LOW_FUEL_PCT).into()),
+            );
             let capacity = num(next, "batteryCapacityKwh").filter(|c| *c > 0.0);
             let level = num(next, "batteryLevelKwh")
                 .or_else(|| Some(num(next, "fuelPct")? / 100.0 * capacity?));
@@ -122,7 +135,10 @@ impl CpTelemetry {
             let thousandths =
                 |pct: f64| Value::from((pct.clamp(0.0, 100.0) * 1000.0).round() as u32);
             put("batteryPercentE3", num(next, "fuelPct").map(thousandths));
-            put("charging", next.get("charging").filter(|v| v.is_boolean()).cloned());
+            put(
+                "charging",
+                next.get("charging").filter(|v| v.is_boolean()).cloned(),
+            );
             put(
                 "activeConnector",
                 next.get("activeConnector")
@@ -201,7 +217,6 @@ impl CpTelemetry {
         let mut rest = snap.clone();
         let climate = rest.remove(CLIMATE);
         self.follow(&Map::new(), &rest, cp);
-        // A new session starts from the store, whoever set it last.
         if let Some(Value::Object(mut climate)) = climate {
             climate.remove(SOURCE);
             cp.send(CpCmd::Climate(climate));
@@ -240,7 +255,10 @@ mod tests {
     }
 
     async fn next(rx: &mut mpsc::UnboundedReceiver<String>) -> String {
-        tokio::time::timeout(std::time::Duration::from_secs(5), rx.recv()).await.unwrap().unwrap()
+        tokio::time::timeout(std::time::Duration::from_secs(5), rx.recv())
+            .await
+            .unwrap()
+            .unwrap()
     }
 
     #[tokio::test]
@@ -265,7 +283,9 @@ mod tests {
         t.follow(&first, &second, &cp);
         assert_eq!(
             cmds.try_recv(),
-            Ok(CpCmd::Gauges(obj(json!({ "fuelPct": 9.5, "rangeKm": 70000.4 }))))
+            Ok(CpCmd::Gauges(obj(
+                json!({ "fuelPct": 9.5, "rangeKm": 70000.4 })
+            )))
         );
         assert!(cmds.try_recv().is_err());
         assert_eq!(
@@ -285,7 +305,10 @@ mod tests {
             next(&mut lines).await,
             r#"vehicle-status {"batteryPercentE3":10000,"rangeWarning":false}"#
         );
-        assert_eq!(cmds.try_recv(), Ok(CpCmd::Gauges(obj(json!({ "fuelPct": 10 })))));
+        assert_eq!(
+            cmds.try_recv(),
+            Ok(CpCmd::Gauges(obj(json!({ "fuelPct": 10 }))))
+        );
 
         let hybrid = obj(json!({ "rangeFuelKm": 512.6, "rangeElectricKm": 41.2 }));
         t.follow(&second, &hybrid, &cp);
@@ -350,7 +373,11 @@ mod tests {
         t.follow(&night, &lit_cluster, &cp);
         assert_eq!(cmds.try_recv(), Ok(CpCmd::ClusterNightMode(false)));
         t.follow(&lit_cluster, &cleared, &cp);
-        assert_eq!(cmds.try_recv(), Ok(CpCmd::ClusterNightMode(true)), "back to nightMode");
+        assert_eq!(
+            cmds.try_recv(),
+            Ok(CpCmd::ClusterNightMode(true)),
+            "back to nightMode"
+        );
     }
 
     #[test]
@@ -367,7 +394,10 @@ mod tests {
             text: "Glätte möglich".into(),
             symbol: "snowflake".into(),
         };
-        assert_eq!(cmds.try_recv(), Ok(CpCmd::Notification(Some(frost.clone()))));
+        assert_eq!(
+            cmds.try_recv(),
+            Ok(CpCmd::Notification(Some(frost.clone())))
+        );
         t.follow(&open, &open, &cp);
         assert!(cmds.try_recv().is_err(), "unchanged, nothing new");
 
@@ -390,12 +420,18 @@ mod tests {
         let second =
             obj(json!({ "climate": { "auto": true, "fanLevel": 5, "source": "external" } }));
         t.follow(&first, &second, &cp);
-        assert_eq!(cmds.try_recv(), Ok(CpCmd::Climate(obj(json!({ "fanLevel": 5 })))));
+        assert_eq!(
+            cmds.try_recv(),
+            Ok(CpCmd::Climate(obj(json!({ "fanLevel": 5 }))))
+        );
 
         let third =
             obj(json!({ "climate": { "auto": false, "fanLevel": 5, "source": "carplay" } }));
         t.follow(&second, &third, &cp);
-        assert!(cmds.try_recv().is_err(), "the phone's own setting does not go back to it");
+        assert!(
+            cmds.try_recv().is_err(),
+            "the phone's own setting does not go back to it"
+        );
         let renamed = obj(json!({ "climate": { "auto": false, "fanLevel": 5, "source": "car" } }));
         t.follow(&third, &renamed, &cp);
         assert!(cmds.try_recv().is_err());

@@ -1,6 +1,3 @@
-//! SRP-6a server for pair-setup: the 3072-bit group with g = 5 and SHA-512,
-//! the user name "Pair-Setup" and the setup code as password.
-
 use std::sync::OnceLock;
 
 use num_bigint::BigUint;
@@ -33,12 +30,10 @@ pub(crate) fn g() -> BigUint {
     BigUint::from(5u8)
 }
 
-/// Big-endian without leading zeros, a single zero byte for 0.
 pub(crate) fn to_bytes(n: &BigUint) -> Vec<u8> {
     n.to_bytes_be()
 }
 
-/// Left-padded to the group size.
 pub(crate) fn pad(n: &BigUint) -> Vec<u8> {
     let b = to_bytes(n);
     if b.len() >= N_BYTES {
@@ -63,7 +58,6 @@ pub struct Verified {
 
 pub struct SrpServer {
     pub salt: [u8; 16],
-    /// B, padded to the group size.
     pub public: Vec<u8>,
     identity: Vec<u8>,
     v: BigUint,
@@ -88,7 +82,14 @@ impl SrpServer {
         let v = g().modpow(&x, n());
         let b = BigUint::from_bytes_be(&b);
         let big_b = (k() * &v + g().modpow(&b, n())) % n();
-        Self { salt, public: pad(&big_b), identity, v, b, big_b }
+        Self {
+            salt,
+            public: pad(&big_b),
+            identity,
+            v,
+            b,
+            big_b,
+        }
     }
 
     pub fn verify(&self, a: &[u8], client_proof: &[u8]) -> Option<Verified> {
@@ -115,7 +116,10 @@ impl SrpServer {
             return None;
         }
         let server_proof = sha512(&[&pad(&a), client_proof, &session_key]);
-        Some(Verified { session_key, server_proof })
+        Some(Verified {
+            session_key,
+            server_proof,
+        })
     }
 }
 
@@ -132,7 +136,10 @@ pub(crate) mod tests {
         let big_a = g().modpow(&a, n());
         let big_b = BigUint::from_bytes_be(&server.public);
         let u = h(&[&pad(&big_a), &pad(&big_b)]);
-        let x = h(&[&server.salt, &sha512(&[username.as_bytes(), b":", password.as_bytes()])]);
+        let x = h(&[
+            &server.salt,
+            &sha512(&[username.as_bytes(), b":", password.as_bytes()]),
+        ]);
         let gx = g().modpow(&x, n());
         let base = (&big_b + n() * k() - (k() * gx) % n()) % n();
         let s = base.modpow(&(&a + &u * &x), n());

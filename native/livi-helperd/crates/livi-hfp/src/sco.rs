@@ -1,30 +1,25 @@
-//! The phone's call audio, CVSD = raw PCM s16le 8 kHz.
-
 use std::os::fd::{AsRawFd, OwnedFd};
 
-/// The largest packet a controller hands over, its length field is one byte.
 pub const MAX_PACKET: usize = 255;
 
-/// A call's audio, a packet per read and per send. The Linux kernel's SCO socket, or the datagram
-/// socket a host of our own hands out.
 pub struct Link {
     pub fd: OwnedFd,
     pub mtu: usize,
-    /// Reversed, the way the kernel stores an address.
     pub peer: [u8; 6],
 }
 
 impl Link {
-    /// One whole packet, `packet` should hold MAX_PACKET. A controller may send more than its
-    /// MTU, and the socket drops whatever does not fit.
     pub fn read(&self, packet: &mut [u8]) -> std::io::Result<usize> {
-        let n =
-            unsafe { libc::read(self.fd.as_raw_fd(), packet.as_mut_ptr().cast(), packet.len()) };
+        let n = unsafe {
+            libc::read(
+                self.fd.as_raw_fd(),
+                packet.as_mut_ptr().cast(),
+                packet.len(),
+            )
+        };
         usize::try_from(n).map_err(|_| std::io::Error::last_os_error())
     }
 
-    /// In pieces of the MTU, the kernel refuses larger ones. A controller that takes no more audio
-    /// must not hold up the caller's side, what it refuses is dropped.
     pub fn send(&self, pcm: &[u8]) -> usize {
         pcm.chunks(self.mtu)
             .map(|piece| {
@@ -56,7 +51,6 @@ mod kernel {
     const SOL_BLUETOOTH: libc::c_int = 274;
     const BT_DEFER_SETUP: libc::c_int = 7;
     const BT_VOICE: libc::c_int = 11;
-    /// CVSD on the air, 16-bit signed linear PCM to and from the host.
     const VOICE_CVSD_16BIT: u16 = 0x0060;
 
     fn set<T>(
@@ -74,7 +68,11 @@ mod kernel {
                 std::mem::size_of::<T>() as libc::socklen_t,
             )
         };
-        if rc == 0 { Ok(()) } else { Err(std::io::Error::last_os_error()) }
+        if rc == 0 {
+            Ok(())
+        } else {
+            Err(std::io::Error::last_os_error())
+        }
     }
 
     #[repr(C)]
@@ -89,16 +87,21 @@ mod kernel {
     }
 
     pub fn listen() -> std::io::Result<OwnedFd> {
-        // Close-on-exec, or a child the helper starts keeps listening after it has gone.
         let raw = unsafe {
-            libc::socket(libc::AF_BLUETOOTH, libc::SOCK_SEQPACKET | libc::SOCK_CLOEXEC, BTPROTO_SCO)
+            libc::socket(
+                libc::AF_BLUETOOTH,
+                libc::SOCK_SEQPACKET | libc::SOCK_CLOEXEC,
+                BTPROTO_SCO,
+            )
         };
         if raw < 0 {
             return Err(std::io::Error::last_os_error());
         }
         let fd = unsafe { OwnedFd::from_raw_fd(raw) };
-        let addr =
-            SockaddrSco { sco_family: libc::AF_BLUETOOTH as libc::sa_family_t, sco_bdaddr: [0; 6] };
+        let addr = SockaddrSco {
+            sco_family: libc::AF_BLUETOOTH as libc::sa_family_t,
+            sco_bdaddr: [0; 6],
+        };
         let rc = unsafe {
             libc::bind(
                 fd.as_raw_fd(),
@@ -109,8 +112,6 @@ mod kernel {
         if rc != 0 {
             return Err(std::io::Error::last_os_error());
         }
-        // Deferred, so a call is accepted with the socket's voice setting. Without it the kernel
-        // takes the controller's own, which on the AIC8800 is no 16-bit PCM.
         set(&fd, SOL_BLUETOOTH, BT_DEFER_SETUP, &1u32)?;
         if unsafe { libc::listen(fd.as_raw_fd(), 1) } != 0 {
             return Err(std::io::Error::last_os_error());
@@ -119,7 +120,10 @@ mod kernel {
     }
 
     pub fn accept(listen: &OwnedFd) -> std::io::Result<Link> {
-        let mut addr = SockaddrSco { sco_family: 0, sco_bdaddr: [0; 6] };
+        let mut addr = SockaddrSco {
+            sco_family: 0,
+            sco_bdaddr: [0; 6],
+        };
         let mut size = std::mem::size_of::<SockaddrSco>() as libc::socklen_t;
         let raw = unsafe {
             libc::accept4(
@@ -134,7 +138,6 @@ mod kernel {
         }
         let fd = unsafe { OwnedFd::from_raw_fd(raw) };
         set(&fd, SOL_BLUETOOTH, BT_VOICE, &VOICE_CVSD_16BIT)?;
-        // The first read accepts the deferred call and returns nothing.
         let mut first = [0u8; 1];
         if unsafe { libc::read(fd.as_raw_fd(), first.as_mut_ptr().cast(), 1) } < 0 {
             return Err(std::io::Error::last_os_error());
@@ -150,7 +153,11 @@ mod kernel {
                 &raw mut len,
             );
         }
-        Ok(Link { fd, mtu: usize::from(opts.mtu.max(24)), peer: addr.sco_bdaddr })
+        Ok(Link {
+            fd,
+            mtu: usize::from(opts.mtu.max(24)),
+            peer: addr.sco_bdaddr,
+        })
     }
 }
 
@@ -161,7 +168,14 @@ mod tests {
 
     fn pair(mtu: usize) -> (Link, UnixDatagram) {
         let (ours, theirs) = UnixDatagram::pair().unwrap();
-        (Link { fd: OwnedFd::from(ours), mtu, peer: [0; 6] }, theirs)
+        (
+            Link {
+                fd: OwnedFd::from(ours),
+                mtu,
+                peer: [0; 6],
+            },
+            theirs,
+        )
     }
 
     #[test]

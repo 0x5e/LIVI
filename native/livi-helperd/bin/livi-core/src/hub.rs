@@ -9,7 +9,6 @@ use livi_core_proto::state::State;
 use serde_json::Value;
 use tokio::sync::{broadcast, watch};
 
-/// A client further behind than this gets the whole state again.
 const BACKLOG: usize = 256;
 
 pub type Frame = Arc<Vec<u8>>;
@@ -33,7 +32,16 @@ impl Hub {
         let (patches, _) = broadcast::channel(BACKLOG);
         let (current, _) = watch::channel(state.clone());
         let (applied, _) = watch::channel(state.config.clone());
-        Self { inner: Mutex::new(Inner { state, value, rev: 0 }), patches, current, applied }
+        Self {
+            inner: Mutex::new(Inner {
+                state,
+                value,
+                rev: 0,
+            }),
+            patches,
+            current,
+            applied,
+        }
     }
 
     pub fn watch(&self) -> watch::Receiver<State> {
@@ -44,7 +52,6 @@ impl Hub {
         self.inner.lock().unwrap_or_else(|e| e.into_inner())
     }
 
-    /// Taken under one lock, so no patch falls between the state and the subscription.
     pub fn welcome(&self) -> (FromCore, broadcast::Receiver<Frame>) {
         let inner = self.lock();
         let msg = FromCore::Welcome {
@@ -89,7 +96,10 @@ impl Hub {
         inner.rev += 1;
         inner.value = value;
         self.current.send_replace(inner.state.clone());
-        match encode(&FromCore::Patch { rev: inner.rev, ops }) {
+        match encode(&FromCore::Patch {
+            rev: inner.rev,
+            ops,
+        }) {
             Ok(frame) => {
                 let _ = self.patches.send(Arc::new(frame));
             }
@@ -109,7 +119,11 @@ mod tests {
     use crate::config_file::defaults;
 
     fn hub() -> Hub {
-        let livi = PerScreen { main: Front::Livi, cluster: Front::Livi, aux: Front::Livi };
+        let livi = PerScreen {
+            main: Front::Livi,
+            cluster: Front::Livi,
+            aux: Front::Livi,
+        };
         Hub::new(State {
             front: livi,
             sessions: Default::default(),

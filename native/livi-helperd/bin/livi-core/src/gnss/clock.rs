@@ -6,11 +6,9 @@ use super::info::{FixMode, GnssInfo};
 use super::nmea::round_half_up;
 use crate::privileged::sudo;
 
-/// While this file exists the helper does not set the clock from the phone.
 pub const CLAIM_FILE: &str = "/tmp/livi-gps-clock";
 
 const DRIFT_THRESHOLD_S: f64 = 2.0;
-/// Above this the clock is plainly wrong and satellite time alone is enough.
 const GROSS_DRIFT_S: f64 = 60.0;
 const MIN_STEP_INTERVAL_MS: i64 = 60_000;
 const CLAIM_REFRESH_MS: i64 = 30_000;
@@ -22,7 +20,6 @@ pub fn trustworthy(info: &GnssInfo) -> bool {
         && info.hdop.is_none_or(|h| h <= 5.0)
 }
 
-/// The receiver decodes the time minutes before it has a position.
 fn may_step(info: &GnssInfo, drift_s: f64) -> bool {
     if drift_s.abs() > GROSS_DRIFT_S {
         return info.receiver_time.is_some();
@@ -30,7 +27,6 @@ fn may_step(info: &GnssInfo, drift_s: f64) -> bool {
     drift_s.abs() > DRIFT_THRESHOLD_S && trustworthy(info)
 }
 
-/// `epoch` in Unix seconds.
 #[derive(Debug, Clone, Copy, PartialEq)]
 pub struct Step {
     pub epoch: i64,
@@ -46,10 +42,14 @@ pub struct Clock {
 
 impl Clock {
     pub fn new(claim_file: impl Into<PathBuf>) -> Self {
-        Self { claim_file: claim_file.into(), claimed: false, last_claim_at: 0, last_step_at: 0 }
+        Self {
+            claim_file: claim_file.into(),
+            claimed: false,
+            last_claim_at: 0,
+            last_step_at: 0,
+        }
     }
 
-    /// `now_ms` is the system clock in Unix milliseconds.
     pub fn update(&mut self, info: &GnssInfo, now_ms: i64) -> Option<Step> {
         let Some(receiver_time) = info.receiver_time else {
             self.release();
@@ -65,7 +65,10 @@ impl Clock {
             return None;
         }
         self.last_step_at = now_ms;
-        Some(Step { epoch: round_half_up(receiver_time / 1000.0) as i64, drift_s })
+        Some(Step {
+            epoch: round_half_up(receiver_time / 1000.0) as i64,
+            drift_s,
+        })
     }
 
     pub fn release(&mut self) {
@@ -96,7 +99,10 @@ pub async fn step(step: Step) {
         return;
     }
     if sudo(&[SET_TIME_HELPER, &step.epoch.to_string()]).await {
-        println!("[clock] system clock stepped by {:.1}s from GPS", step.drift_s);
+        println!(
+            "[clock] system clock stepped by {:.1}s from GPS",
+            step.drift_s
+        );
     } else {
         eprintln!("[clock] setting the system clock from GPS failed");
     }
@@ -123,21 +129,43 @@ mod tests {
     }
 
     fn at(receiver_time: i64) -> GnssInfo {
-        GnssInfo { receiver_time: Some(receiver_time as f64), ..good_fix() }
+        GnssInfo {
+            receiver_time: Some(receiver_time as f64),
+            ..good_fix()
+        }
     }
 
     fn no_lock(receiver_time: i64) -> GnssInfo {
-        GnssInfo { fix_mode: FixMode::None, satellites_used: 0.0, ..at(receiver_time) }
+        GnssInfo {
+            fix_mode: FixMode::None,
+            satellites_used: 0.0,
+            ..at(receiver_time)
+        }
     }
 
     #[test]
     fn only_a_3d_lock_on_enough_satellites_is_trusted() {
         assert!(trustworthy(&good_fix()));
-        assert!(trustworthy(&GnssInfo { hdop: None, ..good_fix() }));
-        assert!(!trustworthy(&GnssInfo { receiver_time: None, ..good_fix() }));
-        assert!(!trustworthy(&GnssInfo { fix_mode: FixMode::TwoD, ..good_fix() }));
-        assert!(!trustworthy(&GnssInfo { satellites_used: 3.0, ..good_fix() }));
-        assert!(!trustworthy(&GnssInfo { hdop: Some(9.0), ..good_fix() }));
+        assert!(trustworthy(&GnssInfo {
+            hdop: None,
+            ..good_fix()
+        }));
+        assert!(!trustworthy(&GnssInfo {
+            receiver_time: None,
+            ..good_fix()
+        }));
+        assert!(!trustworthy(&GnssInfo {
+            fix_mode: FixMode::TwoD,
+            ..good_fix()
+        }));
+        assert!(!trustworthy(&GnssInfo {
+            satellites_used: 3.0,
+            ..good_fix()
+        }));
+        assert!(!trustworthy(&GnssInfo {
+            hdop: Some(9.0),
+            ..good_fix()
+        }));
     }
 
     #[test]
@@ -150,13 +178,28 @@ mod tests {
         clock.update(&good_fix(), NOW + 1000);
         assert_eq!(fs::read_to_string(&file).unwrap(), format!("{NOW}\n"));
         clock.update(&good_fix(), NOW + 31_000);
-        assert_eq!(fs::read_to_string(&file).unwrap(), format!("{}\n", NOW + 31_000));
+        assert_eq!(
+            fs::read_to_string(&file).unwrap(),
+            format!("{}\n", NOW + 31_000)
+        );
 
-        clock.update(&GnssInfo { fix_mode: FixMode::None, ..good_fix() }, NOW + 32_000);
+        clock.update(
+            &GnssInfo {
+                fix_mode: FixMode::None,
+                ..good_fix()
+            },
+            NOW + 32_000,
+        );
         assert!(!file.exists());
         clock.update(&good_fix(), NOW + 33_000);
         assert!(file.exists());
-        clock.update(&GnssInfo { receiver_time: None, ..good_fix() }, NOW + 34_000);
+        clock.update(
+            &GnssInfo {
+                receiver_time: None,
+                ..good_fix()
+            },
+            NOW + 34_000,
+        );
         assert!(!file.exists());
 
         let mut never = Clock::new(dir.0.join("never"));
@@ -176,7 +219,10 @@ mod tests {
         assert_eq!(clock.update(&at(NOW + 1500), NOW), None);
         assert_eq!(
             clock.update(&at(NOW + 60_000), NOW),
-            Some(Step { epoch: (NOW + 60_000) / 1000, drift_s: 60.0 })
+            Some(Step {
+                epoch: (NOW + 60_000) / 1000,
+                drift_s: 60.0
+            })
         );
         assert_eq!(clock.update(&at(NOW + 65_000), NOW + 5000), None);
         assert!(clock.update(&at(NOW + 121_000), NOW + 61_000).is_some());
@@ -188,11 +234,17 @@ mod tests {
         let mut clock = Clock::new(dir.0.join("claim"));
         assert_eq!(
             clock.update(&no_lock(NOW + 3_600_000), NOW),
-            Some(Step { epoch: (NOW + 3_600_000) / 1000, drift_s: 3600.0 })
+            Some(Step {
+                epoch: (NOW + 3_600_000) / 1000,
+                drift_s: 3600.0
+            })
         );
         let mut clock = Clock::new(dir.0.join("claim"));
         assert_eq!(clock.update(&no_lock(NOW + 10_000), NOW), None);
         assert_eq!(clock.update(&at(NOW + 500), NOW + 499), None);
-        assert_eq!(clock.update(&at(NOW + 1_500_500), NOW).map(|s| s.epoch), Some(1_800_001_501));
+        assert_eq!(
+            clock.update(&at(NOW + 1_500_500), NOW).map(|s| s.epoch),
+            Some(1_800_001_501)
+        );
     }
 }

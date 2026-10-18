@@ -1,7 +1,3 @@
-// Register access on the RTL2832U. Everything goes over vendor control
-// requests on endpoint 0: the USB and system blocks, the demodulator pages and
-// the I2C bus behind which the tuner sits.
-
 use std::time::Duration;
 
 use nusb::transfer::{ControlIn, ControlOut, ControlType, Recipient};
@@ -68,7 +64,6 @@ impl Regs {
         Ok(())
     }
 
-    /// Big endian on the wire, one or two bytes.
     pub fn write_reg(&self, block: u16, addr: u16, val: u16, len: usize) -> Result<(), Error> {
         let bytes = val.to_be_bytes();
         self.write(addr, (block << 8) | 0x10, &bytes[2 - len..])
@@ -77,7 +72,6 @@ impl Regs {
     pub fn demod_write(&self, page: u8, addr: u16, val: u16, len: usize) -> Result<(), Error> {
         let bytes = val.to_be_bytes();
         self.write((addr << 8) | 0x20, 0x10 | page as u16, &bytes[2 - len..])?;
-        // The demodulator only latches the write after the next read.
         self.demod_read(0x0a, 0x01)?;
         Ok(())
     }

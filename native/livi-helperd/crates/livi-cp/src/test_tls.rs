@@ -1,5 +1,3 @@
-//! A certificate authority of its own for tests that speak https.
-
 use openssl::asn1::Asn1Time;
 use openssl::bn::BigNum;
 use openssl::ec::{EcGroup, EcKey};
@@ -15,7 +13,6 @@ fn key() -> PKey<Private> {
     PKey::from_ec_key(EcKey::generate(&group).unwrap()).unwrap()
 }
 
-/// Self-signed without an issuer, else for localhost and 127.0.0.1.
 fn cert(name: &str, key: &PKey<Private>, issuer: Option<(&X509, &PKey<Private>)>) -> X509 {
     let mut subject = X509NameBuilder::new().unwrap();
     subject.append_entry_by_nid(Nid::COMMONNAME, name).unwrap();
@@ -23,11 +20,14 @@ fn cert(name: &str, key: &PKey<Private>, issuer: Option<(&X509, &PKey<Private>)>
     let mut b = X509::builder().unwrap();
     b.set_version(2).unwrap();
     let serial = if issuer.is_some() { 2 } else { 1 };
-    b.set_serial_number(&BigNum::from_u32(serial).unwrap().to_asn1_integer().unwrap()).unwrap();
+    b.set_serial_number(&BigNum::from_u32(serial).unwrap().to_asn1_integer().unwrap())
+        .unwrap();
     b.set_subject_name(&subject).unwrap();
     b.set_pubkey(key).unwrap();
-    b.set_not_before(&Asn1Time::days_from_now(0).unwrap()).unwrap();
-    b.set_not_after(&Asn1Time::days_from_now(1).unwrap()).unwrap();
+    b.set_not_before(&Asn1Time::days_from_now(0).unwrap())
+        .unwrap();
+    b.set_not_after(&Asn1Time::days_from_now(1).unwrap())
+        .unwrap();
     match issuer {
         Some((ca, ca_key)) => {
             b.set_issuer_name(ca.subject_name()).unwrap();
@@ -41,14 +41,14 @@ fn cert(name: &str, key: &PKey<Private>, issuer: Option<(&X509, &PKey<Private>)>
         }
         None => {
             b.set_issuer_name(&subject).unwrap();
-            b.append_extension(BasicConstraints::new().critical().ca().build().unwrap()).unwrap();
+            b.append_extension(BasicConstraints::new().critical().ca().build().unwrap())
+                .unwrap();
             b.sign(key, MessageDigest::sha256()).unwrap();
         }
     }
     b.build()
 }
 
-/// A server side for localhost and 127.0.0.1, and a client that trusts it.
 pub fn ca() -> (SslAcceptor, SslConnector) {
     let ca_key = key();
     let ca = cert("LIVI test CA", &ca_key, None);

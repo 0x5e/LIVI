@@ -6,19 +6,15 @@ use crate::wire::round_half_up;
 #[derive(Debug, Clone, Default, PartialEq)]
 pub struct AaConfig {
     pub hu_name: Option<String>,
-    /// The tier the phone encodes into.
     pub video_width: Option<u32>,
     pub video_height: Option<u32>,
     pub video_dpi: Option<u32>,
     pub video_fps: Option<u32>,
     pub pixel_aspect_ratio_e4: Option<u32>,
-    /// The physical screen the tier is shown on.
     pub display_width: u32,
     pub display_height: u32,
-    /// The view area becomes margins, the safe area content insets.
     pub main_view_area: Insets,
     pub main_safe_area: Insets,
-    /// 1 for right-hand drive.
     pub driver_position: u8,
     pub bt_mac_address: Option<String>,
     pub wifi_bssid: Option<String>,
@@ -43,9 +39,7 @@ pub struct AaConfig {
     pub cluster_view_area: Insets,
     pub cluster_safe_area: Insets,
     pub disable_audio_output: bool,
-    /// Empty for the default capture device.
     pub mic_device: String,
-    /// Offers the phone a call audio channel next to hands-free, `LIVI_AA_TELEPHONY=1`.
     pub telephony_audio: bool,
 }
 
@@ -68,15 +62,18 @@ pub struct Codecs {
 pub struct Addresses {
     pub bt_mac: Option<String>,
     pub wifi_bssid: Option<String>,
-    /// The access point a phone joins, when one is on air.
     pub access_point: Option<OnAir>,
 }
 
 const SQUARE_PIXEL_E4: u32 = 10000;
 
-const AA_TIERS: [(u32, u32); 5] =
-    [(800, 480), (1280, 720), (1920, 1080), (2560, 1440), (3840, 2160)];
-/// Phones refuse a tier above 1080p unless a codec other than h264 is offered.
+const AA_TIERS: [(u32, u32); 5] = [
+    (800, 480),
+    (1280, 720),
+    (1920, 1080),
+    (2560, 1440),
+    (3840, 2160),
+];
 const H264_MAX_TIER_WIDTH: u32 = 1920;
 const MAX_TIER_UPSCALE: f64 = 1.2;
 
@@ -96,7 +93,11 @@ pub fn content_area(frame: (u32, u32), user: (u32, u32)) -> (f64, f64) {
 
 pub fn fitting_tier(width: u32, height: u32, h264_only: bool) -> (u32, u32) {
     let (user_w, user_h) = (width.max(1), height.max(1));
-    let max_w = if h264_only { H264_MAX_TIER_WIDTH } else { u32::MAX };
+    let max_w = if h264_only {
+        H264_MAX_TIER_WIDTH
+    } else {
+        u32::MAX
+    };
     let mut chosen = AA_TIERS[0];
     for tier in AA_TIERS {
         if tier.0 > max_w {
@@ -112,7 +113,6 @@ pub fn fitting_tier(width: u32, height: u32, h264_only: bool) -> (u32, u32) {
     chosen
 }
 
-/// Densities of a typical car screen at each tier.
 const DPI_TIERS: [(u64, f64); 5] = [
     (800 * 480, 140.0),
     (1280 * 720, 180.0),
@@ -151,7 +151,6 @@ fn fuel_types(car: Option<CarType>) -> Vec<i32> {
     }
 }
 
-/// A dashboard layout can show the phone's cluster stream on any screen that has the dashboard.
 pub fn cluster_displayed(cfg: &Config) -> bool {
     let d = cfg.dashboard;
     d.main || d.cluster || d.aux
@@ -165,8 +164,11 @@ pub fn from_livi(
 ) -> AaConfig {
     let h264_only = !(codecs.hevc || codecs.vp9 || codecs.av1);
     let (tier_w, tier_h) = fitting_tier(cfg.projection_width, cfg.projection_height, h264_only);
-    let dpi =
-        if cfg.projection_dpi > 0 { cfg.projection_dpi } else { android_auto_dpi(tier_w, tier_h) };
+    let dpi = if cfg.projection_dpi > 0 {
+        cfg.projection_dpi
+    } else {
+        android_auto_dpi(tier_w, tier_h)
+    };
     let (cluster_tier_w, cluster_tier_h) =
         fitting_tier(cfg.cluster_width, cfg.cluster_height, h264_only);
     let cluster_dpi = if cfg.cluster_dpi > 0 {
@@ -174,8 +176,11 @@ pub fn from_livi(
     } else {
         android_auto_dpi(cluster_tier_w, cluster_tier_h)
     };
-    let name =
-        if cfg.car_name.trim().is_empty() { "LIVI".to_string() } else { cfg.car_name.clone() };
+    let name = if cfg.car_name.trim().is_empty() {
+        "LIVI".to_string()
+    } else {
+        cfg.car_name.clone()
+    };
     let cluster = cluster_displayed(cfg);
     println!(
         "[AaSession] display {}x{} -> AA tier {tier_w}x{tier_h} @{dpi}dpi, cluster {}",
@@ -215,7 +220,10 @@ pub fn from_livi(
         driver_position: u8::from(cfg.hand == HandDriveType::Rhd),
         bt_mac_address: addresses.bt_mac.clone(),
         wifi_bssid: addresses.wifi_bssid.clone(),
-        wifi_ssid: on_air.map(|ap| ap.ssid.clone()).filter(|s| !s.is_empty()).unwrap_or(name),
+        wifi_ssid: on_air
+            .map(|ap| ap.ssid.clone())
+            .filter(|s| !s.is_empty())
+            .unwrap_or(name),
         wifi_password: if cfg.wifi_password.is_empty() {
             "12345678".to_string()
         } else {
@@ -224,7 +232,12 @@ pub fn from_livi(
         wifi_security: on_air.map(|ap| ap.security).unwrap_or_default(),
         wifi_channel: Some(on_air.map_or(cfg.wifi_channel, |ap| ap.channel.number)),
         fuel_types: fuel_types(cfg.car_type),
-        ev_connector_types: cfg.ev_connector_types.iter().flatten().map(|t| *t as i32).collect(),
+        ev_connector_types: cfg
+            .ev_connector_types
+            .iter()
+            .flatten()
+            .map(|t| *t as i32)
+            .collect(),
         hevc_supported: codecs.hevc,
         vp9_supported: codecs.vp9,
         av1_supported: codecs.av1,
@@ -301,8 +314,15 @@ impl Geometry {
     }
 
     pub fn main(cfg: &AaConfig) -> Self {
-        let tier = (cfg.video_width.unwrap_or(1280), cfg.video_height.unwrap_or(720));
-        Self::new(tier, (cfg.display_width, cfg.display_height), cfg.main_view_area)
+        let tier = (
+            cfg.video_width.unwrap_or(1280),
+            cfg.video_height.unwrap_or(720),
+        );
+        Self::new(
+            tier,
+            (cfg.display_width, cfg.display_height),
+            cfg.main_view_area,
+        )
     }
 
     pub fn touch_size(&self) -> (i64, i64) {
@@ -346,9 +366,22 @@ pub(crate) mod tests {
         let g = Geometry::new(
             (1920, 1080),
             (1920, 720),
-            Insets { top: 1, bottom: 2, left: 3, right: 4 },
+            Insets {
+                top: 1,
+                bottom: 2,
+                left: 3,
+                right: 4,
+            },
         );
-        assert_eq!(g.inset, Insets { top: 181, bottom: 182, left: 3, right: 4 });
+        assert_eq!(
+            g.inset,
+            Insets {
+                top: 181,
+                bottom: 182,
+                left: 3,
+                right: 4
+            }
+        );
         assert_eq!(g.touch_size(), (1913, 717));
     }
 
@@ -379,8 +412,11 @@ pub(crate) mod tests {
         assert!(aa.cluster_enabled);
         assert_eq!(aa.initial_night_mode, Some(true));
         assert_eq!(aa.bt_mac_address.as_deref(), Some("AA:BB:CC:DD:EE:FF"));
-        cfg.dashboard =
-            livi_core_proto::state::PerScreen { main: false, cluster: false, aux: false };
+        cfg.dashboard = livi_core_proto::state::PerScreen {
+            main: false,
+            cluster: false,
+            aux: false,
+        };
         assert!(!from_livi(&cfg, Codecs::default(), None, &addresses).cluster_enabled);
     }
 }

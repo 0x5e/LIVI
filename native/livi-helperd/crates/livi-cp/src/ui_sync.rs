@@ -1,12 +1,3 @@
-//! The layout channel between the phone and a car maker's theme, the car's side.
-//!
-//! On the stream each message is OPACK `{displayUUID: panel, data}`. `data` is a binary plist
-//! `{type, ssn, psn, asn, id, version, data, noAck}`, type 0 reset, 1 reset complete, 2 command,
-//! 3 command ack. A command's `data` is another binary plist `{type, data}`.
-//!
-//! The phone opens with a reset, the car answers with its own reset, the phone completes it and
-//! the car completes back. From then on the car asks for its layouts.
-
 use crate::bplist;
 use crate::opack;
 
@@ -69,13 +60,18 @@ pub struct UiSync {
 
 impl UiSync {
     pub fn reopen(&mut self) {
-        *self = Self { wanted: self.wanted.take(), light: self.light, ..Self::default() };
+        *self = Self {
+            wanted: self.wanted.take(),
+            light: self.light,
+            ..Self::default()
+        };
     }
 
-    /// Asks for the layout right away once the channel is up, else when it comes up.
     pub fn select(&mut self, layout: Layout) -> Vec<Vec<u8>> {
         self.wanted = Some(layout);
-        let Some(request) = self.request().filter(|_| self.ready) else { return Vec::new() };
+        let Some(request) = self.request().filter(|_| self.ready) else {
+            return Vec::new();
+        };
         let out = vec![self.message(COMMAND, Some(request), Vec::new())];
         println!("[cpUiSync] sent: {}", describe(&out[0]));
         out
@@ -104,13 +100,20 @@ impl UiSync {
 
     pub fn handle(&mut self, message: &[u8]) -> Vec<Vec<u8>> {
         println!("[cpUiSync] {}", describe(message));
-        let Some(opack::Value::Dict(frame)) = opack::decode(message) else { return Vec::new() };
+        let Some(opack::Value::Dict(frame)) = opack::decode(message) else {
+            return Vec::new();
+        };
         let data = opack::Value::str("data");
-        let Some(header) = frame.iter().find(|(k, _)| *k == data).and_then(|(_, v)| v.as_data())
+        let Some(header) = frame
+            .iter()
+            .find(|(k, _)| *k == data)
+            .and_then(|(_, v)| v.as_data())
         else {
             return Vec::new();
         };
-        let Ok(header) = bplist::decode(header) else { return Vec::new() };
+        let Ok(header) = bplist::decode(header) else {
+            return Vec::new();
+        };
         self.panel = frame.into_iter().filter(|(k, _)| *k != data).collect();
         let int = |k| header.get(k).and_then(bplist::Value::as_int);
         let mut out = Vec::new();
@@ -165,8 +168,10 @@ impl UiSync {
     }
 
     fn follow_phone(&mut self, header: &bplist::Value) -> bool {
-        let Some(Ok(command)) =
-            header.get("data").and_then(bplist::Value::as_data).map(bplist::decode)
+        let Some(Ok(command)) = header
+            .get("data")
+            .and_then(bplist::Value::as_data)
+            .map(bplist::decode)
         else {
             return false;
         };
@@ -174,9 +179,10 @@ impl UiSync {
         let text = |k: &str| data.and_then(|d| d.get(k)).and_then(bplist::Value::as_str);
         match command.get("type").and_then(bplist::Value::as_int) {
             Some(START_LAYOUT_TRANSITION) => {
-                let Some(id) = text("layoutID") else { return false };
+                let Some(id) = text("layoutID") else {
+                    return false;
+                };
                 self.choices.push(PhoneChoice::Layout(id.to_string()));
-                // The phone keeps a palette per layout and names it with the layout.
                 if let Some(palette) = text("paletteID") {
                     let (layout, palette) = (id.to_string(), palette.to_string());
                     self.choices.push(PhoneChoice::Palette { layout, palette });
@@ -231,7 +237,10 @@ impl UiSync {
         ];
         header.extend(extra.into_iter().map(|(k, v)| (k.to_string(), v)));
         if let Some(data) = data {
-            header.push(("data".to_string(), bplist::Value::Data(bplist::encode(&data))));
+            header.push((
+                "data".to_string(),
+                bplist::Value::Data(bplist::encode(&data)),
+            ));
         }
         self.next_tx += 1;
         let mut frame = self.panel.clone();
@@ -254,7 +263,10 @@ fn give_focus() -> bplist::Value {
 fn allow_layout_change() -> bplist::Value {
     bplist::Value::Dict(vec![
         ("type".into(), bplist::Value::Int(ALLOW_LAYOUT_CHANGE)),
-        ("data".into(), bplist::Value::Dict(vec![("allow".into(), bplist::Value::Bool(true))])),
+        (
+            "data".into(),
+            bplist::Value::Dict(vec![("allow".into(), bplist::Value::Bool(true))]),
+        ),
     ])
 }
 
@@ -273,7 +285,11 @@ fn request_layout(layout: &Layout, appearance: u64) -> bplist::Value {
                 (
                     "activeComponents".into(),
                     bplist::Value::Dict(
-                        layout.active.iter().map(|(zone, c)| (zone.clone(), s(c))).collect(),
+                        layout
+                            .active
+                            .iter()
+                            .map(|(zone, c)| (zone.clone(), s(c)))
+                            .collect(),
                     ),
                 ),
             ]),
@@ -283,15 +299,24 @@ fn request_layout(layout: &Layout, appearance: u64) -> bplist::Value {
 
 fn describe(message: &[u8]) -> String {
     let n = message.len();
-    let Some(frame) = opack::decode(message) else { return format!("{n} B {}", hex(message)) };
-    let panel = frame.get("displayUUID").and_then(opack::Value::as_str).unwrap_or("?");
+    let Some(frame) = opack::decode(message) else {
+        return format!("{n} B {}", hex(message));
+    };
+    let panel = frame
+        .get("displayUUID")
+        .and_then(opack::Value::as_str)
+        .unwrap_or("?");
     let Some(data) = frame.get("data").and_then(opack::Value::as_data) else {
         return format!("{n} B frame without data: {frame:?}");
     };
     let Ok(header) = bplist::decode(data) else {
         return format!("{n} B for {panel}, data {}", hex(data));
     };
-    match header.get("data").and_then(bplist::Value::as_data).map(bplist::decode) {
+    match header
+        .get("data")
+        .and_then(bplist::Value::as_data)
+        .map(bplist::decode)
+    {
         Some(Ok(command)) => format!("{n} B for {panel}: {header:?} command {command:?}"),
         _ => format!("{n} B for {panel}: {header:?}"),
     }
@@ -308,10 +333,16 @@ mod tests {
     use bplist::Value::{Int, String as S};
 
     fn framed(header: Vec<(&str, bplist::Value)>) -> Vec<u8> {
-        let header = header.into_iter().map(|(k, v)| (k.to_string(), v)).collect();
+        let header = header
+            .into_iter()
+            .map(|(k, v)| (k.to_string(), v))
+            .collect();
         let data = bplist::encode(&bplist::Value::Dict(header));
         opack::encode(&opack::Value::Dict(vec![
-            (opack::Value::str("displayUUID"), opack::Value::str("Cluster_Display")),
+            (
+                opack::Value::str("displayUUID"),
+                opack::Value::str("Cluster_Display"),
+            ),
             (opack::Value::str("data"), opack::Value::Data(data)),
         ]))
     }
@@ -337,7 +368,10 @@ mod tests {
             active: vec![("F0786093".into(), "2B28C705".into())],
         };
         let mut sync = UiSync::default();
-        assert!(sync.select(layout).is_empty(), "nothing before the channel is up");
+        assert!(
+            sync.select(layout).is_empty(),
+            "nothing before the channel is up"
+        );
         let id = S("89858A51".into());
         let reset = framed(vec![
             ("type", Int(0)),
@@ -349,15 +383,25 @@ mod tests {
         ]);
         let out = sync.handle(&reset);
         let h = header_of(&out[0]);
-        assert_eq!((int(&h, "type"), int(&h, "ssn"), int(&h, "psn")), (Some(0), Some(1), Some(1)));
+        assert_eq!(
+            (int(&h, "type"), int(&h, "ssn"), int(&h, "psn")),
+            (Some(0), Some(1), Some(1))
+        );
         assert_eq!((int(&h, "version"), h.get("id")), (Some(2), Some(&id)));
 
-        let complete =
-            framed(vec![("type", Int(1)), ("ssn", Int(1)), ("psn", Int(1)), ("version", Int(3))]);
+        let complete = framed(vec![
+            ("type", Int(1)),
+            ("ssn", Int(1)),
+            ("psn", Int(1)),
+            ("version", Int(3)),
+        ]);
         let out = sync.handle(&complete);
         assert_eq!(out.len(), 4);
         let h = header_of(&out[0]);
-        assert_eq!((int(&h, "type"), int(&h, "psn"), int(&h, "asn")), (Some(1), Some(2), Some(1)));
+        assert_eq!(
+            (int(&h, "type"), int(&h, "psn"), int(&h, "asn")),
+            (Some(1), Some(2), Some(1))
+        );
         let h = header_of(&out[1]);
         let command =
             bplist::decode(h.get("data").and_then(bplist::Value::as_data).unwrap()).unwrap();
@@ -370,13 +414,23 @@ mod tests {
             bplist::decode(h.get("data").and_then(bplist::Value::as_data).unwrap()).unwrap();
         assert_eq!(int(&command, "type"), Some(REQUEST_LAYOUT));
         let data = command.get("data").unwrap();
-        assert_eq!(data.get("layoutID").and_then(bplist::Value::as_str), Some("0D38B526"));
+        assert_eq!(
+            data.get("layoutID").and_then(bplist::Value::as_str),
+            Some("0D38B526")
+        );
         let active = data.get("activeComponents").unwrap();
-        assert_eq!(active.get("F0786093").and_then(bplist::Value::as_str), Some("2B28C705"));
+        assert_eq!(
+            active.get("F0786093").and_then(bplist::Value::as_str),
+            Some("2B28C705")
+        );
         let h = header_of(&out[3]);
         let command =
             bplist::decode(h.get("data").and_then(bplist::Value::as_data).unwrap()).unwrap();
-        assert_eq!(int(&command, "type"), Some(GIVE_FOCUS), "LIVI has nothing to focus itself");
+        assert_eq!(
+            int(&command, "type"),
+            Some(GIVE_FOCUS),
+            "LIVI has nothing to focus itself"
+        );
         let token = command.get("data").and_then(|d| d.get("tokenID"));
         assert_eq!(token.and_then(bplist::Value::as_int), Some(FOCUS_TOKEN));
 
@@ -384,23 +438,45 @@ mod tests {
         let h = header_of(&sync.handle(&from_phone)[0]);
         assert_eq!((int(&h, "type"), int(&h, "asn")), (Some(3), Some(2)));
 
-        let other = Layout { id: "DB7C6944".into(), palette: "dark".into(), active: vec![] };
+        let other = Layout {
+            id: "DB7C6944".into(),
+            palette: "dark".into(),
+            active: vec![],
+        };
         let h = header_of(&sync.select(other)[0]);
         let command =
             bplist::decode(h.get("data").and_then(bplist::Value::as_data).unwrap()).unwrap();
         let data = command.get("data").unwrap();
-        assert_eq!(data.get("layoutID").and_then(bplist::Value::as_str), Some("DB7C6944"));
-        assert_eq!(data.get("paletteID").and_then(bplist::Value::as_str), Some("dark"));
-        assert_eq!(data.get("appearanceMode").and_then(bplist::Value::as_int), Some(DARK));
+        assert_eq!(
+            data.get("layoutID").and_then(bplist::Value::as_str),
+            Some("DB7C6944")
+        );
+        assert_eq!(
+            data.get("paletteID").and_then(bplist::Value::as_str),
+            Some("dark")
+        );
+        assert_eq!(
+            data.get("appearanceMode").and_then(bplist::Value::as_int),
+            Some(DARK)
+        );
 
         assert!(sync.set_dark(true).is_empty(), "dark already");
         let h = header_of(&sync.set_dark(false)[0]);
         let command =
             bplist::decode(h.get("data").and_then(bplist::Value::as_data).unwrap()).unwrap();
         let data = command.get("data").unwrap();
-        assert_eq!(data.get("layoutID").and_then(bplist::Value::as_str), Some("DB7C6944"));
-        assert_eq!(data.get("appearanceMode").and_then(bplist::Value::as_int), Some(LIGHT));
-        assert!(UiSync::default().set_dark(false).is_empty(), "no layout asked for yet");
+        assert_eq!(
+            data.get("layoutID").and_then(bplist::Value::as_str),
+            Some("DB7C6944")
+        );
+        assert_eq!(
+            data.get("appearanceMode").and_then(bplist::Value::as_int),
+            Some(LIGHT)
+        );
+        assert!(
+            UiSync::default().set_dark(false).is_empty(),
+            "no layout asked for yet"
+        );
 
         let from_phone = |psn: u64, kind: u64, data: Vec<(&str, bplist::Value)>| {
             let data = data.into_iter().map(|(k, v)| (k.to_string(), v)).collect();
@@ -418,27 +494,48 @@ mod tests {
         sync.handle(&from_phone(
             3,
             START_LAYOUT_TRANSITION,
-            vec![("layoutID", S("0D38B526".into())), ("paletteID", S("starlight".into()))],
+            vec![
+                ("layoutID", S("0D38B526".into())),
+                ("paletteID", S("starlight".into())),
+            ],
         ));
         let palette = vec![
             ("layoutIdentifier", S("0D38B526".into())),
             ("paletteIdentifier", S("racingGreen".into())),
         ];
         sync.handle(&from_phone(4, PALETTE_CHANGE, palette));
-        sync.handle(&from_phone(5, APPEARANCE_PREFERENCE_CHANGE, vec![("preference", Int(2))]));
-        sync.handle(&from_phone(6, APPEARANCE_PREFERENCE_CHANGE, vec![("preference", Int(7))]));
+        sync.handle(&from_phone(
+            5,
+            APPEARANCE_PREFERENCE_CHANGE,
+            vec![("preference", Int(2))],
+        ));
+        sync.handle(&from_phone(
+            6,
+            APPEARANCE_PREFERENCE_CHANGE,
+            vec![("preference", Int(7))],
+        ));
         assert_eq!(
             sync.take_choices(),
             [
                 PhoneChoice::Layout("0D38B526".into()),
-                PhoneChoice::Palette { layout: "0D38B526".into(), palette: "starlight".into() },
-                PhoneChoice::Palette { layout: "0D38B526".into(), palette: "racingGreen".into() },
+                PhoneChoice::Palette {
+                    layout: "0D38B526".into(),
+                    palette: "starlight".into()
+                },
+                PhoneChoice::Palette {
+                    layout: "0D38B526".into(),
+                    palette: "racingGreen".into()
+                },
                 PhoneChoice::Appearance(Appearance::Dark),
             ]
         );
         assert!(sync.take_choices().is_empty());
 
-        let asks = sync.handle(&from_phone(7, REQUEST_FOCUS, vec![("tokenID", Int(FOCUS_TOKEN))]));
+        let asks = sync.handle(&from_phone(
+            7,
+            REQUEST_FOCUS,
+            vec![("tokenID", Int(FOCUS_TOKEN))],
+        ));
         assert_eq!(asks.len(), 2, "acked, then the focus goes back");
         let h = header_of(&asks[1]);
         let command =
@@ -446,7 +543,10 @@ mod tests {
         assert_eq!(int(&command, "type"), Some(GIVE_FOCUS));
 
         let stale = framed(vec![("type", Int(2)), ("ssn", Int(9)), ("psn", Int(3))]);
-        assert!(sync.handle(&stale).is_empty(), "another session is not ours");
+        assert!(
+            sync.handle(&stale).is_empty(),
+            "another session is not ours"
+        );
         assert!(sync.handle(&[0xff]).is_empty());
 
         sync.reopen();
@@ -457,6 +557,10 @@ mod tests {
             bplist::decode(h.get("data").and_then(bplist::Value::as_data).unwrap()).unwrap();
         let data = command.get("data").unwrap();
         let layout = data.get("layoutID").and_then(bplist::Value::as_str);
-        assert_eq!(layout, Some("DB7C6944"), "a new channel asks for the layout again");
+        assert_eq!(
+            layout,
+            Some("DB7C6944"),
+            "a new channel asks for the layout again"
+        );
     }
 }

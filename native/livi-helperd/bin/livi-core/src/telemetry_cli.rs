@@ -1,6 +1,3 @@
-//! `livi-core telemetry` pushes values into the telemetry of a running LIVI, for tests at the
-//! desk and in the car. Every field is described in livi-core-proto's `telemetry.rs`.
-
 use std::io::{Read, Write};
 use std::net::TcpStream;
 use std::process::ExitCode;
@@ -57,12 +54,13 @@ pub fn run(args: &[String]) -> ExitCode {
             return ExitCode::FAILURE;
         }
         println!("pushed {} to {}", order.push, order.to);
-        let Some(every) = order.every else { return ExitCode::SUCCESS };
+        let Some(every) = order.every else {
+            return ExitCode::SUCCESS;
+        };
         std::thread::sleep(every);
     }
 }
 
-/// None asks for the help.
 fn order(args: &[String]) -> Result<Option<Order>, String> {
     let mut words = args.iter().map(String::as_str);
     let command = words.next();
@@ -73,11 +71,19 @@ fn order(args: &[String]) -> Result<Option<Order>, String> {
         match word {
             "--to" => {
                 let host = words.next().ok_or("--to needs host:port")?;
-                to = host.trim_start_matches("http://").trim_end_matches('/').to_string();
+                to = host
+                    .trim_start_matches("http://")
+                    .trim_end_matches('/')
+                    .to_string();
             }
             "--every-ms" => {
-                let ms = words.next().and_then(|ms| ms.parse::<u64>().ok()).filter(|ms| *ms > 0);
-                every = Some(Duration::from_millis(ms.ok_or("--every-ms needs milliseconds")?));
+                let ms = words
+                    .next()
+                    .and_then(|ms| ms.parse::<u64>().ok())
+                    .filter(|ms| *ms > 0);
+                every = Some(Duration::from_millis(
+                    ms.ok_or("--every-ms needs milliseconds")?,
+                ));
             }
             field => {
                 let (key, raw) = field
@@ -107,16 +113,22 @@ fn value_of(raw: &str) -> Value {
             .parse::<i64>()
             .map(Value::from)
             .ok()
-            .or_else(|| raw.parse::<f64>().ok().filter(|n| n.is_finite()).map(Value::from))
+            .or_else(|| {
+                raw.parse::<f64>()
+                    .ok()
+                    .filter(|n| n.is_finite())
+                    .map(Value::from)
+            })
             .unwrap_or_else(|| Value::String(raw.to_string())),
     }
 }
 
-/// `gps.lat` lands as `{ gps: { lat } }`.
 fn put(fields: &mut Map<String, Value>, key: &str, value: Value) {
     match key.split_once('.') {
         Some((head, rest)) => {
-            let inner = fields.entry(head).or_insert_with(|| Value::Object(Map::new()));
+            let inner = fields
+                .entry(head)
+                .or_insert_with(|| Value::Object(Map::new()));
             if !inner.is_object() {
                 *inner = Value::Object(Map::new());
             }
@@ -162,7 +174,9 @@ pub(crate) fn post(to: &str, push: &Value) -> Result<(), String> {
          Content-Length: {}\r\nConnection: close\r\n\r\n{body}",
         body.len()
     );
-    stream.write_all(request.as_bytes()).map_err(|e| format!("cannot send to {to}: {e}"))?;
+    stream
+        .write_all(request.as_bytes())
+        .map_err(|e| format!("cannot send to {to}: {e}"))?;
     let mut answer = String::new();
     let _ = stream.read_to_string(&mut answer);
     let status = answer.lines().next().unwrap_or("no answer");
@@ -207,7 +221,10 @@ mod tests {
         assert_eq!(order(&[]), Ok(None));
         assert_eq!(order(&words("help")), Ok(None));
         let demo = order(&words("demo")).unwrap().unwrap();
-        assert_eq!((demo.push["gps"]["satellites"].as_u64(), demo.every), (Some(11), None));
+        assert_eq!(
+            (demo.push["gps"]["satellites"].as_u64(), demo.every),
+            (Some(11), None)
+        );
         assert_eq!(demo.to, "127.0.0.1:4000");
         for (line, says) in [
             ("set", "at least one field"),
@@ -229,6 +246,9 @@ mod tests {
     fn a_push_nobody_takes_fails() {
         let error = post("127.0.0.1:1", &json!({ "gear": "R" })).unwrap_err();
         assert!(error.contains("cannot reach LIVI"), "{error}");
-        assert_eq!(run(&words("set gear=R --to 127.0.0.1:1")), ExitCode::FAILURE);
+        assert_eq!(
+            run(&words("set gear=R --to 127.0.0.1:1")),
+            ExitCode::FAILURE
+        );
     }
 }

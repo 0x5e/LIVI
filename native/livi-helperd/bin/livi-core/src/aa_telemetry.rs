@@ -3,16 +3,19 @@ use livi_aa_stack::sensors::{GpsFix, Sensor};
 use serde_json::{Map, Value};
 use tokio::time::Instant;
 
-/// The maps re-plan on an energy model, so it goes out at most this often.
 const ENERGY_MODEL_EVERY: std::time::Duration = std::time::Duration::from_secs(10);
 
 pub const LOW_FUEL_PCT: f64 = 10.0;
 
-/// The phone's gear: 0 neutral, 1 to 10 manual, 100 drive, 101 park, 102 reverse.
 pub const REVERSE: i64 = 102;
 
 const TIRE_PRESSURE: &str = "tirePressure";
-const WHEELS: [&str; 4] = ["frontLeftKpa", "frontRightKpa", "rearLeftKpa", "rearRightKpa"];
+const WHEELS: [&str; 4] = [
+    "frontLeftKpa",
+    "frontRightKpa",
+    "rearLeftKpa",
+    "rearRightKpa",
+];
 
 pub fn gear(gear: Option<&Value>, reverse: Option<bool>) -> Option<i64> {
     match gear {
@@ -44,7 +47,6 @@ pub fn gear(gear: Option<&Value>, reverse: Option<bool>) -> Option<i64> {
     (reverse == Some(true)).then_some(REVERSE)
 }
 
-/// Halves round up, matching the UI.
 fn round(v: f64) -> i64 {
     (v + 0.5).floor() as i64
 }
@@ -150,7 +152,10 @@ impl AaTelemetry {
             out.push(Sensor::DrivingStatus(status as i32));
         }
 
-        if ["lights", "highBeam", "hazards", "turnSignal"].iter().any(|k| changed(k)) {
+        if ["lights", "highBeam", "hazards", "turnSignal"]
+            .iter()
+            .any(|k| changed(k))
+        {
             let head = if flag(next, "highBeam") == Some(true) {
                 Some(3)
             } else {
@@ -197,7 +202,10 @@ impl AaTelemetry {
             let trip = num(next, "odometerTripKm").map(|t| round(t * 10.0) as i32);
             if sent.odometer != Some((total, trip)) {
                 sent.odometer = Some((total, trip));
-                out.push(Sensor::Odometer { total_km_e1: total, trip_km_e1: trip });
+                out.push(Sensor::Odometer {
+                    total_km_e1: total,
+                    trip_km_e1: trip,
+                });
             }
         }
 
@@ -206,11 +214,13 @@ impl AaTelemetry {
             let pressure = num(next, "baroKpa").map(|k| round(k * 1000.0) as i32);
             if sent.environment.unwrap_or_default() != (temp, pressure) {
                 sent.environment = Some((temp, pressure));
-                out.push(Sensor::Environment { temperature_e3: temp, pressure_e3: pressure });
+                out.push(Sensor::Environment {
+                    temperature_e3: temp,
+                    pressure_e3: pressure,
+                });
             }
         }
 
-        // One value per wheel and no wheel named, so all four go out or none.
         if changed(TIRE_PRESSURE)
             && let Some(tires) = next.get(TIRE_PRESSURE).and_then(Value::as_object)
             && let [Some(fl), Some(fr), Some(rl), Some(rr)] =
@@ -244,7 +254,9 @@ impl AaTelemetry {
         if let (Some(capacity_kwh), Some(range_km)) =
             (num(next, "batteryCapacityKwh"), num(next, "rangeKm"))
             && range_km > 0.0
-            && sent.energy_model_at.is_none_or(|at| now.duration_since(at) >= ENERGY_MODEL_EVERY)
+            && sent
+                .energy_model_at
+                .is_none_or(|at| now.duration_since(at) >= ENERGY_MODEL_EVERY)
         {
             let capacity_wh = round(capacity_kwh * 1000.0);
             let current_wh = match (num(next, "batteryLevelKwh"), num(next, "fuelPct")) {
@@ -302,7 +314,12 @@ mod tests {
         let sent = t.sensors(&Map::new(), &first, now);
         assert_eq!(
             sent,
-            [Sensor::Speed(20_389), Sensor::Rpm(2500), Sensor::Gear(100), Sensor::NightMode(true),]
+            [
+                Sensor::Speed(20_389),
+                Sensor::Rpm(2500),
+                Sensor::Gear(100),
+                Sensor::NightMode(true),
+            ]
         );
         let tick = map(json!({ "speedKph": 73.40001, "rpm": 2.5, "gear": "D", "nightMode": true }));
         assert!(t.sensors(&first, &tick, now).is_empty());
@@ -315,7 +332,10 @@ mod tests {
         let three = map(json!({ "tirePressure": {
             "frontLeftKpa": 240, "frontRightKpa": 245, "rearLeftKpa": 230
         } }));
-        assert!(t.sensors(&Map::new(), &three, now).is_empty(), "no wheel may shift its place");
+        assert!(
+            t.sensors(&Map::new(), &three, now).is_empty(),
+            "no wheel may shift its place"
+        );
         let four = map(json!({ "tirePressure": {
             "frontLeftKpa": 240, "frontRightKpa": 245.004, "rearLeftKpa": 230, "rearRightKpa": -1
         } }));
@@ -352,12 +372,18 @@ mod tests {
             range_km: Some(121),
             low_fuel_warning: Some(true)
         }));
-        assert!(sent.contains(&Sensor::Odometer { total_km_e1: 123_457, trip_km_e1: Some(123) }));
+        assert!(sent.contains(&Sensor::Odometer {
+            total_km_e1: 123_457,
+            trip_km_e1: Some(123)
+        }));
         assert!(sent.contains(&Sensor::Environment {
             temperature_e3: Some(-2500),
             pressure_e3: Some(101_300)
         }));
-        assert!(sent.iter().any(|s| matches!(s, Sensor::Gps(f) if f.lat_deg == 52.5)));
+        assert!(
+            sent.iter()
+                .any(|s| matches!(s, Sensor::Gps(f) if f.lat_deg == 52.5))
+        );
         assert!(sent.contains(&Sensor::VehicleEnergyModel {
             capacity_wh: 77_000,
             current_wh: 6468,
@@ -378,7 +404,13 @@ mod tests {
         assert!(
             t.sensors(&later, &with_level, much_later)
                 .iter()
-                .any(|s| matches!(s, Sensor::VehicleEnergyModel { current_wh: 30_000, .. }))
+                .any(|s| matches!(
+                    s,
+                    Sensor::VehicleEnergyModel {
+                        current_wh: 30_000,
+                        ..
+                    }
+                ))
         );
     }
 
@@ -386,17 +418,31 @@ mod tests {
     fn plain_lights_without_high_beam() {
         let mut t = AaTelemetry::default();
         let now = Instant::now();
-        let off =
-            t.sensors(&Map::new(), &map(json!({ "lights": false, "turnSignal": "none" })), now);
+        let off = t.sensors(
+            &Map::new(),
+            &map(json!({ "lights": false, "turnSignal": "none" })),
+            now,
+        );
         assert_eq!(
             off,
-            [Sensor::Light { head_light: Some(1), hazard_lights: None, turn_indicator: Some(1) }]
+            [Sensor::Light {
+                head_light: Some(1),
+                hazard_lights: None,
+                turn_indicator: Some(1)
+            }]
         );
-        let on =
-            t.sensors(&Map::new(), &map(json!({ "lights": true, "turnSignal": "right" })), now);
+        let on = t.sensors(
+            &Map::new(),
+            &map(json!({ "lights": true, "turnSignal": "right" })),
+            now,
+        );
         assert_eq!(
             on,
-            [Sensor::Light { head_light: Some(2), hazard_lights: None, turn_indicator: Some(3) }]
+            [Sensor::Light {
+                head_light: Some(2),
+                hazard_lights: None,
+                turn_indicator: Some(3)
+            }]
         );
     }
 }

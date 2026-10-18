@@ -14,7 +14,6 @@ const NO_SUCH_ENTITY: &str = "No such entity";
 const CALL_TIMEOUT: Duration = Duration::from_secs(2);
 const RESTART_DELAY: Duration = Duration::from_secs(2);
 
-/// The first percentage pactl prints, 0 to 1.
 fn parse_volume(out: &str) -> Option<f64> {
     let at = out.find('%')?;
     let digits: String = out[..at]
@@ -31,12 +30,19 @@ fn parse_volume(out: &str) -> Option<f64> {
 }
 
 fn sink_name(device: &str) -> &str {
-    if device.is_empty() { DEFAULT_SINK } else { device }
+    if device.is_empty() {
+        DEFAULT_SINK
+    } else {
+        device
+    }
 }
 
-/// pactl translates its output, it is read in the C locale.
 async fn pactl(args: &[&str]) -> Result<String, Fault> {
-    let run = Command::new(PACTL).args(args).env("LC_ALL", "C").stdin(Stdio::null()).output();
+    let run = Command::new(PACTL)
+        .args(args)
+        .env("LC_ALL", "C")
+        .stdin(Stdio::null())
+        .output();
     let out = tokio::time::timeout(CALL_TIMEOUT, run)
         .await
         .map_err(|_| Fault::Other("timed out".into()))?
@@ -45,7 +51,11 @@ async fn pactl(args: &[&str]) -> Result<String, Fault> {
         return Ok(String::from_utf8_lossy(&out.stdout).into_owned());
     }
     let err = String::from_utf8_lossy(&out.stderr).trim().to_string();
-    Err(if err.contains(NO_SUCH_ENTITY) { Fault::Missing } else { Fault::Other(err) })
+    Err(if err.contains(NO_SUCH_ENTITY) {
+        Fault::Missing
+    } else {
+        Fault::Other(err)
+    })
 }
 
 pub async fn get(device: &str) -> Result<f64, Fault> {
@@ -55,7 +65,9 @@ pub async fn get(device: &str) -> Result<f64, Fault> {
 
 pub async fn set(device: &str, level: f64) -> Result<(), Fault> {
     let pct = format!("{}%", (level.clamp(0.0, 1.0) * 100.0).round() as u32);
-    pactl(&["set-sink-volume", sink_name(device), &pct]).await.map(drop)
+    pactl(&["set-sink-volume", sink_name(device), &pct])
+        .await
+        .map(drop)
 }
 
 pub struct Watch(JoinHandle<()>);
@@ -105,8 +117,14 @@ mod tests {
 
     #[test]
     fn the_level_is_the_first_percentage() {
-        assert_eq!(parse_volume("Volume: front-left: 42598 /  65% / -11.23 dB"), Some(0.65));
-        assert_eq!(parse_volume("Volume: mono: 98304 / 150% / 10 dB"), Some(1.0));
+        assert_eq!(
+            parse_volume("Volume: front-left: 42598 /  65% / -11.23 dB"),
+            Some(0.65)
+        );
+        assert_eq!(
+            parse_volume("Volume: mono: 98304 / 150% / 10 dB"),
+            Some(1.0)
+        );
         assert_eq!(parse_volume("Volume: 0%"), Some(0.0));
         assert_eq!(parse_volume("no level here"), None);
         assert_eq!(parse_volume("%"), None);

@@ -1,5 +1,3 @@
-// Wire: 2-byte big-endian length + raw HCI packet, both directions.
-
 #![cfg_attr(not(target_os = "linux"), allow(dead_code))]
 
 pub mod hci;

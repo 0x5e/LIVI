@@ -1,5 +1,3 @@
-//! P-256 key agreement, the AES-CMAC key schedule, and the AES-128-CCM channels it feeds.
-
 use openssl::bn::BigNumContext;
 use openssl::cipher::Cipher as Aead;
 use openssl::cipher_ctx::CipherCtx;
@@ -18,7 +16,6 @@ pub const TAG: usize = 16;
 const EXPANDED: usize = 200;
 const EXTRACTION: &[u8] = b"MFi 4.0 SIGMA-I Authentication Randomness Extraction";
 const EXPANSION: &[u8] = b"MFi 4.0 SIGMA-I Authentication Key Expansion";
-/// Leads the key schedule context and the signed data.
 pub const SIGMA: u8 = 0x01;
 
 pub fn group() -> EcGroup {
@@ -39,10 +36,14 @@ impl Ephemeral {
             .public_key()
             .to_bytes(&group, PointConversionForm::COMPRESSED, &mut ctx)
             .map_err(|e| e.to_string())?;
-        Ok(Self { key, public: public.try_into().map_err(|_| "a point that is no 33 bytes")? })
+        Ok(Self {
+            key,
+            public: public
+                .try_into()
+                .map_err(|_| "a point that is no 33 bytes")?,
+        })
     }
 
-    /// The x coordinate of the shared point.
     pub fn shared(&self, peer: &[u8; POINT]) -> Result<Vec<u8>, String> {
         let group = group();
         let mut ctx = BigNumContext::new().map_err(|e| e.to_string())?;
@@ -61,10 +62,13 @@ pub fn cmac(key: &[u8; 16], data: &[u8]) -> [u8; 16] {
     let pkey = PKey::cmac(&Cipher::aes_128_cbc(), key).expect("a 16 byte AES key");
     let mut signer = Signer::new_without_digest(&pkey).expect("CMAC signer");
     signer.update(data).expect("CMAC update");
-    signer.sign_to_vec().expect("CMAC").try_into().expect("one AES block")
+    signer
+        .sign_to_vec()
+        .expect("CMAC")
+        .try_into()
+        .expect("one AES block")
 }
 
-/// A key with its nonce, which counts up after every message sealed or opened under it.
 pub struct Channel {
     key: [u8; 16],
     nonce: [u8; 12],
@@ -74,7 +78,9 @@ impl Channel {
     fn new(material: &[u8], key_at: usize, nonce_at: usize) -> Self {
         Self {
             key: material[key_at..key_at + 16].try_into().expect("16 bytes"),
-            nonce: material[nonce_at..nonce_at + 12].try_into().expect("12 bytes"),
+            nonce: material[nonce_at..nonce_at + 12]
+                .try_into()
+                .expect("12 bytes"),
         }
     }
 
@@ -87,7 +93,6 @@ impl Channel {
         }
     }
 
-    /// Ciphertext with the tag behind it.
     pub fn seal(&mut self, aad: &[u8], plain: &[u8]) -> Vec<u8> {
         let out = ccm(&self.key, &self.nonce, aad, plain, None)
             .expect("CCM with a 16 byte key and a 12 byte nonce");
@@ -95,7 +100,6 @@ impl Channel {
         out
     }
 
-    /// A message that does not authenticate leaves the nonce where it was.
     pub fn open(&mut self, aad: &[u8], sealed: &[u8]) -> Option<Vec<u8>> {
         let (data, tag) = sealed.split_at_checked(sealed.len().checked_sub(TAG)?)?;
         let plain = ccm(&self.key, &self.nonce, aad, data, Some(tag)).ok()?;
@@ -104,8 +108,6 @@ impl Channel {
     }
 }
 
-/// CCM fixes nonce and tag length when the key is set, so both go in first. Without `tag` it
-/// seals and appends the tag, with it it opens and fails on a wrong one.
 fn ccm(
     key: &[u8; 16],
     nonce: &[u8; 12],
@@ -146,24 +148,17 @@ fn ccm(
     Ok(out)
 }
 
-/// Named by who sends under them: the phone (`from_phone`) or us (`ours`).
 pub struct Keys {
-    /// The sealed hash and signature in the phone's AuthStart.
     pub start: Channel,
-    /// Our request for the phone's certificate and its answer.
     pub phone_cert: Channel,
-    /// Everything the phone sends after the handshake.
     pub from_phone: Channel,
     pub finish: Channel,
-    /// The phone's request for our certificate and our answer.
     pub our_cert: Channel,
-    /// Everything we send after the handshake.
     pub ours: Channel,
     pub phone_mac: [u8; 16],
     pub our_mac: [u8; 16],
 }
 
-/// `context` is the domain tag, our point, the phone's point and the negotiation transcript.
 pub fn derive(shared: &[u8], context: &[u8]) -> Keys {
     let salt: [u8; 16] = sha256(&[EXTRACTION])[..16].try_into().expect("16 bytes");
     let kdk = cmac(&salt, shared);
@@ -188,8 +183,6 @@ pub fn derive(shared: &[u8], context: &[u8]) -> Keys {
     }
 }
 
-/// What each side signs: the domain tag, our point first, the phone's point, and the MAC of the
-/// signer's certificate hash.
 pub fn signed_data(ours: &[u8; POINT], phone: &[u8; POINT], mac: &[u8; 16]) -> Vec<u8> {
     [&[SIGMA][..], ours, phone, mac].concat()
 }
@@ -230,18 +223,30 @@ mod tests {
         let first = ours.ours.seal(b"aad", b"one");
         let second = ours.ours.seal(b"aad", b"one");
         assert_ne!(first, second);
-        assert_eq!(theirs.ours.open(b"aad", &first).as_deref(), Some(&b"one"[..]));
-        assert!(theirs.ours.open(b"other", &second).is_none());
-        assert_eq!(theirs.ours.open(b"aad", &second).as_deref(), Some(&b"one"[..]));
         assert_eq!(
-            theirs.ours.open(b"aad", &ours.ours.seal(b"aad", b"")).as_deref(),
+            theirs.ours.open(b"aad", &first).as_deref(),
+            Some(&b"one"[..])
+        );
+        assert!(theirs.ours.open(b"other", &second).is_none());
+        assert_eq!(
+            theirs.ours.open(b"aad", &second).as_deref(),
+            Some(&b"one"[..])
+        );
+        assert_eq!(
+            theirs
+                .ours
+                .open(b"aad", &ours.ours.seal(b"aad", b""))
+                .as_deref(),
             Some(&[][..])
         );
     }
 
     #[test]
     fn the_nonce_carries_into_the_next_byte() {
-        let mut ch = Channel { key: [0; 16], nonce: [0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0xff] };
+        let mut ch = Channel {
+            key: [0; 16],
+            nonce: [0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0xff],
+        };
         ch.step();
         assert_eq!(ch.nonce, [0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 1, 0]);
     }

@@ -1,8 +1,3 @@
-//! Data streams (type 130) on their own connection. Inside the control channel framing, keyed
-//! from the SETUP seed, a 32-byte big-endian header carries size, package type, group, message
-//! type, reply token and reply error. iAP2 only flows in here and answers on the event channel,
-//! a duplex stream answers on its own connection.
-
 use std::io;
 use std::sync::Arc;
 
@@ -61,8 +56,6 @@ impl IapTunnel {
         Ok(Self { port, task })
     }
 
-    /// Every message the phone sends reaches `deliver` whatever its message type, a sync one is
-    /// acknowledged, and what goes into the returned sender leaves as an async command.
     pub fn listen_duplex(
         name: &'static str,
         shared: &[u8; 32],
@@ -116,7 +109,6 @@ struct Package {
     body: Vec<u8>,
 }
 
-/// The next whole package from the plain stream, or the size once it makes no sense.
 fn next_package(plain: &mut Vec<u8>) -> Result<Option<Package>, usize> {
     if plain.len() < PKG_HEADER {
         return Ok(None);
@@ -274,13 +266,22 @@ mod tests {
         let shared = [7u8; 32];
         let (tx, mut rx) = mpsc::unbounded_channel();
         let tunnel = IapTunnel::listen(&shared, "42", tx).unwrap();
-        let key = hkdf_sha512(&shared, b"DataStream-Salt42", b"DataStream-Output-Encryption-Key");
+        let key = hkdf_sha512(
+            &shared,
+            b"DataStream-Salt42",
+            b"DataStream-Output-Encryption-Key",
+        );
         let mut phone_side = ControlCipher::new([0; 32], key);
 
-        let mut sock = TcpStream::connect(("127.0.0.1", tunnel.port())).await.unwrap();
-        let stream =
-            [comm(MSG_TYPE_COMM, b"iap2"), comm(1, b"other"), comm(MSG_TYPE_COMM, b"more")]
-                .concat();
+        let mut sock = TcpStream::connect(("127.0.0.1", tunnel.port()))
+            .await
+            .unwrap();
+        let stream = [
+            comm(MSG_TYPE_COMM, b"iap2"),
+            comm(1, b"other"),
+            comm(MSG_TYPE_COMM, b"more"),
+        ]
+        .concat();
         let sealed = phone_side.encrypt(&stream);
         sock.write_all(&sealed[..5]).await.unwrap();
         sock.write_all(&sealed[5..]).await.unwrap();
@@ -327,7 +328,9 @@ mod tests {
         };
 
         let mut phone = phone_cipher();
-        let mut sock = TcpStream::connect(("127.0.0.1", tunnel.port())).await.unwrap();
+        let mut sock = TcpStream::connect(("127.0.0.1", tunnel.port()))
+            .await
+            .unwrap();
         let stream = [
             package(PACKAGE_SYNC, MSG_TYPE_COMMAND, 0x1122, b"ask"),
             package(PACKAGE_REPLY, 0, 9, b"an answer to the car"),
@@ -341,11 +344,16 @@ mod tests {
         let got = packages(&mut sock, &mut phone, 2).await;
         assert_eq!((got[0].kind, got[0].reply_token), (PACKAGE_REPLY, 0x1122));
         assert!(got[0].body.is_empty());
-        assert_eq!((got[1].kind, got[1].message_type), (PACKAGE_ASYNC, MSG_TYPE_COMMAND));
+        assert_eq!(
+            (got[1].kind, got[1].message_type),
+            (PACKAGE_ASYNC, MSG_TYPE_COMMAND)
+        );
         assert_eq!(got[1].body, b"answer");
 
         let mut phone = phone_cipher();
-        let mut again = TcpStream::connect(("127.0.0.1", tunnel.port())).await.unwrap();
+        let mut again = TcpStream::connect(("127.0.0.1", tunnel.port()))
+            .await
+            .unwrap();
         let mut buf = [0u8; 64];
         while sock.read(&mut buf).await.unwrap_or(0) > 0 {}
         to_phone.send(b"later".to_vec()).unwrap();
@@ -356,10 +364,14 @@ mod tests {
     async fn garbage_ends_the_connection() {
         let (tx, _rx) = mpsc::unbounded_channel();
         let tunnel = IapTunnel::listen(&[1; 32], "1", tx).unwrap();
-        let mut sock = TcpStream::connect(("127.0.0.1", tunnel.port())).await.unwrap();
-        sock.write_all(&[4, 0, 1, 2, 3, 4, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0])
+        let mut sock = TcpStream::connect(("127.0.0.1", tunnel.port()))
             .await
             .unwrap();
+        sock.write_all(&[
+            4, 0, 1, 2, 3, 4, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
+        ])
+        .await
+        .unwrap();
         let mut buf = [0u8; 1];
         assert_eq!(sock.read(&mut buf).await.unwrap_or(0), 0);
     }
@@ -369,10 +381,18 @@ mod tests {
         let shared = [3u8; 32];
         let (tx, _rx) = mpsc::unbounded_channel();
         let tunnel = IapTunnel::listen(&shared, "9", tx).unwrap();
-        let key = hkdf_sha512(&shared, b"DataStream-Salt9", b"DataStream-Output-Encryption-Key");
+        let key = hkdf_sha512(
+            &shared,
+            b"DataStream-Salt9",
+            b"DataStream-Output-Encryption-Key",
+        );
         let mut phone_side = ControlCipher::new([0; 32], key);
-        let mut sock = TcpStream::connect(("127.0.0.1", tunnel.port())).await.unwrap();
-        sock.write_all(&phone_side.encrypt(&[0u8; PKG_HEADER])).await.unwrap();
+        let mut sock = TcpStream::connect(("127.0.0.1", tunnel.port()))
+            .await
+            .unwrap();
+        sock.write_all(&phone_side.encrypt(&[0u8; PKG_HEADER]))
+            .await
+            .unwrap();
         let mut buf = [0u8; 1];
         assert_eq!(sock.read(&mut buf).await.unwrap_or(0), 0);
     }

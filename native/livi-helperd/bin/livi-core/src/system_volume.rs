@@ -17,13 +17,11 @@ use coreaudio as output;
 #[cfg(target_os = "linux")]
 use pactl as output;
 
-/// A change within this of LIVI's own write is LIVI's own, not the user's.
 const ECHO_WINDOW: Duration = Duration::from_millis(400);
 const READ_DEBOUNCE: Duration = Duration::from_millis(120);
 const SAME: f64 = 0.005;
 
 pub enum Fault {
-    /// The configured output is not there.
     Missing,
     Other(String),
 }
@@ -43,7 +41,6 @@ pub enum OutputEvent {
     New,
 }
 
-/// "" is the system's default output.
 fn configured(device: Option<&str>) -> &str {
     device.map(str::trim).unwrap_or("")
 }
@@ -55,7 +52,6 @@ struct Mixer {
 }
 
 impl Mixer {
-    /// While the configured output is not there, playback lands on the default one.
     fn fall_back(&mut self, device: &str) {
         if self.missing.as_deref() != Some(device) {
             eprintln!("[volume] {device} is not there, the default output is followed until it is");
@@ -95,7 +91,11 @@ impl Mixer {
         match res {
             Ok(()) => println!("[volume] system volume {pct} %"),
             Err(e) => {
-                let name = if device.is_empty() { "the default output" } else { device };
+                let name = if device.is_empty() {
+                    "the default output"
+                } else {
+                    device
+                };
                 eprintln!("[volume] {name} not set to {pct} %: {e}");
             }
         }
@@ -116,8 +116,6 @@ async fn take_system_level(core: &Core, level: f64, how: &str) {
     }
 }
 
-/// Linking starts from the system's level, on start, when switched on and on a
-/// new output. From then on LIVI's changes go to the system and back.
 pub async fn follow(core: Arc<Core>) {
     let mut state = core.hub.watch();
     let mut mixer = Mixer::default();
@@ -148,7 +146,9 @@ pub async fn follow(core: Arc<Core>) {
             last = level;
         } else if applied.is_none_or(|a| (cfg.hu_volume - a).abs() >= SAME) {
             applied = Some(cfg.hu_volume);
-            mixer.set(cfg.hu_volume, cfg.audio_output_device.as_deref()).await;
+            mixer
+                .set(cfg.hu_volume, cfg.audio_output_device.as_deref())
+                .await;
         }
         let deadline = read_at;
         let debounce = async move {
@@ -203,6 +203,9 @@ mod tests {
     fn no_configured_output_is_the_default_one() {
         assert_eq!(configured(None), "");
         assert_eq!(configured(Some("  ")), "");
-        assert_eq!(configured(Some(" BuiltInSpeakerDevice ")), "BuiltInSpeakerDevice");
+        assert_eq!(
+            configured(Some(" BuiltInSpeakerDevice ")),
+            "BuiltInSpeakerDevice"
+        );
     }
 }

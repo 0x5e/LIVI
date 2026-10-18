@@ -1,18 +1,13 @@
-//! How a phone authenticates on our access point. Every protocol that tells the phone
-//! translates this into its own numbering.
-
 use std::fmt;
 
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Hash)]
 pub enum Security {
     #[default]
     Wpa2,
-    /// WPA2 and WPA3 side by side, the phone picks.
     Wpa2Wpa3,
     Wpa3,
 }
 
-/// The hostapd settings a security choice owns.
 pub const HOSTAPD_KEYS: [&str; 4] = ["wpa", "wpa_key_mgmt", "ieee80211w", "sae_pwe"];
 
 impl Security {
@@ -24,7 +19,6 @@ impl Security {
         }
     }
 
-    /// What a hostapd config runs.
     pub fn of_hostapd(conf: &str) -> Self {
         let key_mgmt = conf
             .lines()

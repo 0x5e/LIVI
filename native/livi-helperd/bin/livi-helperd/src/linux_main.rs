@@ -19,7 +19,10 @@ use livi_runtime::vehicle::{Fuels, Plugs};
 use livi_wifi::{Band, Channel};
 
 fn env_or<T: std::str::FromStr>(key: &str, default: T) -> T {
-    std::env::var(key).ok().and_then(|v| v.parse().ok()).unwrap_or(default)
+    std::env::var(key)
+        .ok()
+        .and_then(|v| v.parse().ok())
+        .unwrap_or(default)
 }
 
 fn config_path() -> std::path::PathBuf {
@@ -53,7 +56,10 @@ impl DeviceConfig {
         {
             return s.to_string();
         }
-        std::env::var(env_key).ok().filter(|s| !s.is_empty()).unwrap_or_else(|| default.to_string())
+        std::env::var(env_key)
+            .ok()
+            .filter(|s| !s.is_empty())
+            .unwrap_or_else(|| default.to_string())
     }
 
     pub fn int<T: std::str::FromStr + std::convert::TryFrom<i64>>(
@@ -73,7 +79,10 @@ impl DeviceConfig {
 
 fn configured_channel(dc: &DeviceConfig) -> Channel {
     let band = Band::of_setting(&dc.string("wifiType", "LIVI_WIFI_TYPE", "5ghz"));
-    Channel::of_setting(band.unwrap_or(Band::Ghz5), dc.int("wifiChannel", "LIVI_CHANNEL", 36u32))
+    Channel::of_setting(
+        band.unwrap_or(Band::Ghz5),
+        dc.int("wifiChannel", "LIVI_CHANNEL", 36u32),
+    )
 }
 
 fn ap_iface(dc: &DeviceConfig) -> String {
@@ -151,7 +160,10 @@ pub fn run_install_wifi_ap(unit: Option<String>, rule: Option<String>) -> ExitCo
         eprintln!("[wifi-ap] usage: --install-wifi-ap <unit file> <sudoers file>");
         return ExitCode::FAILURE;
     };
-    installed("wifi-ap", livi_runtime::privileged::install_wifi_ap(&unit, &rule))
+    installed(
+        "wifi-ap",
+        livi_runtime::privileged::install_wifi_ap(&unit, &rule),
+    )
 }
 
 pub fn run_install_udev_rule(rule: Option<String>, filter: Option<String>) -> ExitCode {
@@ -159,7 +171,10 @@ pub fn run_install_udev_rule(rule: Option<String>, filter: Option<String>) -> Ex
         eprintln!("[udev] usage: --install-udev-rule <rule file> [<touch filter>]");
         return ExitCode::FAILURE;
     };
-    installed("udev", livi_runtime::privileged::install_udev_rule(&rule, filter.as_deref()))
+    installed(
+        "udev",
+        livi_runtime::privileged::install_udev_rule(&rule, filter.as_deref()),
+    )
 }
 
 pub fn run_install_gvfs_guard(script: Option<String>, rule: Option<String>) -> ExitCode {
@@ -167,7 +182,10 @@ pub fn run_install_gvfs_guard(script: Option<String>, rule: Option<String>) -> E
         eprintln!("[gvfs] usage: --install-gvfs-guard <script file> <sudoers file>");
         return ExitCode::FAILURE;
     };
-    installed("gvfs", livi_runtime::privileged::install_gvfs_guard(&script, &rule))
+    installed(
+        "gvfs",
+        livi_runtime::privileged::install_gvfs_guard(&script, &rule),
+    )
 }
 
 pub fn run_wifi_ap_claim() -> ExitCode {
@@ -195,7 +213,10 @@ pub fn run_bt_tunnel() -> ExitCode {
 }
 
 pub fn run() -> ExitCode {
-    let rt = match tokio::runtime::Builder::new_multi_thread().enable_all().build() {
+    let rt = match tokio::runtime::Builder::new_multi_thread()
+        .enable_all()
+        .build()
+    {
         Ok(rt) => rt,
         Err(e) => {
             eprintln!("[helperd] runtime: {e}");
@@ -252,7 +273,10 @@ async fn serve() -> Result<(), Box<dyn std::error::Error>> {
     let (auth, mfi_link) = match I2cCoprocessor::open(bus_num, gpio) {
         Ok(chip) => {
             println!("[helperd] MFi addr=0x{:02X}", chip.address());
-            (SharedCoprocessor::new(Box::new(chip)), crate::link::LinkPresence::always())
+            (
+                SharedCoprocessor::new(Box::new(chip)),
+                crate::link::LinkPresence::always(),
+            )
         }
         Err(e) => {
             println!(
@@ -282,7 +306,14 @@ async fn serve() -> Result<(), Box<dyn std::error::Error>> {
 
     let fuels = Fuels::parse(&std::env::var("LIVI_CP_FUELS").unwrap_or_default());
     let plugs = Plugs::parse(&std::env::var("LIVI_CP_CONNECTORS").unwrap_or_default());
-    let identity = Identity { name, ssid, bt_mac: [0; 6], fuels, plugs, theme: cp.theme.clone() };
+    let identity = Identity {
+        name,
+        ssid,
+        bt_mac: [0; 6],
+        fuels,
+        plugs,
+        theme: cp.theme.clone(),
+    };
     let (bluez, bluez_later) = tokio::sync::watch::channel(None);
     let sock_cfg = LiviSockConfig {
         path: livi_sock::SOCK_PATH.into(),
@@ -308,11 +339,17 @@ async fn serve() -> Result<(), Box<dyn std::error::Error>> {
     tokio::task::spawn_blocking(iap2_usbmux::drop_name_bound_profiles);
     if std::env::var("LIVI_DONGLE").unwrap_or_else(|_| "1".into()) != "0" {
         let mfi_link_state = mfi_link.clone();
-        tokio::spawn(livi_link_host::run(move |on, _serial| mfi_link_state.set_on_bus(on)));
+        tokio::spawn(livi_link_host::run(move |on, _serial| {
+            mfi_link_state.set_on_bus(on)
+        }));
         println!("[helperd] dongle watcher started");
     }
     if std::env::var("LIVI_CP_WIRED").unwrap_or_else(|_| "1".into()) != "0" {
-        let wired_cp = CpConfig { transport: Transport::Wired, av_iface: None, ..cp.clone() };
+        let wired_cp = CpConfig {
+            transport: Transport::Wired,
+            av_iface: None,
+            ..cp.clone()
+        };
         tokio::spawn(crate::wired::watch(
             auth.clone(),
             identity.clone(),
@@ -379,9 +416,20 @@ async fn serve() -> Result<(), Box<dyn std::error::Error>> {
             .is_ok_and(|v| v == "1" && wireless.carplay)
             .then(|| livi_link_host::accessory::sessions(|| true));
         let bt_mac = bt::adapter_address(&conn, &adapter).await?;
-        println!("[helperd] adapter {} up (RFCOMM ch {})", format_mac(&bt_mac), bt::IAP_CHANNEL);
-        let identity = Identity { bt_mac, ..identity.clone() };
-        let _ = bluez.send(Some(Bluez { bus: conn.clone(), adapter: adapter.clone(), bt_mac }));
+        println!(
+            "[helperd] adapter {} up (RFCOMM ch {})",
+            format_mac(&bt_mac),
+            bt::IAP_CHANNEL
+        );
+        let identity = Identity {
+            bt_mac,
+            ..identity.clone()
+        };
+        let _ = bluez.send(Some(Bluez {
+            bus: conn.clone(),
+            adapter: adapter.clone(),
+            bt_mac,
+        }));
 
         tokio::spawn(reconnect::run(
             conn.clone(),
@@ -567,9 +615,15 @@ fn session_cp(cp: &CpConfig, dongle_ap: bool) -> CpConfig {
     if !dongle_ap {
         return cp.clone();
     }
-    CpConfig { ap_mac: livi_link_host::ap::mac().or_else(|| cp.ap_mac.clone()), ..cp.clone() }
+    CpConfig {
+        ap_mac: livi_link_host::ap::mac().or_else(|| cp.ap_mac.clone()),
+        ..cp.clone()
+    }
 }
 
 fn format_mac(mac: &[u8; 6]) -> String {
-    mac.iter().map(|b| format!("{b:02X}")).collect::<Vec<_>>().join(":")
+    mac.iter()
+        .map(|b| format!("{b:02X}"))
+        .collect::<Vec<_>>()
+        .join(":")
 }

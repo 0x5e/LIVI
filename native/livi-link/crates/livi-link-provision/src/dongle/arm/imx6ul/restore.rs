@@ -1,6 +1,3 @@
-//! A backup belongs to this dongle when its U-Boot matches and unpacks with this unit's fuses, as
-//! the vendor kernel of another unit would not start.
-
 use std::path::{Path, PathBuf};
 use std::time::Duration;
 
@@ -12,11 +9,9 @@ use super::mtd::{self, Partition, sha256_hex};
 use super::shell::{PUSH_PORT, Shell, md5_hex};
 use crate::tilde;
 
-/// Sizes of the vendor's partitions.
 const UBOOT: usize = 0x40000;
 const KERNEL: usize = 0x340000;
 const ROOTFS: usize = 0xc80000;
-/// jffs2, little-endian.
 const JFFS2_MAGIC: [u8; 2] = [0x85, 0x19];
 const TMP: &str = "/tmp/livi-restore.img";
 
@@ -33,14 +28,20 @@ impl Stock {
         let manifest =
             std::fs::read_to_string(&path).map_err(|e| format!("{}: {e}", tilde(&path)))?;
         if !manifest.contains("\"state\": \"stock\"") {
-            return Err(format!("{} is no backup of the vendor firmware", tilde(dir)));
+            return Err(format!(
+                "{} is no backup of the vendor firmware",
+                tilde(dir)
+            ));
         }
         let read = |name: &str, size: usize| -> Result<Vec<u8>, String> {
             let file = format!("{name}.img");
             let path = dir.join(&file);
             let data = std::fs::read(&path).map_err(|e| format!("{}: {e}", tilde(&path)))?;
             if data.len() != size {
-                return Err(format!("{file} is {} bytes, the vendor's {name} {size}", data.len()));
+                return Err(format!(
+                    "{file} is {} bytes, the vendor's {name} {size}",
+                    data.len()
+                ));
             }
             match manifest_sha256(&manifest, &file) {
                 Some(sha) if sha == sha256_hex(&data) => Ok(data),
@@ -54,9 +55,15 @@ impl Stock {
             kernel: read("kernel", KERNEL)?,
             rootfs: read("rootfs", ROOTFS)?,
         };
-        // A live jffs2 may have its first block erased, so any block will do.
-        if !stock.rootfs.chunks(ERASE).any(|block| block.starts_with(&JFFS2_MAGIC)) {
-            return Err(format!("the rootfs in {} is not the vendor's jffs2", tilde(dir)));
+        if !stock
+            .rootfs
+            .chunks(ERASE)
+            .any(|block| block.starts_with(&JFFS2_MAGIC))
+        {
+            return Err(format!(
+                "the rootfs in {} is not the vendor's jffs2",
+                tilde(dir)
+            ));
         }
         Ok(stock)
     }
@@ -69,11 +76,12 @@ impl Stock {
 }
 
 fn manifest_sha256<'a>(manifest: &'a str, file: &str) -> Option<&'a str> {
-    let entry = manifest.lines().find(|l| l.contains(&format!("\"file\": \"{file}\"")))?;
+    let entry = manifest
+        .lines()
+        .find(|l| l.contains(&format!("\"file\": \"{file}\"")))?;
     entry.split("\"sha256\": \"").nth(1)?.split('"').next()
 }
 
-/// The install names backups `<model>-<firmware>-stock-<UTC stamp>`.
 fn stock_dirs(root: &Path) -> Vec<PathBuf> {
     let mut dirs: Vec<(String, PathBuf)> = std::fs::read_dir(root)
         .into_iter()
@@ -114,11 +122,14 @@ pub fn find(
         .into_iter()
         .filter_map(|dir| Stock::load(&dir).ok())
         .find(|stock| stock.belongs_to(&uboot, &key))
-        .ok_or_else(|| format!("no backup of this dongle's vendor firmware under {}", tilde(root)))
+        .ok_or_else(|| {
+            format!(
+                "no backup of this dongle's vendor firmware under {}",
+                tilde(root)
+            )
+        })
 }
 
-/// The rootfs span goes first, so a power loss on the way still starts our kernel into its rescue
-/// system.
 pub fn write(sh: &Shell, stock: &Stock, progress: &dyn Fn(&str)) -> Result<(), String> {
     if super::running(sh)? != Running::Rescue {
         return Err("only the rescue system can write the vendor firmware back".into());
@@ -130,13 +141,25 @@ pub fn write(sh: &Shell, stock: &Stock, progress: &dyn Fn(&str)) -> Result<(), S
     }
     for (part, image) in plan {
         sh.push(image, TMP, PUSH_PORT, &md5_hex(image))?;
-        sh.run(&format!("flashcp {TMP} {} && sync", part.device), Duration::from_secs(600))?;
-        let there = sh.run(&format!("sha256sum {}", part.device), Duration::from_secs(240))?;
+        sh.run(
+            &format!("flashcp {TMP} {} && sync", part.device),
+            Duration::from_secs(600),
+        )?;
+        let there = sh.run(
+            &format!("sha256sum {}", part.device),
+            Duration::from_secs(240),
+        )?;
         sh.sh(&format!("rm -f {TMP}"))?;
         if there.split_whitespace().next() != Some(sha256_hex(image).as_str()) {
-            return Err(format!("{} does not read back as written, do not reboot", part.device));
+            return Err(format!(
+                "{} does not read back as written, do not reboot",
+                part.device
+            ));
         }
-        progress(&format!("wrote and verified {} ({})", part.device, part.name));
+        progress(&format!(
+            "wrote and verified {} ({})",
+            part.device, part.name
+        ));
     }
     Ok(())
 }
@@ -176,7 +199,11 @@ mod tests {
     use super::*;
 
     fn part(name: &str, n: u32, bytes: usize) -> Partition {
-        Partition { name: name.into(), device: format!("/dev/mtd{n}"), bytes: bytes as u64 }
+        Partition {
+            name: name.into(),
+            device: format!("/dev/mtd{n}"),
+            bytes: bytes as u64,
+        }
     }
 
     fn ours() -> Vec<Partition> {
@@ -197,7 +224,12 @@ mod tests {
         rootfs[0xc70000] = 0xb5;
         let mut uboot = vec![0u8; UBOOT];
         uboot[ENV_BLOCK] = 0xe0;
-        Stock { dir: PathBuf::new(), uboot, kernel: vec![0x4b; KERNEL], rootfs }
+        Stock {
+            dir: PathBuf::new(),
+            uboot,
+            kernel: vec![0x4b; KERNEL],
+            rootfs,
+        }
     }
 
     #[test]

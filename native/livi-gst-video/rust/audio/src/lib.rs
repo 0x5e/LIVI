@@ -1,20 +1,10 @@
-//! Framing and decryption of a CarPlay audio stream.
-//!
-//! One RTP packet per UDP datagram: a 12-byte header, the ciphertext, a
-//! 16-byte tag and an 8-byte nonce, little endian. The body is
-//! ChaCha20-Poly1305 sealed with the header's last 8 bytes, timestamp and SSRC,
-//! as associated data.
-
 use livi_crypto_node::open_impl;
 
 pub const RTP_HEADER_LEN: usize = 12;
-/// The 16-byte tag and the 8-byte nonce that follow the ciphertext.
 pub const TAIL_LEN: usize = 24;
 const TAG_LEN: usize = 16;
 const NONCE_LEN: usize = 8;
 
-/// What a stream reports: the first packet of a connection, and every packet
-/// with its payload decrypted, header included, plus the RTP sample position.
 pub trait AudioSink {
     fn on_started(&mut self, first_sample: u32);
     fn on_rtp(&mut self, rtp: &[u8], sample: u32);
@@ -28,15 +18,17 @@ pub struct AudioStream {
 
 impl AudioStream {
     pub fn new(key: [u8; 32], sink: Box<dyn AudioSink + Send>) -> Self {
-        Self { key, started: false, sink }
+        Self {
+            key,
+            started: false,
+            sink,
+        }
     }
 
-    /// The next packet counts as the first of a connection again.
     pub fn reset(&mut self) {
         self.started = false;
     }
 
-    /// Decrypts one datagram and reports what it carries.
     pub fn push(&mut self, packet: &[u8]) {
         if packet.len() < RTP_HEADER_LEN + TAIL_LEN {
             return;
@@ -60,8 +52,6 @@ impl AudioStream {
         };
 
         let sample = u32::from_be_bytes([packet[4], packet[5], packet[6], packet[7]]);
-        // Reported once per connection. The phone sends buffered media in
-        // bursts with gaps.
         if !self.started {
             self.started = true;
             self.sink.on_started(sample);
@@ -74,22 +64,15 @@ impl AudioStream {
     }
 }
 
-/// The codecs a CarPlay audio stream carries. LPCM arrives as samples, the
-/// other two as RTP the jitter buffer paces.
 #[derive(Clone, Copy, PartialEq, Eq, Debug)]
 pub enum Codec {
     AacLc,
     Opus,
-    /// CarPlay samples, big endian on the wire.
     Lpcm,
-    /// Samples the main process hands over, in host order.
     PcmLe,
-    /// DAB+ access units, raw AAC described by an AudioSpecificConfig.
     AacRaw,
 }
 
-/// MPEG-4 sampling frequency index for the AudioSpecificConfig, 3 for anything
-/// the table does not name.
 fn aac_freq_index(clock_rate: u32) -> u16 {
     match clock_rate {
         96000 => 0,
@@ -105,15 +88,15 @@ fn aac_freq_index(clock_rate: u32) -> u16 {
     }
 }
 
-/// The caps of a raw stream. CarPlay sends big-endian samples, the main
-/// process hands over little-endian ones.
 pub fn lpcm_caps(codec: Codec, clock_rate: u32, channels: u8) -> String {
-    let format = if codec == Codec::PcmLe { "S16LE" } else { "S16BE" };
+    let format = if codec == Codec::PcmLe {
+        "S16LE"
+    } else {
+        "S16BE"
+    };
     format!("audio/x-raw,format={format},layout=interleaved,rate={clock_rate},channels={channels}")
 }
 
-/// The caps of raw AAC access units, the AudioSpecificConfig rides along
-/// as codec_data.
 pub fn aac_raw_caps(asc: &[u8], clock_rate: u32, channels: u8) -> String {
     let hex: String = asc.iter().map(|b| format!("{b:02x}")).collect();
     format!(
@@ -122,9 +105,6 @@ pub fn aac_raw_caps(asc: &[u8], clock_rate: u32, channels: u8) -> String {
     )
 }
 
-/// The caps of the stream fed into the jitter buffer. The RFC 3640 fields are
-/// string-typed. An int leaves the caps unapplied and the jitter buffer without
-/// a clock rate.
 pub fn rtp_caps(codec: Codec, payload_type: u8, clock_rate: u32, channels: u8) -> String {
     if codec == Codec::Lpcm || codec == Codec::PcmLe {
         return lpcm_caps(codec, clock_rate, channels);
@@ -147,10 +127,6 @@ pub fn rtp_caps(codec: Codec, payload_type: u8, clock_rate: u32, channels: u8) -
     caps
 }
 
-/// Wraps one AAC-LC access unit in the RFC 3640 AU-header section that
-/// rtpmp4gdepay reads: a 16-bit header length, then the 13-bit size with a
-/// 3-bit index. Byte 1 carries the marker bit and the payload type the caps
-/// name, both of which rtpmp4gdepay and rtpjitterbuffer read.
 pub fn reframe_aac(rtp: &[u8], payload_type: u8) -> Vec<u8> {
     if rtp.len() < RTP_HEADER_LEN {
         return rtp.to_vec();
@@ -180,8 +156,6 @@ mod tests {
         rtp: Vec<(Vec<u8>, u32)>,
     }
 
-    /// A sink and the reader of what it collected. The stream takes one
-    /// handle, the test keeps another.
     #[derive(Default, Clone)]
     struct Seen(Arc<Mutex<Reports>>);
 
@@ -190,7 +164,6 @@ mod tests {
             self.0.lock().unwrap().started.clone()
         }
 
-        /// The payloads, without the 12-byte header the sink also gets.
         fn payloads(&self) -> Vec<(Vec<u8>, u32)> {
             self.0
                 .lock()
@@ -216,7 +189,6 @@ mod tests {
         AudioStream::new(KEY, Box::new(seen.clone()))
     }
 
-    /// One sealed RTP packet in the phone's wire layout.
     fn packet(sample: u32, nonce_counter: u64, plain: &[u8]) -> Vec<u8> {
         let mut header = vec![0x80, 0x60, 0x00, 0x00];
         header.extend_from_slice(&sample.to_be_bytes());
@@ -326,7 +298,6 @@ mod wire {
 
     #[test]
     fn the_aac_config_holds_object_type_frequency_index_and_channels() {
-        // AAC-LC is object type 2, 44100 is index 4, stereo is channel config 2
         let caps = rtp_caps(Codec::AacLc, 96, 44100, 2);
         let asc = (2u16 << 11) | (4u16 << 7) | (2u16 << 3);
 
@@ -373,11 +344,8 @@ pub mod receiver {
     use std::time::Duration;
 
     const DATAGRAM: usize = 4096;
-    /// A receive blocks at most this long, so the thread notices shutdown.
     const POLL: Duration = Duration::from_millis(200);
 
-    /// The two UDP ports one audio stream is set up with: RTP on the data port, RTCP on
-    /// the control port, each read on its own thread.
     pub struct AudioReceiver {
         stop: Arc<AtomicBool>,
         threads: Vec<JoinHandle<()>>,
@@ -385,7 +353,6 @@ pub mod receiver {
 
     fn bind_any_port() -> std::io::Result<UdpSocket> {
         let socket = Socket::new(Domain::IPV6, Type::DGRAM, Some(Protocol::UDP))?;
-        // dual stack: the phone may reach us over either family
         socket.set_only_v6(false)?;
         socket.bind(&"[::]:0".parse::<std::net::SocketAddr>().unwrap().into())?;
         let sock: UdpSocket = socket.into();
@@ -394,7 +361,6 @@ pub mod receiver {
     }
 
     impl AudioReceiver {
-        /// Binds both ports and answers with them for the SETUP reply.
         pub fn new(stream: AudioStream) -> std::io::Result<(Self, u16, u16)> {
             let data = bind_any_port()?;
             let control = bind_any_port()?;
@@ -405,28 +371,32 @@ pub mod receiver {
             let mut threads = Vec::new();
 
             let data_stop = stop.clone();
-            threads.push(std::thread::Builder::new().name("cp-audio-rx".into()).spawn(
-                move || {
-                    set_realtime();
-                    let mut stream = stream;
-                    let mut buf = [0u8; DATAGRAM];
-                    while !data_stop.load(Ordering::Relaxed) {
-                        if let Ok(n) = data.recv(&mut buf) {
-                            stream.push(&buf[..n]);
+            threads.push(
+                std::thread::Builder::new()
+                    .name("cp-audio-rx".into())
+                    .spawn(move || {
+                        set_realtime();
+                        let mut stream = stream;
+                        let mut buf = [0u8; DATAGRAM];
+                        while !data_stop.load(Ordering::Relaxed) {
+                            if let Ok(n) = data.recv(&mut buf) {
+                                stream.push(&buf[..n]);
+                            }
                         }
-                    }
-                },
-            )?);
+                    })?,
+            );
 
             let control_stop = stop.clone();
-            threads.push(std::thread::Builder::new().name("cp-audio-rtcp".into()).spawn(
-                move || {
-                    let mut buf = [0u8; DATAGRAM];
-                    while !control_stop.load(Ordering::Relaxed) {
-                        let _ = control.recv(&mut buf);
-                    }
-                },
-            )?);
+            threads.push(
+                std::thread::Builder::new()
+                    .name("cp-audio-rtcp".into())
+                    .spawn(move || {
+                        let mut buf = [0u8; DATAGRAM];
+                        while !control_stop.load(Ordering::Relaxed) {
+                            let _ = control.recv(&mut buf);
+                        }
+                    })?,
+            );
 
             Ok((Self { stop, threads }, data_port, control_port))
         }
@@ -441,9 +411,7 @@ pub mod receiver {
         }
     }
 
-    /// Requests SCHED_FIFO for this thread; warns and stays at normal priority when refused.
     fn set_realtime() {
-        // zeroed, not a struct literal: sched_param carries private padding on some platforms
         let mut param: libc::sched_param = unsafe { std::mem::zeroed() };
         param.sched_priority = 10;
         let rc =

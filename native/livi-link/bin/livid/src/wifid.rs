@@ -9,7 +9,6 @@ use livi_wifid::server::{Ap, serve};
 const BASE: &str = "/tmp/livi/hostapd.conf.saved";
 const LIVE: [&str; 2] = ["/tmp/livi/hostapd.conf", "/tmp/livi/hostapd.alt"];
 const LOG: &str = "/tmp/livi/hostapd.log";
-/// A client that went quiet is let go, its thread would otherwise wait for good.
 const IDLE: Duration = Duration::from_secs(5);
 
 pub fn run(_args: Vec<String>) -> i32 {
@@ -22,17 +21,18 @@ pub fn run(_args: Vec<String>) -> i32 {
     };
     println!("[wifid] listening on :{CONTROL}");
     let standards = crate::wifi_standards(crate::board().1);
-    let ap = Ap::new(BASE, LIVE, LOG).with_standards(standards).with_on_save(Box::new(|| {
-        let _ = Command::new("/usr/bin/livid")
-            .arg("config")
-            .arg("save")
-            .stdin(std::process::Stdio::null())
-            .stdout(std::process::Stdio::null())
-            .stderr(std::process::Stdio::null())
-            .spawn();
-    }));
+    let ap = Ap::new(BASE, LIVE, LOG)
+        .with_standards(standards)
+        .with_on_save(Box::new(|| {
+            let _ = Command::new("/usr/bin/livid")
+                .arg("config")
+                .arg("save")
+                .stdin(std::process::Stdio::null())
+                .stdout(std::process::Stdio::null())
+                .stderr(std::process::Stdio::null())
+                .spawn();
+        }));
     let ap = Arc::new(Mutex::new(ap));
-    // A thread each, so an accessory order does not queue behind an apply
     for mut stream in livi_net::bridge::from_usb(&listener) {
         let ap = ap.clone();
         std::thread::spawn(move || {

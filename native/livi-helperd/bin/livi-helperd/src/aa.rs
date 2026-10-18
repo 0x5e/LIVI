@@ -24,10 +24,8 @@ pub struct AaConfig {
     pub port: u16,
 }
 
-/// The last one is the BSSID.
 type Told = (AaConfig, Security, String);
 
-/// What the phone is told: the access point on air, else the configured one.
 #[cfg(target_os = "linux")]
 async fn access_point(cfg: &AaConfig) -> Told {
     let base = cfg.clone();
@@ -39,7 +37,10 @@ async fn access_point(cfg: &AaConfig) -> Told {
             return on_dongle(&base, passphrase);
         }
         let live = livi_link_host::on_air(&iface);
-        let ssid = live.as_ref().map(|ap| ap.ssid.clone()).filter(|s| !s.is_empty());
+        let ssid = live
+            .as_ref()
+            .map(|ap| ap.ssid.clone())
+            .filter(|s| !s.is_empty());
         let channel = live.as_ref().map_or(base.channel, |ap| ap.channel);
         let security = live.map(|ap| ap.security).unwrap_or_default();
         let bssid = net::wlan_mac(&iface).unwrap_or_default();
@@ -70,7 +71,11 @@ fn on_dongle(base: &AaConfig, passphrase: String) -> Told {
         passphrase,
         ..base.clone()
     };
-    (told, live.map(|ap| ap.security).unwrap_or_default(), ap::mac().unwrap_or_default())
+    (
+        told,
+        live.map(|ap| ap.security).unwrap_or_default(),
+        ap::mac().unwrap_or_default(),
+    )
 }
 
 fn ip_facing_dongle() -> Option<String> {
@@ -78,10 +83,11 @@ fn ip_facing_dongle() -> Option<String> {
     let iface = livi_link_host::link::host_iface();
     #[cfg(not(target_os = "linux"))]
     let iface = net::iface_facing(livi_link_host::link::LINK_NAME);
-    iface.and_then(|iface| net::ipv4_of(&iface)).map(|a| a.to_string())
+    iface
+        .and_then(|iface| net::ipv4_of(&iface))
+        .map(|a| a.to_string())
 }
 
-/// Phones already projecting over USB, which must not be invited onto the access point.
 #[derive(Clone, Default)]
 pub struct WiredPhones(Arc<Mutex<Vec<String>>>);
 
@@ -92,7 +98,8 @@ impl WiredPhones {
 
     fn contains(&self, ids: &[&str]) -> bool {
         let known = self.0.lock().unwrap();
-        ids.iter().any(|id| !id.is_empty() && known.contains(&id.to_uppercase()))
+        ids.iter()
+            .any(|id| !id.is_empty() && known.contains(&id.to_uppercase()))
     }
 }
 
@@ -172,16 +179,18 @@ async fn handshake(
 ) -> std::io::Result<()> {
     let (cfg, security, bssid) = told;
     let (cfg, bssid) = (&cfg, bssid.to_lowercase());
-    println!("[aa] {mac}: WPP bootstrap (AP {}:{} ssid={})", cfg.ap_ip, cfg.port, cfg.ssid);
+    println!(
+        "[aa] {mac}: WPP bootstrap (AP {}:{} ssid={})",
+        cfg.ap_ip, cfg.port, cfg.ssid
+    );
 
-    sock.write_all(&wpp::wifi_version_request(cfg.channel)).await?;
+    sock.write_all(&wpp::wifi_version_request(cfg.channel))
+        .await?;
 
     let mut reader = wpp::FrameReader::default();
     let mut buf = [0u8; 4096];
     let mut pending: Option<(u16, Vec<u8>)> = None;
 
-    // The phone answers the version request first. A wired phone is dropped here so its USB
-    // session keeps it.
     if let Some((msg_id, body)) =
         read_frame(&mut sock, &mut reader, &mut buf, VERSION_TIMEOUT).await?
     {
@@ -197,7 +206,8 @@ async fn handshake(
         }
     }
 
-    sock.write_all(&wpp::wifi_start_request(&cfg.ap_ip, cfg.port)).await?;
+    sock.write_all(&wpp::wifi_start_request(&cfg.ap_ip, cfg.port))
+        .await?;
 
     loop {
         let next = match pending.take() {
@@ -228,7 +238,10 @@ async fn handshake(
                 emit_device(bcast, mac, &id);
             }
             wpp::MSG_WIFI_START_RESPONSE => {}
-            other => println!("[aa] {mac}: unknown WPP message {other} ({} bytes)", body.len()),
+            other => println!(
+                "[aa] {mac}: unknown WPP message {other} ({} bytes)",
+                body.len()
+            ),
         }
     }
 }
@@ -259,8 +272,16 @@ fn emit_device(bcast: &Broadcaster, mac: &str, id: &wpp::Identity) {
     }
     println!(
         "[aa] {mac}: identified instanceId={} serial={}",
-        if id.instance_id.is_empty() { "-" } else { &id.instance_id },
-        if id.serial.is_empty() { "-" } else { &id.serial }
+        if id.instance_id.is_empty() {
+            "-"
+        } else {
+            &id.instance_id
+        },
+        if id.serial.is_empty() {
+            "-"
+        } else {
+            &id.serial
+        }
     );
     bcast.push_json(format!(
         "{{\"event\":\"aa-device\",\"btMac\":\"{}\",\"instanceId\":\"{}\",\"usbSerial\":\"{}\"}}",

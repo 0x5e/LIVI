@@ -27,7 +27,6 @@ impl X25519 {
         Self { secret, public }
     }
 
-    /// None for a peer key that forces an all-zero secret.
     pub fn shared(self, peer: &[u8; 32]) -> Option<[u8; 32]> {
         let shared = self.secret.diffie_hellman(&PublicKey::from(*peer));
         shared.was_contributory().then(|| shared.to_bytes())
@@ -57,7 +56,6 @@ pub fn hkdf_sha512(ikm: &[u8], salt: &[u8], info: &[u8]) -> [u8; 32] {
     out
 }
 
-/// Ciphertext followed by the 16-byte tag.
 pub fn chacha_seal(key: &[u8; 32], nonce: &[u8; 12], plain: &[u8], aad: &[u8]) -> Vec<u8> {
     ChaCha20Poly1305::new(&(*key).into())
         .encrypt(&Nonce::from(*nonce), Payload { msg: plain, aad })
@@ -70,14 +68,12 @@ pub fn chacha_open(key: &[u8; 32], nonce: &[u8; 12], sealed: &[u8], aad: &[u8]) 
         .ok()
 }
 
-/// Four zero bytes, then the little-endian counter.
 pub fn nonce64(counter: u64) -> [u8; 12] {
     let mut n = [0u8; 12];
     n[4..].copy_from_slice(&counter.to_le_bytes());
     n
 }
 
-/// Four zero bytes, then an eight-character label such as "PV-Msg02".
 pub fn nonce_label(label: &str) -> [u8; 12] {
     let mut n = [0u8; 12];
     let bytes = label.as_bytes();
@@ -149,7 +145,10 @@ mod tests {
         let key = [3u8; 32];
         let sealed = chacha_seal(&key, &nonce64(1), b"plain", b"ad");
         assert_eq!(sealed.len(), 5 + 16);
-        assert_eq!(chacha_open(&key, &nonce64(1), &sealed, b"ad").as_deref(), Some(&b"plain"[..]));
+        assert_eq!(
+            chacha_open(&key, &nonce64(1), &sealed, b"ad").as_deref(),
+            Some(&b"plain"[..])
+        );
         assert_eq!(chacha_open(&key, &nonce64(2), &sealed, b"ad"), None);
         assert_eq!(chacha_open(&key, &nonce64(1), &sealed, b"xx"), None);
     }

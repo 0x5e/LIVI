@@ -5,7 +5,13 @@ fn frame(control: u8, seq: u8, ack: u8, session_id: u8, payload: Option<&[u8]>) 
         Some(p) => p.len() as u16 + 10,
         None => 9,
     };
-    let header = LinkPacketHeader { length, control, seq, ack, session_id };
+    let header = LinkPacketHeader {
+        length,
+        control,
+        seq,
+        ack,
+        session_id,
+    };
     let mut out = header.pack().to_vec();
     if let Some(p) = payload {
         out.extend_from_slice(p);
@@ -22,7 +28,11 @@ fn device_lsp() -> LinkSynchronizationPayload {
         ack_timeout: 100,
         max_retransmissions: 3,
         max_ack: 2,
-        sessions: vec![LspSession { id: 10, kind: 0, version: 1 }],
+        sessions: vec![LspSession {
+            id: 10,
+            kind: 0,
+            version: 1,
+        }],
     }
 }
 
@@ -39,7 +49,13 @@ fn handshaken() -> LinkEngine {
 
 #[test]
 fn header_pack_matches_reference() {
-    let h = LinkPacketHeader { length: 9, control: 0x40, seq: 0x63, ack: 0x05, session_id: 0 };
+    let h = LinkPacketHeader {
+        length: 9,
+        control: 0x40,
+        seq: 0x63,
+        ack: 0x05,
+        session_id: 0,
+    };
     assert_eq!(h.pack().to_vec(), hex("ff5a000940630500f6"));
     assert_eq!(LinkPacketHeader::parse(&h.pack()), Some(h));
 }
@@ -48,7 +64,10 @@ fn header_pack_matches_reference() {
 fn lsp_pack_matches_reference() {
     let e = LinkEngine::new(LinkConfig::default());
     assert_eq!(e.lsp.pack(), hex("011effff0fa001f404030a00010b02010c0102"));
-    assert_eq!(LinkSynchronizationPayload::parse(&e.lsp.pack()), Some(e.lsp.clone()));
+    assert_eq!(
+        LinkSynchronizationPayload::parse(&e.lsp.pack()),
+        Some(e.lsp.clone())
+    );
 }
 
 #[test]
@@ -56,7 +75,9 @@ fn initiator_start_emits_marker_and_syn() {
     let mut e = LinkEngine::new(LinkConfig::default());
     e.start(true, 0);
     let mut expected = IAP2_MARKER.to_vec();
-    expected.extend_from_slice(&hex("ff5a001d80630000a7011effff0fa001f404030a00010b02010c010210"));
+    expected.extend_from_slice(&hex(
+        "ff5a001d80630000a7011effff0fa001f404030a00010b02010c010210",
+    ));
     assert_eq!(e.take_output(), expected);
     assert_eq!(e.state(), LinkState::Negotiate);
 }
@@ -90,7 +111,10 @@ fn wrong_marker_dies() {
     e.start(false, 0);
     e.feed(b"\x00\x00\x00\x00\x00\x00", 0);
     assert_eq!(e.state(), LinkState::Dead);
-    assert!(matches!(e.poll_event(), Some(Event::Dead { reason: Some(_) })));
+    assert!(matches!(
+        e.poll_event(),
+        Some(Event::Dead { reason: Some(_) })
+    ));
 }
 
 #[test]
@@ -149,7 +173,11 @@ fn in_order_delivery_and_auto_ack() {
     assert_eq!(e.poll_event(), Some(Event::Control(b"abc".to_vec())));
     let cumulative_ack = frame(0x40, 99, 0x2B, 0, None);
     assert_eq!(e.take_output(), cumulative_ack);
-    assert_eq!(e.next_deadline(), Some(100), "delayed ack armed with device ack timeout");
+    assert_eq!(
+        e.next_deadline(),
+        Some(100),
+        "delayed ack armed with device ack timeout"
+    );
 
     e.advance_time(100);
     assert_eq!(e.take_output(), cumulative_ack);
@@ -169,7 +197,13 @@ fn out_of_order_reassembly() {
 fn ea_stream_demux() {
     let mut e = handshaken();
     e.feed(&frame(0x40, 0x2B, 99, 11, Some(&[0x00, 0x07, 0xAB])), 0);
-    assert_eq!(e.poll_event(), Some(Event::Ea { stream_id: 7, data: vec![0xAB] }));
+    assert_eq!(
+        e.poll_event(),
+        Some(Event::Ea {
+            stream_id: 7,
+            data: vec![0xAB]
+        })
+    );
     e.take_output();
 
     e.send_ea(7, &[0xCD], 200);
@@ -194,5 +228,8 @@ fn resync_skips_garbage() {
 }
 
 fn hex(s: &str) -> Vec<u8> {
-    (0..s.len()).step_by(2).map(|i| u8::from_str_radix(&s[i..i + 2], 16).unwrap()).collect()
+    (0..s.len())
+        .step_by(2)
+        .map(|i| u8::from_str_radix(&s[i..i + 2], 16).unwrap())
+        .collect()
 }

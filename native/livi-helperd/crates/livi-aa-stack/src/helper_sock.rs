@@ -12,7 +12,6 @@ const TIMEOUT: Duration = Duration::from_secs(5);
 
 #[derive(Debug, Clone, PartialEq)]
 pub enum Feed {
-    /// Also sent after every reconnect.
     Connected,
     Event(Value),
 }
@@ -35,8 +34,9 @@ impl AaHelperSock {
 
     pub async fn request(&self, line: &str) -> Result<Value, String> {
         let exchange = async {
-            let mut sock =
-                UnixStream::connect(&self.path).await.map_err(|e| format!("{LABEL} error: {e}"))?;
+            let mut sock = UnixStream::connect(&self.path)
+                .await
+                .map_err(|e| format!("{LABEL} error: {e}"))?;
             sock.write_all(format!("{line}\n").as_bytes())
                 .await
                 .map_err(|e| format!("{LABEL} error: {e}"))?;
@@ -56,9 +56,9 @@ impl AaHelperSock {
             .map_err(|_| format!("{LABEL} timeout after {}ms", TIMEOUT.as_millis()))?
     }
 
-    /// The helper keeps the access point's credentials from these phones.
     pub async fn set_wired_phones(&self, ids: &[String]) -> Result<Value, String> {
-        self.request(&format!("wired-phones {}", Value::from(ids.to_vec()))).await
+        self.request(&format!("wired-phones {}", Value::from(ids.to_vec())))
+            .await
     }
 
     pub async fn set_sco_sink(&self, sink: Option<(&str, u32)>) -> Result<Value, String> {
@@ -173,17 +173,44 @@ pub(crate) mod tests {
             _ => Some("{\"ok\":true}\n".into()),
         });
         let helper = AaHelperSock::new(&path);
-        assert_eq!(helper.restart_usb().await, Ok(serde_json::json!({ "ok": true, "count": 2 })));
+        assert_eq!(
+            helper.restart_usb().await,
+            Ok(serde_json::json!({ "ok": true, "count": 2 }))
+        );
         assert_eq!(helper.set_sco_sink(None).await.unwrap()["error"], "no");
-        assert_eq!(helper.set_sco_sink(Some(("", 3))).await.unwrap()["ok"], false);
-        assert!(helper.set_sco_sink(Some(("/f", 3))).await.unwrap_err().contains("bad json"));
-        helper.set_wired_phones(&["a".into(), "b".into()]).await.unwrap();
+        assert_eq!(
+            helper.set_sco_sink(Some(("", 3))).await.unwrap()["ok"],
+            false
+        );
+        assert!(
+            helper
+                .set_sco_sink(Some(("/f", 3)))
+                .await
+                .unwrap_err()
+                .contains("bad json")
+        );
+        helper
+            .set_wired_phones(&["a".into(), "b".into()])
+            .await
+            .unwrap();
         assert_eq!(
             seen.lock().unwrap().as_slice(),
-            ["restart-usb", "sco-sink", "sco-sink", "sco-sink /f 3", "wired-phones [\"a\",\"b\"]"]
+            [
+                "restart-usb",
+                "sco-sink",
+                "sco-sink",
+                "sco-sink /f 3",
+                "wired-phones [\"a\",\"b\"]"
+            ]
         );
         let missing = AaHelperSock::new(dir.0.join("none.sock"));
-        assert!(missing.restart_usb().await.unwrap_err().starts_with("aa sock error"));
+        assert!(
+            missing
+                .restart_usb()
+                .await
+                .unwrap_err()
+                .starts_with("aa sock error")
+        );
         assert_eq!(AaHelperSock::default().path, PathBuf::from(SOCK_PATH));
     }
 
@@ -191,9 +218,14 @@ pub(crate) mod tests {
     async fn a_silent_or_short_answer_fails() {
         let dir = Dir::new();
         let path = dir.0.join("aa.sock");
-        serve(&path, |line| (line == "restart-usb").then(|| "{\"ok\":".to_string()));
+        serve(&path, |line| {
+            (line == "restart-usb").then(|| "{\"ok\":".to_string())
+        });
         let helper = AaHelperSock::new(&path);
-        assert_eq!(helper.restart_usb().await, Err("aa sock closed without response".into()));
+        assert_eq!(
+            helper.restart_usb().await,
+            Err("aa sock closed without response".into())
+        );
     }
 
     #[tokio::test(start_paused = true)]
@@ -204,7 +236,10 @@ pub(crate) mod tests {
         let helper = AaHelperSock::new(&path);
         let ask = tokio::spawn(async move { helper.restart_usb().await });
         let (_held, _) = listener.accept().await.unwrap();
-        assert_eq!(ask.await.unwrap(), Err("aa sock timeout after 5000ms".into()));
+        assert_eq!(
+            ask.await.unwrap(),
+            Err("aa sock timeout after 5000ms".into())
+        );
     }
 
     #[tokio::test]
@@ -218,14 +253,19 @@ pub(crate) mod tests {
         let (sock, _) = listener.accept().await.unwrap();
         let (rd, mut wr) = sock.into_split();
         let mut lines = BufReader::new(rd).lines();
-        assert_eq!(lines.next_line().await.unwrap().as_deref(), Some("subscribe"));
+        assert_eq!(
+            lines.next_line().await.unwrap().as_deref(),
+            Some("subscribe")
+        );
         assert_eq!(feed.recv().await, Some(Feed::Connected));
         wr.write_all(b"{\"type\":\"x\"}\n\nnot json\n[1]\n{\"event\":\"sco\",\"up\":true}\n")
             .await
             .unwrap();
         assert_eq!(
             feed.recv().await,
-            Some(Feed::Event(serde_json::json!({ "event": "sco", "up": true })))
+            Some(Feed::Event(
+                serde_json::json!({ "event": "sco", "up": true })
+            ))
         );
         drop((lines, wr));
 

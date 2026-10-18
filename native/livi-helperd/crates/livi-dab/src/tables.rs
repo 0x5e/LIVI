@@ -1,6 +1,3 @@
-// Transmission mode I constants, the phase reference symbol and the frequency
-// interleaver.
-
 use rustfft::num_complex::Complex32;
 
 pub const SAMPLE_RATE: u32 = 2_048_000;
@@ -35,7 +32,6 @@ const H: [[u8; 32]; 4] = [
     ],
 ];
 
-/// (i, n) for each run of 32 carriers from k = -768 upwards, zero skipped.
 const PRS_BLOCKS: [(u8, u8); 48] = [
     (0, 1),
     (1, 2),
@@ -87,17 +83,14 @@ const PRS_BLOCKS: [(u8, u8); 48] = [
     (1, 1),
 ];
 
-/// FFT bin of carrier k, k in -768..=768 without 0.
 pub fn bin(k: i32) -> usize {
     k.rem_euclid(TU as i32) as usize
 }
 
-/// Carrier indices k in ascending order.
 fn carriers() -> impl Iterator<Item = i32> {
     (-768..=768).filter(|&k| k != 0)
 }
 
-/// The phase reference symbol as FFT bins, unit magnitude on the carriers.
 pub fn phase_reference() -> Vec<Complex32> {
     let mut out = vec![Complex32::new(0.0, 0.0); TU];
     for (pos, k) in carriers().enumerate() {
@@ -108,7 +101,6 @@ pub fn phase_reference() -> Vec<Complex32> {
     out
 }
 
-/// Carrier k for each QPSK symbol index n of an OFDM symbol.
 pub fn frequency_map() -> Vec<i32> {
     let mut out = Vec::with_capacity(CARRIERS);
     let mut pi = 0usize;
@@ -135,7 +127,6 @@ mod tests {
 
     #[test]
     fn frequency_map_starts_like_the_interleaver() {
-        // The first value 13 * 0 + 511 = 511 is carrier -513.
         let m = frequency_map();
         assert_eq!(m[0], -513);
     }

@@ -1,5 +1,3 @@
-//! A car maker's theme as LIVI's cluster runs it.
-
 use std::io::Read;
 use std::path::{Path, PathBuf};
 
@@ -15,7 +13,6 @@ const STYLES: &str = "AssetData/CarPlayPhone.assets/theme.json";
 const MAP_COMPONENT: &str = "DCA_Map";
 const TAIL: u64 = 65_557;
 
-/// The configured theme, `asset:version:sdk` as the phone is told.
 #[derive(Debug, Clone, PartialEq)]
 pub struct ThemeId {
     pub asset: String,
@@ -35,10 +32,11 @@ impl ThemeId {
     }
 }
 
-/// The theme read before, None until it was fetched once.
 pub fn cached(dir: &Path, configured: &str) -> Option<Theme> {
     let text = std::fs::read_to_string(ThemeId::parse(configured)?.file(dir)).ok()?;
-    serde_json::from_str::<Theme>(&text).ok().filter(|t| t.id == configured)
+    serde_json::from_str::<Theme>(&text)
+        .ok()
+        .filter(|t| t.id == configured)
 }
 
 pub async fn fetch(dir: &Path, configured: &str) -> Result<Theme, String> {
@@ -59,13 +57,20 @@ pub async fn fetch(dir: &Path, configured: &str) -> Result<Theme, String> {
 
 async fn catalog_client() -> Result<reqwest::Client, String> {
     let der = reqwest::get(ROOT_URL).await.map_err(|e| e.to_string())?;
-    let der = der.error_for_status().map_err(|e| e.to_string())?.bytes().await;
+    let der = der
+        .error_for_status()
+        .map_err(|e| e.to_string())?
+        .bytes()
+        .await;
     let der = der.map_err(|e| e.to_string())?;
     if hex(&Sha256::digest(&der)) != ROOT_SHA256 {
         return Err("Apple's root certificate does not match".into());
     }
     let root = reqwest::Certificate::from_der(&der).map_err(|e| e.to_string())?;
-    reqwest::Client::builder().tls_certs_only([root]).build().map_err(|e| e.to_string())
+    reqwest::Client::builder()
+        .tls_certs_only([root])
+        .build()
+        .map_err(|e| e.to_string())
 }
 
 async fn package_url(client: &reqwest::Client, id: &ThemeId) -> Result<String, String> {
@@ -80,16 +85,22 @@ async fn package_url(client: &reqwest::Client, id: &ThemeId) -> Result<String, S
         "DeviceName": "iPhone",
         "ClientData": { "AllowXmlFallback": false, "DeviceAccessClient": "softwareupdated" },
     });
-    let ask = client.post(CATALOG).header("Content-Type", "application/json").body(ask.to_string());
+    let ask = client
+        .post(CATALOG)
+        .header("Content-Type", "application/json")
+        .body(ask.to_string());
     let answer = ask.send().await.map_err(|e| e.to_string())?;
-    let jwt = answer.error_for_status().map_err(|e| e.to_string())?.text().await;
+    let jwt = answer
+        .error_for_status()
+        .map_err(|e| e.to_string())?
+        .text()
+        .await;
     let assets = catalog_assets(&jwt.map_err(|e| e.to_string())?)
         .ok_or("the theme catalog answered without assets")?;
     asset_url(&assets, id)
         .ok_or_else(|| format!("{}:{} is not in the catalog", id.asset, id.version))
 }
 
-/// The catalog answers with a signed token, its payload lists the assets.
 fn catalog_assets(jwt: &str) -> Option<Vec<Value>> {
     use base64::Engine;
     let payload = jwt.split('.').nth(1)?;
@@ -124,9 +135,15 @@ struct ZipIndex {
 
 impl ZipIndex {
     async fn read(client: &reqwest::Client, url: &str) -> Result<Self, String> {
-        let tail = client.get(url).header("Range", format!("bytes=-{TAIL}")).send().await;
-        let tail =
-            tail.map_err(|e| e.to_string())?.error_for_status().map_err(|e| e.to_string())?;
+        let tail = client
+            .get(url)
+            .header("Range", format!("bytes=-{TAIL}"))
+            .send()
+            .await;
+        let tail = tail
+            .map_err(|e| e.to_string())?
+            .error_for_status()
+            .map_err(|e| e.to_string())?;
         let total = tail
             .headers()
             .get("Content-Range")
@@ -139,11 +156,15 @@ impl ZipIndex {
         let start = total - tail.len() as u64;
         let directory = if offset >= start {
             let from = (offset - start) as usize;
-            tail.get(from..from + size as usize).ok_or("the zip directory is cut")?.to_vec()
+            tail.get(from..from + size as usize)
+                .ok_or("the zip directory is cut")?
+                .to_vec()
         } else {
             range(client, url, offset, size).await?
         };
-        Ok(Self { entries: entries(&directory) })
+        Ok(Self {
+            entries: entries(&directory),
+        })
     }
 }
 
@@ -154,7 +175,12 @@ async fn range(
     len: u64,
 ) -> Result<Vec<u8>, String> {
     let bytes = format!("bytes={from}-{}", from + len.max(1) - 1);
-    let answer = client.get(url).header("Range", bytes).send().await.map_err(|e| e.to_string())?;
+    let answer = client
+        .get(url)
+        .header("Range", bytes)
+        .send()
+        .await
+        .map_err(|e| e.to_string())?;
     let answer = answer.error_for_status().map_err(|e| e.to_string())?;
     Ok(answer.bytes().await.map_err(|e| e.to_string())?.to_vec())
 }
@@ -165,12 +191,19 @@ async fn json_entry(
     index: &ZipIndex,
     name: &str,
 ) -> Result<Value, String> {
-    let entry =
-        index.entries.iter().find(|e| e.name == name).ok_or_else(|| format!("no {name}"))?;
+    let entry = index
+        .entries
+        .iter()
+        .find(|e| e.name == name)
+        .ok_or_else(|| format!("no {name}"))?;
     let head = range(client, url, entry.offset, 30).await?;
     let skip = local_data_start(&head).ok_or_else(|| format!("{name}: bad local header"))?;
     let data = range(client, url, entry.offset + skip, entry.size).await?;
-    let bytes = if entry.deflated { inflate(&data)? } else { data };
+    let bytes = if entry.deflated {
+        inflate(&data)?
+    } else {
+        data
+    };
     serde_json::from_slice(&bytes).map_err(|e| format!("{name}: {e}"))
 }
 
@@ -182,10 +215,14 @@ fn u32_at(b: &[u8], at: usize) -> Option<u32> {
     Some(u32::from_le_bytes(b.get(at..at + 4)?.try_into().ok()?))
 }
 
-/// Where the central directory sits and how long it is, from the end of the archive.
 fn directory_at(tail: &[u8]) -> Option<(u64, u64)> {
-    let at = tail.windows(4).rposition(|w| w == [0x50, 0x4b, 0x05, 0x06])?;
-    Some((u64::from(u32_at(tail, at + 16)?), u64::from(u32_at(tail, at + 12)?)))
+    let at = tail
+        .windows(4)
+        .rposition(|w| w == [0x50, 0x4b, 0x05, 0x06])?;
+    Some((
+        u64::from(u32_at(tail, at + 16)?),
+        u64::from(u32_at(tail, at + 12)?),
+    ))
 }
 
 fn entries(directory: &[u8]) -> Vec<ZipEntry> {
@@ -202,7 +239,9 @@ fn entries(directory: &[u8]) -> Vec<ZipEntry> {
         else {
             break;
         };
-        let Some(name) = directory.get(at + 46..at + 46 + name_len) else { break };
+        let Some(name) = directory.get(at + 46..at + 46 + name_len) else {
+            break;
+        };
         out.push(ZipEntry {
             name: String::from_utf8_lossy(name).into_owned(),
             deflated: method == 8,
@@ -214,8 +253,6 @@ fn entries(directory: &[u8]) -> Vec<ZipEntry> {
     out
 }
 
-/// How far past the local header the data starts, its name and extra field differ from the
-/// directory's.
 fn local_data_start(head: &[u8]) -> Option<u64> {
     if u32_at(head, 0)? != 0x0403_4b50 {
         return None;
@@ -225,7 +262,9 @@ fn local_data_start(head: &[u8]) -> Option<u64> {
 
 fn inflate(data: &[u8]) -> Result<Vec<u8>, String> {
     let mut out = Vec::new();
-    flate2::read::DeflateDecoder::new(data).read_to_end(&mut out).map_err(|e| e.to_string())?;
+    flate2::read::DeflateDecoder::new(data)
+        .read_to_end(&mut out)
+        .map_err(|e| e.to_string())?;
     Ok(out)
 }
 
@@ -233,7 +272,6 @@ fn hex(bytes: &[u8]) -> String {
     bytes.iter().map(|b| format!("{b:02x}")).collect()
 }
 
-/// The theme from the package's display description and its layout styles.
 pub fn from_package(id: &str, package: &Value, styles: &Value) -> Option<Theme> {
     let text = |v: &Value, k: &str| v.get(k).and_then(Value::as_str).map(str::to_string);
     let displays: Vec<ThemeDisplay> = package
@@ -247,12 +285,19 @@ pub fn from_package(id: &str, package: &Value, styles: &Value) -> Option<Theme> 
                 _ => return None,
             };
             let layouts = match kind {
-                DisplayKind::Cluster => {
-                    d.get("layouts")?.as_array()?.iter().filter_map(|l| layout(l, styles)).collect()
-                }
+                DisplayKind::Cluster => d
+                    .get("layouts")?
+                    .as_array()?
+                    .iter()
+                    .filter_map(|l| layout(l, styles))
+                    .collect(),
                 DisplayKind::Center => Vec::new(),
             };
-            Some(ThemeDisplay { id: text(d, "id")?, kind, layouts })
+            Some(ThemeDisplay {
+                id: text(d, "id")?,
+                kind,
+                layouts,
+            })
         })
         .collect();
     displays.iter().find(|d| d.kind == DisplayKind::Cluster)?;
@@ -272,14 +317,23 @@ pub fn from_package(id: &str, package: &Value, styles: &Value) -> Option<Theme> 
                 .collect()
         })
         .unwrap_or_default();
-    Some(Theme { id: id.to_string(), displays, palettes })
+    Some(Theme {
+        id: id.to_string(),
+        displays,
+        palettes,
+    })
 }
 
 fn layout(l: &Value, styles: &Value) -> Option<ThemeLayout> {
     let style = l.get("layoutStyleID")?.as_str()?;
-    let default =
-        styles.get("defaultPaletteIDs").and_then(|d| d.get(style)).and_then(Value::as_str);
-    let offered = styles.get("layoutStyles").and_then(|s| s.get(style)).and_then(Value::as_object);
+    let default = styles
+        .get("defaultPaletteIDs")
+        .and_then(|d| d.get(style))
+        .and_then(Value::as_str);
+    let offered = styles
+        .get("layoutStyles")
+        .and_then(|s| s.get(style))
+        .and_then(Value::as_object);
     let mut palettes: Vec<String> = default.map(str::to_string).into_iter().collect();
     for id in offered.into_iter().flat_map(|o| o.keys()) {
         if Some(id.as_str()) != default {
@@ -352,18 +406,35 @@ mod tests {
     fn the_package_becomes_the_theme_the_cluster_runs() {
         let theme = from_package("ABC:7:19.0", &package(), &styles()).unwrap();
         assert_eq!(theme.id, "ABC:7:19.0");
-        let ids: Vec<_> = theme.displays.iter().map(|d| (d.id.as_str(), d.kind)).collect();
+        let ids: Vec<_> = theme
+            .displays
+            .iter()
+            .map(|d| (d.id.as_str(), d.kind))
+            .collect();
         assert_eq!(
             ids,
-            [("Cluster_Display", DisplayKind::Cluster), ("Center_Display", DisplayKind::Center)]
+            [
+                ("Cluster_Display", DisplayKind::Cluster),
+                ("Center_Display", DisplayKind::Center)
+            ]
         );
         let layouts = &theme.cluster().unwrap().layouts;
         assert_eq!(layouts.len(), 2, "a layout without an id is left out");
-        assert_eq!((layouts[0].id.as_str(), layouts[0].name.as_str()), ("L1", "Rings"));
-        assert_eq!(layouts[0].palettes, ["green", "blue", "red"], "the default first");
+        assert_eq!(
+            (layouts[0].id.as_str(), layouts[0].name.as_str()),
+            ("L1", "Rings")
+        );
+        assert_eq!(
+            layouts[0].palettes,
+            ["green", "blue", "red"],
+            "the default first"
+        );
         assert_eq!(
             layouts[0].zones,
-            [Zone { id: "Z1".into(), component: "C-map".into() }],
+            [Zone {
+                id: "Z1".into(),
+                component: "C-map".into()
+            }],
             "only zones that can show the map, with the map"
         );
         assert_eq!(layouts[1].palettes, ["vibrant"]);
@@ -375,7 +446,10 @@ mod tests {
                 accent_light: "#008800ff".into()
             }]
         );
-        assert!(theme.displays[1].layouts.is_empty(), "the phone draws the centre");
+        assert!(
+            theme.displays[1].layouts.is_empty(),
+            "the phone draws the centre"
+        );
     }
 
     #[test]
@@ -391,7 +465,13 @@ mod tests {
     #[test]
     fn the_id_names_asset_and_version() {
         let id = ThemeId::parse("44C9FA31EC:985:19.0").unwrap();
-        assert_eq!(id, ThemeId { asset: "44C9FA31EC".into(), version: 985 });
+        assert_eq!(
+            id,
+            ThemeId {
+                asset: "44C9FA31EC".into(),
+                version: 985
+            }
+        );
         assert_eq!(ThemeId::parse("livi"), None);
         assert_eq!(ThemeId::parse(":1"), None);
         assert_eq!(ThemeId::parse("A:x"), None);
@@ -406,13 +486,24 @@ mod tests {
         ] });
         let payload = base64::engine::general_purpose::URL_SAFE_NO_PAD.encode(assets.to_string());
         let found = catalog_assets(&format!("head.{payload}.sig")).unwrap();
-        let id = ThemeId { asset: "A".into(), version: 2 };
+        let id = ThemeId {
+            asset: "A".into(),
+            version: 2,
+        };
         assert_eq!(asset_url(&found, &id).as_deref(), Some("https://x/a.zip"));
-        assert_eq!(asset_url(&found, &ThemeId { asset: "B".into(), version: 2 }), None);
+        assert_eq!(
+            asset_url(
+                &found,
+                &ThemeId {
+                    asset: "B".into(),
+                    version: 2
+                }
+            ),
+            None
+        );
         assert_eq!(catalog_assets("no token"), None);
     }
 
-    /// A zip with one stored and one deflated file, as the package server would cut it.
     fn zip(files: &[(&str, &[u8], bool)]) -> Vec<u8> {
         use std::io::Write;
         let (mut out, mut directory) = (Vec::new(), Vec::new());
@@ -459,7 +550,10 @@ mod tests {
 
     #[test]
     fn the_zip_directory_points_at_each_file() {
-        let archive = zip(&[("a.json", b"{\"a\":1}", false), (PACKAGE, b"{\"b\":22}", true)]);
+        let archive = zip(&[
+            ("a.json", b"{\"a\":1}", false),
+            (PACKAGE, b"{\"b\":22}", true),
+        ]);
         let (offset, size) = directory_at(&archive).unwrap();
         let found = entries(&archive[offset as usize..(offset + size) as usize]);
         assert_eq!(found.len(), 2);
@@ -468,7 +562,11 @@ mod tests {
             let at = entry.offset as usize;
             let skip = local_data_start(&archive[at..]).unwrap() as usize;
             let data = &archive[at + skip..at + skip + entry.size as usize];
-            let bytes = if entry.deflated { inflate(data).unwrap() } else { data.to_vec() };
+            let bytes = if entry.deflated {
+                inflate(data).unwrap()
+            } else {
+                data.to_vec()
+            };
             assert_eq!(serde_json::from_slice::<Value>(&bytes).unwrap(), want);
         }
         assert_eq!(directory_at(b"nothing"), None);
@@ -485,7 +583,11 @@ mod tests {
         let id = ThemeId::parse(&theme.id).unwrap();
         std::fs::write(id.file(&dir), serde_json::to_string(&theme).unwrap()).unwrap();
         assert_eq!(cached(&dir, "ABC:7:19.0"), Some(theme));
-        assert_eq!(cached(&dir, "ABC:7:20.0"), None, "another SDK is another theme id");
+        assert_eq!(
+            cached(&dir, "ABC:7:20.0"),
+            None,
+            "another SDK is another theme id"
+        );
         assert_eq!(cached(&dir, "ABC:8:19.0"), None);
         assert_eq!(cached(&dir, "livi"), None);
         std::fs::remove_dir_all(dir).unwrap();

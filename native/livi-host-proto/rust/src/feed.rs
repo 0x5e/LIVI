@@ -1,21 +1,11 @@
-//! Framing of the media feed a helper streams into the host: four bytes of
-//! payload length in host order, one byte of kind, four bytes of stream id,
-//! eight bytes of timestamp, and the payload.
-
 const LEN_BYTES: usize = 4;
 const HEAD_BYTES: usize = 13;
 
-/// One video access unit for the plane `id` names.
 pub const KIND_VIDEO: u8 = 1;
-/// Samples for the audio stream `id` names.
 pub const KIND_AUDIO: u8 = 2;
-/// Announces the codec of the video stream: payload is one byte, 0 for H.264,
-/// 1 for H.265.
 pub const KIND_VIDEO_START: u8 = 3;
-/// Captured microphone samples, from the pipeline to whoever asked for the tap.
 pub const KIND_MIC: u8 = 4;
 
-/// One complete record.
 #[derive(Debug, PartialEq, Eq)]
 pub struct Record {
     pub kind: u8,
@@ -24,7 +14,6 @@ pub struct Record {
     pub payload: Vec<u8>,
 }
 
-/// Collects bytes until whole records come out.
 #[derive(Default)]
 pub struct Framer {
     buf: Vec<u8>,
@@ -39,7 +28,6 @@ impl Framer {
         self.buf.extend_from_slice(chunk);
     }
 
-    /// The next complete record, or None while one is still arriving.
     pub fn next_record(&mut self) -> Option<Record> {
         loop {
             if self.buf.len() < LEN_BYTES {
@@ -66,7 +54,6 @@ impl Framer {
     }
 }
 
-/// The wire form of one record.
 pub fn encode(kind: u8, id: u32, ts: u64, payload: &[u8]) -> Vec<u8> {
     let len = (HEAD_BYTES + payload.len()) as u32;
     let mut out = Vec::with_capacity(LEN_BYTES + len as usize);
@@ -89,7 +76,12 @@ mod tests {
 
         assert_eq!(
             f.next_record(),
-            Some(Record { kind: KIND_VIDEO, id: 0x7a00_0001, ts: 42, payload: vec![1, 2, 3] })
+            Some(Record {
+                kind: KIND_VIDEO,
+                id: 0x7a00_0001,
+                ts: 42,
+                payload: vec![1, 2, 3]
+            })
         );
         assert_eq!(f.next_record(), None);
     }
@@ -133,7 +125,12 @@ mod tests {
         f.push(&encode(KIND_VIDEO, 99, 5, &[]));
         assert_eq!(
             f.next_record(),
-            Some(Record { kind: KIND_VIDEO, id: 99, ts: 5, payload: vec![] })
+            Some(Record {
+                kind: KIND_VIDEO,
+                id: 99,
+                ts: 5,
+                payload: vec![]
+            })
         );
     }
 }

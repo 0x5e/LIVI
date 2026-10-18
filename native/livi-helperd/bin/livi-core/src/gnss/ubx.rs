@@ -1,9 +1,3 @@
-//! NMEA already carries the fix, so only MON-VER and MON-RF are read.
-//!
-//! A frame is the sync bytes B5 62, class, id, the payload length as a little
-//! endian u16, the payload, and two bytes of 8-bit Fletcher checksum over
-//! everything from the class to the end of the payload.
-
 use super::info::{AntennaPower, AntennaStatus, Jamming, Rf, Version};
 use super::{latin1, trim};
 
@@ -14,10 +8,8 @@ pub const CLASS_MON: u8 = 0x0a;
 pub const ID_MON_VER: u8 = 0x04;
 pub const ID_MON_RF: u8 = 0x38;
 
-/// A receiver sending only NMEA would grow the buffer forever.
 const BUFFER_MAX: usize = 8192;
 const BUFFER_KEEP: usize = 2048;
-/// Longer is a stray sync pair inside NMEA text, not a frame.
 const PAYLOAD_MAX: usize = 4096;
 
 #[derive(Debug, PartialEq)]
@@ -47,7 +39,6 @@ pub fn build(class: u8, id: u8, payload: &[u8]) -> Vec<u8> {
     frame
 }
 
-/// A message without payload asks for that message.
 pub fn poll_version() -> Vec<u8> {
     build(CLASS_MON, ID_MON_VER, &[])
 }
@@ -71,12 +62,14 @@ impl Parser {
         let mut frames = Vec::new();
         let mut offset = 0;
         loop {
-            let Some(start) = buf[offset..].iter().position(|&b| b == SYNC_1).map(|i| offset + i)
+            let Some(start) = buf[offset..]
+                .iter()
+                .position(|&b| b == SYNC_1)
+                .map(|i| offset + i)
             else {
                 offset = buf.len();
                 break;
             };
-            // A sync byte at the very end may get its second half with the next read.
             if start + 1 >= buf.len() {
                 offset = start;
                 break;
@@ -115,7 +108,6 @@ impl Parser {
     }
 }
 
-/// A zero padded string.
 fn text(bytes: &[u8]) -> String {
     let end = bytes.iter().position(|&b| b == 0).unwrap_or(bytes.len());
     trim(&latin1(&bytes[..end])).to_string()
@@ -126,8 +118,6 @@ fn constellation_list(ext: &str) -> bool {
         .all(|name| (3..=4).contains(&name.len()) && name.bytes().all(|b| b.is_ascii_uppercase()))
 }
 
-/// MON-VER: 30 bytes of software version, 10 of hardware version, then any
-/// number of 30 byte extensions.
 pub fn parse_version(payload: &[u8]) -> Option<Version> {
     if payload.len() < 40 {
         return None;
@@ -138,7 +128,12 @@ pub fn parse_version(payload: &[u8]) -> Option<Version> {
         ..Default::default()
     };
     let mut supported = Vec::new();
-    for ext in payload[40..].as_chunks::<30>().0.iter().map(|ext| text(ext)) {
+    for ext in payload[40..]
+        .as_chunks::<30>()
+        .0
+        .iter()
+        .map(|ext| text(ext))
+    {
         if let Some(v) = ext.strip_prefix("FWVER=") {
             version.firmware = Some(v.to_string());
         } else if let Some(v) = ext.strip_prefix("PROTVER=") {
@@ -155,8 +150,6 @@ pub fn parse_version(payload: &[u8]) -> Option<Version> {
     Some(version)
 }
 
-/// MON-RF: a 4 byte header, then a 24 byte block per RF path. Only the first
-/// is read, the second covers bands an M9N does not use for this.
 pub fn parse_rf(payload: &[u8]) -> Option<Rf> {
     let block = payload.get(4..4 + 24)?;
     let jamming = match block[1] & 0x03 {
@@ -198,7 +191,6 @@ pub mod tests {
         buf
     }
 
-    /// The MON-VER answer of the NEO-M9N on a Pi 5.
     fn real_version() -> Vec<u8> {
         [
             field("ROM CORE 4.04 (d964f4)", 30),
@@ -242,7 +234,10 @@ pub mod tests {
     fn frames_are_found_in_a_stream_of_nmea_and_split_reads() {
         let mut p = Parser::default();
         let frames = p.push(&build(CLASS_MON, ID_MON_VER, &real_version()));
-        assert_eq!((frames.len(), frames[0].class, frames[0].id), (1, CLASS_MON, ID_MON_VER));
+        assert_eq!(
+            (frames.len(), frames[0].class, frames[0].id),
+            (1, CLASS_MON, ID_MON_VER)
+        );
 
         let stream = [
             b"$GNRMC,,V,,,,,,,,,,N,V*37\r\n".to_vec(),
@@ -278,8 +273,10 @@ pub mod tests {
         let lone = [vec![0xb5, 0x00, 0xb5, 0x01], build(0x0a, 0x04, &[])].concat();
         assert_eq!(Parser::default().push(&lone).len(), 1);
 
-        let absurd =
-            [vec![0xb5, 0x62, 0x0a, 0x04, 0xff, 0xff, 0x00, 0x00], build(0x0a, 0x04, &[9])];
+        let absurd = [
+            vec![0xb5, 0x62, 0x0a, 0x04, 0xff, 0xff, 0x00, 0x00],
+            build(0x0a, 0x04, &[9]),
+        ];
         assert_eq!(Parser::default().push(&absurd.concat()).len(), 1);
 
         let mut p = Parser::default();
@@ -299,12 +296,21 @@ pub mod tests {
                 protocol: Some("32.01".into()),
                 model: None,
                 supported: Some(
-                    ["GPS", "GLO", "GAL", "BDS", "SBAS", "QZSS"].map(String::from).to_vec()
+                    ["GPS", "GLO", "GAL", "BDS", "SBAS", "QZSS"]
+                        .map(String::from)
+                        .to_vec()
                 ),
             })
         );
-        let named = [field("ROM CORE 4.04", 30), field("00190000", 10), field("MOD=NEO-M9N", 30)];
-        assert_eq!(parse_version(&named.concat()).unwrap().model.as_deref(), Some("NEO-M9N"));
+        let named = [
+            field("ROM CORE 4.04", 30),
+            field("00190000", 10),
+            field("MOD=NEO-M9N", 30),
+        ];
+        assert_eq!(
+            parse_version(&named.concat()).unwrap().model.as_deref(),
+            Some("NEO-M9N")
+        );
 
         let odd = [
             field("ROM CORE 4.04", 30),
@@ -313,7 +319,10 @@ pub mod tests {
             field("", 30),
         ];
         let version = parse_version(&odd.concat()).unwrap();
-        assert_eq!((version.supported, version.software.as_str()), (None, "ROM CORE 4.04"));
+        assert_eq!(
+            (version.supported, version.software.as_str()),
+            (None, "ROM CORE 4.04")
+        );
 
         assert_eq!(parse_version(&[0u8; 20]), None);
         let partial = [field("ROM", 30), field("HW", 10), vec![0u8; 12]].concat();
@@ -340,10 +349,16 @@ pub mod tests {
         let status = |raw| parse_rf(&rf_payload(1, raw, 1)).unwrap().antenna_status;
         let statuses = [0, 1, 2, 3, 4, 9].map(status);
         use AntennaStatus as S;
-        assert_eq!(statuses, [S::Init, S::Unknown, S::Ok, S::Short, S::Open, S::Unknown]);
+        assert_eq!(
+            statuses,
+            [S::Init, S::Unknown, S::Ok, S::Short, S::Open, S::Unknown]
+        );
         let power = |raw| parse_rf(&rf_payload(1, 2, raw)).unwrap().antenna_power;
         use AntennaPower as P;
-        assert_eq!([0, 1, 2, 9].map(power), [P::Off, P::On, P::Unknown, P::Unknown]);
+        assert_eq!(
+            [0, 1, 2, 9].map(power),
+            [P::Off, P::On, P::Unknown, P::Unknown]
+        );
         let jamming = |raw| parse_rf(&rf_payload(raw, 2, 1)).unwrap().jamming;
         use Jamming as J;
         assert_eq!(

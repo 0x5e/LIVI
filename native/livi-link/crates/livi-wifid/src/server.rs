@@ -1,14 +1,3 @@
-//! LIVI-Link wifid wire: line-oriented TCP on the dongle's control port. Commands:
-//!   channels | status | on | off | apply | save | down | deauth | watch
-//!   set <ssid|country|channel|width|passphrase> <value>
-//!   bt on | bt off
-//!   accessory <order>   for the Bluetooth accessory, answered the way accessoryd answers
-//! `on`, `off` and `bt` are kept on the dongle, a boot brings back what was switched last.
-//! `down` takes the access point off the air until the next apply or boot, nothing is kept.
-//! `deauth` sends every station off, `deauth <count>` says how many.
-//! `watch` never answers, it streams `joined <mac>` and `left <mac>` until the client goes.
-//! Responses end in `ok\n` or `error <reason>\n`.
-
 use std::io::{BufRead, BufReader, Write};
 use std::net::{Ipv4Addr, SocketAddr, SocketAddrV4, TcpStream};
 use std::path::PathBuf;
@@ -34,10 +23,11 @@ const IFACE: &str = "wlan0";
 const BT: &str = "hci0";
 const BT_MAC: &str = "/tmp/livi/bt-mac";
 const BT_DEV: u16 = 0;
-/// Loads the driver and brings hci0 up with btd and accessoryd, for what a boot left out.
 const LIVI_RADIO: &str = "/usr/bin/livi-radio";
-const ACCESSORY: SocketAddr =
-    SocketAddr::V4(SocketAddrV4::new(Ipv4Addr::LOCALHOST, livi_net::port::ACCESSORY));
+const ACCESSORY: SocketAddr = SocketAddr::V4(SocketAddrV4::new(
+    Ipv4Addr::LOCALHOST,
+    livi_net::port::ACCESSORY,
+));
 const ACCESSORY_WAIT: Duration = Duration::from_secs(3);
 
 pub type OnSave = Box<dyn Fn() + Send + Sync>;
@@ -162,7 +152,6 @@ pub fn serve<S: std::io::Read + Write>(io: &mut S, ap: &Mutex<Ap>) {
                     Err(e) => format!("error {e}\n"),
                 }
             }
-            // Never waits for the access point, an apply can take half a minute
             Cmd::Accessory(order) => accessory(ACCESSORY, order),
             Cmd::Empty => continue,
             Cmd::Unknown(what) => format!("error unknown command {what}\n"),
@@ -246,7 +235,9 @@ fn remember(wanted: &mut Wanted, key: &str, value: &str) -> Result<(), String> {
             wanted.country = Some(value.to_ascii_uppercase());
         }
         "channel" => {
-            let channel = value.parse::<u32>().map_err(|_| "channel must be a number")?;
+            let channel = value
+                .parse::<u32>()
+                .map_err(|_| "channel must be a number")?;
             if !(1..=196).contains(&channel) {
                 return Err("channel is out of range".into());
             }
@@ -274,13 +265,19 @@ fn ctrl_line() -> String {
     format!("ctrl_interface={}\n", hostapd::CTRL_DIR)
 }
 
-/// Without the control socket line no deauth reaches hostapd.
 fn with_ctrl(path: &std::path::Path) -> Result<(), String> {
     let text = std::fs::read_to_string(path).map_err(|e| format!("{}: {e}", path.display()))?;
-    if text.lines().any(|line| setting(line) == Some("ctrl_interface")) {
+    if text
+        .lines()
+        .any(|line| setting(line) == Some("ctrl_interface"))
+    {
         return Ok(());
     }
-    let gap = if text.is_empty() || text.ends_with('\n') { "" } else { "\n" };
+    let gap = if text.is_empty() || text.ends_with('\n') {
+        ""
+    } else {
+        "\n"
+    };
     std::fs::write(path, format!("{text}{gap}{}", ctrl_line()))
         .map_err(|e| format!("{}: {e}", path.display()))
 }
@@ -310,13 +307,16 @@ fn apply(ap: &mut Ap, wanted: &Wanted) -> Result<(), String> {
     if running() && std::fs::read_to_string(&ap.config).is_ok_and(|current| current == text) {
         return Ok(());
     }
-    let next = if ap.config == ap.live[0] { ap.live[1].clone() } else { ap.live[0].clone() };
+    let next = if ap.config == ap.live[0] {
+        ap.live[1].clone()
+    } else {
+        ap.live[0].clone()
+    };
     std::fs::write(&next, text).map_err(|e| format!("{}: {e}", next.display()))?;
 
     let previous = ap.config.clone();
     stop(ap);
     if let Err(refused) = start_weakening(ap, &next) {
-        // Removed, so the newest live file is always the one the radio runs on.
         let _ = std::fs::remove_file(&next);
         stop(ap);
         if start(ap, &previous).is_err() {
@@ -364,14 +364,12 @@ fn on(ap: &mut Ap) -> Result<(), String> {
     }
     driver();
     await_radio()?;
-    // The address it kept from its first boot, set while the interface is still down.
     let _ = Command::new(LIVI_RADIO).arg("mac").status();
     let _ = Command::new("ifconfig").args([IFACE, "up"]).status();
     let config = ap.config.clone();
     start_weakening(ap, &config)
 }
 
-/// Rewrites `path` to the config the radio finally accepts.
 fn start_weakening(ap: &mut Ap, path: &std::path::Path) -> Result<(), String> {
     let refused = match start(ap, path) {
         Ok(()) => return Ok(()),
@@ -431,12 +429,10 @@ fn off(ap: &mut Ap) {
 
 fn bluetooth(up: bool) -> Result<(), String> {
     if !up {
-        // btd first: while a host tunnels, it holds hci0 and hci0 will not go down.
         livi_radio("bt-off", "btd and accessoryd would not stop")?;
         return livi_btd::hci::down(BT_DEV).map_err(|e| format!("{BT} would not go down: {e}"));
     }
     driver();
-    // A boot with Bluetooth off started neither btd nor accessoryd, they only run once hci0 is up.
     livi_radio("bt", &format!("{BT} would not come up"))
 }
 
@@ -460,7 +456,6 @@ fn keep(ap: &Ap, radio: Radio, on: bool) {
     }
 }
 
-/// With WiFi and Bluetooth both off at boot nothing loaded the driver.
 fn driver() {
     let loaded = std::path::Path::new(&format!("/sys/class/net/{IFACE}")).exists()
         || std::path::Path::new(&format!("/sys/class/bluetooth/{BT}")).exists();
@@ -473,7 +468,6 @@ fn bt_up() -> bool {
     livi_btd::hci::is_up(BT_DEV)
 }
 
-/// The newest live file is the one the radio runs on.
 pub fn ap_config_from(base: &std::path::Path, live: &[&std::path::Path]) -> Option<String> {
     let newest = live
         .iter()
@@ -498,7 +492,11 @@ pub fn ap_name_from(base: &std::path::Path, live: &[&std::path::Path]) -> Option
 
 fn status(ap: &Ap) -> String {
     let mut out = String::new();
-    out.push_str(if running() { "state on\n" } else { "state off\n" });
+    out.push_str(if running() {
+        "state on\n"
+    } else {
+        "state off\n"
+    });
     out.push_str(if bt_up() { "bt on\n" } else { "bt off\n" });
     let switch = |radio| if radio::enabled(radio) { "on" } else { "off" };
     out.push_str(&format!(
@@ -509,13 +507,16 @@ fn status(ap: &Ap) -> String {
     if let Ok(mac) = std::fs::read_to_string(format!("/sys/class/net/{IFACE}/address")) {
         out.push_str(&format!("mac {}\n", mac.trim()));
     }
-    // The vendor driver has no address attribute, livi-bt-up writes it down instead.
     if let Ok(mac) = std::fs::read_to_string(format!("/sys/class/bluetooth/{BT}/address"))
         .or_else(|_| std::fs::read_to_string(BT_MAC))
     {
         out.push_str(&format!("btmac {}\n", mac.trim()));
     }
-    out.push_str(if ap.config == ap.base { "config fallback\n" } else { "config host\n" });
+    out.push_str(if ap.config == ap.base {
+        "config fallback\n"
+    } else {
+        "config host\n"
+    });
     if let Ok(text) = std::fs::read_to_string(&ap.config) {
         for line in text.lines() {
             if let Some(key @ ("ssid" | "country_code" | "channel" | "hw_mode")) = setting(line) {
@@ -530,7 +531,6 @@ fn status(ap: &Ap) -> String {
             .ok()
             .map(|s| s.trim().to_string())
     };
-    // RX is what the AP received from the phone (down), TX what it sent (up).
     if let Some(bytes) = counter("rx") {
         out.push_str(&format!("downbytes {bytes}\n"));
     }
@@ -541,7 +541,6 @@ fn status(ap: &Ap) -> String {
     out
 }
 
-/// Seen from the car: down is phone to car, up is car to phone.
 fn rates() -> String {
     match livi_wifi::stations(IFACE).rates {
         Some((down, up)) => format!("downrate {down}\nuprate {up}\nok\n"),
@@ -597,7 +596,12 @@ fn complaint(log: &str) -> String {
     log.lines()
         .map(str::trim)
         .find(|line| MARKERS.iter().any(|m| line.contains(m)))
-        .or_else(|| log.lines().map(str::trim).rev().find(|line| !line.is_empty()))
+        .or_else(|| {
+            log.lines()
+                .map(str::trim)
+                .rev()
+                .find(|line| !line.is_empty())
+        })
         .unwrap_or("hostapd failed")
         .to_string()
 }
@@ -687,11 +691,17 @@ mod tests {
 
     #[test]
     fn an_accessory_order_goes_to_the_accessory_and_comes_back_whole() {
-        assert!(matches!(command("accessory targets aa bb"), Cmd::Accessory("targets aa bb")));
+        assert!(matches!(
+            command("accessory targets aa bb"),
+            Cmd::Accessory("targets aa bb")
+        ));
         assert!(matches!(command("accessory"), Cmd::Unknown("accessory")));
 
         let (at, heard) = accessoryd("bonds 1\noffered on\ntargets 0\nok\n");
-        assert_eq!(accessory(at, "status"), "bonds 1\noffered on\ntargets 0\nok\n");
+        assert_eq!(
+            accessory(at, "status"),
+            "bonds 1\noffered on\ntargets 0\nok\n"
+        );
         assert_eq!(heard.join().unwrap(), "status\n");
 
         let (at, _) = accessoryd("error not an address\n");
@@ -702,7 +712,10 @@ mod tests {
     fn an_accessory_that_is_gone_or_hangs_up_is_an_error() {
         let (at, _) = accessoryd("bonds 1\n");
         assert!(accessory(at, "status").starts_with("error accessory: "));
-        let gone = std::net::TcpListener::bind("127.0.0.1:0").unwrap().local_addr().unwrap();
+        let gone = std::net::TcpListener::bind("127.0.0.1:0")
+            .unwrap()
+            .local_addr()
+            .unwrap();
         assert!(accessory(gone, "on").starts_with("error accessory: "));
     }
 }

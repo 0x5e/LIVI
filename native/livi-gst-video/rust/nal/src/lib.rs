@@ -1,16 +1,9 @@
-//! Codec detection and NAL classification for the CarPlay screen stream.
-//!
-//! `CpCodec`'s value travels in the configuration record the host forwards, so
-//! it keeps its order.
-
-/// The codec a screen stream carries.
 #[derive(Clone, Copy, PartialEq, Eq, Debug)]
 pub enum CpCodec {
     H264 = 0,
     H265 = 1,
 }
 
-/// What a NAL is, ordered so the greater value wins.
 #[derive(Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Debug)]
 pub enum CpNalKind {
     Delta = 0,
@@ -18,8 +11,6 @@ pub enum CpNalKind {
     Keyframe = 2,
 }
 
-/// True when the buffer opens like an AVCDecoderConfigurationRecord: at least
-/// one SPS announced, its length inside the buffer, and an SPS NAL behind it.
 fn looks_like_avcc(a: &[u8]) -> bool {
     if a.len() < 9 {
         return false;
@@ -34,9 +25,6 @@ fn looks_like_avcc(a: &[u8]) -> bool {
     a[8] & 0x1f == 7
 }
 
-/// The codec the payload carries, and where its codec data starts. A `hvcC` or
-/// `avcC` marker names the codec outright. Without one the shape of the buffer
-/// decides and the whole payload is the codec data.
 pub fn detect_codec(payload: &[u8]) -> (CpCodec, usize) {
     let mut i = 4;
     while i + 4 <= payload.len() {
@@ -46,7 +34,11 @@ pub fn detect_codec(payload: &[u8]) -> (CpCodec, usize) {
             _ => i += 1,
         }
     }
-    if looks_like_avcc(payload) { (CpCodec::H264, 0) } else { (CpCodec::H265, 0) }
+    if looks_like_avcc(payload) {
+        (CpCodec::H264, 0)
+    } else {
+        (CpCodec::H265, 0)
+    }
 }
 
 fn classify_byte(header_byte: u8, codec: CpCodec) -> CpNalKind {
@@ -65,9 +57,6 @@ fn classify_byte(header_byte: u8, codec: CpCodec) -> CpNalKind {
     }
 }
 
-/// Reports the most significant kind among the frame's NALs. A frame opening
-/// with a four byte start code is Annex B (Android Auto), anything else is
-/// length prefixed (CarPlay).
 pub fn classify_nal(frame: &[u8], codec: CpCodec) -> CpNalKind {
     if frame.starts_with(&[0, 0, 0, 1]) {
         classify_annex_b(frame, codec)
@@ -76,8 +65,6 @@ pub fn classify_nal(frame: &[u8], codec: CpCodec) -> CpNalKind {
     }
 }
 
-/// Every `00 00 01` is a start code, emulation prevention keeps the pattern
-/// out of NAL payloads. The header byte follows it.
 fn classify_annex_b(frame: &[u8], codec: CpCodec) -> CpNalKind {
     let mut best = CpNalKind::Delta;
     let mut i = 0usize;
@@ -95,7 +82,6 @@ fn classify_annex_b(frame: &[u8], codec: CpCodec) -> CpNalKind {
     best
 }
 
-/// A zero length or one reaching past the frame ends the walk.
 fn classify_length_prefixed(frame: &[u8], codec: CpCodec) -> CpNalKind {
     let mut best = CpNalKind::Delta;
     let mut off = 0usize;
@@ -155,7 +141,6 @@ mod tests {
 
     #[test]
     fn without_a_marker_the_shape_decides() {
-        // avcC-shaped: one SPS announced, its length fits, an SPS NAL behind it
         let avcc = [0u8, 0, 0, 0, 0, 0xe1, 0x00, 0x01, 0x67, 0x00];
         assert_eq!(detect_codec(&avcc), (CpCodec::H264, 0));
 
@@ -165,13 +150,13 @@ mod tests {
 
     #[test]
     fn a_buffer_that_cannot_be_avcc_falls_to_h265() {
-        assert_eq!(detect_codec(&[0u8; 8]).0, CpCodec::H265); // too short
+        assert_eq!(detect_codec(&[0u8; 8]).0, CpCodec::H265);
         let no_sps = [0u8, 0, 0, 0, 0, 0xe0, 0x00, 0x01, 0x67, 0x00];
-        assert_eq!(detect_codec(&no_sps).0, CpCodec::H265); // announces none
+        assert_eq!(detect_codec(&no_sps).0, CpCodec::H265);
         let overlong = [0u8, 0, 0, 0, 0, 0xe1, 0xff, 0xff, 0x67, 0x00];
-        assert_eq!(detect_codec(&overlong).0, CpCodec::H265); // length past the end
+        assert_eq!(detect_codec(&overlong).0, CpCodec::H265);
         let wrong_nal = [0u8, 0, 0, 0, 0, 0xe1, 0x00, 0x01, 0x41, 0x00];
-        assert_eq!(detect_codec(&wrong_nal).0, CpCodec::H265); // not an SPS
+        assert_eq!(detect_codec(&wrong_nal).0, CpCodec::H265);
     }
 
     fn annex_b(nals: &[&[u8]]) -> Vec<u8> {
@@ -217,17 +202,38 @@ mod tests {
 
     #[test]
     fn h264_kinds() {
-        assert_eq!(classify_nal(&h264_nal(5, &[0; 3]), CpCodec::H264), CpNalKind::Keyframe);
-        assert_eq!(classify_nal(&h264_nal(7, &[0; 3]), CpCodec::H264), CpNalKind::Params);
-        assert_eq!(classify_nal(&h264_nal(8, &[0; 3]), CpCodec::H264), CpNalKind::Params);
-        assert_eq!(classify_nal(&h264_nal(1, &[0; 3]), CpCodec::H264), CpNalKind::Delta);
+        assert_eq!(
+            classify_nal(&h264_nal(5, &[0; 3]), CpCodec::H264),
+            CpNalKind::Keyframe
+        );
+        assert_eq!(
+            classify_nal(&h264_nal(7, &[0; 3]), CpCodec::H264),
+            CpNalKind::Params
+        );
+        assert_eq!(
+            classify_nal(&h264_nal(8, &[0; 3]), CpCodec::H264),
+            CpNalKind::Params
+        );
+        assert_eq!(
+            classify_nal(&h264_nal(1, &[0; 3]), CpCodec::H264),
+            CpNalKind::Delta
+        );
     }
 
     #[test]
     fn h265_kinds() {
-        assert_eq!(classify_nal(&h265_nal(19, &[0; 3]), CpCodec::H265), CpNalKind::Keyframe);
-        assert_eq!(classify_nal(&h265_nal(33, &[0; 3]), CpCodec::H265), CpNalKind::Params);
-        assert_eq!(classify_nal(&h265_nal(1, &[0; 3]), CpCodec::H265), CpNalKind::Delta);
+        assert_eq!(
+            classify_nal(&h265_nal(19, &[0; 3]), CpCodec::H265),
+            CpNalKind::Keyframe
+        );
+        assert_eq!(
+            classify_nal(&h265_nal(33, &[0; 3]), CpCodec::H265),
+            CpNalKind::Params
+        );
+        assert_eq!(
+            classify_nal(&h265_nal(1, &[0; 3]), CpCodec::H265),
+            CpNalKind::Delta
+        );
     }
 
     #[test]
@@ -243,14 +249,15 @@ mod tests {
     fn a_broken_length_ends_the_walk() {
         assert_eq!(classify_nal(&[], CpCodec::H264), CpNalKind::Delta);
         assert_eq!(classify_nal(&[0, 0, 0], CpCodec::H264), CpNalKind::Delta);
-        assert_eq!(classify_nal(&[0, 0, 0, 0, 5], CpCodec::H264), CpNalKind::Delta);
+        assert_eq!(
+            classify_nal(&[0, 0, 0, 0, 5], CpCodec::H264),
+            CpNalKind::Delta
+        );
 
-        // a keyframe announced longer than the frame is not counted
         let mut truncated = 99u32.to_be_bytes().to_vec();
         truncated.push(5);
         assert_eq!(classify_nal(&truncated, CpCodec::H264), CpNalKind::Delta);
 
-        // and it ends the walk, so what follows stays unseen
         let mut frame = h264_nal(7, &[0; 2]);
         frame.extend_from_slice(&99u32.to_be_bytes());
         frame.extend(h264_nal(5, &[0; 2]));

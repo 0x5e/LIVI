@@ -13,12 +13,10 @@ use crate::wifi_options::{band_of, wifi_band};
 
 const UNIT_PATH: &str = "/etc/systemd/system/livi-wifi-ap.service";
 const SERVICE: &str = "livi-wifi-ap.service";
-/// Root's own copy of the helper the unit runs, put there by --install-wifi-ap.
 const UNIT_HELPER: &str = "/usr/local/sbin/livi-helperd";
 const NM_UNMANAGED_CONF: &str = "/etc/NetworkManager/conf.d/99-livi-ap-unmanaged.conf";
 const UNIT_TEMPLATE: &str = "livi-wifi-ap.service.template";
 const SUDOERS_TEMPLATE: &str = "99-LIVI-wifi-ap.sudoers.template";
-/// A stamp of the root-only sudoers rule, which core cannot read back.
 const MARKER: &str = ".wifi-ap-install";
 const SETTLE_TRIES: u32 = 15;
 const SETTLE_EVERY: Duration = Duration::from_secs(2);
@@ -28,7 +26,6 @@ fn wanted(cfg: &Config) -> bool {
         && (cfg.wifi_dedicated_interface || cfg.wireless_cp_enabled || cfg.wireless_aa_enabled)
 }
 
-/// What the unit reads at its start, a change needs a restart.
 fn ap_settings(cfg: &Config) -> String {
     format!(
         "{}|{}|{}|{:?}|{}|{}|{}",
@@ -69,7 +66,6 @@ fn render(p: &Privileged) -> Option<Unit> {
     }
 }
 
-/// The sudoers file is root-only, so sudo itself is asked, with the marker as fallback.
 async fn needs_install(p: &Privileged, u: &Unit) -> bool {
     let unit_current = std::fs::read_to_string(UNIT_PATH).is_ok_and(|text| text == u.unit);
     let rule_current =
@@ -84,7 +80,6 @@ fn same_helper(ours: &Path, copy: &Path) -> bool {
         && matches!((std::fs::read(ours), std::fs::read(copy)), (Ok(a), Ok(b)) if a == b)
 }
 
-/// systemd says "inactive" also for a unit that is not installed.
 async fn unit_state() -> String {
     Command::new(systemctl())
         .args(["is-active", SERVICE])
@@ -95,7 +90,6 @@ async fn unit_state() -> String {
 }
 
 async fn release_interface(p: &Privileged) {
-    // A unit caught in its start loop is neither active nor enabled, yet holds on.
     let taken = Path::new(NM_UNMANAGED_CONF).exists()
         || !matches!(unit_state().await.as_str(), "inactive" | "")
         || quietly("systemctl", &["is-enabled", "--quiet", SERVICE]).await;
@@ -105,7 +99,6 @@ async fn release_interface(p: &Privileged) {
     let sc = systemctl();
     sudo(&[&sc, "stop", SERVICE]).await;
     sudo(&[&sc, "disable", SERVICE]).await;
-    // Without the root copy, sudo grants the teardown only to the helper's own path.
     let helper = if Path::new(UNIT_HELPER).exists() {
         UNIT_HELPER.to_string()
     } else {
@@ -121,7 +114,10 @@ async fn reconcile(p: &Privileged, cfg: &Config) {
     }
     let Some(u) = render(p) else { return };
     if needs_install(p, &u).await {
-        if !p.helper_installs("install-wifi-ap", &[("unit", &u.unit), ("rule", &u.rule)]).await {
+        if !p
+            .helper_installs("install-wifi-ap", &[("unit", &u.unit), ("rule", &u.rule)])
+            .await
+        {
             eprintln!(
                 "[wifi-ap] {UNIT_PATH} not installed, the helper does not run as root. \
                  Run the LIVI install script on this host."
@@ -131,60 +127,91 @@ async fn reconcile(p: &Privileged, cfg: &Config) {
         p.write_marker(MARKER, &u.rule);
     }
     let sc = systemctl();
-    let enable = if cfg.wifi_dedicated_interface { "enable" } else { "disable" };
+    let enable = if cfg.wifi_dedicated_interface {
+        "enable"
+    } else {
+        "disable"
+    };
     sudo(&[&sc, enable, SERVICE]).await;
-    // A running unit ignores start and keeps the binary it started with.
-    let start = if runs_older_helper().await { "restart" } else { "start" };
+    let start = if runs_older_helper().await {
+        "restart"
+    } else {
+        "start"
+    };
     sudo(&[&sc, start, SERVICE]).await;
 }
 
 async fn runs_older_helper() -> bool {
     let Ok(out) = Command::new(systemctl())
-        .args(["show", "-p", "ActiveEnterTimestampMonotonic", "--value", SERVICE])
+        .args([
+            "show",
+            "-p",
+            "ActiveEnterTimestampMonotonic",
+            "--value",
+            SERVICE,
+        ])
         .output()
         .await
     else {
         return false;
     };
-    let since_boot_us: f64 = String::from_utf8_lossy(&out.stdout).trim().parse().unwrap_or(0.0);
+    let since_boot_us: f64 = String::from_utf8_lossy(&out.stdout)
+        .trim()
+        .parse()
+        .unwrap_or(0.0);
     let boot: f64 = std::fs::read_to_string("/proc/stat")
         .ok()
-        .and_then(|s| s.lines().find_map(|l| l.strip_prefix("btime ")?.trim().parse().ok()))
+        .and_then(|s| {
+            s.lines()
+                .find_map(|l| l.strip_prefix("btime ")?.trim().parse().ok())
+        })
         .unwrap_or(0.0);
     let Ok(modified) = std::fs::metadata(UNIT_HELPER).and_then(|m| m.modified()) else {
         return false;
     };
-    let modified = modified.duration_since(std::time::UNIX_EPOCH).map_or(0.0, |d| d.as_secs_f64());
+    let modified = modified
+        .duration_since(std::time::UNIX_EPOCH)
+        .map_or(0.0, |d| d.as_secs_f64());
     since_boot_us > 0.0 && boot > 0.0 && modified > boot + since_boot_us / 1e6
 }
 
 #[derive(Debug, PartialEq)]
 struct Running {
-    /// None from a helper that did not name it yet.
     band: Option<WifiBand>,
     channel: u32,
     width: u32,
 }
 
 fn parse_status(out: &str) -> Option<Running> {
-    let value = |key: &str| out.lines().find_map(|l| l.strip_prefix(key)?.strip_prefix(' '));
+    let value = |key: &str| {
+        out.lines()
+            .find_map(|l| l.strip_prefix(key)?.strip_prefix(' '))
+    };
     let channel: u32 = value("channel")?.trim().parse().ok().filter(|c| *c > 0)?;
     if value("running") != Some("true") {
         return None;
     }
     Some(Running {
-        band: value("band").and_then(|b| livi_wifi::Band::of_setting(b.trim())).map(wifi_band),
+        band: value("band")
+            .and_then(|b| livi_wifi::Band::of_setting(b.trim()))
+            .map(wifi_band),
         channel,
-        width: value("width").and_then(|w| w.trim().parse().ok()).unwrap_or(0),
+        width: value("width")
+            .and_then(|w| w.trim().parse().ok())
+            .unwrap_or(0),
     })
 }
 
-/// The band may refuse the configured channel or width.
 async fn settle(p: &Privileged, core: &Core, started: &Config) -> Config {
     let mut ran = started.clone();
     for _ in 0..SETTLE_TRIES {
-        let out = Command::new(&p.helper).arg("--wifi-ap-status").output().await;
-        if let Some(live) = out.ok().and_then(|o| parse_status(&String::from_utf8_lossy(&o.stdout)))
+        let out = Command::new(&p.helper)
+            .arg("--wifi-ap-status")
+            .output()
+            .await;
+        if let Some(live) = out
+            .ok()
+            .and_then(|o| parse_status(&String::from_utf8_lossy(&o.stdout)))
         {
             ran.wifi_channel = live.channel;
             if live.width > 0 {
@@ -279,12 +306,23 @@ mod tests {
         let up = "running true\nssid LIVI\nband 6ghz\nchannel 37\nwidth 80\n";
         assert_eq!(
             parse_status(up),
-            Some(Running { band: Some(WifiBand::Ghz6), channel: 37, width: 80 })
+            Some(Running {
+                band: Some(WifiBand::Ghz6),
+                channel: 37,
+                width: 80
+            })
         );
-        assert_eq!(parse_status("running false\nssid \nchannel 0\nwidth 0\n"), None);
+        assert_eq!(
+            parse_status("running false\nssid \nchannel 0\nwidth 0\n"),
+            None
+        );
         assert_eq!(
             parse_status("running true\nchannel 6\n"),
-            Some(Running { band: None, channel: 6, width: 0 })
+            Some(Running {
+                band: None,
+                channel: 6,
+                width: 0
+            })
         );
         assert_eq!(parse_status(""), None);
     }

@@ -1,6 +1,3 @@
-//! The stock U-Boot of the V821B boots an ANDROID! bootimg with the vendor's DTB descriptor at
-//! offsets 1644/1648/1652.
-
 use std::{env, fs, io::Write, path::Path, process::ExitCode};
 
 use flate2::{Compression, write::GzEncoder};
@@ -46,7 +43,6 @@ fn main() -> ExitCode {
         return die("DTB has no FDT magic");
     }
 
-    // Deterministic gzip: level 9, no filename, no timestamp.
     let kernel = {
         let mut e = GzEncoder::new(Vec::new(), Compression::best());
         if let Err(e) = e.write_all(&image_bytes) {

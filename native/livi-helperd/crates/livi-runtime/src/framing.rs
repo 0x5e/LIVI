@@ -1,6 +1,5 @@
 use iap2_csm::CSM_START;
 
-/// Splits the control-session byte stream into whole CSM frames.
 #[derive(Default)]
 pub struct FrameReader {
     buf: Vec<u8>,
@@ -44,7 +43,9 @@ mod tests {
     #[test]
     fn splits_concatenated_frames() {
         let mut r = FrameReader::default();
-        r.push(&[0x40, 0x40, 0x00, 0x06, 0xA1, 0x00, 0x40, 0x40, 0x00, 0x06, 0x1D, 0x00]);
+        r.push(&[
+            0x40, 0x40, 0x00, 0x06, 0xA1, 0x00, 0x40, 0x40, 0x00, 0x06, 0x1D, 0x00,
+        ]);
         assert_eq!(frame_msg_id(&r.next_frame().unwrap()), Some(0xA100));
         assert_eq!(frame_msg_id(&r.next_frame().unwrap()), Some(0x1D00));
         assert_eq!(r.next_frame(), None);
@@ -56,7 +57,10 @@ mod tests {
         r.push(&[0x40, 0x40, 0x00, 0x08, 0xAA, 0x01]);
         assert_eq!(r.next_frame(), None);
         r.push(&[0xDE, 0xAD]);
-        assert_eq!(r.next_frame().unwrap(), vec![0x40, 0x40, 0x00, 0x08, 0xAA, 0x01, 0xDE, 0xAD]);
+        assert_eq!(
+            r.next_frame().unwrap(),
+            vec![0x40, 0x40, 0x00, 0x08, 0xAA, 0x01, 0xDE, 0xAD]
+        );
     }
 
     #[test]

@@ -25,15 +25,11 @@ use crate::update::UpdateAsk;
 pub struct Core {
     pub hub: Arc<Hub>,
     config_file: ConfigFile,
-    /// One settings change at a time, each reads the result of the one before.
     config_writes: Mutex<()>,
     pub quit: Arc<Notify>,
     pub restart: AtomicBool,
-    /// The user quit LIVI, not a signal or a closed window.
     pub quit_asked: AtomicBool,
-    /// Only kept because state/status.json publishes it.
     pub ui_path: watch::Sender<String>,
-    /// Pages the telemetry asked for, each opened once.
     pub open_page: broadcast::Sender<String>,
     pub relaunch: std::sync::Mutex<Option<PathBuf>>,
     asks: UiSenders,
@@ -66,7 +62,9 @@ impl Core {
     pub async fn set_config(&self, patch: &Value) -> Result<(), String> {
         let _one_at_a_time = self.config_writes.lock().await;
         let next = apply_patch(&self.hub.config(), patch)?;
-        self.config_file.save(&next).map_err(|e| format!("not saved: {e}"))?;
+        self.config_file
+            .save(&next)
+            .map_err(|e| format!("not saved: {e}"))?;
         self.hub.update(|s| s.config = next);
         Ok(())
     }
@@ -76,7 +74,10 @@ impl Core {
     }
 
     fn ask_update(&self, ask: UpdateAsk) -> Result<(), String> {
-        self.asks.update.send(ask).map_err(|_| "updates are not available".to_string())
+        self.asks
+            .update
+            .send(ask)
+            .map_err(|_| "updates are not available".to_string())
     }
 
     pub fn relaunch(&self, program: PathBuf) {
@@ -92,7 +93,10 @@ impl Core {
     }
 
     fn ask_dab(&self, ask: DabAsk) -> Result<(), String> {
-        self.asks.dab.send(ask).map_err(|_| "DAB+ is not available".to_string())
+        self.asks
+            .dab
+            .send(ask)
+            .map_err(|_| "DAB+ is not available".to_string())
     }
 
     fn dab_media(&self, control: MediaControl) -> bool {
@@ -104,7 +108,6 @@ impl Core {
         ask.is_some_and(|ask| self.ask_dab(ask).is_ok())
     }
 
-    /// Answered once every phone had its goodbye.
     pub fn goodbye(&self) -> oneshot::Receiver<()> {
         let (done, heard) = oneshot::channel();
         let _ = self.asks.goodbye.send(done);
@@ -138,15 +141,21 @@ impl Core {
             Action::DabResume => self.ask_dab(DabAsk::Resume),
             Action::DabPause => self.ask_dab(DabAsk::Pause),
             Action::DabStop => self.ask_dab(DabAsk::Stop),
-            Action::DabFavorite { service_id, favorite } => {
-                self.ask_dab(DabAsk::Favorite { service: service_id, favorite })
-            }
-            Action::DabHide { service_id, hidden } => {
-                self.ask_dab(DabAsk::Hide { service: service_id, hidden })
-            }
-            Action::DabMove { service_id, by } => {
-                self.ask_dab(DabAsk::Move { service: service_id, by })
-            }
+            Action::DabFavorite {
+                service_id,
+                favorite,
+            } => self.ask_dab(DabAsk::Favorite {
+                service: service_id,
+                favorite,
+            }),
+            Action::DabHide { service_id, hidden } => self.ask_dab(DabAsk::Hide {
+                service: service_id,
+                hidden,
+            }),
+            Action::DabMove { service_id, by } => self.ask_dab(DabAsk::Move {
+                service: service_id,
+                by,
+            }),
             Action::Seek { position_ms } => {
                 let _ = self.asks.commands.send(UiCommand::Seek(position_ms));
                 Ok(())
@@ -156,7 +165,10 @@ impl Core {
                 Ok(())
             }
             Action::SelectClusterLayout { layout } => {
-                let _ = self.asks.commands.send(UiCommand::SelectClusterLayout(layout));
+                let _ = self
+                    .asks
+                    .commands
+                    .send(UiCommand::SelectClusterLayout(layout));
                 Ok(())
             }
             Action::StepClusterLayout { by } => {
@@ -164,11 +176,17 @@ impl Core {
                 Ok(())
             }
             Action::MoveClusterLayout { layout, by } => {
-                let _ = self.asks.commands.send(UiCommand::MoveClusterLayout(layout, by));
+                let _ = self
+                    .asks
+                    .commands
+                    .send(UiCommand::MoveClusterLayout(layout, by));
                 Ok(())
             }
             Action::ShowClusterLayout { layout, on } => {
-                let _ = self.asks.commands.send(UiCommand::ShowClusterLayout(layout, on));
+                let _ = self
+                    .asks
+                    .commands
+                    .send(UiCommand::ShowClusterLayout(layout, on));
                 Ok(())
             }
             Action::SelectDevice { id } => {
@@ -345,7 +363,10 @@ mod tests {
 
     impl Peer {
         async fn connect(path: &std::path::Path) -> Self {
-            Self { stream: UnixStream::connect(path).await.unwrap(), dec: Decoder::new() }
+            Self {
+                stream: UnixStream::connect(path).await.unwrap(),
+                dec: Decoder::new(),
+            }
         }
 
         async fn send(&mut self, msg: &ToCore) {
@@ -359,7 +380,10 @@ mod tests {
                     return Some(msg.unwrap());
                 }
                 let read = self.stream.read(&mut buf);
-                let n = tokio::time::timeout(Duration::from_secs(5), read).await.unwrap().unwrap();
+                let n = tokio::time::timeout(Duration::from_secs(5), read)
+                    .await
+                    .unwrap()
+                    .unwrap();
                 if n == 0 {
                     return None;
                 }
@@ -369,8 +393,15 @@ mod tests {
 
         async fn hello(path: &std::path::Path) -> Self {
             let mut peer = Self::connect(path).await;
-            peer.send(&ToCore::Hello { protocol: PROTOCOL, client: "test".into() }).await;
-            assert!(matches!(peer.recv().await, Some(FromCore::Welcome { rev: 0, .. })));
+            peer.send(&ToCore::Hello {
+                protocol: PROTOCOL,
+                client: "test".into(),
+            })
+            .await;
+            assert!(matches!(
+                peer.recv().await,
+                Some(FromCore::Welcome { rev: 0, .. })
+            ));
             peer
         }
     }
@@ -389,7 +420,11 @@ mod tests {
         crate::projection::DongleAsks,
         crate::projection::UpdateAsks,
     ) {
-        let livi = PerScreen { main: Front::Livi, cluster: Front::Livi, aux: Front::Livi };
+        let livi = PerScreen {
+            main: Front::Livi,
+            cluster: Front::Livi,
+            aux: Front::Livi,
+        };
         let hub = Hub::new(State {
             front: livi,
             sessions: Default::default(),
@@ -423,19 +458,55 @@ mod tests {
         let dir = TempDir::new();
         let (_core, path, mut asks, mut dongle, mut update) = start_with_asks(&dir);
         let mut ui = Peer::hello(&path).await;
-        let show = Action::Show { screen: Screen::Main, front: Front::Projection };
-        ui.send(&ToCore::Action { id: 1, action: show }).await;
-        assert_eq!(ui.recv().await, Some(FromCore::Reply { id: 1, error: None }));
+        let show = Action::Show {
+            screen: Screen::Main,
+            front: Front::Projection,
+        };
+        ui.send(&ToCore::Action {
+            id: 1,
+            action: show,
+        })
+        .await;
+        assert_eq!(
+            ui.recv().await,
+            Some(FromCore::Reply { id: 1, error: None })
+        );
         assert_eq!(asks.wants.borrow().main, Front::Projection);
-        let next = Action::Media { control: MediaControl::Next };
-        ui.send(&ToCore::Action { id: 2, action: next }).await;
-        assert_eq!(ui.recv().await, Some(FromCore::Reply { id: 2, error: None }));
-        assert_eq!(asks.commands.recv().await, Some(UiCommand::Media(MediaControl::Next)));
-        ui.send(&ToCore::Action { id: 3, action: Action::NextDevice }).await;
-        assert_eq!(ui.recv().await, Some(FromCore::Reply { id: 3, error: None }));
+        let next = Action::Media {
+            control: MediaControl::Next,
+        };
+        ui.send(&ToCore::Action {
+            id: 2,
+            action: next,
+        })
+        .await;
+        assert_eq!(
+            ui.recv().await,
+            Some(FromCore::Reply { id: 2, error: None })
+        );
+        assert_eq!(
+            asks.commands.recv().await,
+            Some(UiCommand::Media(MediaControl::Next))
+        );
+        ui.send(&ToCore::Action {
+            id: 3,
+            action: Action::NextDevice,
+        })
+        .await;
+        assert_eq!(
+            ui.recv().await,
+            Some(FromCore::Reply { id: 3, error: None })
+        );
         assert_eq!(asks.commands.recv().await, Some(UiCommand::NextDevice));
-        ui.send(&ToCore::Action { id: 9, action: Action::Seek { position_ms: 61000 } }).await;
-        assert_eq!(ui.recv().await, Some(FromCore::Reply { id: 9, error: None }));
+        ui.send(&ToCore::Action {
+            id: 9,
+            action: Action::Seek { position_ms: 61000 },
+        })
+        .await;
+        assert_eq!(
+            ui.recv().await,
+            Some(FromCore::Reply { id: 9, error: None })
+        );
         assert_eq!(asks.commands.recv().await, Some(UiCommand::Seek(61000)));
         for (id, action, ask) in [
             (
@@ -443,15 +514,25 @@ mod tests {
                 Action::SelectClusterLayout { layout: "a".into() },
                 UiCommand::SelectClusterLayout("a".into()),
             ),
-            (11, Action::StepClusterLayout { by: -1 }, UiCommand::StepClusterLayout(-1)),
+            (
+                11,
+                Action::StepClusterLayout { by: -1 },
+                UiCommand::StepClusterLayout(-1),
+            ),
             (
                 12,
-                Action::MoveClusterLayout { layout: "a".into(), by: 1 },
+                Action::MoveClusterLayout {
+                    layout: "a".into(),
+                    by: 1,
+                },
                 UiCommand::MoveClusterLayout("a".into(), 1),
             ),
             (
                 13,
-                Action::ShowClusterLayout { layout: "a".into(), on: false },
+                Action::ShowClusterLayout {
+                    layout: "a".into(),
+                    on: false,
+                },
                 UiCommand::ShowClusterLayout("a".into(), false),
             ),
         ] {
@@ -459,10 +540,23 @@ mod tests {
             assert_eq!(ui.recv().await, Some(FromCore::Reply { id, error: None }));
             assert_eq!(asks.commands.recv().await, Some(ask));
         }
-        let radio = Action::SetDongleRadio { radio: livi_core_proto::message::Radio::Bt, on: true };
-        ui.send(&ToCore::Action { id: 4, action: radio }).await;
-        assert_eq!(ui.recv().await, Some(FromCore::Reply { id: 4, error: None }));
-        assert_eq!(dongle.radios.recv().await, Some((livi_core_proto::message::Radio::Bt, true)));
+        let radio = Action::SetDongleRadio {
+            radio: livi_core_proto::message::Radio::Bt,
+            on: true,
+        };
+        ui.send(&ToCore::Action {
+            id: 4,
+            action: radio,
+        })
+        .await;
+        assert_eq!(
+            ui.recv().await,
+            Some(FromCore::Reply { id: 4, error: None })
+        );
+        assert_eq!(
+            dongle.radios.recv().await,
+            Some((livi_core_proto::message::Radio::Bt, true))
+        );
         for (id, action, ask) in [
             (5, Action::CheckUpdate, UpdateAsk::Check),
             (6, Action::DownloadUpdate, UpdateAsk::Download),
@@ -473,12 +567,21 @@ mod tests {
             assert_eq!(ui.recv().await, Some(FromCore::Reply { id, error: None }));
             assert_eq!(update.recv().await, Some(ask));
         }
-        let key = Input::Key { code: "KeyA".into(), down: true };
+        let key = Input::Key {
+            code: "KeyA".into(),
+            down: true,
+        };
         ui.send(&ToCore::Input { input: key.clone() }).await;
-        ui.send(&ToCore::Path { path: "/media".into() }).await;
+        ui.send(&ToCore::Path {
+            path: "/media".into(),
+        })
+        .await;
         assert_eq!(asks.input.recv().await, Some(key));
         ui.send(&ToCore::Camera { found: true }).await;
-        assert_eq!(asks.commands.recv().await, Some(UiCommand::CameraFound(true)));
+        assert_eq!(
+            asks.commands.recv().await,
+            Some(UiCommand::CameraFound(true))
+        );
     }
 
     #[tokio::test]
@@ -488,7 +591,9 @@ mod tests {
         let mut main = Peer::hello(&path).await;
         let mut cluster = Peer::hello(&path).await;
         core.open_page.send("/media".into()).unwrap();
-        let page = Some(FromCore::OpenPage { path: "/media".into() });
+        let page = Some(FromCore::OpenPage {
+            path: "/media".into(),
+        });
         assert_eq!(main.recv().await, page);
         assert_eq!(cluster.recv().await, page);
     }
@@ -514,7 +619,10 @@ mod tests {
         drawing.send(&ToCore::Spectrum { on: true }).await;
         wait_for(|| feed.viewing() == 1).await;
         feed.publish(vec![0.5]);
-        assert_eq!(drawing.recv().await, Some(FromCore::Spectrum { bands: vec![0.5] }));
+        assert_eq!(
+            drawing.recv().await,
+            Some(FromCore::Spectrum { bands: vec![0.5] })
+        );
 
         drawing.send(&ToCore::Spectrum { on: false }).await;
         wait_for(|| feed.viewing() == 0).await;
@@ -550,12 +658,19 @@ mod tests {
         let mut ui = Peer::hello(&path).await;
         let mut dash = Peer::hello(&path).await;
 
-        let action = Action::SetConfig { patch: json!({ "huVolume": 0.5 }) };
+        let action = Action::SetConfig {
+            patch: json!({ "huVolume": 0.5 }),
+        };
         ui.send(&ToCore::Action { id: 1, action }).await;
 
-        let set =
-            PatchOp::Set { path: vec!["config".into(), "huVolume".into()], value: json!(0.5) };
-        let patch = FromCore::Patch { rev: 1, ops: vec![set] };
+        let set = PatchOp::Set {
+            path: vec!["config".into(), "huVolume".into()],
+            value: json!(0.5),
+        };
+        let patch = FromCore::Patch {
+            rev: 1,
+            ops: vec![set],
+        };
         let first = ui.recv().await.unwrap();
         let second = ui.recv().await.unwrap();
         assert!([&first, &second].contains(&&patch));
@@ -574,14 +689,29 @@ mod tests {
         let (core, path) = start(&dir);
         let mut ui = Peer::hello(&path).await;
 
-        let action = Action::SetConfig { patch: json!({ "huVolume": "loud" }) };
+        let action = Action::SetConfig {
+            patch: json!({ "huVolume": "loud" }),
+        };
         ui.send(&ToCore::Action { id: 2, action }).await;
-        assert!(matches!(ui.recv().await, Some(FromCore::Reply { id: 2, error: Some(_) })));
+        assert!(matches!(
+            ui.recv().await,
+            Some(FromCore::Reply {
+                id: 2,
+                error: Some(_)
+            })
+        ));
 
-        ui.send(&ToCore::Action { id: 3, action: Action::InstallUpdate }).await;
+        ui.send(&ToCore::Action {
+            id: 3,
+            action: Action::InstallUpdate,
+        })
+        .await;
         assert_eq!(
             ui.recv().await,
-            Some(FromCore::Reply { id: 3, error: Some("updates are not available".into()) })
+            Some(FromCore::Reply {
+                id: 3,
+                error: Some("updates are not available".into())
+            })
         );
         assert_eq!(core.hub.config().hu_volume, 0.95);
     }
@@ -592,7 +722,10 @@ mod tests {
         let (core, path) = start(&dir);
         let mut ui = Peer::hello(&path).await;
         core.hub.update(|s| s.front.main = Front::Projection);
-        assert!(matches!(ui.recv().await, Some(FromCore::Patch { rev: 1, .. })));
+        assert!(matches!(
+            ui.recv().await,
+            Some(FromCore::Patch { rev: 1, .. })
+        ));
 
         ui.send(&ToCore::Resync).await;
         match ui.recv().await {
@@ -609,7 +742,11 @@ mod tests {
         let dir = TempDir::new();
         let (_core, path) = start(&dir);
         let mut old = Peer::connect(&path).await;
-        old.send(&ToCore::Hello { protocol: PROTOCOL + 1, client: "old".into() }).await;
+        old.send(&ToCore::Hello {
+            protocol: PROTOCOL + 1,
+            client: "old".into(),
+        })
+        .await;
         assert!(matches!(old.recv().await, Some(FromCore::Refused { .. })));
         assert_eq!(old.recv().await, None);
 
@@ -624,9 +761,18 @@ mod tests {
         let (core, path) = start(&dir);
         let mut ui = Peer::hello(&path).await;
         let quit = core.quit.notified();
-        ui.send(&ToCore::Action { id: 4, action: Action::Restart }).await;
-        assert_eq!(ui.recv().await, Some(FromCore::Reply { id: 4, error: None }));
-        tokio::time::timeout(Duration::from_secs(5), quit).await.unwrap();
+        ui.send(&ToCore::Action {
+            id: 4,
+            action: Action::Restart,
+        })
+        .await;
+        assert_eq!(
+            ui.recv().await,
+            Some(FromCore::Reply { id: 4, error: None })
+        );
+        tokio::time::timeout(Duration::from_secs(5), quit)
+            .await
+            .unwrap();
         assert!(core.restart.load(Ordering::SeqCst));
     }
 
@@ -636,8 +782,17 @@ mod tests {
         let (core, path) = start(&dir);
         let mut ui = Peer::hello(&path).await;
         let quit = core.quit.notified();
-        ui.send(&ToCore::Action { id: 9, action: Action::Quit }).await;
-        assert_eq!(ui.recv().await, Some(FromCore::Reply { id: 9, error: None }));
-        tokio::time::timeout(Duration::from_secs(5), quit).await.unwrap();
+        ui.send(&ToCore::Action {
+            id: 9,
+            action: Action::Quit,
+        })
+        .await;
+        assert_eq!(
+            ui.recv().await,
+            Some(FromCore::Reply { id: 9, error: None })
+        );
+        tokio::time::timeout(Duration::from_secs(5), quit)
+            .await
+            .unwrap();
     }
 }

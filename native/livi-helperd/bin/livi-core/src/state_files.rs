@@ -1,6 +1,3 @@
-//! LIVI's state as files in state/, read by programs outside LIVI. Climate and the last
-//! position come back from there at the next start.
-
 use std::path::{Path, PathBuf};
 use std::sync::Arc;
 use std::time::{Duration, SystemTime, UNIX_EPOCH};
@@ -15,7 +12,6 @@ use crate::status_file::{self, Activity};
 use crate::telemetry::CLIMATE;
 
 pub const DIR: &str = "state";
-/// Where these files lay before, read on in silence they would only mislead.
 const MOVED: [&str; 5] = [
     "statusData.json",
     "climateData.json",
@@ -31,16 +27,42 @@ struct Kind {
 }
 
 const QUICK: Duration = Duration::from_millis(50);
-const STATUS: Kind = Kind { name: "status.json", version: 1, pace: QUICK };
-const CLIMATE_FILE: Kind = Kind { name: "climate.json", version: 1, pace: QUICK };
-/// A moving car changes it every second.
-const GPS: Kind = Kind { name: "gps.json", version: 3, pace: Duration::from_secs(1) };
-const MEDIA: Kind = Kind { name: "media.json", version: 1, pace: QUICK };
-const NAVIGATION: Kind = Kind { name: "navigation.json", version: 1, pace: QUICK };
-const VEHICLE: Kind = Kind { name: "vehicle.json", version: 1, pace: Duration::from_secs(1) };
-const SDR: Kind = Kind { name: "sdr.json", version: 1, pace: QUICK };
+const STATUS: Kind = Kind {
+    name: "status.json",
+    version: 1,
+    pace: QUICK,
+};
+const CLIMATE_FILE: Kind = Kind {
+    name: "climate.json",
+    version: 1,
+    pace: QUICK,
+};
+const GPS: Kind = Kind {
+    name: "gps.json",
+    version: 3,
+    pace: Duration::from_secs(1),
+};
+const MEDIA: Kind = Kind {
+    name: "media.json",
+    version: 1,
+    pace: QUICK,
+};
+const NAVIGATION: Kind = Kind {
+    name: "navigation.json",
+    version: 1,
+    pace: QUICK,
+};
+const VEHICLE: Kind = Kind {
+    name: "vehicle.json",
+    version: 1,
+    pace: Duration::from_secs(1),
+};
+const SDR: Kind = Kind {
+    name: "sdr.json",
+    version: 1,
+    pace: QUICK,
+};
 
-/// The DAB+ stations a scan found in the listener's own order and the one played last.
 #[derive(Debug, Clone, Default, PartialEq, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase", default)]
 pub struct Sdr {
@@ -49,14 +71,18 @@ pub struct Sdr {
 }
 
 pub fn load_sdr(user_data: &Path) -> Sdr {
-    payload_of(user_data, &SDR).and_then(|v| serde_json::from_value(v).ok()).unwrap_or_default()
+    payload_of(user_data, &SDR)
+        .and_then(|v| serde_json::from_value(v).ok())
+        .unwrap_or_default()
 }
 
 pub fn save_sdr(user_data: &Path, sdr: &Sdr) {
-    write(&user_data.join(DIR).join(SDR.name), &render(SDR.version, sdr, SystemTime::now()));
+    write(
+        &user_data.join(DIR).join(SDR.name),
+        &render(SDR.version, sdr, SystemTime::now()),
+    );
 }
 
-/// Telemetry a parked car keeps, so the next start can hand it out before the car speaks.
 pub const KEPT_WHILE_PARKED: [&str; 10] = [
     "fuelPct",
     "rangeKm",
@@ -70,7 +96,6 @@ pub const KEPT_WHILE_PARKED: [&str; 10] = [
     "tirePressure",
 ];
 
-/// A number, or a block of numbers such as the four tire pressures.
 fn kept_value(v: &Value) -> Option<Value> {
     match v {
         Value::Number(_) => Some(v.clone()),
@@ -100,13 +125,11 @@ struct File<'a, T: Serialize> {
     payload: &'a T,
 }
 
-/// UTC with milliseconds, 2026-10-05T18:00:00.000Z.
 fn iso(t: SystemTime) -> String {
     let d = t.duration_since(UNIX_EPOCH).unwrap_or_default();
     let secs = d.as_secs();
     let days = (secs / 86_400) as i64;
     let rem = secs % 86_400;
-    // Days to a civil date, after Howard Hinnant's algorithm.
     let z = days + 719_468;
     let era = z.div_euclid(146_097);
     let doe = z.rem_euclid(146_097);
@@ -126,13 +149,16 @@ fn iso(t: SystemTime) -> String {
 }
 
 fn render<T: Serialize>(version: u32, payload: &T, now: SystemTime) -> String {
-    let file = File { version, timestamp: &iso(now), payload };
+    let file = File {
+        version,
+        timestamp: &iso(now),
+        payload,
+    };
     let mut text = serde_json::to_string_pretty(&file).unwrap_or_default();
     text.push('\n');
     text
 }
 
-/// A reader gets the old file or the new one, never half of it.
 fn write(target: &Path, text: &str) {
     let tmp = target.with_extension("json.tmp");
     let written = target
@@ -162,14 +188,16 @@ impl Writer {
         }
     }
 
-    /// Writes when the payload changed, then rests for its pace.
     async fn offer<T: Serialize>(&mut self, payload: Option<T>) {
         let Some(payload) = payload else { return };
         let value = serde_json::to_value(&payload).unwrap_or(Value::Null);
         if self.seen.as_ref() == Some(&value) {
             return;
         }
-        write(&self.path, &render(self.version, &payload, SystemTime::now()));
+        write(
+            &self.path,
+            &render(self.version, &payload, SystemTime::now()),
+        );
         self.seen = Some(value);
         tokio::time::sleep(self.pace).await;
     }
@@ -179,7 +207,6 @@ fn climate_of(state: &State) -> Option<Value> {
     state.telemetry.get(CLIMATE).cloned()
 }
 
-/// The satellites stay out, they change with every sentence.
 fn gps_of(state: &State) -> Option<Value> {
     let fix = state.telemetry.get("gps").cloned();
     let mut receiver = state.telemetry.get("gnss").cloned();
@@ -247,7 +274,11 @@ fn tidy(user_data: &Path) {
 
 pub fn start(core: &Arc<Core>, activity: watch::Receiver<Activity>, user_data: &Path) {
     tidy(user_data);
-    tokio::spawn(status(core.clone(), activity, Writer::new(user_data, &STATUS)));
+    tokio::spawn(status(
+        core.clone(),
+        activity,
+        Writer::new(user_data, &STATUS),
+    ));
     let files: [(&Kind, Payload); 5] = [
         (&CLIMATE_FILE, climate_of),
         (&GPS, gps_of),
@@ -260,17 +291,13 @@ pub fn start(core: &Arc<Core>, activity: watch::Receiver<Activity>, user_data: &
     }
 }
 
-/// What the last run left behind for the next start.
 #[derive(Debug, Default, PartialEq)]
 pub struct Saved {
     pub climate: Option<Map<String, Value>>,
-    /// The last fix.
     pub gps: Option<Map<String, Value>>,
-    /// Fuel, ranges and odometer as the car was left.
     pub vehicle: Option<Map<String, Value>>,
 }
 
-/// None when the file is missing, broken or of another version.
 fn payload_of(user_data: &Path, kind: &Kind) -> Option<Value> {
     let text = std::fs::read_to_string(user_data.join(DIR).join(kind.name)).ok()?;
     let mut file: Value = serde_json::from_str(&text).ok()?;
@@ -286,9 +313,14 @@ pub fn saved(user_data: &Path) -> Saved {
         _ => None,
     };
     let gps = payload_of(user_data, &GPS).and_then(|mut p| p.get_mut("fix").map(Value::take));
-    let vehicle =
-        object(payload_of(user_data, &VEHICLE)).map(|v| kept_of(&v)).filter(|v| !v.is_empty());
-    Saved { climate: object(payload_of(user_data, &CLIMATE_FILE)), gps: object(gps), vehicle }
+    let vehicle = object(payload_of(user_data, &VEHICLE))
+        .map(|v| kept_of(&v))
+        .filter(|v| !v.is_empty());
+    Saved {
+        climate: object(payload_of(user_data, &CLIMATE_FILE)),
+        gps: object(gps),
+        vehicle,
+    }
 }
 
 #[cfg(test)]
@@ -301,7 +333,11 @@ mod tests {
 
     fn state(telemetry: Value) -> State {
         State {
-            front: PerScreen { main: Front::Livi, cluster: Front::Livi, aux: Front::Livi },
+            front: PerScreen {
+                main: Front::Livi,
+                cluster: Front::Livi,
+                aux: Front::Livi,
+            },
             sessions: Default::default(),
             now_playing: Default::default(),
             telemetry: telemetry.as_object().cloned().unwrap_or_default(),
@@ -324,7 +360,10 @@ mod tests {
     #[test]
     fn dates_are_written_in_utc() {
         assert_eq!(iso(UNIX_EPOCH), "1970-01-01T00:00:00.000Z");
-        assert_eq!(iso(UNIX_EPOCH + Duration::from_secs(951_782_400)), "2000-02-29T00:00:00.000Z");
+        assert_eq!(
+            iso(UNIX_EPOCH + Duration::from_secs(951_782_400)),
+            "2000-02-29T00:00:00.000Z"
+        );
         let at = UNIX_EPOCH + Duration::from_millis(1_759_687_200_123);
         assert_eq!(
             serde_json::from_str::<Value>(&render(3, &json!({ "a": 1 }), at)).unwrap(),
@@ -340,7 +379,10 @@ mod tests {
         assert!(!dir.0.join(DIR).exists());
         writer.offer(Some(json!({ "auto": true }))).await;
         let first = read(&dir, "climate.json");
-        assert_eq!((&first["version"], &first["payload"]), (&json!(1), &json!({ "auto": true })));
+        assert_eq!(
+            (&first["version"], &first["payload"]),
+            (&json!(1), &json!({ "auto": true }))
+        );
         std::fs::remove_file(dir.0.join(DIR).join("climate.json")).unwrap();
         writer.offer(Some(json!({ "auto": true }))).await;
         assert!(
@@ -364,7 +406,10 @@ mod tests {
             "gps": { "lat": 48.1, "lng": 11.5 },
             "gnss": { "connected": true, "satellites": [{ "id": 4 }] }
         }));
-        assert_eq!(climate_of(&full), Some(json!({ "auto": true, "source": "carplay" })));
+        assert_eq!(
+            climate_of(&full),
+            Some(json!({ "auto": true, "source": "carplay" }))
+        );
         assert_eq!(
             gps_of(&full),
             Some(json!({ "fix": { "lat": 48.1, "lng": 11.5 }, "receiver": { "connected": true } }))
@@ -378,12 +423,21 @@ mod tests {
         let dir = TempDir::new();
         assert_eq!(saved(&dir.0), Saved::default());
         let at = UNIX_EPOCH;
-        write(&dir.0.join(DIR).join("climate.json"), &render(1, &json!({ "auto": false }), at));
+        write(
+            &dir.0.join(DIR).join("climate.json"),
+            &render(1, &json!({ "auto": false }), at),
+        );
         let gps = json!({ "fix": { "lat": 48.1, "lng": 11.5 }, "receiver": null });
         write(&dir.0.join(DIR).join("gps.json"), &render(3, &gps, at));
         let back = saved(&dir.0);
-        assert_eq!(back.climate.map(Value::Object), Some(json!({ "auto": false })));
-        assert_eq!(back.gps.map(Value::Object), Some(json!({ "lat": 48.1, "lng": 11.5 })));
+        assert_eq!(
+            back.climate.map(Value::Object),
+            Some(json!({ "auto": false }))
+        );
+        assert_eq!(
+            back.gps.map(Value::Object),
+            Some(json!({ "lat": 48.1, "lng": 11.5 }))
+        );
 
         write(&dir.0.join(DIR).join("gps.json"), &render(2, &gps, at));
         std::fs::write(dir.0.join(DIR).join("climate.json"), "{ broken").unwrap();
@@ -392,7 +446,10 @@ mod tests {
             Saved::default(),
             "another version or broken JSON counts as none"
         );
-        write(&dir.0.join(DIR).join("climate.json"), &render(1, &json!([1]), at));
+        write(
+            &dir.0.join(DIR).join("climate.json"),
+            &render(1, &json!([1]), at),
+        );
         assert_eq!(saved(&dir.0).climate, None);
     }
 
@@ -436,8 +493,14 @@ mod tests {
             "tirePressure": { "frontLeftKpa": 240, "rearLeftKpa": "low" },
             "climate": { "auto": true }
         }));
-        assert_eq!(vehicle_of(&parked), Some(json!({ "tirePressure": { "frontLeftKpa": 240 } })));
-        assert_eq!(vehicle_of(&state(json!({ "tirePressure": { "rearLeftKpa": "low" } }))), None);
+        assert_eq!(
+            vehicle_of(&parked),
+            Some(json!({ "tirePressure": { "frontLeftKpa": 240 } }))
+        );
+        assert_eq!(
+            vehicle_of(&state(json!({ "tirePressure": { "rearLeftKpa": "low" } }))),
+            None
+        );
         assert_eq!(vehicle_of(&state(json!({ "tirePressure": [240] }))), None);
     }
 

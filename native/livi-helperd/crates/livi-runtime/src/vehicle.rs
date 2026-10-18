@@ -1,5 +1,3 @@
-// What LIVI knows about the car, handed to every iAP2 session that asked for it.
-
 use base64::Engine;
 use tokio::sync::watch;
 
@@ -7,7 +5,6 @@ use iap2_csm::messages::identification::{ChargingConnectorType, EngineType};
 use iap2_csm::messages::location::StartLocationInformation;
 use iap2_csm::messages::vehicle_status::VehicleStatusUpdate;
 
-/// What the car runs on, which decides the engines and the ranges per fuel the phone hears.
 #[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
 pub struct Fuels {
     pub gasoline: bool,
@@ -17,7 +14,6 @@ pub struct Fuels {
 }
 
 impl Fuels {
-    /// `Gasoline,Electric`
     pub fn parse(list: &str) -> Self {
         let mut fuels = Self::default();
         for name in list.split(',').map(str::trim) {
@@ -36,7 +32,6 @@ impl Fuels {
         self.electric && (self.gasoline || self.diesel || self.cng)
     }
 
-    /// What the car tops up from outside. None while LIVI does not know the car.
     pub fn engine_types(&self) -> Vec<EngineType> {
         [
             (self.gasoline, EngineType::Gas),
@@ -50,12 +45,10 @@ impl Fuels {
     }
 }
 
-/// The plugs the car charges on, each with the power in W it takes there.
 #[derive(Debug, Clone, Default, PartialEq, Eq)]
 pub struct Plugs(Vec<(ChargingConnectorType, Option<u32>)>);
 
 impl Plugs {
-    /// `Combo2:150000,Mennekes:11000`, LIVI's plug names, a GB/T plug counts as DC.
     pub fn parse(list: &str) -> Self {
         let plugs = list.split(',').filter_map(|entry| {
             let (name, watts) = entry.trim().split_once(':').unwrap_or((entry.trim(), ""));
@@ -79,7 +72,10 @@ impl Plugs {
     }
 
     pub fn watts(&self, plug: ChargingConnectorType) -> Option<u32> {
-        self.0.iter().find(|(p, _)| *p == plug).and_then(|(_, w)| *w)
+        self.0
+            .iter()
+            .find(|(p, _)| *p == plug)
+            .and_then(|(_, w)| *w)
     }
 }
 
@@ -88,15 +84,11 @@ pub struct VehicleStatus {
     pub range: Option<u16>,
     pub outside_temperature: Option<i16>,
     pub range_warning: Option<bool>,
-    /// Hybrids only, the range on the tank.
     pub range_fuel: Option<u16>,
-    /// Hybrids only, the range on the battery.
     pub range_electric: Option<u16>,
-    /// The battery at the 0 % and 100 % the car shows, and now.
     pub battery_min_wh: Option<u32>,
     pub battery_max_wh: Option<u32>,
     pub battery_wh: Option<u32>,
-    /// The charge the car shows, percent times 1000.
     pub battery_percent_e3: Option<u32>,
     pub charging: Option<bool>,
     pub active_connector: Option<ChargingConnectorType>,
@@ -108,7 +100,6 @@ impl VehicleStatus {
         *self == Self::default()
     }
 
-    /// Keys LIVI leaves out keep their last value.
     pub fn merge(&mut self, json: &str) -> Result<(), String> {
         let value: serde_json::Value = serde_json::from_str(json).map_err(|e| e.to_string())?;
         let km = |key: &str, slot: &mut Option<u16>| {
@@ -133,7 +124,9 @@ impl VehicleStatus {
             self.charging = Some(b);
         }
         if let Some(n) = value.get("activeConnector").and_then(|v| v.as_u64()) {
-            self.active_connector = u8::try_from(n).ok().and_then(ChargingConnectorType::from_u8);
+            self.active_connector = u8::try_from(n)
+                .ok()
+                .and_then(ChargingConnectorType::from_u8);
         }
         if let Some(b) = value.get("rangeWarning").and_then(|v| v.as_bool()) {
             self.range_warning = Some(b);
@@ -144,8 +137,6 @@ impl VehicleStatus {
         Ok(())
     }
 
-    /// A car on one fuel has its whole range on it, a hybrid splits it. One warning for the
-    /// whole car. Battery and charging only for a car that charges.
     pub fn update(&self, fuels: Fuels) -> VehicleStatusUpdate {
         let (fuel, electric) = if fuels.hybrid() {
             (self.range_fuel, self.range_electric)
@@ -177,7 +168,6 @@ impl VehicleStatus {
     }
 }
 
-/// The NMEA sentence types a phone subscribed to, as their three letter names.
 #[derive(Debug, Clone, Default, PartialEq, Eq)]
 pub struct LocationTypes(Vec<&'static str>);
 
@@ -204,7 +194,6 @@ impl LocationTypes {
         &self.0
     }
 
-    /// The sentences of a block the phone asked for, one per line.
     pub fn wanted<'a>(&'a self, nmea: &'a str) -> impl Iterator<Item = &'a str> + 'a {
         nmea.lines().map(str::trim).filter(move |line| {
             line.starts_with('$') && line.len() >= 6 && self.0.contains(&&line[3..6])
@@ -227,14 +216,12 @@ impl Seek {
     }
 }
 
-/// The sending half, held by the helper state.
 pub struct Vehicle {
     location: watch::Sender<(u64, String)>,
     status: watch::Sender<VehicleStatus>,
     seek: watch::Sender<(u64, Seek)>,
 }
 
-/// The receiving half, one per session.
 #[derive(Clone)]
 pub struct VehicleFeed {
     pub location: watch::Receiver<(u64, String)>,
@@ -261,7 +248,6 @@ impl Vehicle {
         }
     }
 
-    /// `seek <ms> [<bt-mac>]`
     pub fn push_seek(&self, arg: &str) -> Result<(), String> {
         let mut words = arg.split_whitespace();
         let ms: u32 = words
@@ -276,7 +262,6 @@ impl Vehicle {
         Ok(())
     }
 
-    /// `location <base64 nmea>`
     pub fn push_location(&self, arg: &str) -> Result<(), String> {
         let bytes = base64::engine::general_purpose::STANDARD
             .decode(arg.trim())
@@ -292,8 +277,6 @@ impl Vehicle {
         Ok(())
     }
 
-    /// `vehicle-status {"range":…,"outsideTemperature":…,"rangeWarning":…}`, a hybrid adds
-    /// `rangeFuel` and `rangeElectric`.
     pub fn push_status(&self, json: &str) -> Result<(), String> {
         let mut next = self.status.borrow().clone();
         next.merge(json)?;
@@ -309,7 +292,6 @@ impl Vehicle {
 }
 
 impl VehicleFeed {
-    /// A feed nothing is ever pushed into.
     pub fn quiet() -> Self {
         Vehicle::default().feed()
     }
@@ -322,9 +304,13 @@ mod tests {
     #[test]
     fn a_status_merges_key_by_key() {
         let mut status = VehicleStatus::default();
-        status.merge(r#"{"range":70000,"outsideTemperature":-3}"#).unwrap();
+        status
+            .merge(r#"{"range":70000,"outsideTemperature":-3}"#)
+            .unwrap();
         status.merge(r#"{"rangeWarning":true}"#).unwrap();
-        status.merge(r#"{"rangeFuel":512,"rangeElectric":40}"#).unwrap();
+        status
+            .merge(r#"{"rangeFuel":512,"rangeElectric":40}"#)
+            .unwrap();
         assert_eq!(
             status,
             VehicleStatus {
@@ -344,7 +330,10 @@ mod tests {
         let plugs = Plugs::parse("Combo2:150000, Mennekes:11000,Gbt,Steam:5");
         use ChargingConnectorType::*;
         assert_eq!(plugs.types(), vec![Ccs2, Mennekes, GbtDc]);
-        assert_eq!((plugs.watts(Ccs2), plugs.watts(Mennekes)), (Some(150_000), Some(11_000)));
+        assert_eq!(
+            (plugs.watts(Ccs2), plugs.watts(Mennekes)),
+            (Some(150_000), Some(11_000))
+        );
         assert_eq!((plugs.watts(GbtDc), plugs.watts(J1772)), (None, None));
         assert_eq!(Plugs::parse(""), Plugs::default());
     }
@@ -361,7 +350,11 @@ mod tests {
             .unwrap();
         let ev = status.update(Fuels::parse("Electric"));
         assert_eq!(
-            (ev.min_battery_charge_wh, ev.current_battery_charge_wh, ev.max_battery_charge_wh),
+            (
+                ev.min_battery_charge_wh,
+                ev.current_battery_charge_wh,
+                ev.max_battery_charge_wh
+            ),
             (Some(0), Some(38_500), Some(77_000))
         );
         assert_eq!(ev.displayed_battery_percentage_e3, Some(50_000));
@@ -374,7 +367,11 @@ mod tests {
         let diesel = status.update(Fuels::parse("Diesel"));
         assert_eq!(diesel.range, Some(300));
         assert_eq!(
-            (diesel.current_battery_charge_wh, diesel.is_charging, diesel.max_range_electric),
+            (
+                diesel.current_battery_charge_wh,
+                diesel.is_charging,
+                diesel.max_range_electric
+            ),
             (None, None, None)
         );
         status.merge(r#"{"activeConnector":42}"#).unwrap();
@@ -385,7 +382,12 @@ mod tests {
     fn fuels_come_from_a_list_of_names() {
         assert_eq!(
             Fuels::parse("Diesel, Electric,CNG,Hydrogen"),
-            Fuels { gasoline: false, diesel: true, electric: true, cng: true }
+            Fuels {
+                gasoline: false,
+                diesel: true,
+                electric: true,
+                cng: true
+            }
         );
         assert_eq!(Fuels::parse(""), Fuels::default());
     }
@@ -396,7 +398,10 @@ mod tests {
         assert_eq!(hybrid, [EngineType::Gas, EngineType::Electric]);
         assert_eq!(Fuels::parse("CNG").engine_types(), [EngineType::Cng]);
         assert_eq!(Fuels::parse("Diesel").engine_types(), [EngineType::Diesel]);
-        assert!(Fuels::default().engine_types().is_empty(), "an unknown car names no engine");
+        assert!(
+            Fuels::default().engine_types().is_empty(),
+            "an unknown car names no engine"
+        );
     }
 
     #[test]
@@ -410,19 +415,32 @@ mod tests {
             ..Default::default()
         };
         let ranges = |u: &VehicleStatusUpdate| {
-            [u.range_gasoline, u.range_diesel, u.range_electric, u.range_cng]
+            [
+                u.range_gasoline,
+                u.range_diesel,
+                u.range_electric,
+                u.range_cng,
+            ]
         };
 
         let diesel = status.update(Fuels::parse("Diesel"));
         assert_eq!(
-            (diesel.range, diesel.outside_temperature, diesel.range_warning),
+            (
+                diesel.range,
+                diesel.outside_temperature,
+                diesel.range_warning
+            ),
             (Some(600), Some(12), Some(false))
         );
         assert_eq!(ranges(&diesel), [None, Some(600), None, None]);
 
         let hybrid = status.update(Fuels::parse("Gasoline,Electric"));
         assert_eq!(ranges(&hybrid), [Some(550), None, Some(50), None]);
-        assert_eq!(ranges(&status.update(Fuels::default())), [None; 4], "an unknown car");
+        assert_eq!(
+            ranges(&status.update(Fuels::default())),
+            [None; 4],
+            "an unknown car"
+        );
 
         let update = hybrid;
         assert_eq!(
@@ -473,12 +491,21 @@ mod tests {
         let mut feed = vehicle.feed();
         vehicle.push_seek("60000").unwrap();
         assert!(feed.seek.has_changed().unwrap());
-        assert_eq!(feed.seek.borrow_and_update().1, Seek { ms: 60000, bt_mac: None });
+        assert_eq!(
+            feed.seek.borrow_and_update().1,
+            Seek {
+                ms: 60000,
+                bt_mac: None
+            }
+        );
         vehicle.push_seek(" 60000  AA:BB:CC:DD:EE:FF ").unwrap();
         assert!(feed.seek.has_changed().unwrap());
         assert_eq!(
             feed.seek.borrow_and_update().1,
-            Seek { ms: 60000, bt_mac: Some("AA:BB:CC:DD:EE:FF".into()) }
+            Seek {
+                ms: 60000,
+                bt_mac: Some("AA:BB:CC:DD:EE:FF".into())
+            }
         );
         assert!(vehicle.push_seek("1:00").is_err());
         assert!(vehicle.push_seek("").is_err());
@@ -486,10 +513,19 @@ mod tests {
 
     #[test]
     fn a_seek_for_one_phone_skips_the_others() {
-        let to_one = Seek { ms: 1, bt_mac: Some("aa:bb:cc:dd:ee:ff".into()) };
+        let to_one = Seek {
+            ms: 1,
+            bt_mac: Some("aa:bb:cc:dd:ee:ff".into()),
+        };
         assert!(to_one.meant_for(Some("AA:BB:CC:DD:EE:FF")));
         assert!(!to_one.meant_for(Some("11:22:33:44:55:66")));
         assert!(to_one.meant_for(None));
-        assert!(Seek { ms: 1, bt_mac: None }.meant_for(Some("11:22:33:44:55:66")));
+        assert!(
+            Seek {
+                ms: 1,
+                bt_mac: None
+            }
+            .meant_for(Some("11:22:33:44:55:66"))
+        );
     }
 }

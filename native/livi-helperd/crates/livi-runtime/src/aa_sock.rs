@@ -1,6 +1,3 @@
-// /tmp/aa-bt.sock: line-JSON RPC for Android Auto, plus its event stream. What every projection
-// shares lives on the shared socket.
-
 use std::io;
 
 use tokio::net::UnixStream;
@@ -13,13 +10,9 @@ type SetWiredPhones = Box<dyn Fn(Vec<String>) + Send + Sync>;
 type SetScoSink = Box<dyn Fn(Option<(String, u32)>) + Send + Sync>;
 
 pub struct AaSockDeps {
-    /// Receives the phone ids LIVI reports as projecting over USB.
     pub set_wired_phones: SetWiredPhones,
-    /// Long-lived event stream LIVI subscribes to.
     pub events: crate::livi_sock::Broadcaster,
-    /// Where the call audio goes: the pipeline's feed path and stream id, or nothing.
     pub set_sco_sink: SetScoSink,
-    /// Ends a phone's USB session.
     pub restart_usb: Box<dyn Fn(&str) -> usize + Send + Sync>,
 }
 
@@ -57,7 +50,10 @@ async fn handle(mut stream: UnixStream, deps: std::sync::Arc<AaSockDeps>) -> io:
         }
         "sco-sink" => {
             let target = arg.split_once(' ').and_then(|(feed, id)| {
-                id.trim().parse::<u32>().ok().map(|id| (feed.to_owned(), id))
+                id.trim()
+                    .parse::<u32>()
+                    .ok()
+                    .map(|id| (feed.to_owned(), id))
             });
             (deps.set_sco_sink)(target);
             ok_json()

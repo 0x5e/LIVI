@@ -10,7 +10,9 @@ pub const FALLBACK: &str = "AA:BB:CC:DD:EE:FF";
 fn is_mac(s: &str) -> bool {
     let parts: Vec<&str> = s.split(':').collect();
     parts.len() == 6
-        && parts.iter().all(|p| p.len() == 2 && p.bytes().all(|b| b.is_ascii_hexdigit()))
+        && parts
+            .iter()
+            .all(|p| p.len() == 2 && p.bytes().all(|b| b.is_ascii_hexdigit()))
 }
 
 fn mac_in(path: &Path) -> Option<String> {
@@ -21,13 +23,16 @@ fn mac_in(path: &Path) -> Option<String> {
 
 fn entries(dir: &Path) -> Vec<String> {
     let mut names: Vec<String> = fs::read_dir(dir)
-        .map(|d| d.flatten().map(|e| e.file_name().to_string_lossy().into_owned()).collect())
+        .map(|d| {
+            d.flatten()
+                .map(|e| e.file_name().to_string_lossy().into_owned())
+                .collect()
+        })
         .unwrap_or_default();
     names.sort();
     names
 }
 
-/// The LIVI Link's controller sits on vhci.
 fn tunnelled(dir: &Path, hci: &str) -> bool {
     fs::canonicalize(dir.join(hci)).is_ok_and(|p| p.to_string_lossy().contains("/devices/virtual/"))
 }
@@ -42,14 +47,18 @@ fn bt_mac_in(dir: &Path, adapter: &str) -> Result<Option<String>, ()> {
         adapter.to_string()
     };
     let candidates = if adapter.is_empty() {
-        entries(dir).into_iter().filter(|n| n.starts_with("hci")).collect()
+        entries(dir)
+            .into_iter()
+            .filter(|n| n.starts_with("hci"))
+            .collect()
     } else {
         vec![adapter]
     };
-    Ok(candidates.iter().find_map(|name| mac_in(&dir.join(name).join("address"))))
+    Ok(candidates
+        .iter()
+        .find_map(|name| mac_in(&dir.join(name).join("address"))))
 }
 
-/// BlueZ knows the address where sysfs does not show it.
 fn busctl(adapter: &str) -> Option<String> {
     let out = Command::new("busctl")
         .args(["--system", "get-property", "org.bluez"])
@@ -66,10 +75,13 @@ pub fn bt_mac(adapter: &str) -> Option<String> {
     if let Ok(mac) = std::env::var("AA_BT_MAC") {
         return Some(mac);
     }
-    // Without a tunnelled controller the dongle names its own.
     if adapter == livi_link_host::link::CHOICE && !cfg!(target_os = "linux") {
-        return livi_link_host::ap::bt_mac()
-            .map(|b| b.iter().map(|x| format!("{x:02X}")).collect::<Vec<_>>().join(":"));
+        return livi_link_host::ap::bt_mac().map(|b| {
+            b.iter()
+                .map(|x| format!("{x:02X}"))
+                .collect::<Vec<_>>()
+                .join(":")
+        });
     }
     match bt_mac_in(Path::new(BT_SYSFS), adapter) {
         Ok(Some(mac)) => Some(mac),
@@ -80,15 +92,23 @@ pub fn bt_mac(adapter: &str) -> Option<String> {
 
 fn wifi_mac_in(dir: &Path, iface: &str) -> Option<String> {
     let candidates = if iface.is_empty() {
-        entries(dir).into_iter().filter(|n| n.starts_with("wlan")).collect()
+        entries(dir)
+            .into_iter()
+            .filter(|n| n.starts_with("wlan"))
+            .collect()
     } else {
         vec![iface.to_string()]
     };
-    candidates.iter().find_map(|name| mac_in(&dir.join(name).join("address")))
+    candidates
+        .iter()
+        .find_map(|name| mac_in(&dir.join(name).join("address")))
 }
 
 fn wifi_interfaces_in(dir: &Path) -> Vec<String> {
-    entries(dir).into_iter().filter(|n| dir.join(n).join("wireless").exists()).collect()
+    entries(dir)
+        .into_iter()
+        .filter(|n| dir.join(n).join("wireless").exists())
+        .collect()
 }
 
 pub fn wifi_interfaces() -> Vec<String> {
@@ -110,8 +130,6 @@ pub fn bt_adapters() -> Vec<String> {
     bt_adapters_in(Path::new(BT_SYSFS))
 }
 
-/// The chips LIVI meets, by the IDs their devices report, named as the kernel's driver tables name
-/// them. MediaTek Wi-Fi on PCIe first, then the Bluetooth half of the same cards on USB.
 const CHIPS: [(u16, u16, &str); 11] = [
     (0x14c3, 0x7961, "MT7921"),
     (0x14c3, 0x0608, "MT7921"),
@@ -131,18 +149,15 @@ fn hex_in(path: &Path) -> Option<u16> {
     u16::from_str_radix(text.trim().trim_start_matches("0x"), 16).ok()
 }
 
-/// The chip behind an interface's device, else its maker, else its driver.
 fn model_of(device: &Path) -> Option<String> {
     let device = fs::canonicalize(device).ok()?;
     let parent = device.parent()?;
-    // A PCI or SDIO function names its IDs itself, a USB interface leaves them to its device.
     let ids = hex_in(&device.join("vendor"))
         .zip(hex_in(&device.join("device")))
         .or_else(|| hex_in(&parent.join("idVendor")).zip(hex_in(&parent.join("idProduct"))));
     if let Some((_, _, chip)) = ids.and_then(|ids| CHIPS.iter().find(|(v, d, _)| (*v, *d) == ids)) {
         return Some((*chip).to_string());
     }
-    // On USB the driver alone would only say btusb.
     let maker = fs::read_to_string(parent.join("manufacturer")).ok();
     if let Some(maker) = maker.as_deref().and_then(|m| m.split_whitespace().next()) {
         return Some(maker.trim_end_matches([',', '.']).to_string());
@@ -165,7 +180,6 @@ pub fn interface_models(names: &[String]) -> BTreeMap<String, String> {
     interface_models_in(Path::new(NET_SYSFS), Path::new(BT_SYSFS), names)
 }
 
-/// Asking the dongle blocks for up to its timeout.
 pub fn accessory_id(wifi_interface: &str) -> Option<String> {
     if let Ok(mac) = std::env::var("AA_WIFI_BSSID") {
         return Some(mac);
@@ -199,7 +213,10 @@ mod tests {
         let dir = TempDir::new();
         write(&dir.0.join("hci1/address"), "11:22:33:44:55:66\n");
         write(&dir.0.join("hci0/address"), "garbage");
-        assert_eq!(bt_mac_in(&dir.0, "hci1"), Ok(Some("11:22:33:44:55:66".into())));
+        assert_eq!(
+            bt_mac_in(&dir.0, "hci1"),
+            Ok(Some("11:22:33:44:55:66".into()))
+        );
         assert_eq!(bt_mac_in(&dir.0, ""), Ok(Some("11:22:33:44:55:66".into())));
         assert_eq!(bt_mac_in(&dir.0, "hci9"), Ok(None));
         assert_eq!(bt_mac_in(&dir.0, livi_link_host::link::CHOICE), Err(()));
@@ -253,8 +270,9 @@ mod tests {
         write(&devices.join("usb3/3-6/idProduct"), "0616\n");
         write(&devices.join("usb3/3-6/manufacturer"), "MediaTek Inc.\n");
 
-        let names: Vec<String> =
-            ["wlp104s0", "wlan0", "hci1", "hci0", "hci7", "livi-link"].map(String::from).to_vec();
+        let names: Vec<String> = ["wlp104s0", "wlan0", "hci1", "hci0", "hci7", "livi-link"]
+            .map(String::from)
+            .to_vec();
         let models = interface_models_in(&net, &bt, &names);
         assert_eq!(models.get("wlp104s0").map(String::as_str), Some("MT7925"));
         assert_eq!(models.get("wlan0").map(String::as_str), Some("brcmfmac"));
@@ -269,7 +287,10 @@ mod tests {
         write(&dir.0.join("wlan1/address"), "aa:bb:cc:dd:ee:01");
         write(&dir.0.join("eth0/address"), "aa:bb:cc:dd:ee:02");
         assert_eq!(wifi_mac_in(&dir.0, ""), Some("AA:BB:CC:DD:EE:01".into()));
-        assert_eq!(wifi_mac_in(&dir.0, "eth0"), Some("AA:BB:CC:DD:EE:02".into()));
+        assert_eq!(
+            wifi_mac_in(&dir.0, "eth0"),
+            Some("AA:BB:CC:DD:EE:02".into())
+        );
         assert_eq!(wifi_mac_in(&dir.0, "wlan7"), None);
     }
 }

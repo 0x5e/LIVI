@@ -1,6 +1,3 @@
-//! The installer's sudoers rule lets LIVI run the helper as root, so these
-//! files go in place without a password prompt.
-
 use std::path::{Path, PathBuf};
 use std::process::Stdio;
 use std::time::Duration;
@@ -15,12 +12,10 @@ const INSTALL_TIMEOUT: Duration = Duration::from_secs(20);
 pub struct Privileged {
     pub templates: PathBuf,
     pub helper: PathBuf,
-    /// Where the sudoers rules expect the helper.
     pub helper_named: PathBuf,
     pub user_data: PathBuf,
 }
 
-/// The user behind pkexec or sudo when there is one.
 pub fn username() -> String {
     if let Ok(name) = std::env::var("SUDO_USER")
         && !name.is_empty()
@@ -38,14 +33,17 @@ pub fn username() -> String {
 }
 
 pub fn systemctl() -> String {
-    ["/usr/bin/systemctl", "/bin/systemctl", "/usr/sbin/systemctl"]
-        .into_iter()
-        .find(|p| Path::new(p).exists())
-        .unwrap_or("/usr/bin/systemctl")
-        .to_string()
+    [
+        "/usr/bin/systemctl",
+        "/bin/systemctl",
+        "/usr/sbin/systemctl",
+    ]
+    .into_iter()
+    .find(|p| Path::new(p).exists())
+    .unwrap_or("/usr/bin/systemctl")
+    .to_string()
 }
 
-/// For files LIVI cannot read back.
 fn stamp(content: &str) -> String {
     let digest = Sha256::digest(content.as_bytes());
     digest.iter().take(8).map(|b| format!("{b:02x}")).collect()
@@ -64,7 +62,11 @@ pub async fn sudo(args: &[&str]) -> bool {
 }
 
 pub async fn sudo_grants(needle: &str) -> bool {
-    let Ok(out) = Command::new("sudo").args(["-n", "-l"]).stdin(Stdio::null()).output().await
+    let Ok(out) = Command::new("sudo")
+        .args(["-n", "-l"])
+        .stdin(Stdio::null())
+        .output()
+        .await
     else {
         return false;
     };
@@ -114,7 +116,6 @@ impl Privileged {
         }
     }
 
-    /// The helper installs the files in the given order.
     pub async fn helper_installs(&self, what: &str, files: &[(&str, &str)]) -> bool {
         let dir = std::env::temp_dir().join(format!("livi-install-{}-{what}", std::process::id()));
         let staged: std::io::Result<Vec<String>> = (|| {
@@ -170,7 +171,11 @@ mod tests {
     #[test]
     fn a_template_gets_this_machine_and_a_marker_its_stamp() {
         let dir = TempDir::new();
-        std::fs::write(dir.0.join("t"), "__HELPER__ for __USERNAME__ via __SYSTEMCTL__").unwrap();
+        std::fs::write(
+            dir.0.join("t"),
+            "__HELPER__ for __USERNAME__ via __SYSTEMCTL__",
+        )
+        .unwrap();
         let p = privileged(&dir);
         let text = p.render("t").unwrap();
         assert!(text.starts_with("/home/u/.config/LIVI/driver/livi-helperd for "));
@@ -184,9 +189,13 @@ mod tests {
 
     #[test]
     fn only_a_rule_for_everything_grants_everything() {
-        assert!(grants_all("User u may run:\n    (ALL : ALL) NOPASSWD: ALL\n"));
+        assert!(grants_all(
+            "User u may run:\n    (ALL : ALL) NOPASSWD: ALL\n"
+        ));
         assert!(grants_all("    (ALL) NOPASSWD: ALL"));
-        assert!(!grants_all("    (root) NOPASSWD: /usr/bin/systemctl restart x"));
+        assert!(!grants_all(
+            "    (root) NOPASSWD: /usr/bin/systemctl restart x"
+        ));
         assert!(!grants_all("    (ALL : ALL) ALL"));
     }
 }

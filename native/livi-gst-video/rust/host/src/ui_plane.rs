@@ -13,7 +13,6 @@ use crate::{Plane, UrlPlay};
 
 const QUEUE: usize = 1024;
 
-/// Writes run on their own thread so they never block the main loop, where audio runs.
 fn connect(path: &str, id: u32, first: Vec<u8>) -> Option<(SyncSender<Vec<u8>>, UnixStream)> {
     let mut sock = UnixStream::connect(path)
         .inspect_err(|e| eprintln!("[gst-host] no UI for plane 0x{id:x} at {path}: {e}"))
@@ -44,14 +43,21 @@ impl UiPlane {
     pub fn open(path: &str, id: u32, codec: &str, codec_data: &[u8]) -> Option<Self> {
         let create = encode_reply(ui_planes::CREATE, id, &plane_body(codec, codec_data));
         let (out, _) = connect(path, id, create)?;
-        Some(Self { id, out, lost: AtomicBool::new(false) })
+        Some(Self {
+            id,
+            out,
+            lost: AtomicBool::new(false),
+        })
     }
 
     fn send(&self, op: u8, rest: &[u8]) {
         if let Err(TrySendError::Full(_)) = self.out.try_send(encode_reply(op, self.id, rest))
             && !self.lost.swap(true, Ordering::Relaxed)
         {
-            eprintln!("[gst-host] the UI stopped taking plane 0x{:x}, frames are lost", self.id);
+            eprintln!(
+                "[gst-host] the UI stopped taking plane 0x{:x}, frames are lost",
+                self.id
+            );
         }
     }
 }
@@ -67,7 +73,6 @@ impl Plane for UiPlane {
         self.send(ui_planes::FLUSH, &[]);
     }
 
-    /// The UI takes the calibration from core.
     fn set_gamma(&self, _gamma: f64, _contrast: f64, _r: f64, _g: f64, _b: f64) {}
 }
 
@@ -106,11 +111,15 @@ impl UiUrlPlayer {
                         }
                     }
                 }
-                // The UI let the player go.
                 heard.lock().unwrap_or_else(|e| e.into_inner()).failed = true;
             })
             .ok()?;
-        Some(Self { id, out, sock, status })
+        Some(Self {
+            id,
+            out,
+            sock,
+            status,
+        })
     }
 
     fn send(&self, op: u8, rest: &[u8]) {
@@ -119,7 +128,6 @@ impl UiUrlPlayer {
 }
 
 impl UrlPlay for UiUrlPlayer {
-    /// The UI starts the player as it opens it.
     fn start(&self) {}
 
     fn set_rate(&self, rate: f64) {
@@ -162,7 +170,6 @@ mod tests {
     }
 
     fn read_all(mut conn: UnixStream) -> Vec<Message> {
-        // macOS refuses the option once the plane already hung up.
         let _ = conn.set_read_timeout(Some(Duration::from_secs(5)));
         let mut bytes = Vec::new();
         conn.read_to_end(&mut bytes).unwrap();
@@ -218,7 +225,10 @@ mod tests {
     fn wait_for(player: &UiUrlPlayer, what: impl Fn(&UrlStatus) -> bool) {
         let start = std::time::Instant::now();
         while !what(&player.status()) {
-            assert!(start.elapsed() < Duration::from_secs(5), "status never came");
+            assert!(
+                start.elapsed() < Duration::from_secs(5),
+                "status never came"
+            );
             std::thread::sleep(Duration::from_millis(5));
         }
     }
@@ -242,8 +252,10 @@ mod tests {
         player.set_rate(0.0);
         player.seek(12.5);
         player.set_muted(true);
-        let got: Vec<(u8, Vec<u8>)> =
-            (0..3).map(|_| next(&mut ui, &mut framer)).map(|m| (m.op, m.rest)).collect();
+        let got: Vec<(u8, Vec<u8>)> = (0..3)
+            .map(|_| next(&mut ui, &mut framer))
+            .map(|m| (m.op, m.rest))
+            .collect();
         assert_eq!(
             got,
             [
@@ -253,11 +265,23 @@ mod tests {
             ]
         );
 
-        let playing =
-            UrlStatus { position: Some(3.0), ready: true, playing: true, ..UrlStatus::default() };
-        let status =
-            encode_reply(ui_planes::STATUS, 9, &livi_host_proto::url_status_body(&playing));
-        ui.write_all(&encode_reply(ui_planes::LOG, 9, b"[gst_video] a line from the UI")).unwrap();
+        let playing = UrlStatus {
+            position: Some(3.0),
+            ready: true,
+            playing: true,
+            ..UrlStatus::default()
+        };
+        let status = encode_reply(
+            ui_planes::STATUS,
+            9,
+            &livi_host_proto::url_status_body(&playing),
+        );
+        ui.write_all(&encode_reply(
+            ui_planes::LOG,
+            9,
+            b"[gst_video] a line from the UI",
+        ))
+        .unwrap();
         ui.write_all(&status).unwrap();
         wait_for(&player, |s| *s == playing);
 

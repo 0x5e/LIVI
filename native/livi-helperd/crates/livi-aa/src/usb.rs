@@ -1,8 +1,3 @@
-// Android Auto over USB. A phone on the bus is switched to accessory mode (AOAP),
-// its bulk pipe carries the session, and the main process hears about it the way
-// it hears about a TCP one. Opening the pipe and moving bytes is shared plumbing
-// (livi_session_io::usb); this is the AOAP-specific bring-up around it.
-
 use std::collections::{HashMap, HashSet};
 use std::future::Future;
 use std::net::{IpAddr, Ipv4Addr};
@@ -23,21 +18,17 @@ use crate::session::{self, Peer};
 
 const GOOGLE_VID: u16 = 0x18d1;
 const ACCESSORY_PIDS: [u16; 6] = [0x2d00, 0x2d01, 0x2d02, 0x2d03, 0x2d04, 0x2d05];
-/// Android vendors whose devices are probed for AOAP.
 const PHONE_VENDORS: [u16; 16] = [
     0x0489, 0x04dd, 0x04e8, 0x0b05, 0x0bb4, 0x0e8d, 0x0fce, 0x1004, 0x109b, 0x12d1, 0x17ef, 0x18d1,
     0x19d2, 0x22b8, 0x2717, 0x2a70,
 ];
-/// A class-0 device made only of these interface classes is not a phone.
 const NON_PHONE_INTERFACE_CLASSES: [u8; 10] =
     [0x01, 0x02, 0x03, 0x07, 0x08, 0x09, 0x0a, 0x0b, 0x0e, 0xe0];
-/// Wireless controllers share vendor ids with phones (MediaTek), no phone carries one.
 const WIRELESS_CONTROLLER_CLASS: u8 = 0xe0;
 
 const REQ_GET_PROTOCOL: u8 = 51;
 const REQ_SEND_STRING: u8 = 52;
 const REQ_START: u8 = 53;
-/// SEND_STRING index and text. Manufacturer and model are what the phone matches on.
 const AOAP_STRINGS: [(u16, &str); 6] = [
     (0, "Android"),
     (1, "Android Auto"),
@@ -49,40 +40,29 @@ const AOAP_STRINGS: [(u16, &str); 6] = [
 
 const CONTROL_TIMEOUT: Duration = Duration::from_secs(2);
 const WATCH_RETRY: Duration = Duration::from_secs(5);
-/// The reset out of accessory mode re-enumerates the phone within this time.
 const RESET_WINDOW: Duration = Duration::from_secs(3);
-/// macOS refuses the reset while the interface is claimed.
 const RESET_RETRIES: usize = 10;
 const RESET_RETRY: Duration = Duration::from_millis(100);
 
-/// Tells the main process about a session: socket path, peer label, USB serial.
 pub type OnSession = dyn Fn(&str, &str, &str) + Send + Sync;
 
 #[derive(Default)]
 struct Phones {
-    /// Devices being switched or serving a session.
     busy: HashSet<DeviceId>,
-    /// Devices whose AOAP probe failed, left alone until they re-enumerate.
     failed: HashSet<DeviceId>,
     serial_of: HashMap<DeviceId, String>,
-    /// Serials the main process closed, not switched again until unplugged.
     parked: HashSet<String>,
-    /// Serials being reset out of accessory mode, whose next disconnect is no unplug.
     resetting: HashMap<String, Instant>,
-    /// Per device serving a session, notified when it is unplugged so the session ends.
     cancel: HashMap<DeviceId, Arc<Notify>>,
-    /// Serials reset out of an earlier run's accessory mode.
     leftover: HashSet<String>,
 }
 
 type Shared = Arc<Mutex<Phones>>;
 
-/// A hand on the phones from outside the watcher.
 #[derive(Clone, Default)]
 pub struct Control(Shared);
 
 impl Control {
-    /// Ends the sessions.
     pub fn restart(&self, serial: &str) -> usize {
         let p = self.0.lock().unwrap();
         let mut n = 0;
@@ -97,7 +77,6 @@ impl Control {
     }
 }
 
-/// `subscribed` resolves once the main process hears the announcements.
 pub async fn run(
     control: Control,
     on_session: impl Fn(&str, &str, &str) + Send + Sync + 'static,
@@ -138,15 +117,17 @@ pub async fn run(
 }
 
 fn label(serial: &str) -> String {
-    if serial.is_empty() { "usb:phone".to_owned() } else { format!("usb:{serial}") }
+    if serial.is_empty() {
+        "usb:phone".to_owned()
+    } else {
+        format!("usb:{serial}")
+    }
 }
 
 fn is_accessory(info: &DeviceInfo) -> bool {
     info.vendor_id() == GOOGLE_VID && ACCESSORY_PIDS.contains(&info.product_id())
 }
 
-/// A phone candidate: an Android vendor's class-0 or vendor-class device that is not
-/// made only of non-phone interfaces and carries no wireless controller.
 fn is_candidate(info: &DeviceInfo) -> bool {
     if !PHONE_VENDORS.contains(&info.vendor_id()) {
         return false;
@@ -158,7 +139,10 @@ fn is_candidate(info: &DeviceInfo) -> bool {
     if interfaces.contains(&WIRELESS_CONTROLLER_CLASS) {
         return false;
     }
-    interfaces.is_empty() || !interfaces.iter().all(|c| NON_PHONE_INTERFACE_CLASSES.contains(c))
+    interfaces.is_empty()
+        || !interfaces
+            .iter()
+            .all(|c| NON_PHONE_INTERFACE_CLASSES.contains(c))
 }
 
 fn seen(
@@ -189,7 +173,10 @@ fn seen(
             return;
         }
         if candidate && p.parked.contains(&serial) {
-            println!("[aa-usb] {}: parked since the main process closed it", label(&serial));
+            println!(
+                "[aa-usb] {}: parked since the main process closed it",
+                label(&serial)
+            );
             return;
         }
         p.busy.insert(id);
@@ -241,8 +228,9 @@ fn gone(phones: &Shared, id: DeviceId) {
     }
     p.busy.remove(&id);
     p.failed.remove(&id);
-    let Some(serial) = p.serial_of.remove(&id) else { return };
-    // The reset out of accessory mode disconnects too. Anything later is the cable.
+    let Some(serial) = p.serial_of.remove(&id) else {
+        return;
+    };
     if let Some(at) = p.resetting.remove(&serial)
         && at.elapsed() <= RESET_WINDOW
     {
@@ -253,7 +241,6 @@ fn gone(phones: &Shared, id: DeviceId) {
     }
 }
 
-/// The AOAP handshake: protocol probe, the host strings, then the switch.
 async fn switch(info: &DeviceInfo) -> Result<(), String> {
     let dev = info.open().await.map_err(|e| format!("open: {e}"))?;
     let reply = dev
@@ -284,7 +271,9 @@ async fn switch(info: &DeviceInfo) -> Result<(), String> {
             .await
             .map_err(|e| format!("send string {index}: {e}"))?;
     }
-    vendor_out(&dev, REQ_START, 0, &[]).await.map_err(|e| format!("start: {e}"))
+    vendor_out(&dev, REQ_START, 0, &[])
+        .await
+        .map_err(|e| format!("start: {e}"))
 }
 
 async fn vendor_out(
@@ -324,7 +313,6 @@ async fn release_leftover(phones: &Shared, info: &DeviceInfo, serial: &str) -> b
     reset.is_ok()
 }
 
-/// Runs one session over the accessory, then puts the phone back into its plain mode.
 async fn serve(
     phones: &Shared,
     on_session: &Arc<OnSession>,
@@ -347,10 +335,15 @@ async fn serve(
             return;
         }
     };
-    let Some((node, path)) = bind_session_socket("aa-session") else { return };
+    let Some((node, path)) = bind_session_socket("aa-session") else {
+        return;
+    };
     println!("[aa-usb] {l}: accessory up, session socket {path}");
     on_session(&path, &l, &serial);
-    let peer = Peer { label: l.clone(), ip: IpAddr::V4(Ipv4Addr::LOCALHOST) };
+    let peer = Peer {
+        label: l.clone(),
+        ip: IpAddr::V4(Ipv4Addr::LOCALHOST),
+    };
     let end = session::run(UsbStream::new(pipe), peer, node, path, cancel).await;
     if !serial.is_empty() {
         let mut p = phones.lock().unwrap();

@@ -1,5 +1,3 @@
-// Turns the phone's telemetry messages into the JSON event lines the LIVI UI consumes.
-
 use iap2_csm::CsmMessage;
 use iap2_csm::messages::communications::CallStateUpdate;
 use iap2_csm::messages::communications::CommunicationsUpdate;
@@ -10,7 +8,6 @@ use iap2_csm::messages::route_guidance::{RouteGuidanceManeuverUpdate, RouteGuida
 
 use crate::framing::frame_msg_id;
 
-/// The phone's transport identifiers, which tell the UI whether this session is wired.
 pub fn device_json(frame: &[u8], usb_udid: Option<&str>) -> Option<String> {
     use iap2_csm::messages::car_play::DeviceTransportIdentifierNotification;
 
@@ -29,7 +26,6 @@ pub fn device_json(frame: &[u8], usb_udid: Option<&str>) -> Option<String> {
     o.finish()
 }
 
-/// The start went out over the cable, naming the address the phone connects to there.
 pub fn wired_start_json(usb_udid: &str, ip: &str) -> String {
     let mut o = Obj::new("wired-start");
     o.str("usbUdid", usb_udid);
@@ -37,7 +33,6 @@ pub fn wired_start_json(usb_udid: &str, ip: &str) -> String {
     o.finish().unwrap_or_default()
 }
 
-/// The phone's iAP2 identity, which the UI uses to route metadata to the right session.
 #[derive(Debug, Default, Clone)]
 pub struct EventTag {
     pub phone_id: Option<String>,
@@ -46,8 +41,6 @@ pub struct EventTag {
     pub navigation: Navigation,
 }
 
-/// The phone describes every turn of the route once, by index, and the guidance updates then
-/// point at the current one.
 #[derive(Debug, Default, Clone)]
 pub struct Navigation {
     maneuvers: std::collections::HashMap<u16, Maneuver>,
@@ -64,7 +57,6 @@ struct Maneuver {
 }
 
 impl EventTag {
-    /// Learns the identity from a DeviceTransportIdentifierNotification.
     pub fn learn(&mut self, frame: &[u8]) {
         use iap2_csm::messages::car_play::DeviceTransportIdentifierNotification;
 
@@ -81,7 +73,6 @@ impl EventTag {
         }
     }
 
-    /// The navigation event for a guidance or maneuver frame, with the current turn folded in.
     pub fn navigation_json(&mut self, frame: &[u8]) -> Option<String> {
         match frame_msg_id(frame)? {
             0x5201 => {
@@ -116,8 +107,10 @@ impl EventTag {
                 if let Some(d) = m.distance_to_maneuver {
                     o.num("remainDistance", d);
                 }
-                if let Some(turn) =
-                    self.navigation.current.and_then(|i| self.navigation.maneuvers.get(&i))
+                if let Some(turn) = self
+                    .navigation
+                    .current
+                    .and_then(|i| self.navigation.maneuvers.get(&i))
                 {
                     maneuver_fields(&mut o, turn);
                 }
@@ -140,7 +133,6 @@ impl EventTag {
         }
     }
 
-    /// Adds the identity to an already built event object.
     pub fn apply(&self, json: String) -> String {
         let mut extra = String::new();
         for (key, value) in [
@@ -159,12 +151,13 @@ impl EventTag {
     }
 }
 
-/// Seconds since the epoch from a DeviceTimeUpdate, if the phone sent one.
 pub fn device_time(frame: &[u8]) -> Option<i64> {
     if frame_msg_id(frame)? != 0x4E0B {
         return None;
     }
-    DeviceTimeUpdate::decode(frame).ok()?.seconds_since_reference_date
+    DeviceTimeUpdate::decode(frame)
+        .ok()?
+        .seconds_since_reference_date
 }
 
 pub fn to_json(frame: &[u8]) -> Option<String> {
@@ -184,7 +177,9 @@ struct Obj {
 
 impl Obj {
     fn new(kind: &str) -> Self {
-        Self { parts: vec![format!("\"type\":\"{kind}\"")] }
+        Self {
+            parts: vec![format!("\"type\":\"{kind}\"")],
+        }
     }
     fn str(&mut self, key: &str, value: &str) {
         self.parts.push(format!("\"{key}\":\"{}\"", escape(value)));
@@ -196,7 +191,11 @@ impl Obj {
         self.parts.push(format!("\"{key}\":{value}"));
     }
     fn finish(self) -> Option<String> {
-        if self.parts.len() <= 1 { None } else { Some(format!("{{{}}}", self.parts.join(","))) }
+        if self.parts.len() <= 1 {
+            None
+        } else {
+            Some(format!("{{{}}}", self.parts.join(",")))
+        }
     }
 }
 
@@ -274,7 +273,6 @@ fn cellular(frame: &[u8]) -> Option<String> {
     o.finish()
 }
 
-/// The phone's offset from UTC, daylight saving included.
 fn utc_offset(frame: &[u8]) -> Option<String> {
     let m = DeviceTimeUpdate::decode(frame).ok()?;
     let minutes = i32::from(m.time_zone_offset_minutes?);
@@ -305,7 +303,6 @@ fn call(frame: &[u8]) -> Option<String> {
 }
 
 impl Maneuver {
-    /// Fields the phone leaves out keep their last value.
     fn merge(&mut self, m: RouteGuidanceManeuverUpdate) {
         self.kind = m.maneuver_type.or(self.kind);
         self.side = m.driving_side.or(self.side);
@@ -349,7 +346,6 @@ mod tests {
             junction_type: None,
             exit_angle: Some(-90),
         };
-        // Not the current turn yet: kept, nothing to say.
         assert_eq!(tag.navigation_json(&turn.encode()), None);
 
         let guidance = RouteGuidanceUpdate {
@@ -377,7 +373,6 @@ mod tests {
             assert!(json.contains(part), "{json} lacks {part}");
         }
 
-        // A later detail for the current turn goes out on its own, older fields kept.
         let more = RouteGuidanceManeuverUpdate {
             index: Some(2),
             maneuver_type: None,
@@ -438,7 +433,10 @@ mod device_tests {
     fn the_wired_start_names_the_cable_the_phone_and_the_address() {
         let mut tag = EventTag::default();
         tag.learn(&frame());
-        let json = tag.apply(wired_start_json("00008120000924CE2E51A01E", "fe80::80a:a1ca"));
+        let json = tag.apply(wired_start_json(
+            "00008120000924CE2E51A01E",
+            "fe80::80a:a1ca",
+        ));
         assert_eq!(
             json,
             "{\"type\":\"wired-start\",\"usbUdid\":\"00008120000924CE2E51A01E\",\"ip\":\"fe80::80a:a1ca\",\"phoneId\":\"0C:6A:C4:4E:F3:2A\",\"usbTransportId\":\"usb-1\"}"
@@ -455,7 +453,10 @@ mod device_tests {
 
     #[test]
     fn metadata_carries_identity_for_routing() {
-        let mut tag = EventTag { cid: Some("ctrl-1".into()), ..Default::default() };
+        let mut tag = EventTag {
+            cid: Some("ctrl-1".into()),
+            ..Default::default()
+        };
         tag.learn(&frame());
         let np = NowPlayingUpdate {
             media_item_attributes: Some(iap2_csm::messages::now_playing::MediaItemAttributes {

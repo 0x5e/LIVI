@@ -318,7 +318,9 @@ impl CarType {
             ("HybridGasoline", CarType::HybridGasoline),
             ("HybridDiesel", CarType::HybridDiesel),
         ];
-        ALL.iter().find(|(n, _)| n.eq_ignore_ascii_case(name.trim())).map(|(_, t)| *t)
+        ALL.iter()
+            .find(|(n, _)| n.eq_ignore_ascii_case(name.trim()))
+            .map(|(_, t)| *t)
     }
 }
 
@@ -350,7 +352,9 @@ impl EvConnectorType {
             ("Gbt", EvConnectorType::Gbt),
             ("Other", EvConnectorType::Other),
         ];
-        ALL.iter().find(|(n, _)| n.eq_ignore_ascii_case(name.trim())).map(|(_, t)| *t)
+        ALL.iter()
+            .find(|(n, _)| n.eq_ignore_ascii_case(name.trim()))
+            .map(|(_, t)| *t)
     }
 }
 
@@ -414,9 +418,22 @@ pub struct KeyBindings {
 }
 
 pub fn defaults() -> Config {
-    let off = PerScreen { main: false, cluster: false, aux: false };
-    let main_only = PerScreen { main: true, cluster: false, aux: false };
-    let no_bounds = Some(WindowBounds { x: 0, y: 0, width: 0, height: 0 });
+    let off = PerScreen {
+        main: false,
+        cluster: false,
+        aux: false,
+    };
+    let main_only = PerScreen {
+        main: true,
+        cluster: false,
+        aux: false,
+    };
+    let no_bounds = Some(WindowBounds {
+        x: 0,
+        y: 0,
+        width: 0,
+        height: 0,
+    });
     let empty = || Some(String::new());
     Config {
         debug_logging: false,
@@ -604,10 +621,16 @@ mod tests {
 
     #[test]
     fn names_from_telemetry_match_in_any_case() {
-        assert_eq!(CarType::from_name(" hybriddiesel "), Some(CarType::HybridDiesel));
+        assert_eq!(
+            CarType::from_name(" hybriddiesel "),
+            Some(CarType::HybridDiesel)
+        );
         assert_eq!(CarType::from_name("LPG"), Some(CarType::Lpg));
         assert_eq!(CarType::from_name("Unknown"), None);
-        assert_eq!(EvConnectorType::from_name("combo2"), Some(EvConnectorType::Combo2));
+        assert_eq!(
+            EvConnectorType::from_name("combo2"),
+            Some(EvConnectorType::Combo2)
+        );
         assert_eq!(EvConnectorType::from_name("Type 2"), None);
     }
 }

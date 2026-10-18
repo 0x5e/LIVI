@@ -1,8 +1,3 @@
-//! The proxy the phone offers in setProxyParameters, the car's only way to content that lives on
-//! the phone or the internet behind it, such as a video app's own HLS server on 127.0.0.1 or a
-//! CDN. The phone speaks TLS 1.3 with an external PSK and the AES-256/SHA-384 suite only, then
-//! HTTP CONNECT to whatever host the content names.
-
 use std::ffi::{c_int, c_uchar};
 use std::io;
 use std::net::{Ipv6Addr, SocketAddr, SocketAddrV6};
@@ -60,7 +55,6 @@ fn psk_index() -> Result<Index<Ssl, Psk>, openssl::error::ErrorStack> {
     Ok(*INDEX.get_or_init(|| index))
 }
 
-/// A session made of the PSK alone, the shape OpenSSL wants an external PSK in.
 unsafe fn psk_session(ssl: *mut ffi::SSL, psk: &Psk) -> *mut ffi::SSL_SESSION {
     unsafe {
         let cipher = SSL_CIPHER_find(ssl, SUITE_ID.as_ptr());
@@ -79,8 +73,6 @@ unsafe fn psk_session(ssl: *mut ffi::SSL, psk: &Psk) -> *mut ffi::SSL_SESSION {
     }
 }
 
-/// OpenSSL asks once before the ClientHello without a digest, and again after a retry with the
-/// digest the server picked. A PSK made for SHA-384 must not be offered for another digest.
 unsafe extern "C" fn use_session(
     ssl: *mut ffi::SSL,
     md: *const ffi::EVP_MD,
@@ -110,7 +102,6 @@ unsafe extern "C" fn use_session(
     1
 }
 
-/// What the phone hands over in setProxyParameters.
 pub struct ProxyOffer {
     at: SocketAddrV6,
     sni: String,
@@ -120,12 +111,17 @@ pub struct ProxyOffer {
 }
 
 impl ProxyOffer {
-    /// The proxy sits on the phone's link-local address, `scope` is the interface the phone
-    /// reaches LIVI on.
     pub fn from_params(params: &Value, scope: u32) -> Option<Self> {
         let url = params.get("proxyUrl")?.as_str()?;
-        let sni = url.strip_prefix("https://").unwrap_or(url).trim_end_matches('/');
-        let ip: Ipv6Addr = sni.trim_start_matches('[').trim_end_matches(']').parse().ok()?;
+        let sni = url
+            .strip_prefix("https://")
+            .unwrap_or(url)
+            .trim_end_matches('/');
+        let ip: Ipv6Addr = sni
+            .trim_start_matches('[')
+            .trim_end_matches(']')
+            .parse()
+            .ok()?;
         let port = u16::try_from(params.get("proxyPort")?.as_int()?).ok()?;
         Some(Self {
             at: SocketAddrV6::new(ip, port, 0, scope),
@@ -142,20 +138,21 @@ impl ProxyOffer {
 
     fn tls(&self) -> io::Result<Ssl> {
         let mut ctx = SslContext::builder(SslMethod::tls_client()).map_err(io::Error::other)?;
-        ctx.set_min_proto_version(Some(SslVersion::TLS1_3)).map_err(io::Error::other)?;
+        ctx.set_min_proto_version(Some(SslVersion::TLS1_3))
+            .map_err(io::Error::other)?;
         ctx.set_ciphersuites(SUITE).map_err(io::Error::other)?;
-        // The PSK authenticates the phone, it shows no certificate.
         ctx.set_verify(SslVerifyMode::NONE);
         let mut ssl = Ssl::new(&ctx.build()).map_err(io::Error::other)?;
         ssl.set_hostname(&self.sni).map_err(io::Error::other)?;
-        let psk = Psk { key: self.psk.clone(), identity: self.identity.clone() };
+        let psk = Psk {
+            key: self.psk.clone(),
+            identity: self.identity.clone(),
+        };
         ssl.set_ex_data(psk_index().map_err(io::Error::other)?, psk);
         unsafe { SSL_set_psk_use_session_callback(ssl.as_ptr(), Some(use_session)) };
         Ok(ssl)
     }
 
-    /// A connection to `target` (host:port as the phone sees it) through the proxy, plus what
-    /// came after the CONNECT answer.
     pub(crate) async fn connect(
         &self,
         target: &str,
@@ -165,7 +162,10 @@ impl ProxyOffer {
                 .await
                 .map_err(|_| io::Error::from(io::ErrorKind::TimedOut))??;
         let mut tls = SslStream::new(self.tls()?, tcp).map_err(io::Error::other)?;
-        Pin::new(&mut tls).connect().await.map_err(io::Error::other)?;
+        Pin::new(&mut tls)
+            .connect()
+            .await
+            .map_err(io::Error::other)?;
         let ask = format!(
             "CONNECT {target} HTTP/1.1\r\nHost: {target}\r\nProxy-Authorization: {}\r\n\r\n",
             self.authorization
@@ -234,7 +234,10 @@ mod tests {
                 *session = std::ptr::null_mut();
                 return 1;
             }
-            let psk = Psk { key: KEY.to_vec(), identity: IDENTITY.to_vec() };
+            let psk = Psk {
+                key: KEY.to_vec(),
+                identity: IDENTITY.to_vec(),
+            };
             *session = psk_session(ssl, &psk);
             c_int::from(!(*session).is_null())
         }
@@ -243,12 +246,13 @@ mod tests {
     const PHONE_SERVER: &str = "127.0.0.1:58539";
     const CDN: &str = "localhost:443";
 
-    /// The phone's proxy with an HTTP server and an https CDN behind it, both echo the path.
     async fn phone() -> (SocketAddrV6, SslConnector) {
         let (cdn, trust) = test_tls::ca();
         let cdn = Arc::new(cdn);
         let listener = TcpListener::bind("[::1]:0").await.unwrap();
-        let SocketAddr::V6(at) = listener.local_addr().unwrap() else { unreachable!() };
+        let SocketAddr::V6(at) = listener.local_addr().unwrap() else {
+            unreachable!()
+        };
         tokio::spawn(async move {
             loop {
                 let (tcp, _) = listener.accept().await.unwrap();
@@ -264,11 +268,14 @@ mod tests {
                         return;
                     }
                     let ask = read_head(&mut tls).await;
-                    let target = ask.strip_prefix("CONNECT ").and_then(|t| t.split(' ').next());
+                    let target = ask
+                        .strip_prefix("CONNECT ")
+                        .and_then(|t| t.split(' ').next());
                     let target = target.filter(|t| [PHONE_SERVER, CDN].contains(t));
-                    let (Some(target), true) =
-                        (target, ask.contains(&format!("Proxy-Authorization: {AUTH}\r\n")))
-                    else {
+                    let (Some(target), true) = (
+                        target,
+                        ask.contains(&format!("Proxy-Authorization: {AUTH}\r\n")),
+                    ) else {
                         let _ = tls.write_all(b"HTTP/1.1 407 Nope\r\n\r\n").await;
                         return;
                     };
@@ -326,7 +333,10 @@ mod tests {
         let offer = ProxyOffer::from_params(&params(at, AUTH), 3).unwrap();
         assert_eq!(offer.address(), SocketAddrV6::new(*at.ip(), 60664, 0, 3));
         assert_eq!(offer.sni, "[fe80::88:6ad0:5dab:f30a]");
-        assert_eq!((offer.psk.as_slice(), offer.identity.as_slice()), (&KEY[..], IDENTITY));
+        assert_eq!(
+            (offer.psk.as_slice(), offer.identity.as_slice()),
+            (&KEY[..], IDENTITY)
+        );
         assert!(ProxyOffer::from_params(&dict([("proxyPort", Value::Int(1))]), 0).is_none());
         let mut bad = params(at, AUTH);
         if let Value::Dict(entries) = &mut bad {
@@ -340,7 +350,9 @@ mod tests {
         let (at, trust) = phone().await;
         let offer = Arc::new(ProxyOffer::from_params(&params(at, AUTH), 0).unwrap());
         let mut client = Client::through(offer.clone()).trusting(trust);
-        let on_phone = client.get(&format!("http://{PHONE_SERVER}/mirror/index.m3u8")).await;
+        let on_phone = client
+            .get(&format!("http://{PHONE_SERVER}/mirror/index.m3u8"))
+            .await;
         assert_eq!(on_phone.unwrap(), b"/mirror/index.m3u8");
         let cdn = client.get("https://localhost/films/a.m3u8").await.unwrap();
         assert_eq!(cdn, b"/films/a.m3u8");
@@ -354,7 +366,12 @@ mod tests {
         let (at, _) = phone().await;
         let wrong = Arc::new(ProxyOffer::from_params(&params(at, "Basic d3Jvbmc="), 0).unwrap());
         let mut client = Client::through(wrong.clone());
-        assert!(client.get(&format!("http://{PHONE_SERVER}/a")).await.is_err());
+        assert!(
+            client
+                .get(&format!("http://{PHONE_SERVER}/a"))
+                .await
+                .is_err()
+        );
         let err = wrong.connect(PHONE_SERVER).await.err().unwrap();
         assert!(err.to_string().contains("407"), "{err}");
         let elsewhere = wrong.connect("example.com:443").await.err().unwrap();

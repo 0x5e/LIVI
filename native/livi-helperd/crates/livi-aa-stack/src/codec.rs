@@ -2,7 +2,6 @@ use prost::Message;
 
 use crate::wire::{WIRE_LEN, decode_fields, has_field};
 
-/// prost fills a missing required field with its default.
 pub fn decode<M: Message + Default>(buf: &[u8], required: &[u32]) -> Result<M, String> {
     if let Some(missing) = required.iter().find(|f| !has_field(buf, **f)) {
         return Err(format!("missing required field {missing}"));

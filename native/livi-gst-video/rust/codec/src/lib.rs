@@ -1,8 +1,3 @@
-//! Element choice per codec: parser, decoder candidates and appsrc caps.
-//!
-//! The candidate lists are ordered best first. The caller takes the first name
-//! the GStreamer registry knows.
-
 use core::ffi::CStr;
 
 const H264: &CStr = c"h264";
@@ -10,7 +5,6 @@ const H265: &CStr = c"h265";
 const VP9: &CStr = c"vp9";
 const AV1: &CStr = c"av1";
 
-/// The parser element for `codec`, h264 for anything unknown.
 pub fn parser_for(codec: &str) -> &'static CStr {
     match codec {
         "h265" => c"h265parse",
@@ -20,7 +14,6 @@ pub fn parser_for(codec: &str) -> &'static CStr {
     }
 }
 
-/// The appsrc caps for `codec`, h264 for anything unknown.
 pub fn caps_for(codec: &str) -> &'static CStr {
     match codec {
         "h265" => c"video/x-h265,stream-format=byte-stream",
@@ -30,8 +23,6 @@ pub fn caps_for(codec: &str) -> &'static CStr {
     }
 }
 
-/// The software decoder for `codec`, used to report software availability and
-/// as the only candidate under LIVI_GST_SWDEC.
 pub fn sw_decoder_for(codec: &str) -> &'static CStr {
     match codec {
         "h265" => c"avdec_h265",
@@ -41,7 +32,6 @@ pub fn sw_decoder_for(codec: &str) -> &'static CStr {
     }
 }
 
-/// True for every decoder that is not one of the known software ones.
 pub fn is_hw_decoder(name: &str) -> bool {
     if name.is_empty() {
         return false;
@@ -52,8 +42,6 @@ pub fn is_hw_decoder(name: &str) -> bool {
     !matches!(name, "vp9dec" | "vp8dec" | "dav1ddec" | "openh264dec")
 }
 
-/// Decoder candidates for `codec`, hardware first. With `sw_only` the software
-/// decoder is the only candidate.
 pub fn decoder_candidates(codec: &str, sw_only: bool) -> &'static [&'static CStr] {
     if sw_only {
         return match codec {
@@ -65,9 +53,6 @@ pub fn decoder_candidates(codec: &str, sw_only: bool) -> &'static [&'static CStr
     }
     #[cfg(target_os = "macos")]
     {
-        // The bundled vtdec carries scripts/gstreamer/patches/gst-plugins-bad/0007,
-        // so HEVC decodes low-latency in hardware.
-        // https://gitlab.freedesktop.org/gstreamer/gstreamer/-/work_items/5133
         match codec {
             "h265" => &[c"vtdec", c"avdec_h265"],
             "vp9" => &[c"vp9dec"],
@@ -78,26 +63,30 @@ pub fn decoder_candidates(codec: &str, sw_only: bool) -> &'static [&'static CStr
     #[cfg(not(target_os = "macos"))]
     {
         match codec {
-            "h265" => &[c"v4l2slh265dec", c"v4l2h265dec", c"vah265dec", c"avdec_h265"],
+            "h265" => &[
+                c"v4l2slh265dec",
+                c"v4l2h265dec",
+                c"vah265dec",
+                c"avdec_h265",
+            ],
             "vp9" => &[c"v4l2slvp9dec", c"v4l2vp9dec", c"vavp9dec", c"vp9dec"],
             "av1" => &[c"vaav1dec", c"dav1ddec"],
-            _ => &[c"v4l2slh264dec", c"v4l2h264dec", c"vah264dec", c"avdec_h264"],
+            _ => &[
+                c"v4l2slh264dec",
+                c"v4l2h264dec",
+                c"vah264dec",
+                c"avdec_h264",
+            ],
         }
     }
 }
 
-/// The GPU livi-compositor renders on. A decoded frame only reaches it as a
-/// dmabuf when the decoder sits on that same GPU.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum RenderGpu {
     Nvidia,
-    /// Any other driver, by its render node name, e.g. "renderD128".
     Node(String),
 }
 
-/// Decoder candidates for `codec` on `gpu`, best first. NVIDIA gets NVDEC,
-/// another GPU the VA decoder of its own node ahead of the unnamed one, which
-/// sits on the first VA device and needs its device path checked.
 pub fn decoder_candidates_on(codec: &str, sw_only: bool, gpu: &RenderGpu) -> Vec<String> {
     let mut names = Vec::new();
     if !sw_only && *gpu == RenderGpu::Nvidia {
@@ -107,7 +96,10 @@ pub fn decoder_candidates_on(codec: &str, sw_only: bool, gpu: &RenderGpu) -> Vec
         };
         names.push(format!("nv{c}dec"));
     }
-    for name in decoder_candidates(codec, sw_only).iter().filter_map(|n| n.to_str().ok()) {
+    for name in decoder_candidates(codec, sw_only)
+        .iter()
+        .filter_map(|n| n.to_str().ok())
+    {
         match gpu {
             RenderGpu::Nvidia if is_hw_decoder(name) => continue,
             RenderGpu::Node(node) if name.starts_with("va") => {
@@ -120,29 +112,25 @@ pub fn decoder_candidates_on(codec: &str, sw_only: bool, gpu: &RenderGpu) -> Vec
     names
 }
 
-/// Codec names the caller may pass. Anything else is read as h264.
 pub fn known_codecs() -> [&'static CStr; 4] {
     [H264, H265, VP9, AV1]
 }
 
-/// The sink chain for this platform. `LIVI_GST_SINK` replaces the element name
-/// on Linux, where the decoded dmabuf goes to livi-compositor zero-copy.
 pub fn sink_chain(sink_override: Option<&str>) -> String {
     #[cfg(target_os = "macos")]
     {
         let _ = sink_override;
-        // force-aspect-ratio=false: the clip view enforces the ratio, the sink must fill
         "glimagesink name=sink sync=false qos=false force-aspect-ratio=false".to_owned()
     }
     #[cfg(not(target_os = "macos"))]
     {
-        let name = sink_override.filter(|s| !s.is_empty()).unwrap_or("waylandsink");
+        let name = sink_override
+            .filter(|s| !s.is_empty())
+            .unwrap_or("waylandsink");
         format!("{name} name=sink sync=false")
     }
 }
 
-/// The element before the sink: software decoders hand out plain frames that
-/// still need converting.
 pub fn presink(decoder: &str) -> &'static str {
     #[cfg(target_os = "macos")]
     {
@@ -151,19 +139,22 @@ pub fn presink(decoder: &str) -> &'static str {
     }
     #[cfg(not(target_os = "macos"))]
     {
-        // NVDEC hands out plain frames as well, it shares no memory with the compositor.
-        if is_hw_decoder(decoder) && !decoder.starts_with("nv") { "" } else { "videoconvert ! " }
+        if is_hw_decoder(decoder) && !decoder.starts_with("nv") {
+            ""
+        } else {
+            "videoconvert ! "
+        }
     }
 }
 
-/// The colour-calibration pass, empty where the platform has none.
 pub fn calibration() -> &'static str {
-    if cfg!(target_os = "macos") { "glupload ! glcolorconvert ! glshader name=cal ! " } else { "" }
+    if cfg!(target_os = "macos") {
+        "glupload ! glcolorconvert ! glshader name=cal ! "
+    } else {
+        ""
+    }
 }
 
-/// The whole pipeline for `codec` through `decoder`. The queue ahead of the
-/// decoder keeps every frame for the decoder's reference chain, the one behind
-/// it drops when the sink falls behind.
 pub fn pipeline_desc(codec: &str, decoder: &str, cal: &str, sink_override: Option<&str>) -> String {
     format!(
         "appsrc name=src is-live=true do-timestamp=true format=time \
@@ -198,7 +189,11 @@ mod tests {
     fn anything_unknown_is_read_as_h264() {
         for codec in ["h264", "", "H265", "mpeg2", "hevc"] {
             assert_eq!(parser_for(codec), c"h264parse", "{codec}");
-            assert_eq!(caps_for(codec), c"video/x-h264,stream-format=byte-stream", "{codec}");
+            assert_eq!(
+                caps_for(codec),
+                c"video/x-h264,stream-format=byte-stream",
+                "{codec}"
+            );
             assert_eq!(sw_decoder_for(codec), c"avdec_h264", "{codec}");
         }
     }
@@ -212,7 +207,14 @@ mod tests {
 
     #[test]
     fn the_known_software_decoders_are_not_hardware() {
-        for name in ["avdec_h264", "avdec_h265", "vp9dec", "vp8dec", "dav1ddec", "openh264dec"] {
+        for name in [
+            "avdec_h264",
+            "avdec_h265",
+            "vp9dec",
+            "vp8dec",
+            "dav1ddec",
+            "openh264dec",
+        ] {
             assert!(!is_hw_decoder(name), "{name}");
         }
     }
@@ -281,7 +283,10 @@ mod tests {
     #[test]
     fn another_gpu_tries_the_va_decoder_of_its_own_node_first() {
         let names = decoder_candidates_on("h265", false, &RenderGpu::Node("renderD129".into()));
-        let own = names.iter().position(|n| n == "varenderD129h265dec").unwrap();
+        let own = names
+            .iter()
+            .position(|n| n == "varenderD129h265dec")
+            .unwrap();
         let first = names.iter().position(|n| n == "vah265dec").unwrap();
         assert!(own < first);
         assert_eq!(names.last().unwrap(), "avdec_h265");
@@ -341,7 +346,6 @@ mod pipeline_tests {
         for stage in stages {
             assert!(!stage.is_empty(), "{d}");
             assert!(!stage.contains('!'), "unsplit stage {stage:?}");
-            // a property glued to the next element reads as a word with no space before "name="
             assert!(!stage.contains("timemin"), "{stage:?}");
         }
     }
@@ -382,7 +386,10 @@ mod pipeline_tests {
     fn the_sink_can_be_replaced_by_name() {
         assert_eq!(sink_chain(None), "waylandsink name=sink sync=false");
         assert_eq!(sink_chain(Some("")), "waylandsink name=sink sync=false");
-        assert_eq!(sink_chain(Some("fakesink")), "fakesink name=sink sync=false");
+        assert_eq!(
+            sink_chain(Some("fakesink")),
+            "fakesink name=sink sync=false"
+        );
         assert!(
             pipeline_desc("h264", "avdec_h264", "", Some("fakesink"))
                 .contains("fakesink name=sink")

@@ -7,7 +7,6 @@ pub(crate) mod test_dir {
     use std::path::PathBuf;
     use std::sync::atomic::{AtomicU32, Ordering};
 
-    /// Short, so socket paths stay within the address limit.
     pub struct TempDir(pub PathBuf);
 
     impl TempDir {

@@ -1,7 +1,3 @@
-//! The helper owns TCP and TLS, this socket carries cleartext. Each item is
-//! `[len u32 LE][kind u8][body]`, kind 0 an AA message
-//! `[ch][flags][msgId u16 BE][payload]`, kind 1 a JSON object.
-
 use std::io;
 use std::path::Path;
 
@@ -57,8 +53,20 @@ pub fn attach(sock: UnixStream, peer: &str) -> (Link, LinkReader) {
             }
         }
     });
-    let link = Link { peer: peer.to_string(), tx, writable: true, closed: false };
-    (link, LinkReader { rd, framer: Framer::default(), buf: vec![0; 65536] })
+    let link = Link {
+        peer: peer.to_string(),
+        tx,
+        writable: true,
+        closed: false,
+    };
+    (
+        link,
+        LinkReader {
+            rd,
+            framer: Framer::default(),
+            buf: vec![0; 65536],
+        },
+    )
 }
 
 impl Link {
@@ -70,14 +78,18 @@ impl Link {
     }
 
     pub fn send(&self, frame: &Frame) {
-        self.write(encode_message(frame.ch, frame.flags, frame.msg_id, &frame.payload));
+        self.write(encode_message(
+            frame.ch,
+            frame.flags,
+            frame.msg_id,
+            &frame.payload,
+        ));
     }
 
     pub fn control(&self, msg: &Value) {
         self.write(encode_control(&msg.to_string()));
     }
 
-    /// The helper half-closes towards the phone, reading goes on.
     pub fn end(&self) {
         self.control(&serde_json::json!({ "type": "end" }));
     }
@@ -103,8 +115,18 @@ impl LinkReader {
         loop {
             while let Some(item) = self.framer.next_item() {
                 match item {
-                    Item::Message { ch, flags, msg_id, payload } => {
-                        return LinkItem::Message(Frame { ch, flags, msg_id, payload });
+                    Item::Message {
+                        ch,
+                        flags,
+                        msg_id,
+                        payload,
+                    } => {
+                        return LinkItem::Message(Frame {
+                            ch,
+                            flags,
+                            msg_id,
+                            payload,
+                        });
                     }
                     Item::Control(json) => {
                         if let Ok(v @ Value::Object(_)) = serde_json::from_str::<Value>(&json)
@@ -136,7 +158,10 @@ mod tests {
 
         link.send(&Frame::new(3, 0x0b, 0x8004, [8, 1]));
         link.control(&serde_json::json!({ "type": "sink", "feed": "/f" }));
-        assert_eq!(helper_rd.next().await, LinkItem::Message(Frame::new(3, 0x0b, 0x8004, [8, 1])));
+        assert_eq!(
+            helper_rd.next().await,
+            LinkItem::Message(Frame::new(3, 0x0b, 0x8004, [8, 1]))
+        );
         assert_eq!(
             helper_rd.next().await,
             LinkItem::Control(serde_json::json!({ "type": "sink", "feed": "/f" }))
@@ -152,7 +177,10 @@ mod tests {
         );
 
         link.end();
-        assert_eq!(helper_rd.next().await, LinkItem::Control(serde_json::json!({ "type": "end" })));
+        assert_eq!(
+            helper_rd.next().await,
+            LinkItem::Control(serde_json::json!({ "type": "end" }))
+        );
         link.destroy();
         link.send(&Frame::new(0, 3, 1, []));
         assert_eq!(
@@ -162,7 +190,10 @@ mod tests {
         assert_eq!(helper_rd.next().await, LinkItem::Closed(None));
         helper.destroy();
         drop(helper);
-        assert_eq!(reader.next().await, LinkItem::Control(serde_json::json!({ "type": "close" })));
+        assert_eq!(
+            reader.next().await,
+            LinkItem::Control(serde_json::json!({ "type": "close" }))
+        );
         assert_eq!(reader.next().await, LinkItem::Closed(None));
         link.mark_closed();
         link.destroy();

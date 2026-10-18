@@ -1,16 +1,9 @@
-//! The dongle puts its USB link and its access point into one bridge with one address, so a
-//! listener cannot tell its host on USB from a Wi-Fi client by address. The bridge's forwarding
-//! table knows which port each peer's frames came in on.
-
 use std::fs;
 use std::net::{IpAddr, TcpListener, TcpStream};
 use std::path::Path;
 
-/// The dongle's end of the USB link to its host.
 pub const USB: &str = "usb0";
 
-/// The connections on `listener` from this device itself or from its host on USB. Anyone else,
-/// a Wi-Fi client of the access point included, is hung up on before the caller sees them.
 pub fn from_usb(listener: &TcpListener) -> impl Iterator<Item = TcpStream> + '_ {
     let mut last = None;
     listener.incoming().flatten().filter(move |stream| {
@@ -20,9 +13,12 @@ pub fn from_usb(listener: &TcpListener) -> impl Iterator<Item = TcpStream> + '_ 
         if over_usb(Path::new("/"), peer.ip(), local.ip()) {
             return true;
         }
-        // A host on Wi-Fi keeps retrying, once is enough for the log
         if last.replace(peer.ip()) != Some(peer.ip()) {
-            println!("[link] :{} turned away {}, not on the USB link", local.port(), peer.ip());
+            println!(
+                "[link] :{} turned away {}, not on the USB link",
+                local.port(),
+                peer.ip()
+            );
         }
         false
     })
@@ -45,7 +41,6 @@ fn over_usb(root: &Path, peer: IpAddr, local: IpAddr) -> bool {
     entries(&fdb(root, dev)).any(|e| e.mac == mac && e.port == usb)
 }
 
-/// The MAC and interface the kernel resolved `ip` to.
 fn neighbour(arp: &str, ip: IpAddr) -> Option<([u8; 6], &str)> {
     arp.lines().skip(1).find_map(|line| {
         let fields: Vec<&str> = line.split_whitespace().collect();
@@ -59,7 +54,6 @@ fn neighbour(arp: &str, ip: IpAddr) -> Option<([u8; 6], &str)> {
     })
 }
 
-/// An entry still waiting for its answer reads as all zeros.
 fn parse_mac(text: &str) -> Option<[u8; 6]> {
     let mut mac = [0; 6];
     let mut parts = text.split(':');
@@ -84,7 +78,6 @@ struct Entry {
     port: u16,
 }
 
-/// 16 bytes each: mac[6], port_no, is_local, four bytes of ageing, then the port's high byte.
 fn entries(fdb: &[u8]) -> impl Iterator<Item = Entry> + '_ {
     fdb.as_chunks::<16>().0.iter().map(|e| Entry {
         mac: [e[0], e[1], e[2], e[3], e[4], e[5]],
@@ -116,7 +109,6 @@ IP address       HW type     Flags       HW address            Mask     Device
         e
     }
 
-    /// A /proc and /sys of a dongle with usb0 on port 1 and wlan0 on port 2 of br0.
     fn dongle(name: &str, arp: &str) -> PathBuf {
         let root = std::env::temp_dir().join(format!("livi-net-{}-{name}", std::process::id()));
         let _ = fs::remove_dir_all(&root);
@@ -127,7 +119,12 @@ IP address       HW type     Flags       HW address            Mask     Device
         }
         fs::create_dir_all(root.join("proc/net")).unwrap();
         fs::write(root.join("proc/net/arp"), arp).unwrap();
-        let fdb = [entry(HOST, 1, false), entry(STATION, 2, false), entry(OWN, 1, true)].concat();
+        let fdb = [
+            entry(HOST, 1, false),
+            entry(STATION, 2, false),
+            entry(OWN, 1, true),
+        ]
+        .concat();
         fs::create_dir_all(root.join("sys/class/net/br0")).unwrap();
         fs::write(root.join("sys/class/net/br0/brforward"), fdb).unwrap();
         root
@@ -143,14 +140,20 @@ IP address       HW type     Flags       HW address            Mask     Device
         let own = ip("10.10.10.1");
         assert!(over_usb(&root, ip("10.10.10.100"), own));
         assert!(!over_usb(&root, ip("10.10.10.103"), own));
-        assert!(!over_usb(&root, ip("10.10.10.102"), own), "no answer yet, no MAC");
+        assert!(
+            !over_usb(&root, ip("10.10.10.102"), own),
+            "no answer yet, no MAC"
+        );
         assert!(!over_usb(&root, ip("10.10.10.150"), own), "never seen");
         fs::remove_dir_all(root).unwrap();
     }
 
     #[test]
     fn this_device_and_a_usb_link_outside_a_bridge_get_in() {
-        let root = dongle("self", "header\n10.10.10.100 0x1 0x2 06:7c:56:f6:a8:ec * usb0\n");
+        let root = dongle(
+            "self",
+            "header\n10.10.10.100 0x1 0x2 06:7c:56:f6:a8:ec * usb0\n",
+        );
         assert!(over_usb(&root, ip("127.0.0.1"), ip("127.0.0.1")));
         assert!(over_usb(&root, ip("10.10.10.1"), ip("10.10.10.1")));
         assert!(over_usb(&root, ip("10.10.10.100"), ip("10.10.10.1")));

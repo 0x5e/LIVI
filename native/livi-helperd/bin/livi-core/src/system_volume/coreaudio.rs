@@ -83,18 +83,35 @@ const OUTPUT: u32 = fourcc(b"outp");
 const MAIN: u32 = 0;
 const UTF8: u32 = 0x0800_0100;
 
-const DEFAULT_OUTPUT: Address = Address { selector: fourcc(b"dOut"), scope: GLOBAL, element: MAIN };
-const DEVICES: Address = Address { selector: fourcc(b"dev#"), scope: GLOBAL, element: MAIN };
-const UID_TO_DEVICE: Address = Address { selector: fourcc(b"uidd"), scope: GLOBAL, element: MAIN };
-/// What the menu bar slider moves. On a device without a main control it moves the
-/// channels together and keeps their balance.
-const VOLUME: Address = Address { selector: fourcc(b"vmvc"), scope: OUTPUT, element: MAIN };
+const DEFAULT_OUTPUT: Address = Address {
+    selector: fourcc(b"dOut"),
+    scope: GLOBAL,
+    element: MAIN,
+};
+const DEVICES: Address = Address {
+    selector: fourcc(b"dev#"),
+    scope: GLOBAL,
+    element: MAIN,
+};
+const UID_TO_DEVICE: Address = Address {
+    selector: fourcc(b"uidd"),
+    scope: GLOBAL,
+    element: MAIN,
+};
+const VOLUME: Address = Address {
+    selector: fourcc(b"vmvc"),
+    scope: OUTPUT,
+    element: MAIN,
+};
 
 fn checked(status: OsStatus, what: &str) -> Result<(), Fault> {
-    if status == 0 { Ok(()) } else { Err(Fault::Other(format!("{what}: OSStatus {status}"))) }
+    if status == 0 {
+        Ok(())
+    } else {
+        Err(Fault::Other(format!("{what}: OSStatus {status}")))
+    }
 }
 
-/// The configured device by its UID, the default output for "".
 fn device_id(device: &str) -> Result<AudioObjectId, Fault> {
     let mut id = UNKNOWN;
     let mut size = size_of::<AudioObjectId>() as u32;
@@ -112,11 +129,21 @@ fn device_id(device: &str) -> Result<AudioObjectId, Fault> {
             )
         };
         checked(status, "default output")?;
-        return if id == UNKNOWN { Err(Fault::Other("no default output".into())) } else { Ok(id) };
+        return if id == UNKNOWN {
+            Err(Fault::Other("no default output".into()))
+        } else {
+            Ok(id)
+        };
     }
     // SAFETY: the bytes outlive the call, CoreFoundation copies them.
     let uid = unsafe {
-        CFStringCreateWithBytes(core::ptr::null(), device.as_ptr(), device.len() as isize, UTF8, 0)
+        CFStringCreateWithBytes(
+            core::ptr::null(),
+            device.as_ptr(),
+            device.len() as isize,
+            UTF8,
+            0,
+        )
     };
     if uid.is_null() {
         return Err(Fault::Other(format!("{device} is no valid UID")));
@@ -135,7 +162,11 @@ fn device_id(device: &str) -> Result<AudioObjectId, Fault> {
     // SAFETY: created above, released once.
     unsafe { CFRelease(uid) };
     checked(status, "device by UID")?;
-    if id == UNKNOWN { Err(Fault::Missing) } else { Ok(id) }
+    if id == UNKNOWN {
+        Err(Fault::Missing)
+    } else {
+        Ok(id)
+    }
 }
 
 fn has_volume(id: AudioObjectId) -> bool {
@@ -165,7 +196,6 @@ fn read(device: &str) -> Result<f64, Fault> {
     Ok(whole_percent(f64::from(level)))
 }
 
-/// The Float32 would reach the config as 0.6600000262260437.
 fn whole_percent(level: f64) -> f64 {
     (level.clamp(0.0, 1.0) * 100.0).round() / 100.0
 }
@@ -190,7 +220,6 @@ fn write(device: &str, level: f64) -> Result<(), Fault> {
     checked(status, "volume")
 }
 
-/// CoreAudio can block on a waking Bluetooth device.
 pub async fn get(device: &str) -> Result<f64, Fault> {
     let device = device.to_string();
     tokio::task::spawn_blocking(move || read(&device))
@@ -233,8 +262,6 @@ fn output_devices() -> Vec<AudioObjectId> {
     ids.into_iter().filter(|&id| has_volume(id)).collect()
 }
 
-/// Lives as long as the process: CoreAudio may still be inside a callback
-/// when a listener is removed.
 struct Watcher {
     tx: mpsc::UnboundedSender<OutputEvent>,
     listened: Mutex<HashSet<AudioObjectId>>,
@@ -246,7 +273,6 @@ impl Watcher {
         (self as *const Self).cast_mut().cast()
     }
 
-    /// Every output's volume is listened to, the user may switch outputs any time.
     fn listen_to_outputs(&'static self) {
         let present = output_devices();
         let mut listened = self.listened.lock().unwrap_or_else(|e| e.into_inner());
@@ -295,9 +321,12 @@ impl Drop for Watch {
         let watcher = self.0;
         watcher.stopped.store(true, Ordering::Relaxed);
         let client = watcher.client();
-        // Taken out first: a remove can wait for a callback that waits for this lock.
-        let listened: Vec<AudioObjectId> =
-            watcher.listened.lock().unwrap_or_else(|e| e.into_inner()).drain().collect();
+        let listened: Vec<AudioObjectId> = watcher
+            .listened
+            .lock()
+            .unwrap_or_else(|e| e.into_inner())
+            .drain()
+            .collect();
         // SAFETY: removes exactly what `watch` and `listen_to_outputs` added.
         unsafe {
             AudioObjectRemovePropertyListener(SYSTEM, &DEVICES, on_change, client);
@@ -331,7 +360,10 @@ mod tests {
 
     #[test]
     fn a_device_that_is_not_there_is_missing() {
-        assert!(matches!(device_id("LIVI-no-such-device"), Err(Fault::Missing)));
+        assert!(matches!(
+            device_id("LIVI-no-such-device"),
+            Err(Fault::Missing)
+        ));
     }
 
     #[test]

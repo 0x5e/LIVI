@@ -104,7 +104,10 @@ fn poll_client(state: &mut LiviState) {
     }
     state.ctrl_buf.push_str(&String::from_utf8_lossy(&chunk));
     if state.ctrl_buf.len() > 64 * 1024 {
-        log::warn!("control buffer overflow, dropping {} bytes", state.ctrl_buf.len());
+        log::warn!(
+            "control buffer overflow, dropping {} bytes",
+            state.ctrl_buf.len()
+        );
         state.ctrl_buf.clear();
         return;
     }
@@ -124,7 +127,11 @@ pub fn send(state: &mut LiviState, line: &str) {
 }
 
 fn flush_out(state: &mut LiviState) {
-    let LiviState { ctrl_client, ctrl_out, .. } = state;
+    let LiviState {
+        ctrl_client,
+        ctrl_out,
+        ..
+    } = state;
     let Some(client) = ctrl_client.as_mut() else {
         ctrl_out.clear();
         return;
@@ -147,8 +154,10 @@ fn flush_out(state: &mut LiviState) {
 }
 
 fn send_ui(state: &mut LiviState) {
-    let node =
-        state.render_node.as_ref().map_or_else(|| "-".to_string(), |p| p.display().to_string());
+    let node = state
+        .render_node
+        .as_ref()
+        .map_or_else(|| "-".to_string(), |p| p.display().to_string());
     let line = format!("ui {} {node}\n", state.ui_socket);
     send(state, &line);
 }
@@ -161,7 +170,10 @@ pub fn send_panels(state: &mut LiviState) {
         .filter_map(|(i, s)| {
             let (mm_w, mm_h) = crate::host::panel_mm(state, i)?;
             if s.width > 0 && s.height > 0 {
-                Some(format!("panel {} {} {} {} {}\n", s.role, mm_w, mm_h, s.width, s.height))
+                Some(format!(
+                    "panel {} {} {} {} {}\n",
+                    s.role, mm_w, mm_h, s.width, s.height
+                ))
             } else {
                 None
             }
@@ -216,14 +228,20 @@ fn handle_line(state: &mut LiviState, line: &str) {
                     log::info!("ctrl < claim {tag} (took the plane already waiting)");
                 } else if state.pending_video_tags.len() < 16 {
                     state.pending_video_tags.push_back(tag.to_string());
-                    log::info!("ctrl < claim {tag} (pending: {:?})", state.pending_video_tags);
+                    log::info!(
+                        "ctrl < claim {tag} (pending: {:?})",
+                        state.pending_video_tags
+                    );
                 }
             }
         }
         Some("unclaim") => {
             if let Some(tag) = parts.next() {
                 state.pending_video_tags.retain(|t| t != tag);
-                log::info!("ctrl < unclaim {tag} (pending: {:?})", state.pending_video_tags);
+                log::info!(
+                    "ctrl < unclaim {tag} (pending: {:?})",
+                    state.pending_video_tags
+                );
             }
         }
         Some("videocfg") => {
@@ -253,9 +271,10 @@ fn handle_line(state: &mut LiviState, line: &str) {
         }
         Some("videoshow") => {
             log::info!("ctrl < {line}");
-            let (Some(tag), Some(onoff)) =
-                (parts.next(), parts.next().and_then(|v| v.parse::<i32>().ok()))
-            else {
+            let (Some(tag), Some(onoff)) = (
+                parts.next(),
+                parts.next().and_then(|v| v.parse::<i32>().ok()),
+            ) else {
                 return;
             };
             let tag = tag.to_string();
@@ -273,8 +292,14 @@ fn handle_line(state: &mut LiviState, line: &str) {
             let Some(idx) = parts.next().and_then(|role| state.screen_idx_by_role(role)) else {
                 return;
             };
-            let w = parts.next().and_then(|v| v.parse::<i32>().ok()).unwrap_or(0);
-            let h = parts.next().and_then(|v| v.parse::<i32>().ok()).unwrap_or(0);
+            let w = parts
+                .next()
+                .and_then(|v| v.parse::<i32>().ok())
+                .unwrap_or(0);
+            let h = parts
+                .next()
+                .and_then(|v| v.parse::<i32>().ok())
+                .unwrap_or(0);
             let aspect = (w > 0 && h > 0).then_some((w, h));
             if state.screens[idx].aspect != aspect {
                 log::info!("ctrl < {line}");
@@ -289,8 +314,12 @@ fn handle_line(state: &mut LiviState, line: &str) {
             }
             let dbg = std::env::var("LIVI_DEBUG_BG").is_ok();
             for s in &mut state.screens {
-                s.backdrop_color =
-                    [nums[0] as f32 / 255.0, nums[1] as f32 / 255.0, nums[2] as f32 / 255.0, 1.0];
+                s.backdrop_color = [
+                    nums[0] as f32 / 255.0,
+                    nums[1] as f32 / 255.0,
+                    nums[2] as f32 / 255.0,
+                    1.0,
+                ];
                 s.has_backdrop_color = true;
             }
             if !dbg {

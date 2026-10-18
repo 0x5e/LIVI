@@ -74,7 +74,10 @@ fn main() -> ExitCode {
             return ExitCode::FAILURE;
         }
     }
-    let runtime = match tokio::runtime::Builder::new_multi_thread().enable_all().build() {
+    let runtime = match tokio::runtime::Builder::new_multi_thread()
+        .enable_all()
+        .build()
+    {
         Ok(rt) => rt,
         Err(e) => {
             eprintln!("[core] no runtime: {e}");
@@ -82,7 +85,6 @@ fn main() -> ExitCode {
         }
     };
     let outcome = runtime.block_on(run());
-    // Dropping the runtime stops the processes that end with their handles.
     runtime.shutdown_timeout(Duration::from_secs(2));
     let code = match outcome {
         Ok(Exit::Quit) => ExitCode::SUCCESS,
@@ -108,7 +110,6 @@ fn main() -> ExitCode {
     code
 }
 
-/// On macOS the app starts core, so only the app can start everything again.
 const RELAUNCH_THE_APP: u8 = 75;
 
 enum Exit {
@@ -117,13 +118,11 @@ enum Exit {
     Restart(Option<PathBuf>),
 }
 
-/// The phones get their goodbye while the helper still carries them.
 async fn goodbye(core: &Core) {
     let _ = tokio::time::timeout(Duration::from_secs(3), core.goodbye()).await;
     let _ = tokio::time::timeout(Duration::from_secs(4), devices::leave_phones()).await;
 }
 
-/// Execs in this process, so an AppImage stays mounted.
 fn restart(program: Option<PathBuf>) -> ExitCode {
     println!("[core] restarting");
     log_file::finish();
@@ -151,7 +150,11 @@ async fn run() -> Result<Exit, String> {
     };
     let config_file = ConfigFile::new(paths.config.clone(), paths.config_backup.clone());
     let config = config_file.load(&host);
-    let livi = PerScreen { main: Front::Livi, cluster: Front::Livi, aux: Front::Livi };
+    let livi = PerScreen {
+        main: Front::Livi,
+        cluster: Front::Livi,
+        aux: Front::Livi,
+    };
     let quit = Arc::new(Notify::new());
     if std::env::var(LIFELINE_ENV).is_ok_and(|v| v == "1") {
         let quit = quit.clone();
@@ -176,14 +179,17 @@ async fn run() -> Result<Exit, String> {
     let (asks_tx, asks, dongle_asks, update_asks) = projection::ui_channels(livi);
     let core = Arc::new(Core::new(hub, config_file, uid, quit.clone(), asks_tx));
 
-    // Whatever sits there is left over, the lock says no other core runs.
     let socket = paths.socket();
     let _ = fs::remove_file(&socket);
     let listener = UnixListener::bind(&socket)
         .map_err(|e| format!("cannot listen on {}: {e}", socket.display()))?;
     println!("[core] listening on {}", socket.display());
 
-    let user_data = paths.config.parent().map(Path::to_path_buf).unwrap_or_default();
+    let user_data = paths
+        .config
+        .parent()
+        .map(Path::to_path_buf)
+        .unwrap_or_default();
     tokio::spawn(dongle::run(core.hub.clone(), dongle_asks));
     tokio::spawn(wifi_options::follow(core.clone()));
     let (inside, inside_rx) = tokio::sync::mpsc::unbounded_channel();
@@ -195,7 +201,10 @@ async fn run() -> Result<Exit, String> {
     tokio::spawn(update::run(core.clone(), update_asks));
     state_files::start(&core, core.activity(), &user_data);
     let res = Resources::from_env();
-    tokio::spawn(audio_devices::follow(core.hub.clone(), res.gstreamer.clone()));
+    tokio::spawn(audio_devices::follow(
+        core.hub.clone(),
+        res.gstreamer.clone(),
+    ));
     host_setup::prepare();
     let privileged = privileged::Privileged {
         templates: res.templates.clone(),
@@ -238,12 +247,19 @@ async fn run() -> Result<Exit, String> {
     let _ = tokio::time::timeout(Duration::from_secs(2), gvfs_guard::stop()).await;
     goodbye(&core).await;
     services.stop().await;
-    let _ =
-        tokio::time::timeout(Duration::from_secs(2), wifi_ap::release_for_quit(&core.hub.config()))
-            .await;
+    let _ = tokio::time::timeout(
+        Duration::from_secs(2),
+        wifi_ap::release_for_quit(&core.hub.config()),
+    )
+    .await;
     let _ = fs::remove_file(&socket);
     Ok(if core.restart.load(Ordering::SeqCst) {
-        Exit::Restart(core.relaunch.lock().unwrap_or_else(|e| e.into_inner()).take())
+        Exit::Restart(
+            core.relaunch
+                .lock()
+                .unwrap_or_else(|e| e.into_inner())
+                .take(),
+        )
     } else if core.quit_asked.load(Ordering::SeqCst) && power::owns_host() {
         Exit::PowerOff
     } else {
@@ -257,7 +273,6 @@ fn private_dir(dir: &Path) -> Result<(), String> {
         .map_err(|e| format!("cannot restrict {}: {e}", dir.display()))
 }
 
-/// Held for the life of the process, the kernel drops it with us.
 fn lock_instance(path: &Path) -> Result<File, String> {
     let file = OpenOptions::new()
         .create(true)
@@ -294,9 +309,11 @@ mod tests {
         let dir = TempDir::new();
         let path = dir.0.join("core.lock");
         let first = lock_instance(&path).unwrap();
-        assert_eq!(lock_instance(&path).err().as_deref(), Some("another livi-core is running"));
+        assert_eq!(
+            lock_instance(&path).err().as_deref(),
+            Some("another livi-core is running")
+        );
         drop(first);
-        // A child that another test forks right now holds the descriptor until its exec.
         let relocked = (0..100).any(|_| {
             let ok = lock_instance(&path).is_ok();
             if !ok {

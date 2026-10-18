@@ -1,8 +1,3 @@
-// RTL2832U demodulator with an R820T/R820T2 tuner as a plain IQ source.
-// The demodulator runs in SDR mode: the tuner mixes the channel down to a low
-// IF, the RTL samples it at 28.8 MHz, shifts it to zero and decimates to the
-// chosen rate. Samples arrive as interleaved unsigned 8 bit I/Q on bulk 0x81.
-
 mod r820t;
 mod regs;
 
@@ -73,17 +68,22 @@ pub struct RtlSdr {
 }
 
 impl RtlSdr {
-    /// On Linux this takes the stick away from dvb_usb_rtl28xxu.
     pub fn open(info: &DeviceInfo) -> Result<Self, Error> {
         let dev = info.open().wait()?;
         let iface = dev.detach_and_claim_interface(0).wait()?;
         let regs = Regs::new(dev);
-        let mut sdr = Self { regs, iface, tuner: R820t::new(XTAL), rate: 0, freq: 0, ppm: 0 };
+        let mut sdr = Self {
+            regs,
+            iface,
+            tuner: R820t::new(XTAL),
+            rate: 0,
+            freq: 0,
+            ppm: 0,
+        };
         sdr.init_baseband()?;
 
         sdr.regs.i2c_repeater(true)?;
         let tuner = sdr.probe_tuner().and_then(|()| {
-            // Low IF instead of zero IF, I input only, spectrum inverted.
             sdr.regs.demod_write(1, 0xb1, 0x1a, 1)?;
             sdr.regs.demod_write(0, 0x08, 0x4d, 1)?;
             sdr.set_if_freq(sdr.tuner.if_freq)?;
@@ -110,13 +110,10 @@ impl RtlSdr {
         r.write_reg(BLOCK_USB, USB_SYSCTL, 0x09, 1)?;
         r.write_reg(BLOCK_USB, USB_EPA_MAXPKT, 0x0002, 2)?;
         r.write_reg(BLOCK_USB, USB_EPA_CTL, 0x1002, 2)?;
-        // Power on the demodulator and both ADCs.
         r.write_reg(BLOCK_SYS, SYS_DEMOD_CTL_1, 0x22, 1)?;
         r.write_reg(BLOCK_SYS, SYS_DEMOD_CTL, 0xe8, 1)?;
-        // Soft reset.
         r.demod_write(1, 0x01, 0x14, 1)?;
         r.demod_write(1, 0x01, 0x10, 1)?;
-        // No spectrum inversion, no adjacent channel rejection, IF and DDC at zero.
         r.demod_write(1, 0x15, 0x00, 1)?;
         r.demod_write(1, 0x16, 0x0000, 2)?;
         for i in 0..6 {
@@ -125,7 +122,6 @@ impl RtlSdr {
         for (i, b) in fir_bytes().iter().enumerate() {
             r.demod_write(1, 0x1c + i as u16, *b as u16, 1)?;
         }
-        // SDR mode: DAGC off, RF and IF AGC off, test mode bypass.
         r.demod_write(0, 0x19, 0x05, 1)?;
         r.demod_write(1, 0x93, 0xf0, 1)?;
         r.demod_write(1, 0x94, 0x0f, 1)?;
@@ -143,8 +139,10 @@ impl RtlSdr {
 
     fn set_if_freq(&self, freq: u32) -> Result<(), Error> {
         let v = -((freq as i64 * (1 << 22)) / self.xtal() as i64);
-        self.regs.demod_write(1, 0x19, ((v >> 16) & 0x3f) as u16, 1)?;
-        self.regs.demod_write(1, 0x1a, ((v >> 8) & 0xff) as u16, 1)?;
+        self.regs
+            .demod_write(1, 0x19, ((v >> 16) & 0x3f) as u16, 1)?;
+        self.regs
+            .demod_write(1, 0x1a, ((v >> 8) & 0xff) as u16, 1)?;
         self.regs.demod_write(1, 0x1b, (v & 0xff) as u16, 1)
     }
 
@@ -178,7 +176,6 @@ impl RtlSdr {
         Ok(())
     }
 
-    /// Tenths of a dB, one of `gains()`.
     pub fn set_gain(&mut self, gain: i32) -> Result<(), Error> {
         self.regs.i2c_repeater(true)?;
         let r = self.tuner.set_gain(&self.regs, gain);
@@ -186,7 +183,6 @@ impl RtlSdr {
         r
     }
 
-    /// Crystal error in ppm, corrects both the resampler and the tuner PLL.
     pub fn set_ppm(&mut self, ppm: i32) -> Result<(), Error> {
         self.ppm = ppm;
         self.tuner.xtal = self.xtal();
@@ -196,11 +192,10 @@ impl RtlSdr {
     fn write_ppm(&self) -> Result<(), Error> {
         let offs = (-(self.ppm as i64) * (1 << 24) / 1_000_000) as i16;
         self.regs.demod_write(1, 0x3f, (offs & 0xff) as u16, 1)?;
-        self.regs.demod_write(1, 0x3e, ((offs >> 8) & 0x3f) as u16, 1)
+        self.regs
+            .demod_write(1, 0x3e, ((offs >> 8) & 0x3f) as u16, 1)
     }
 
-    /// Flushes the FIFO and starts the bulk stream with `buffers` transfers of
-    /// `len` bytes each in flight.
     pub fn stream(&self, buffers: usize, len: usize) -> Result<IqStream, Error> {
         self.regs.write_reg(BLOCK_USB, USB_EPA_CTL, 0x1002, 2)?;
         self.regs.write_reg(BLOCK_USB, USB_EPA_CTL, 0x0000, 2)?;
@@ -228,14 +223,15 @@ pub struct IqStream {
 }
 
 impl IqStream {
-    /// The next block of interleaved u8 I/Q. The slice stays valid until the
-    /// next call, which hands its buffer back to the device.
     pub fn next_block(&mut self, timeout: Duration) -> Result<&[u8], Error> {
         if let Some(mut buf) = self.held.take() {
             buf.clear();
             self.ep.submit(buf);
         }
-        let done = self.ep.wait_next_complete(timeout).ok_or(TransferError::Cancelled)?;
+        let done = self
+            .ep
+            .wait_next_complete(timeout)
+            .ok_or(TransferError::Cancelled)?;
         let buf = done.into_result()?;
         Ok(&self.held.insert(buf)[..])
     }
@@ -245,17 +241,20 @@ impl Drop for IqStream {
     fn drop(&mut self) {
         self.ep.cancel_all();
         while self.ep.pending() > 0 {
-            if self.ep.wait_next_complete(Duration::from_millis(500)).is_none() {
+            if self
+                .ep
+                .wait_next_complete(Duration::from_millis(500))
+                .is_none()
+            {
                 break;
             }
         }
     }
 }
 
-/// Default low pass of the decimator: eight 8 bit taps and eight 12 bit taps
-/// packed into 20 bytes, the rest of the symmetric filter is mirrored.
-const FIR: [i16; 16] =
-    [-54, -36, -41, -40, -32, -14, 14, 53, 101, 156, 215, 273, 327, 372, 404, 421];
+const FIR: [i16; 16] = [
+    -54, -36, -41, -40, -32, -14, 14, 53, 101, 156, 215, 273, 327, 372, 404, 421,
+];
 
 fn fir_bytes() -> [u8; 20] {
     let mut out = [0u8; 20];
@@ -280,9 +279,7 @@ mod tests {
     fn fir_packs_twelve_bit_pairs() {
         let b = fir_bytes();
         assert_eq!(b[0], (-54i16) as u8);
-        // 101 = 0x065, 156 = 0x09c
         assert_eq!(&b[8..11], &[0x06, 0x50, 0x9c]);
-        // 404 = 0x194, 421 = 0x1a5
         assert_eq!(&b[17..20], &[0x19, 0x41, 0xa5]);
     }
 }

@@ -54,7 +54,10 @@ fn diff_into(old: &Value, new: &Value, path: &mut Vec<String>, ops: &mut Vec<Pat
                 path.push(key.clone());
                 match before.get(key) {
                     Some(prev) => diff_into(prev, value, path, ops),
-                    None => ops.push(PatchOp::Set { path: path.clone(), value: value.clone() }),
+                    None => ops.push(PatchOp::Set {
+                        path: path.clone(),
+                        value: value.clone(),
+                    }),
                 }
                 path.pop();
             }
@@ -64,7 +67,10 @@ fn diff_into(old: &Value, new: &Value, path: &mut Vec<String>, ops: &mut Vec<Pat
                 ops.push(PatchOp::Remove { path: gone });
             }
         }
-        _ if old != new => ops.push(PatchOp::Set { path: path.clone(), value: new.clone() }),
+        _ if old != new => ops.push(PatchOp::Set {
+            path: path.clone(),
+            value: new.clone(),
+        }),
         _ => {}
     }
 }
@@ -114,10 +120,21 @@ mod tests {
         assert_eq!(
             diff(&old, &new),
             vec![
-                PatchOp::Set { path: path(&["added"]), value: Value::Null },
-                PatchOp::Set { path: path(&["config", "huVolume"]), value: json!(0.8) },
-                PatchOp::Set { path: path(&["list"]), value: json!([1, 2, 3]) },
-                PatchOp::Remove { path: path(&["gone"]) },
+                PatchOp::Set {
+                    path: path(&["added"]),
+                    value: Value::Null
+                },
+                PatchOp::Set {
+                    path: path(&["config", "huVolume"]),
+                    value: json!(0.8)
+                },
+                PatchOp::Set {
+                    path: path(&["list"]),
+                    value: json!([1, 2, 3])
+                },
+                PatchOp::Remove {
+                    path: path(&["gone"])
+                },
             ]
         );
     }
@@ -144,7 +161,13 @@ mod tests {
     fn a_changed_root_is_set_whole() {
         let mut target = json!(1);
         let ops = diff(&target, &json!({ "a": 1 }));
-        assert_eq!(ops, vec![PatchOp::Set { path: vec![], value: json!({ "a": 1 }) }]);
+        assert_eq!(
+            ops,
+            vec![PatchOp::Set {
+                path: vec![],
+                value: json!({ "a": 1 })
+            }]
+        );
         apply(&mut target, &ops[0]).unwrap();
         assert_eq!(target, json!({ "a": 1 }));
     }
@@ -153,15 +176,32 @@ mod tests {
     fn a_patch_that_does_not_fit_is_an_error() {
         let mut target = json!({ "a": { "b": 1 } });
         assert_eq!(
-            apply(&mut target, &PatchOp::Set { path: path(&["x", "y"]), value: json!(1) }),
+            apply(
+                &mut target,
+                &PatchOp::Set {
+                    path: path(&["x", "y"]),
+                    value: json!(1)
+                }
+            ),
             Err(PatchError::MissingParent(path(&["x", "y"])))
         );
         assert_eq!(
-            apply(&mut target, &PatchOp::Set { path: path(&["a", "b", "c"]), value: json!(1) }),
+            apply(
+                &mut target,
+                &PatchOp::Set {
+                    path: path(&["a", "b", "c"]),
+                    value: json!(1)
+                }
+            ),
             Err(PatchError::MissingParent(path(&["a", "b", "c"])))
         );
         assert_eq!(
-            apply(&mut target, &PatchOp::Remove { path: path(&["a", "z"]) }),
+            apply(
+                &mut target,
+                &PatchOp::Remove {
+                    path: path(&["a", "z"])
+                }
+            ),
             Err(PatchError::MissingKey(path(&["a", "z"])))
         );
         assert_eq!(
@@ -172,7 +212,10 @@ mod tests {
 
     #[test]
     fn ops_are_tagged_on_the_wire() {
-        let set = PatchOp::Set { path: path(&["a"]), value: json!(1) };
+        let set = PatchOp::Set {
+            path: path(&["a"]),
+            value: json!(1),
+        };
         assert_eq!(
             serde_json::to_value(&set).unwrap(),
             json!({ "op": "set", "path": ["a"], "value": 1 })

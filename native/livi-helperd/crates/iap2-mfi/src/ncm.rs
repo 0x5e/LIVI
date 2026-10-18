@@ -1,6 +1,3 @@
-//! Remote MFi coprocessor: the chip in the LIVI Link dongle, reached over TCP via its `mfid`.
-//! The wire is the one in [`crate::server`], several requests per socket.
-
 use std::io::{Read, Write};
 use std::net::TcpStream;
 
@@ -14,9 +11,12 @@ pub struct NcmCoprocessor {
 }
 
 impl NcmCoprocessor {
-    /// Names the dongle's `mfid` ("host:port"); connects on first use.
     pub fn new(addr: &str) -> Self {
-        Self { addr: addr.to_string(), stream: None, protocol_major: None }
+        Self {
+            addr: addr.to_string(),
+            stream: None,
+            protocol_major: None,
+        }
     }
 
     fn ensure(&mut self) -> Result<&mut TcpStream, MfiError> {
@@ -24,15 +24,15 @@ impl NcmCoprocessor {
             let stream = livi_net::connect(self.addr.as_str(), IO_TIMEOUT)
                 .map_err(|e| MfiError::Io(format!("connect {}: {e}", self.addr)))?;
             stream.set_nodelay(true).ok();
-            stream.set_read_timeout(Some(IO_TIMEOUT + AUTH_TIMEOUT)).ok();
+            stream
+                .set_read_timeout(Some(IO_TIMEOUT + AUTH_TIMEOUT))
+                .ok();
             stream.set_write_timeout(Some(IO_TIMEOUT)).ok();
             self.stream = Some(stream);
         }
         Ok(self.stream.as_mut().expect("just connected"))
     }
 
-    /// A failed exchange can leave the rest of a late answer in the socket, which the next request
-    /// would read as its own. So a socket that failed is never used again.
     fn try_request(&mut self, req: &[u8]) -> Result<Vec<u8>, MfiError> {
         let result = self.exchange(req);
         if matches!(result, Err(MfiError::Io(_))) {
@@ -43,13 +43,19 @@ impl NcmCoprocessor {
 
     fn exchange(&mut self, req: &[u8]) -> Result<Vec<u8>, MfiError> {
         let stream = self.ensure()?;
-        stream.write_all(req).map_err(|e| MfiError::Io(format!("mfid write: {e}")))?;
+        stream
+            .write_all(req)
+            .map_err(|e| MfiError::Io(format!("mfid write: {e}")))?;
         let mut hdr = [0u8; 3];
-        stream.read_exact(&mut hdr).map_err(|e| MfiError::Io(format!("mfid read: {e}")))?;
+        stream
+            .read_exact(&mut hdr)
+            .map_err(|e| MfiError::Io(format!("mfid read: {e}")))?;
         let len = ((hdr[1] as usize) << 8) | hdr[2] as usize;
         let mut data = vec![0u8; len];
         if len > 0 {
-            stream.read_exact(&mut data).map_err(|e| MfiError::Io(format!("mfid body: {e}")))?;
+            stream
+                .read_exact(&mut data)
+                .map_err(|e| MfiError::Io(format!("mfid body: {e}")))?;
         }
         if hdr[0] != STATUS_OK {
             return Err(MfiError::AuthFailed { error_code: None });
@@ -60,7 +66,6 @@ impl NcmCoprocessor {
     fn request(&mut self, req: &[u8]) -> Result<Vec<u8>, MfiError> {
         match self.try_request(req) {
             Err(MfiError::Io(first)) => {
-                // Dead socket: waits briefly, reconnects once.
                 std::thread::sleep(std::time::Duration::from_millis(500));
                 self.try_request(req).map_err(|e| match e {
                     MfiError::Io(second) => MfiError::Io(format!("{first}; retry: {second}")),
@@ -78,7 +83,9 @@ impl AuthCoprocessor for NcmCoprocessor {
             return Ok(v);
         }
         let d = self.request(&[OP_PROTOCOL_MAJOR])?;
-        let v = *d.first().ok_or_else(|| MfiError::Io("mfid: empty proto".into()))?;
+        let v = *d
+            .first()
+            .ok_or_else(|| MfiError::Io("mfid: empty proto".into()))?;
         self.protocol_major = Some(v);
         Ok(v)
     }
@@ -114,11 +121,13 @@ mod tests {
             let (mut s, _) = listener.accept().unwrap();
             let mut req = [0u8; 1];
             s.read_exact(&mut req).unwrap();
-            // The header cut short, as a connection that breaks off mid-answer leaves it.
             s.write_all(&[STATUS_OK]).unwrap();
         });
         let mut chip = NcmCoprocessor::new(&addr);
-        assert!(matches!(chip.try_request(&[OP_GET_CERT]), Err(MfiError::Io(_))));
+        assert!(matches!(
+            chip.try_request(&[OP_GET_CERT]),
+            Err(MfiError::Io(_))
+        ));
         assert!(chip.stream.is_none());
         mfid.join().unwrap();
     }

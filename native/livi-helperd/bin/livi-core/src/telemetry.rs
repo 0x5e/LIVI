@@ -31,7 +31,9 @@ const NESTED: [&str; 5] = ["gps", "can", CLIMATE, "tirePressure", NOTIFICATION];
 const VOLUME_STEP: f64 = 0.005;
 
 fn now_ms() -> u64 {
-    SystemTime::now().duration_since(UNIX_EPOCH).map_or(0, |d| d.as_millis() as u64)
+    SystemTime::now()
+        .duration_since(UNIX_EPOCH)
+        .map_or(0, |d| d.as_millis() as u64)
 }
 
 pub fn merge(snap: &mut Snapshot, patch: &Value) -> Option<Snapshot> {
@@ -116,8 +118,13 @@ struct Telemetry {
 impl Telemetry {
     fn new(core: Arc<Core>, io: SocketIo, saved: &Saved) -> Self {
         let cfg = core.hub.config();
-        let mut t =
-            Self { core, io, snap: Snapshot::new(), appearance: cfg.appearance_mode, volume: None };
+        let mut t = Self {
+            core,
+            io,
+            snap: Snapshot::new(),
+            appearance: cfg.appearance_mode,
+            volume: None,
+        };
         t.seed(&cfg, saved);
         t
     }
@@ -159,7 +166,9 @@ impl Telemetry {
 
     async fn push(&mut self, patch: &Value) {
         let path = self.snap.get("path").cloned();
-        let Some(changed) = merge(&mut self.snap, patch) else { return };
+        let Some(changed) = merge(&mut self.snap, patch) else {
+            return;
+        };
         self.publish().await;
         if let Some(page) = self.snap.get("path").filter(|p| Some(*p) != path.as_ref())
             && let Some(page) = page.as_str()
@@ -179,7 +188,10 @@ impl Telemetry {
             ("evMaxAcPowerKw", self.core.hub.config().ev_max_ac_power_kw),
             ("evMaxDcPowerKw", self.core.hub.config().ev_max_dc_power_kw),
         ] {
-            if let Some(kw) = changed.get(key).and_then(Value::as_f64).filter(|kw| *kw > 0.0)
+            if let Some(kw) = changed
+                .get(key)
+                .and_then(Value::as_f64)
+                .filter(|kw| *kw > 0.0)
                 && now != Some(kw)
             {
                 self.save(json!({ key: kw })).await;
@@ -193,7 +205,8 @@ impl Telemetry {
         }
         self.appearance = mode;
         if let Some(night) = night_of(mode) {
-            self.push(&json!({ "nightMode": night, "clusterNightMode": null })).await;
+            self.push(&json!({ "nightMode": night, "clusterNightMode": null }))
+                .await;
         }
     }
 
@@ -202,16 +215,24 @@ impl Telemetry {
             return;
         }
         let level = raw.clamp(0.0, 1.0);
-        if self.volume.is_some_and(|last| (level - last).abs() < VOLUME_STEP) {
+        if self
+            .volume
+            .is_some_and(|last| (level - last).abs() < VOLUME_STEP)
+        {
             return;
         }
         self.volume = Some(level);
-        println!("[volume] head unit set to {} % from telemetry", (level * 100.0).round());
+        println!(
+            "[volume] head unit set to {} % from telemetry",
+            (level * 100.0).round()
+        );
         self.save(json!({ "huVolume": level })).await;
     }
 
     async fn car_type_from(&self, name: &str) {
-        let Some(car) = CarType::from_name(name) else { return };
+        let Some(car) = CarType::from_name(name) else {
+            return;
+        };
         if self.core.hub.config().car_type == Some(car) {
             return;
         }
@@ -220,8 +241,11 @@ impl Telemetry {
     }
 
     async fn connectors_from(&self, names: &[Value]) {
-        let connectors: Vec<EvConnectorType> =
-            names.iter().filter_map(Value::as_str).filter_map(EvConnectorType::from_name).collect();
+        let connectors: Vec<EvConnectorType> = names
+            .iter()
+            .filter_map(Value::as_str)
+            .filter_map(EvConnectorType::from_name)
+            .collect();
         if connectors.is_empty()
             || self.core.hub.config().ev_connector_types == Some(connectors.clone())
         {
@@ -267,7 +291,6 @@ pub fn socket(
             }
         }
     };
-    // A fallback service, so every Socket.IO endpoint shares one engine and its sessions.
     let app = axum::Router::new()
         .route(HTTP_PUSH, axum::routing::post(http_push))
         .fallback_service(service)
@@ -285,11 +308,12 @@ async fn listen() -> Option<TcpListener> {
     None
 }
 
-/// `inside` carries what the car bridge and the GNSS receiver in core push.
 pub async fn run(core: Arc<Core>, mut inside: mpsc::UnboundedReceiver<Value>, saved: Saved) {
     let (app, io, mut pushed) = socket(core.hub.watch());
     tokio::spawn(async move {
-        let Some(listener) = listen().await else { return };
+        let Some(listener) = listen().await else {
+            return;
+        };
         println!("[telemetry] listening on port {PORT}");
         if let Err(e) = axum::serve(listener, app).await {
             eprintln!("[telemetry] server stopped: {e}");
@@ -331,7 +355,11 @@ mod tests {
 
     fn state(config: Config, telemetry: Snapshot) -> State {
         State {
-            front: PerScreen { main: Front::Livi, cluster: Front::Livi, aux: Front::Livi },
+            front: PerScreen {
+                main: Front::Livi,
+                cluster: Front::Livi,
+                aux: Front::Livi,
+            },
             sessions: Default::default(),
             now_playing: Default::default(),
             telemetry,
@@ -346,7 +374,11 @@ mod tests {
     }
 
     fn core(dir: &TempDir, config: Config) -> Arc<Core> {
-        let livi = PerScreen { main: Front::Livi, cluster: Front::Livi, aux: Front::Livi };
+        let livi = PerScreen {
+            main: Front::Livi,
+            cluster: Front::Livi,
+            aux: Front::Livi,
+        };
         let hub = Hub::new(state(config, Snapshot::new()));
         let file = ConfigFile::new(dir.0.join("config.json"), dir.0.join("backup.json"));
         let (senders, ..) = crate::projection::ui_channels(livi);
@@ -370,19 +402,40 @@ mod tests {
         assert_eq!(snap["ts"], changed["ts"]);
 
         merge(&mut snap, &json!({ "turn": "left" }));
-        assert_eq!((&snap["turnSignal"], snap.get("turn")), (&json!("left"), None));
+        assert_eq!(
+            (&snap["turnSignal"], snap.get("turn")),
+            (&json!("left"), None)
+        );
         merge(&mut snap, &json!({ "turn": "left", "turnSignal": "none" }));
         assert_eq!(snap["turnSignal"], "none", "the current name wins");
 
-        merge(&mut snap, &json!({ "tirePressure": { "frontLeftKpa": 230 } }));
-        merge(&mut snap, &json!({ "tirePressure": { "rearRightKpa": 210 } }));
-        assert_eq!(snap["tirePressure"], json!({ "frontLeftKpa": 230, "rearRightKpa": 210 }));
-        merge(&mut snap, &json!({ "notification": { "title": "Frost", "open": true } }));
+        merge(
+            &mut snap,
+            &json!({ "tirePressure": { "frontLeftKpa": 230 } }),
+        );
+        merge(
+            &mut snap,
+            &json!({ "tirePressure": { "rearRightKpa": 210 } }),
+        );
+        assert_eq!(
+            snap["tirePressure"],
+            json!({ "frontLeftKpa": 230, "rearRightKpa": 210 })
+        );
+        merge(
+            &mut snap,
+            &json!({ "notification": { "title": "Frost", "open": true } }),
+        );
         merge(&mut snap, &json!({ "notification": { "open": false } }));
-        assert_eq!(snap["notification"], json!({ "title": "Frost", "open": false }));
+        assert_eq!(
+            snap["notification"],
+            json!({ "title": "Frost", "open": false })
+        );
 
         let changed = merge(&mut snap, &json!({ "can": { "id": 1 }, "ts": 7 })).unwrap();
-        assert_eq!((&snap["ts"], &changed["can"]), (&json!(7), &json!({ "id": 1 })));
+        assert_eq!(
+            (&snap["ts"], &changed["can"]),
+            (&json!(7), &json!({ "id": 1 }))
+        );
         assert!(merge(&mut snap, &json!({})).is_none());
         assert!(merge(&mut snap, &json!([1])).is_none());
         merge(&mut snap, &json!({ "gps": "lost" }));
@@ -397,8 +450,14 @@ mod tests {
             &json!({ "climate": { "auto": true, "fanLevel": 3, "source": "carplay" } }),
         );
         merge(&mut snap, &json!({ "climate": { "fanLevel": 5 } }));
-        assert_eq!(snap["climate"], json!({ "auto": true, "fanLevel": 5, "source": "external" }));
-        merge(&mut snap, &json!({ "climate": { "fanLevel": 4, "source": "car" } }));
+        assert_eq!(
+            snap["climate"],
+            json!({ "auto": true, "fanLevel": 5, "source": "external" })
+        );
+        merge(
+            &mut snap,
+            &json!({ "climate": { "fanLevel": 4, "source": "car" } }),
+        );
         assert_eq!(snap["climate"]["source"], "car");
     }
 
@@ -422,12 +481,22 @@ mod tests {
         let mut t = Telemetry::new(core.clone(), io, &saved);
         assert_eq!(t.snap["nightMode"], true);
         assert!(t.snap.get("clusterNightMode").is_none());
-        assert_eq!((&t.snap["fuelPct"], &t.snap["odometerKm"]), (&json!(42), &json!(123456)));
+        assert_eq!(
+            (&t.snap["fuelPct"], &t.snap["odometerKm"]),
+            (&json!(42), &json!(123456))
+        );
         assert_eq!(t.snap["volume"], 0.5);
-        assert_eq!(t.snap["gps"], json!({ "lat": 48.1, "lng": 11.5, "alt": 520.0, "fixTs": 9 }));
+        assert_eq!(
+            t.snap["gps"],
+            json!({ "lat": 48.1, "lng": 11.5, "alt": 520.0, "fixTs": 9 })
+        );
         let climate = &t.snap["climate"];
         assert_eq!(
-            (&climate["auto"], &climate["driverTargetC"], &climate["fanLevel"]),
+            (
+                &climate["auto"],
+                &climate["driverTargetC"],
+                &climate["fanLevel"]
+            ),
             (&json!(false), &json!(19.0), &json!(3)),
             "the last run's values over LIVI's own"
         );
@@ -442,7 +511,10 @@ mod tests {
         t.appearance(AppearanceMode::Night).await;
         t.appearance(AppearanceMode::Day).await;
         let both = core.hub.watch().borrow().telemetry.clone();
-        assert_eq!((&both["nightMode"], &both["clusterNightMode"]), (&json!(false), &Value::Null));
+        assert_eq!(
+            (&both["nightMode"], &both["clusterNightMode"]),
+            (&json!(false), &Value::Null)
+        );
         t.appearance(AppearanceMode::Auto).await;
         assert_eq!(t.snap["nightMode"], false);
     }
@@ -475,7 +547,10 @@ mod tests {
             .filter(|(key, v)| v.is_null() && *key != SOURCE)
             .map(|(key, _)| key)
             .collect();
-        assert!(unsent.is_empty(), "the contract names {unsent:?}, LIVI never sends them");
+        assert!(
+            unsent.is_empty(),
+            "the contract names {unsent:?}, LIVI never sends them"
+        );
     }
 
     #[tokio::test]
@@ -491,16 +566,23 @@ mod tests {
         t.push(&json!({ "carType": 10 })).await;
         assert_eq!(core.hub.config().car_type, Some(CarType::HybridGasoline));
 
-        t.push(&json!({ "evConnectorTypes": ["Combo2", "Type 2", "mennekes"] })).await;
+        t.push(&json!({ "evConnectorTypes": ["Combo2", "Type 2", "mennekes"] }))
+            .await;
         let both = Some(vec![EvConnectorType::Combo2, EvConnectorType::Mennekes]);
         assert_eq!(core.hub.config().ev_connector_types, both);
         t.push(&json!({ "evConnectorTypes": ["Type 2"] })).await;
-        t.push(&json!({ "evConnectorTypes": ["Combo2", "Mennekes"] })).await;
+        t.push(&json!({ "evConnectorTypes": ["Combo2", "Mennekes"] }))
+            .await;
         assert_eq!(core.hub.config().ev_connector_types, both);
 
-        t.push(&json!({ "evMaxAcPowerKw": 11, "evMaxDcPowerKw": 0 })).await;
+        t.push(&json!({ "evMaxAcPowerKw": 11, "evMaxDcPowerKw": 0 }))
+            .await;
         assert_eq!(core.hub.config().ev_max_ac_power_kw, Some(11.0));
-        assert_eq!(core.hub.config().ev_max_dc_power_kw, None, "zero is no power");
+        assert_eq!(
+            core.hub.config().ev_max_dc_power_kw,
+            None,
+            "zero is no power"
+        );
         t.push(&json!({ "evMaxDcPowerKw": 150.5 })).await;
         assert_eq!(core.hub.config().ev_max_dc_power_kw, Some(150.5));
     }
@@ -526,7 +608,11 @@ mod tests {
 
     async fn poll(addr: SocketAddr, method: &str, sid: &str, body: &str) -> String {
         let mut s = TcpStream::connect(addr).await.unwrap();
-        let sid = if sid.is_empty() { String::new() } else { format!("&sid={sid}") };
+        let sid = if sid.is_empty() {
+            String::new()
+        } else {
+            format!("&sid={sid}")
+        };
         let req = format!(
             "{method} /socket.io/?EIO=4&transport=polling{sid} HTTP/1.1\r\nHost: livi\r\n\
              Connection: close\r\nContent-Type: text/plain;charset=UTF-8\r\n\
@@ -555,8 +641,14 @@ mod tests {
             tokio::task::spawn_blocking(move || crate::telemetry_cli::run(&words))
         };
 
-        assert_eq!(shell("set gear=R gps.lat=53.59", &to).await.unwrap(), ExitCode::SUCCESS);
-        assert_eq!(pushed.recv().await, Some(json!({ "gear": "R", "gps": { "lat": 53.59 } })));
+        assert_eq!(
+            shell("set gear=R gps.lat=53.59", &to).await.unwrap(),
+            ExitCode::SUCCESS
+        );
+        assert_eq!(
+            pushed.recv().await,
+            Some(json!({ "gear": "R", "gps": { "lat": 53.59 } }))
+        );
         let posted = to.clone();
         let refused =
             tokio::task::spawn_blocking(move || crate::telemetry_cli::post(&posted, &json!([1])));
@@ -574,7 +666,11 @@ mod tests {
         tokio::spawn(async move { axum::serve(listener, app).await });
 
         let open = poll(addr, "GET", "", "").await;
-        let sid = open.split("\"sid\":\"").nth(1).and_then(|s| s.split('"').next()).unwrap();
+        let sid = open
+            .split("\"sid\":\"")
+            .nth(1)
+            .and_then(|s| s.split('"').next())
+            .unwrap();
         let joining = poll(addr, "POST", sid, "40").await;
         assert!(joining.contains("ok"), "{open}\n---\n{joining}");
         let joined = poll(addr, "GET", sid, "").await;
@@ -582,11 +678,17 @@ mod tests {
         assert!(joined.contains(r#"42["telemetry:update",{"speedKph":42}]"#));
 
         poll(addr, "POST", sid, r#"42["telemetry:push",{"rpm":900}]"#).await;
-        let push = tokio::time::timeout(Duration::from_secs(5), pushed.recv()).await.unwrap();
+        let push = tokio::time::timeout(Duration::from_secs(5), pushed.recv())
+            .await
+            .unwrap();
         assert_eq!(push, Some(json!({ "rpm": 900 })));
 
         io.emit(UPDATE, &json!({ "rpm": 900 })).await.unwrap();
-        assert!(poll(addr, "GET", sid, "").await.contains(r#"42["telemetry:update",{"rpm":900}]"#));
+        assert!(
+            poll(addr, "GET", sid, "")
+                .await
+                .contains(r#"42["telemetry:update",{"rpm":900}]"#)
+        );
         let elsewhere = poll(addr, "GET", "", "").await;
         assert!(
             elsewhere.contains("Access-Control-Allow-Origin")

@@ -1,5 +1,3 @@
-// iAP2 control session message codec: 0x4040-framed messages with length-prefixed params.
-
 pub mod messages;
 
 pub const CSM_START: u16 = 0x4040;
@@ -7,11 +5,24 @@ pub const CSM_START: u16 = 0x4040;
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum Error {
     Header,
-    WrongMsgId { expected: u16, got: u16 },
-    MissingParam { message: &'static str, param: &'static str },
-    Scalar { param: &'static str },
-    Enum { param: &'static str, value: u8 },
-    Utf8 { param: &'static str },
+    WrongMsgId {
+        expected: u16,
+        got: u16,
+    },
+    MissingParam {
+        message: &'static str,
+        param: &'static str,
+    },
+    Scalar {
+        param: &'static str,
+    },
+    Enum {
+        param: &'static str,
+        value: u8,
+    },
+    Utf8 {
+        param: &'static str,
+    },
 }
 
 impl core::fmt::Display for Error {
@@ -88,7 +99,10 @@ pub trait CsmMessage: CsmParams {
     fn decode(frame: &[u8]) -> Result<Self, Error> {
         let (msg_id, payload) = frame_header(frame)?;
         if msg_id != Self::MSG_ID {
-            return Err(Error::WrongMsgId { expected: Self::MSG_ID, got: msg_id });
+            return Err(Error::WrongMsgId {
+                expected: Self::MSG_ID,
+                got: msg_id,
+            });
         }
         Self::decode_params(&split_params(payload))
     }
@@ -212,14 +226,19 @@ macro_rules! csm_val_decode {
     ($b:expr_2021, $n:expr_2021, str) => {{
         let b: &[u8] = $b;
         let cut = if b.is_empty() { b } else { &b[..b.len() - 1] };
-        core::str::from_utf8(cut).map(str::to_owned).map_err(|_| $crate::Error::Utf8 { param: $n })
+        core::str::from_utf8(cut)
+            .map(str::to_owned)
+            .map_err(|_| $crate::Error::Utf8 { param: $n })
     }};
     ($b:expr_2021, $n:expr_2021, bytes) => {
         Ok::<_, $crate::Error>($b.to_vec())
     };
     ($b:expr_2021, $n:expr_2021, enum $e:ty) => {
         match $b.first() {
-            Some(&v) => <$e>::from_u8(v).ok_or($crate::Error::Enum { param: $n, value: v }),
+            Some(&v) => <$e>::from_u8(v).ok_or($crate::Error::Enum {
+                param: $n,
+                value: v,
+            }),
             None => Err($crate::Error::Scalar { param: $n }),
         }
     };
@@ -256,7 +275,11 @@ macro_rules! csm_opt_decode {
 #[macro_export]
 macro_rules! csm_opt_scalar_decode {
     ($b:expr_2021, $n:expr_2021, $k:tt) => {
-        if $b.is_empty() { Ok(None) } else { $crate::csm_val_decode!($b, $n, $k).map(Some) }
+        if $b.is_empty() {
+            Ok(None)
+        } else {
+            $crate::csm_val_decode!($b, $n, $k).map(Some)
+        }
     };
 }
 
@@ -267,7 +290,6 @@ macro_rules! csm_field_encode {
             $crate::put_param($out, $pid, &$crate::csm_val_encode!(v, $($k)+));
         }
     };
-    // Lists go on the wire as one param with all element payloads concatenated.
     ($out:expr_2021, $pid:expr_2021, $v:expr_2021, list $($k:tt)+) => {
         if !$v.is_empty() {
             let mut p = Vec::new();

@@ -1,8 +1,5 @@
 use std::path::{Path, PathBuf};
 
-/// The helper owns HFP (the link and the call audio). WirePlumber keeps A2DP
-/// for Bluetooth speakers and must not register HFP or HSP, or the helper's
-/// registration fails.
 const BT_ROLES: &str = "monitor.bluez.properties = {
   bluez5.roles = [ a2dp_sink a2dp_source ]
 }
@@ -12,7 +9,6 @@ fn bt_roles_file(home: &Path) -> PathBuf {
     home.join(".config/wireplumber/wireplumber.conf.d/99-livi-hfp.conf")
 }
 
-/// True when WirePlumber has to read the drop-in again.
 fn write_bt_roles(file: &Path) -> std::io::Result<bool> {
     if std::fs::read_to_string(file).is_ok_and(|current| current == BT_ROLES) {
         return Ok(false);
@@ -28,7 +24,9 @@ pub fn prepare() {
     if !cfg!(target_os = "linux") {
         return;
     }
-    let Some(home) = std::env::var_os("HOME").map(PathBuf::from) else { return };
+    let Some(home) = std::env::var_os("HOME").map(PathBuf::from) else {
+        return;
+    };
     let file = bt_roles_file(&home);
     match write_bt_roles(&file) {
         Ok(false) => {}

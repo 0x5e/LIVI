@@ -1,6 +1,3 @@
-// Compositor state: screens (one per role), classified toplevels, video
-// configs, seat/input, and the wayland globals the inner clients see.
-
 use std::collections::VecDeque;
 use std::ffi::OsString;
 use std::time::Instant;
@@ -190,9 +187,15 @@ impl LiviState {
             })
             .expect("insert display source");
 
-        let kiosk = std::env::var("LIVI_KIOSK").map(|v| v != "0").unwrap_or(false);
+        let kiosk = std::env::var("LIVI_KIOSK")
+            .map(|v| v != "0")
+            .unwrap_or(false);
         let roles = std::env::var("LIVI_SCREENS").unwrap_or_default();
-        let roles = if roles.is_empty() { "main,cluster,aux" } else { &roles };
+        let roles = if roles.is_empty() {
+            "main,cluster,aux"
+        } else {
+            &roles
+        };
         let screens: Vec<Screen> = roles
             .split(',')
             .filter(|r| !r.is_empty())
@@ -242,12 +245,19 @@ impl LiviState {
             video_order: Vec::new(),
             pending_video_tags: VecDeque::new(),
             video_cfgs: Vec::new(),
-            cal: CalState { active: false, gamma: 1.0, contrast: 1.0, gain: [1.0, 1.0, 1.0] },
+            cal: CalState {
+                active: false,
+                gamma: 1.0,
+                contrast: 1.0,
+                gain: [1.0, 1.0, 1.0],
+            },
             host: HostState::new(),
             ctrl_client: None,
             ctrl_buf: String::new(),
             ctrl_out: Vec::new(),
-            ctrl_path: std::env::var("LIVI_COMPOSITOR_CTRL").ok().filter(|p| !p.is_empty()),
+            ctrl_path: std::env::var("LIVI_COMPOSITOR_CTRL")
+                .ok()
+                .filter(|p| !p.is_empty()),
             startup_cmd,
             startup_pid: None,
             full_restart: false,
@@ -264,12 +274,17 @@ impl LiviState {
         if let Some(i) = self.video_cfgs.iter().position(|c| c.tag == tag) {
             return &mut self.video_cfgs[i];
         }
-        self.video_cfgs.push(VideoCfg { tag: tag.to_string(), ..Default::default() });
+        self.video_cfgs.push(VideoCfg {
+            tag: tag.to_string(),
+            ..Default::default()
+        });
         self.video_cfgs.last_mut().unwrap()
     }
 
     pub fn find_video_by_tag(&self, tag: &str) -> Option<usize> {
-        self.toplevels.iter().position(|t| t.kind == Kind::Video && t.tag == tag)
+        self.toplevels
+            .iter()
+            .position(|t| t.kind == Kind::Video && t.tag == tag)
     }
 
     pub fn after_dispatch(&mut self) {

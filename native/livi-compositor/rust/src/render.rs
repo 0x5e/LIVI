@@ -1,10 +1,13 @@
 use smithay::backend::allocator::Fourcc;
 use smithay::backend::renderer::damage::OutputDamageTracker;
+use smithay::backend::renderer::element::Id;
 use smithay::backend::renderer::element::Kind as ElementKind;
 use smithay::backend::renderer::element::memory::MemoryRenderBufferRenderElement;
 use smithay::backend::renderer::element::surface::{
     WaylandSurfaceRenderElement, render_elements_from_surface_tree,
 };
+use smithay::backend::renderer::element::texture::TextureRenderElement;
+use smithay::backend::renderer::gles::element::TextureShaderElement;
 use smithay::backend::renderer::gles::{
     GlesRenderer, GlesTexProgram, GlesTexture, Uniform, UniformName, UniformType,
 };
@@ -18,6 +21,7 @@ smithay::backend::renderer::element::render_elements! {
     pub LiviElement<=GlesRenderer>;
     Surface=WaylandSurfaceRenderElement<GlesRenderer>,
     Deco=MemoryRenderBufferRenderElement<GlesRenderer>,
+    Calibrated=TextureShaderElement,
 }
 
 const CAL_FRAG: &str = r#"
@@ -385,6 +389,51 @@ pub fn render_screen(state: &mut LiviState, screen_idx: usize) {
         }
         Err(e) => log::error!("render failed: {e}"),
     }
+}
+
+pub fn calibrated(
+    renderer: &mut GlesRenderer,
+    parts: FrameParts,
+    size: (i32, i32),
+) -> Result<Vec<LiviElement>, Box<dyn std::error::Error>> {
+    let Some(program) = parts.cal else {
+        return Ok(parts.elements);
+    };
+    let (w, h) = size;
+    let mut tex: GlesTexture = Offscreen::<GlesTexture>::create_buffer(
+        renderer,
+        Fourcc::Abgr8888,
+        smithay::utils::Size::from((w, h)),
+    )?;
+    {
+        let mut tracker = OutputDamageTracker::new((w, h), 1.0, Transform::Normal);
+        let mut fb = Bind::<GlesTexture>::bind(renderer, &mut tex)?;
+        tracker.render_output::<LiviElement, _>(
+            renderer,
+            &mut fb,
+            0,
+            &parts.elements,
+            parts.clear,
+        )?;
+    }
+    let texture = TextureRenderElement::from_static_texture(
+        Id::new(),
+        renderer.context_id(),
+        (0.0, 0.0),
+        tex,
+        1,
+        Transform::Normal,
+        None,
+        None,
+        None,
+        None,
+        ElementKind::Unspecified,
+    );
+    Ok(vec![LiviElement::Calibrated(TextureShaderElement::new(
+        texture,
+        program,
+        parts.uniforms,
+    ))])
 }
 
 #[allow(clippy::too_many_arguments)]

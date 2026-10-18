@@ -9,6 +9,8 @@ use smithay::backend::renderer::ImportDma;
 use smithay::backend::renderer::gles::GlesRenderer;
 use smithay::reexports::calloop::LoopHandle;
 use smithay::utils::{DeviceFd, SERIAL_COUNTER};
+use smithay::backend::allocator::format::FormatSet;
+use smithay::reexports::wayland_protocols::wp::linux_dmabuf::zv1::server::zwp_linux_dmabuf_feedback_v1::TrancheFlags;
 use smithay::wayland::dmabuf::DmabufFeedbackBuilder;
 use smithay::wayland::drm_syncobj::{DrmSyncobjState, supports_syncobj_eventfd};
 use smithay_client_toolkit::compositor::{
@@ -186,15 +188,27 @@ impl EGLNativeDisplay for HostNativeDisplay {
     }
 }
 
-pub fn serve_dmabuf(state: &mut LiviState, egl_display: &EGLDisplay, renderer: &GlesRenderer) {
+pub fn serve_dmabuf(
+    state: &mut LiviState,
+    egl_display: &EGLDisplay,
+    renderer: &GlesRenderer,
+    scanout: Option<(u64, FormatSet)>,
+) {
     state.render_node = render_node(egl_display);
 
     let formats = renderer.dmabuf_formats();
     let feedback = state.render_node.as_deref().and_then(|node| {
         let dev = std::os::unix::fs::MetadataExt::rdev(&std::fs::metadata(node).ok()?);
-        DmabufFeedbackBuilder::new(dev, formats.clone())
-            .build()
-            .ok()
+        let mut builder = DmabufFeedbackBuilder::new(dev, formats.clone());
+        if let Some((display, planes)) = &scanout {
+            let direct: Vec<_> = planes.intersection(&formats).copied().collect();
+            log::info!(
+                "{} buffer formats can go straight to the display",
+                direct.len()
+            );
+            builder = builder.add_preference_tranche(*display, Some(TrancheFlags::Scanout), direct);
+        }
+        builder.build().ok()
     });
     let _global = match &feedback {
         Some(feedback) => state
@@ -277,7 +291,7 @@ pub fn init(state: &mut LiviState, handle: &LoopHandle<'static, LiviState>) {
     }
     .expect("GlesRenderer");
 
-    serve_dmabuf(state, &egl_display, &renderer);
+    serve_dmabuf(state, &egl_display, &renderer, None);
 
     WaylandSource::new(conn.clone(), event_queue)
         .insert(handle.clone())
@@ -641,11 +655,18 @@ pub fn import_dmabuf(
     state: &mut LiviState,
     dmabuf: &smithay::backend::allocator::dmabuf::Dmabuf,
 ) -> bool {
-    if let Some(r) = state.renderer.as_mut() {
-        r.import_dmabuf(dmabuf, None).is_ok()
-    } else {
-        false
+    if dmabuf.node().is_none()
+        && let Some(node) = state
+            .render_node
+            .as_deref()
+            .and_then(|path| smithay::backend::drm::DrmNode::from_path(path).ok())
+    {
+        dmabuf.set_node(node);
     }
+    let Some(r) = state.renderer.as_mut() else {
+        return false;
+    };
+    r.import_dmabuf(dmabuf, None).is_ok()
 }
 
 pub fn pump(state: &mut LiviState) {

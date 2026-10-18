@@ -4,16 +4,16 @@ use std::time::Instant;
 use smithay::backend::allocator::Fourcc;
 use smithay::backend::allocator::format::FormatSet;
 use smithay::backend::allocator::gbm::{GbmAllocator, GbmBufferFlags, GbmDevice};
-use smithay::backend::drm::{
-    DrmDevice, DrmDeviceFd, DrmDeviceNotifier, DrmEvent, GbmBufferedSurface,
-};
+use smithay::backend::drm::compositor::{DrmCompositor, FrameFlags, PrimaryPlaneElement};
+use smithay::backend::drm::exporter::gbm::GbmFramebufferExporter;
+
+use smithay::backend::drm::{DrmDevice, DrmDeviceFd, DrmDeviceNotifier, DrmEvent, DrmNode};
 use smithay::backend::egl::{EGLContext, EGLDisplay};
 use smithay::backend::input::{
     AbsolutePositionEvent, Axis, ButtonState, Event, InputEvent, KeyState, KeyboardKeyEvent,
     PointerAxisEvent, PointerButtonEvent, PointerMotionEvent, TouchEvent,
 };
 use smithay::backend::libinput::{LibinputInputBackend, LibinputSessionInterface};
-use smithay::backend::renderer::damage::OutputDamageTracker;
 use smithay::backend::renderer::element::Kind as ElementKind;
 use smithay::backend::renderer::element::memory::{
     MemoryRenderBuffer, MemoryRenderBufferRenderElement,
@@ -23,18 +23,21 @@ use smithay::backend::session::libseat::LibSeatSession;
 use smithay::backend::session::{Event as SessionEvent, Session};
 use smithay::backend::udev::{self, UdevBackend, UdevEvent};
 use smithay::input::keyboard::{FilterResult, Keysym};
+use smithay::output::OutputModeSource;
 use smithay::reexports::calloop::LoopHandle;
+use smithay::reexports::calloop::timer::{TimeoutAction, Timer};
 use smithay::reexports::drm::control::property::ValueType;
 use smithay::reexports::drm::control::{Device as _, Mode, ModeTypeFlags, connector, crtc};
 use smithay::reexports::input::Libinput;
 use smithay::reexports::rustix::fs::OFlags;
-use smithay::utils::{DeviceFd, Point, SERIAL_COUNTER, Size, Transform};
+use smithay::utils::{DeviceFd, Point, SERIAL_COUNTER, Scale, Size, Transform};
 use tiny_skia::{Color, FillRule, Paint, PathBuilder, Pixmap, Stroke};
 
 use crate::render::LiviElement;
 use crate::state::LiviState;
 
-type Surface = GbmBufferedSurface<GbmAllocator<DrmDeviceFd>, ()>;
+type Surface =
+    DrmCompositor<GbmAllocator<DrmDeviceFd>, GbmFramebufferExporter<DrmDeviceFd>, (), DrmDeviceFd>;
 
 pub struct DrmState {
     session: LibSeatSession,
@@ -42,6 +45,8 @@ pub struct DrmState {
     device: DrmDevice,
     gbm: GbmDevice<DrmDeviceFd>,
     formats: FormatSet,
+    import_node: Option<DrmNode>,
+    loop_handle: LoopHandle<'static, LiviState>,
     connectors: Vec<Connector>,
     outputs: Vec<Output>,
     wanted: BTreeSet<usize>,
@@ -69,8 +74,8 @@ struct Output {
     mode: Mode,
     transform: Transform,
     surface: Surface,
-    tracker: OutputDamageTracker,
     frame_pending: bool,
+    direct: usize,
     needs_redraw: bool,
 }
 
@@ -131,7 +136,12 @@ fn start(
     let egl_display = unsafe { EGLDisplay::new(gbm.clone())? };
     let renderer = unsafe { GlesRenderer::new(EGLContext::new(&egl_display)?)? };
     let formats = renderer.egl_context().dmabuf_render_formats().clone();
-    crate::host::serve_dmabuf(state, &egl_display, &renderer);
+    let scanout = fd.dev_id().ok().map(|dev| (dev, plane_formats(&device)));
+    crate::host::serve_dmabuf(state, &egl_display, &renderer, scanout);
+    let import_node = state
+        .render_node
+        .as_deref()
+        .and_then(|node| DrmNode::from_path(node).ok());
     state.renderer = Some(renderer);
 
     handle
@@ -173,6 +183,8 @@ fn start(
         device,
         gbm,
         formats,
+        import_node,
+        loop_handle: handle.clone(),
         connectors,
         outputs: Vec::new(),
         wanted: BTreeSet::from([0]),
@@ -209,6 +221,19 @@ fn open_device(
         }
     }
     Err("no connected display".into())
+}
+
+fn plane_formats(device: &DrmDevice) -> FormatSet {
+    let Ok(resources) = device.resource_handles() else {
+        return FormatSet::default();
+    };
+    resources
+        .crtcs()
+        .iter()
+        .filter_map(|crtc| device.planes(crtc).ok())
+        .flat_map(|planes| planes.overlay.into_iter().chain(planes.primary))
+        .flat_map(|plane| plane.formats.into_iter())
+        .collect()
 }
 
 fn connectors(device: &DrmDevice, probe: bool) -> Vec<Connector> {
@@ -429,13 +454,24 @@ fn light(
         drm.gbm.clone(),
         GbmBufferFlags::RENDERING | GbmBufferFlags::SCANOUT,
     );
-    let surface = GbmBufferedSurface::new(
-        surface,
-        allocator,
-        &[Fourcc::Argb8888, Fourcc::Xrgb8888],
-        drm.formats.clone(),
-    )?;
     let (w, h) = mode.size();
+    let source = OutputModeSource::Static {
+        size: Size::from((i32::from(w), i32::from(h))),
+        scale: Scale::from(1.0),
+        transform,
+    };
+    let surface = DrmCompositor::new(
+        source,
+        surface,
+        None,
+        allocator,
+        GbmFramebufferExporter::new(drm.gbm.clone(), drm.import_node),
+        [Fourcc::Argb8888, Fourcc::Xrgb8888],
+        drm.formats.clone(),
+        drm.device.cursor_size(),
+        Some(drm.gbm.clone()),
+    )
+    .map_err(|e| e.to_string())?;
     let output = Output {
         screen_idx,
         connector: name.to_string(),
@@ -443,8 +479,8 @@ fn light(
         mode,
         transform,
         surface,
-        tracker: OutputDamageTracker::new((i32::from(w), i32::from(h)), 1.0, transform),
         frame_pending: false,
+        direct: 0,
         needs_redraw: true,
     };
     let (lw, lh) = output.logical();
@@ -645,10 +681,11 @@ fn session_event(state: &mut LiviState, event: SessionEvent) {
             }
             drm.active = true;
             for output in &mut drm.outputs {
-                output.surface.reset_buffers();
+                if let Err(e) = output.surface.reset_state() {
+                    log::error!("{} did not reset: {e}", output.connector);
+                }
                 output.frame_pending = false;
                 output.needs_redraw = true;
-                output.tracker = OutputDamageTracker::new(output.physical(), 1.0, output.transform);
             }
             rescan(state);
             pump(state);
@@ -732,33 +769,60 @@ pub fn render(state: &mut LiviState, screen_idx: usize) {
         return;
     };
     output.needs_redraw = false;
-    let (mut buffer, age) = match output.surface.next_buffer() {
-        Ok(next) => next,
+    let clear = parts.clear;
+    let elements = match crate::render::calibrated(renderer, parts, output.logical()) {
+        Ok(elements) => elements,
         Err(e) => {
-            log::error!("no display buffer: {e}");
+            log::error!("calibration failed: {e}");
             return;
         }
     };
-    let size = output.physical();
-    match crate::render::draw(
-        renderer,
-        &mut buffer,
-        &mut output.tracker,
-        age as usize,
-        &parts,
-        size,
-        output.transform,
-    ) {
-        Ok((sync, damage)) => {
-            if let Err(e) = output.surface.queue_buffer(Some(sync), damage, ()) {
-                log::error!("display flip: {e}");
-                return;
+    let flipped = match output
+        .surface
+        .render_frame(renderer, &elements, clear, FrameFlags::DEFAULT)
+    {
+        Ok(frame) if frame.is_empty => false,
+        Ok(frame) => {
+            let direct = frame.overlay_elements.len()
+                + usize::from(matches!(
+                    frame.primary_element,
+                    PrimaryPlaneElement::Element(_)
+                ));
+            if direct != output.direct {
+                log::info!(
+                    "screen '{}' on {}: {direct} of {} surfaces shown directly by the display",
+                    state.screens[screen_idx].role,
+                    output.connector,
+                    elements.len()
+                );
+                output.direct = direct;
             }
-            output.frame_pending = true;
-            crate::host::send_frame_callbacks(state);
+            match output.surface.queue_frame(()) {
+                Ok(()) => true,
+                Err(e) => {
+                    log::error!("display flip: {e}");
+                    return;
+                }
+            }
         }
-        Err(e) => log::error!("render failed: {e}"),
+        Err(e) => {
+            log::error!("render failed: {e}");
+            return;
+        }
+    };
+    if flipped {
+        output.frame_pending = true;
+        crate::host::send_frame_callbacks(state);
+        return;
     }
+    let refresh = output.mode.vrefresh().max(1);
+    let _ = drm.loop_handle.insert_source(
+        Timer::from_duration(std::time::Duration::from_millis(u64::from(1000 / refresh))),
+        |_, _, state: &mut LiviState| {
+            crate::host::send_frame_callbacks(state);
+            TimeoutAction::Drop
+        },
+    );
 }
 
 fn touch_target(

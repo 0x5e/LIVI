@@ -348,7 +348,9 @@ Make sure the following packages and tools are installed on your system before b
 - **Rust** (via [rustup](https://rustup.rs), which installs the version pinned in `rust-toolchain.toml`): builds everything native, that is `livi-helperd`, `livi-compositor` and `livi-gst-host`.
 - **build-essential** (Linux: includes `gcc`, `g++`, `make`, etc.)
 - **libgstreamer1.0-dev** + **libgstreamer-plugins-base1.0-dev** (required to build the `livi-gst-host` binary)
+- **libssl-dev** (Linux only: native CarPlay links OpenSSL)
 - **pkg-config**, **cmake** (AWS-LC build), **libwayland-dev** + **libxkbcommon-dev** (Linux only: the embedded Wayland compositor links both)
+- **libudev-dev**, **libinput-dev**, **libseat-dev**, **libgbm-dev** (Linux only: the compositor drives the display directly)
 - runtime packages for native CarPlay and wireless Android Auto: **bluez**, **libspa-0.2-bluetooth**, **hostapd**, **dnsmasq-base**, **iw**, **rfkill**, **avahi-daemon**, **avahi-utils**, **pulseaudio-utils**
 
 On Debian/Ubuntu/Raspberry Pi OS, install everything with:
@@ -356,9 +358,10 @@ On Debian/Ubuntu/Raspberry Pi OS, install everything with:
 ```bash
 sudo apt-get update
 sudo apt-get install -y git build-essential \
-  pkg-config cmake \
+  pkg-config cmake libssl-dev \
   libgstreamer1.0-dev libgstreamer-plugins-base1.0-dev \
   libwayland-dev libxkbcommon-dev \
+  libudev-dev libinput-dev libseat-dev libgbm-dev \
   fuse3 bluez libspa-0.2-bluetooth hostapd dnsmasq-base iw rfkill avahi-daemon avahi-utils \
   pulseaudio-utils
 curl -fsSL https://deb.nodesource.com/setup_24.x | sudo -E bash -
@@ -374,9 +377,10 @@ On Fedora, install everything with:
 
 ```bash
 sudo dnf install -y git gcc gcc-c++ make \
-  pkgconf-pkg-config systemd-devel cmake \
+  pkgconf-pkg-config systemd-devel cmake openssl-devel \
   gstreamer1-devel gstreamer1-plugins-base-devel \
   wayland-devel libxkbcommon-devel \
+  libinput-devel libseat-devel mesa-libgbm-devel \
   fuse3 fuse3-libs \
   bluez hostapd dnsmasq iw avahi avahi-tools pulseaudio-utils
 curl -fsSL https://rpm.nodesource.com/setup_24.x | sudo bash -

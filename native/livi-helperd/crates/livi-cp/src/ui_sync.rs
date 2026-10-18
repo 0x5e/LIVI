@@ -18,24 +18,19 @@ const RESET: u64 = 0;
 const RESET_COMPLETE: u64 = 1;
 const COMMAND: u64 = 2;
 const COMMAND_ACK: u64 = 3;
-/// The newest protocol version the car's side speaks.
 const VERSION: u64 = 2;
 
 const START_LAYOUT_TRANSITION: u64 = 0x03;
 const REQUEST_LAYOUT: u64 = 0x05;
 const PALETTE_CHANGE: u64 = 0x10;
-/// The car hands the cluster's focus to the phone when it has nothing to focus itself, input on
-/// the cluster then moves the phone's content.
 const GIVE_FOCUS: u64 = 0x07;
 const REQUEST_FOCUS: u64 = 0x08;
-/// Without it the phone's theme settings fall back to the default at once.
 const ALLOW_LAYOUT_CHANGE: u64 = 0x11;
-/// The car's focus token, any number the car picks.
 const FOCUS_TOKEN: u64 = 4711;
 const APPEARANCE_PREFERENCE_CHANGE: u64 = 0x13;
+const LIGHT: u64 = 0;
 const DARK: u64 = 1;
 
-/// What the phone changed on the cluster. The car follows it.
 #[derive(Debug, Clone, PartialEq)]
 pub enum PhoneChoice {
     Layout(String),
@@ -50,13 +45,10 @@ pub enum Appearance {
     Dark,
 }
 
-/// The cluster layout the car asks for, with the palette it shows it in.
 #[derive(Debug, Clone, PartialEq)]
 pub struct Layout {
     pub id: String,
     pub palette: String,
-    /// Zone id to the component it shows. A zone left out shows its first, which can be the
-    /// car's own video.
     pub active: Vec<(String, String)>,
 }
 
@@ -71,13 +63,13 @@ pub struct UiSync {
     version: u64,
     panel: Vec<(opack::Value, opack::Value)>,
     wanted: Option<Layout>,
+    light: bool,
     choices: Vec<PhoneChoice>,
 }
 
 impl UiSync {
-    /// A new channel, the layout asked for so far is asked for again once it is up.
     pub fn reopen(&mut self) {
-        *self = Self { wanted: self.wanted.take(), ..Self::default() };
+        *self = Self { wanted: self.wanted.take(), light: self.light, ..Self::default() };
     }
 
     /// Asks for the layout right away once the channel is up, else when it comes up.
@@ -89,16 +81,27 @@ impl UiSync {
         out
     }
 
-    /// What the phone changed since the last call.
+    pub fn set_dark(&mut self, dark: bool) -> Vec<Vec<u8>> {
+        if self.light != dark {
+            return Vec::new();
+        }
+        self.light = !dark;
+        match self.wanted.take() {
+            Some(layout) => self.select(layout),
+            None => Vec::new(),
+        }
+    }
+
     pub fn take_choices(&mut self) -> Vec<PhoneChoice> {
         std::mem::take(&mut self.choices)
     }
 
     fn request(&self) -> Option<bplist::Value> {
-        self.wanted.as_ref().map(request_layout)
+        self.wanted
+            .as_ref()
+            .map(|layout| request_layout(layout, if self.light { LIGHT } else { DARK }))
     }
 
-    /// Messages for the phone after one from it, each ready for the stream.
     pub fn handle(&mut self, message: &[u8]) -> Vec<Vec<u8>> {
         println!("[cpUiSync] {}", describe(message));
         let Some(opack::Value::Dict(frame)) = opack::decode(message) else { return Vec::new() };
@@ -161,8 +164,6 @@ impl UiSync {
         out
     }
 
-    /// The phone's theme settings moved the cluster, the car goes along. True when the phone
-    /// asks for the focus, LIVI has nothing of its own to focus on the cluster.
     fn follow_phone(&mut self, header: &bplist::Value) -> bool {
         let Some(Ok(command)) =
             header.get("data").and_then(bplist::Value::as_data).map(bplist::decode)
@@ -257,7 +258,7 @@ fn allow_layout_change() -> bplist::Value {
     ])
 }
 
-fn request_layout(layout: &Layout) -> bplist::Value {
+fn request_layout(layout: &Layout, appearance: u64) -> bplist::Value {
     let s = |v: &str| bplist::Value::String(v.into());
     bplist::Value::Dict(vec![
         ("type".into(), bplist::Value::Int(REQUEST_LAYOUT)),
@@ -266,7 +267,7 @@ fn request_layout(layout: &Layout) -> bplist::Value {
             bplist::Value::Dict(vec![
                 ("layoutID".into(), s(&layout.id)),
                 ("paletteID".into(), s(&layout.palette)),
-                ("appearanceMode".into(), bplist::Value::Int(DARK)),
+                ("appearanceMode".into(), bplist::Value::Int(appearance)),
                 ("fadeInNewLayout".into(), bplist::Value::Bool(true)),
                 ("fadeOutOldLayout".into(), bplist::Value::Bool(true)),
                 (
@@ -390,6 +391,16 @@ mod tests {
         let data = command.get("data").unwrap();
         assert_eq!(data.get("layoutID").and_then(bplist::Value::as_str), Some("DB7C6944"));
         assert_eq!(data.get("paletteID").and_then(bplist::Value::as_str), Some("dark"));
+        assert_eq!(data.get("appearanceMode").and_then(bplist::Value::as_int), Some(DARK));
+
+        assert!(sync.set_dark(true).is_empty(), "dark already");
+        let h = header_of(&sync.set_dark(false)[0]);
+        let command =
+            bplist::decode(h.get("data").and_then(bplist::Value::as_data).unwrap()).unwrap();
+        let data = command.get("data").unwrap();
+        assert_eq!(data.get("layoutID").and_then(bplist::Value::as_str), Some("DB7C6944"));
+        assert_eq!(data.get("appearanceMode").and_then(bplist::Value::as_int), Some(LIGHT));
+        assert!(UiSync::default().set_dark(false).is_empty(), "no layout asked for yet");
 
         let from_phone = |psn: u64, kind: u64, data: Vec<(&str, bplist::Value)>| {
             let data = data.into_iter().map(|(k, v)| (k.to_string(), v)).collect();

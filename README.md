@@ -148,6 +148,15 @@ livi-core telemetry set fuelPct=4 rangeKm=38
 livi-core telemetry set gps.lat=53.5912 gps.lng=10.015
 livi-core telemetry set speedKph=90 rpm=2500 --every-ms 1000
 
+# Light main screen, dark CarPlay cluster
+livi-core telemetry set nightMode=false clusterNightMode=true
+
+# A warning in the CarPlay cluster, it stays until Enter closes it
+livi-core telemetry set notification.title=Frost notification.text="Icy roads" notification.symbol=snowflake notification.open=true
+
+# Own picture from ~/.config/LIVI/carplay-images/example.png, from the next CarPlay start
+livi-core telemetry set notification.title=LIVI notification.symbol=example notification.open=true
+
 # Another LIVI, or without livi-core at hand
 livi-core telemetry set gear=R --to livi.local:4000
 curl -d '{"gear":"R"}' http://livi.local:4000/telemetry

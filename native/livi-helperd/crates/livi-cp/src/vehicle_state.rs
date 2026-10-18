@@ -1,10 +1,11 @@
-//! Vehicle state over CarPlay. The car describes accessories made of services and their
-//! characteristics, the phone reads that description, follows values and writes the ones it owns.
-//! Every message is OPACK on one of two data streams, one of them for high priority values.
+// Vehicle state over CarPlay. The car describes accessories made of services and their
+// characteristics, the phone reads that description, follows values and writes the ones it owns.
+// Every message is OPACK on one of two data streams, one of them for high priority values.
 
 use std::collections::{BTreeMap, BTreeSet};
 
 use crate::bplist;
+use crate::image_archive;
 use crate::opack::{self, Value, dict};
 
 pub const FEATURE: &str = "vehicleStateProtocol";
@@ -25,13 +26,11 @@ const PERCENT: i64 = 1205;
 const MILLILITERS_PER_100_KM: i64 = 674;
 const REVOLUTIONS_PER_MINUTE: i64 = 981;
 const KILOWATTS: i64 = 884;
-/// The answer for a value the car does not hold, or one the phone may not write.
+const SECONDS: i64 = 251;
 const NO_VALUE: i64 = -6727;
 const WRITTEN: i64 = 0;
-/// The answer for a command the car does not offer.
 const NO_SUCH_COMMAND: i64 = -6735;
 const SENT_BY_PHONE: i64 = 0;
-/// Lists and pictures go over the large value path.
 const LARGE_LENGTH: i64 = 2_147_483_647;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -54,8 +53,6 @@ enum Format {
     Array = 13,
 }
 
-/// The phone writes route data, the car states its own facts, and climate settings are asked for
-/// by the phone and held by the car.
 #[derive(Clone, Copy, PartialEq, Eq)]
 enum Owner {
     Phone,
@@ -72,7 +69,6 @@ struct Characteristic {
     mutable: bool,
     range: Option<(f64, f64, f64)>,
     units: Option<i64>,
-    /// Said out loud, Siri leaves a value alone otherwise.
     enabled: bool,
     large: bool,
     initial: Option<Value>,
@@ -86,7 +82,6 @@ fn characteristic(
     owner: Owner,
     initial: Option<Value>,
 ) -> Characteristic {
-    // The phone ignores a count whose description carries no bounds.
     let counts = matches!(format, Format::Uint32 | Format::Uint64);
     let range = counts.then_some((0.0, f64::from(u32::MAX), 1.0));
     Characteristic {
@@ -147,7 +142,6 @@ impl Characteristic {
         Self { large: true, ..self }
     }
 
-    /// A value from outside the phone, held to the range and steps the phone was told.
     fn take(&self, v: &serde_json::Value) -> Option<Value> {
         if self.format == Format::Bool {
             return v.as_bool().map(Value::Bool);
@@ -199,7 +193,6 @@ impl Characteristic {
         if let Some(units) = self.units {
             d.push(("units", Value::Int(units)));
         }
-        // The phone can clear what it wrote, except for its enumerations.
         if self.owner == Owner::Phone && self.format != Format::Uint8 {
             d.push(("supportsInvalid", Value::Bool(true)));
         }
@@ -223,12 +216,12 @@ struct Accessory {
     services: Vec<Service>,
 }
 
-/// A command the phone sends the car, with the name and format of each value it carries.
 struct Control {
     iid: i64,
     kind: i64,
     name: &'static str,
     parameters: Vec<(&'static str, Format)>,
+    response: Vec<(&'static str, Format)>,
 }
 
 impl Control {
@@ -239,28 +232,30 @@ impl Control {
             ("sender", Value::Int(SENT_BY_PHONE)),
             ("hasResponse", Value::Bool(true)),
         ];
-        if !self.parameters.is_empty() {
-            let parameters = self.parameters.iter().map(|(name, format)| {
+        let described = |values: &[(&'static str, Format)]| {
+            let values = values.iter().map(|(name, format)| {
                 dict([("name", Value::str(name)), ("format", Value::Int(*format as i64))])
             });
-            d.push(("requestParameters", Value::Array(parameters.collect())));
+            Value::Array(values.collect())
+        };
+        if !self.parameters.is_empty() {
+            d.push(("requestParameters", described(&self.parameters)));
+        }
+        if !self.response.is_empty() {
+            d.push(("responseParameters", described(&self.response)));
         }
         Value::Dict(d.into_iter().map(|(k, v)| (Value::str(k), v)).collect())
     }
 }
 
-/// LIVI's own radio as the phone's Radio app shows it.
 #[derive(Debug, Clone, PartialEq, Default)]
 pub struct Radio {
-    /// False while no receiver is plugged in.
     pub available: bool,
     pub stations: Vec<RadioStation>,
-    /// Identifier of the tuned station.
     pub current: Option<String>,
     pub title: String,
     pub artist: String,
     pub album: String,
-    /// JPEG or PNG, empty for none.
     pub artwork: Vec<u8>,
     pub playing: bool,
 }
@@ -271,11 +266,9 @@ pub struct RadioStation {
     pub name: String,
     pub short_name: String,
     pub ensemble: String,
-    /// JPEG or PNG the station sent.
     pub image: Option<Vec<u8>>,
 }
 
-/// What the Radio app asks the car's radio to do.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum RadioCommand {
     Tune(String),
@@ -302,7 +295,6 @@ const PLAYBACK_STATE: i64 = 4359;
 const PAUSED: i64 = 0;
 const PLAYING: i64 = 1;
 
-/// The car's own sources for the phone's Radio app, one DAB+ source.
 fn media() -> Accessory {
     use Format::*;
     Accessory {
@@ -335,7 +327,6 @@ fn media() -> Accessory {
     }
 }
 
-/// What the Radio app shows as playing.
 fn now_playing() -> Accessory {
     use Format::*;
     Accessory {
@@ -364,11 +355,10 @@ fn now_playing() -> Accessory {
     }
 }
 
-/// The Radio app's commands to the car, all on the now playing service.
 fn radio_controls() -> Vec<(i64, Control)> {
     use Format::*;
     let command = |iid, kind, name, parameters| {
-        (NOW_PLAYING_SERVICE, Control { iid, kind, name, parameters })
+        (NOW_PLAYING_SERVICE, Control { iid, kind, name, parameters, response: Vec::new() })
     };
     vec![
         command(4360, 0x0F00_0032, "play", Vec::new()),
@@ -406,7 +396,6 @@ fn radio_item(s: &RadioStation) -> Value {
     Value::Dict(d.into_iter().map(|(k, v)| (Value::str(k), v)).collect())
 }
 
-/// Route sharing: the phone hands the car its route, the car says where navigation runs.
 fn navigation() -> Accessory {
     use Format::*;
     Accessory {
@@ -463,8 +452,13 @@ fn navigation() -> Accessory {
 const INTERIOR_STYLE: i64 = 770;
 const EXTERIOR_STYLE: i64 = 771;
 const VEHICLE_LAYOUT: i64 = 772;
+const IMAGE_ARCHIVE_SERVICE: i64 = 776;
+const GET_IMAGE_ARCHIVE: i64 = 778;
+const LOGO: &str = "livi";
+const HISTORY: i64 = 3584;
+const HISTORY_SLOTS: usize = 10;
+const VERSION_LINE: i64 = 1281;
 
-/// Names the interior picture in the car maker's theme, without one the climate page shows a placeholder.
 fn vehicle_resources() -> Accessory {
     use Format::*;
     Accessory {
@@ -482,7 +476,6 @@ fn vehicle_resources() -> Accessory {
     }
 }
 
-/// Climate: the phone and Siri ask for settings, the car holds them and reports back.
 fn climate() -> Accessory {
     use Format::*;
     let on = |iid, name, initial| shared(iid, 0x3000_0002, name, Bool, Value::Bool(initial));
@@ -568,7 +561,6 @@ fn climate() -> Accessory {
     }
 }
 
-/// One vent with its own button, the climate app shows each as one.
 fn vent(iid: i64, names: [&'static str; 2], direction: i64, on: bool) -> Service {
     use Format::*;
     Service {
@@ -593,7 +585,6 @@ fn vent(iid: i64, names: [&'static str; 2], direction: i64, on: bool) -> Service
 const UPPER: i64 = 2;
 const LOWER: i64 = 4;
 const MIDDLE: i64 = 16;
-/// Top, middle and bottom vent, on and automatic of each at the next two iids.
 const VENTS: [i64; 3] = [548, 553, 558];
 const AUTO_CLIMATE: i64 = 530;
 const FAN_AUTO: i64 = 526;
@@ -602,13 +593,10 @@ const COMPRESSOR: i64 = 515;
 const MAX_AC: i64 = 516;
 const MAX_DEFROST: i64 = 517;
 const RECIRCULATION: i64 = 528;
-/// Front and rear window, the heating level of each at the next iid.
 const WINDOWS: [i64; 2] = [540, 544];
-/// Shown as LO and HI at the ends of the scale.
 const TEMPERATURE_LO: f64 = 16.0;
 const TEMPERATURE_HI: f64 = 28.0;
 
-/// A heated window, wires in the glass, on or off.
 fn window_heating(iid: i64, name: &'static str, key: &'static str) -> Service {
     use Format::*;
     const FILAMENT: i64 = 2;
@@ -625,7 +613,6 @@ fn window_heating(iid: i64, name: &'static str, key: &'static str) -> Service {
 
 const LIVI_SECTION: &str = "LIVI";
 
-/// One read only line in the LIVI section of the vehicle app's menu, seven iids from `iid` on.
 fn info_line(iid: i64, id: &str, label: &str, value: &str, symbol: &str, order: i64) -> Service {
     use Format::*;
     let value = if value.is_empty() { "?" } else { value };
@@ -646,8 +633,6 @@ fn info_line(iid: i64, id: &str, label: &str, value: &str, symbol: &str, order: 
     }
 }
 
-/// The vehicle app's menu: a LIVI section with the version and when it was built. The phone
-/// orders the lines by their labels, so the build line's label starts with the version's.
 fn automaker_settings(app_version: &str, build_date: &str) -> Accessory {
     use Format::*;
     Accessory {
@@ -655,7 +640,7 @@ fn automaker_settings(app_version: &str, build_date: &str) -> Accessory {
         iid: 1280,
         kind: 0x0500_0001,
         services: vec![
-            info_line(1281, "LiviVersion", "Version", app_version, "info.circle", 0),
+            info_line(VERSION_LINE, "LiviVersion", "Version", app_version, "info.circle", 0),
             info_line(1289, "LiviVersionBuildDate", "Version Build", build_date, "hammer", 1),
             Service {
                 iid: 1297,
@@ -673,7 +658,6 @@ fn automaker_settings(app_version: &str, build_date: &str) -> Accessory {
     }
 }
 
-/// Heating only, the description cannot carry the negative levels of cooling.
 fn seats() -> Accessory {
     use Format::*;
     let heating = |iid, names: [&'static str; 2], key| Service {
@@ -700,12 +684,10 @@ fn seats() -> Accessory {
     }
 }
 
-/// A distance the car shows in either unit, the miles sit one iid above the kilometres.
 #[derive(Clone, Copy)]
 struct Distance {
     km: i64,
     hidden: Option<i64>,
-    /// Kilometres, miles, hidden.
     names: [&'static str; 3],
 }
 
@@ -739,7 +721,6 @@ fn distance(iid: i64, kind: i64, d: Distance) -> Service {
     Service { iid, kind, characteristics }
 }
 
-/// Tank, range and consumption for the cluster and the vehicle app, all read only.
 fn fuel() -> Accessory {
     use Format::*;
     Accessory {
@@ -796,7 +777,6 @@ fn trip_computer() -> Accessory {
     }
 }
 
-/// Telemetry name and layout key of each wheel, its service sits at `TIRES + 1 + 5 * n`.
 const WHEELS: [(&str, &str); 4] = [
     ("frontLeftKpa", "tire_front_left"),
     ("frontRightKpa", "tire_front_right"),
@@ -804,18 +784,14 @@ const WHEELS: [(&str, &str); 4] = [
     ("rearRightKpa", "tire_rear_right"),
 ];
 const TIRES: i64 = 2048;
-/// LIVI knows no target pressure, so it never judges one.
 const PRESSURE_UNDEFINED: i64 = 0;
 const SENSOR_ACTIVE: i64 = 1;
 const SENSOR_WAITING: i64 = 3;
 
-/// The wheel's pressure, followed by its layout key, pressure state and sensor state.
 fn tire_pressure_iid(wheel: usize) -> i64 {
     TIRES + 2 + 5 * wheel as i64
 }
 
-/// One pressure in kPa per wheel with its states, read only. The sensor waits until a pressure
-/// arrives.
 fn tires() -> Accessory {
     use Format::*;
     let wheel = |n: usize, key: &'static str| {
@@ -856,9 +832,6 @@ const CALL_VOLUME: i64 = 2314;
 const MUSIC_VOLUME: i64 = 2317;
 const SIRI_VOLUME: i64 = 2321;
 
-/// Each volume the vehicle app shows: LIVI's name for it, its iid, and the phone's volume type.
-/// `volume` is the head unit in the telemetry, the others are settings.
-/// Media, navigation, call, speech, ringtone, navigation speech, other, vehicle notification.
 const LAST_VOLUME_TYPE: u32 = 7;
 pub const VOLUMES: [(&str, i64); 5] = [
     ("volume", VOLUME),
@@ -867,8 +840,6 @@ pub const VOLUMES: [(&str, i64); 5] = [
     ("audioVolume", MUSIC_VOLUME),
     ("voiceAssistantVolume", SIRI_VOLUME),
 ];
-/// The phone's volume type of each volume it lists under its own name.
-/// The phone has no type for music, "other" carries LIVI's own label.
 const VOLUME_TYPES: [(i64, i64, Option<&str>); 5] = [
     (VOLUME, 0, Some("LIVI")),
     (NAV_VOLUME, 1, None),
@@ -877,9 +848,6 @@ const VOLUME_TYPES: [(i64, i64, Option<&str>); 5] = [
     (MUSIC_VOLUME, 6, Some("Musik")),
 ];
 
-/// LIVI's volumes in percent, the phone and Siri may set them. The head unit's volume shows as
-/// media, the phone names each by its type.
-/// The car's engines, the phone tells combustion, electric and plug-in hybrid cars apart by them.
 #[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
 pub struct Engines {
     pub combustion: Option<Rpm>,
@@ -937,11 +905,70 @@ fn electric_engine() -> Accessory {
     }
 }
 
-/// What a car maker's theme shows in a zone of a display, asked for by the car.
+#[derive(Debug, Clone, Default, PartialEq)]
+pub struct Notice {
+    pub title: String,
+    pub text: String,
+    pub symbol: String,
+}
+
+#[derive(Debug, Clone, Default, PartialEq)]
+pub struct HistoryEntry {
+    pub id: u64,
+    pub notice: Notice,
+    pub at_secs: u64,
+    pub hidden: bool,
+}
+
+fn history_slot(n: usize) -> i64 {
+    HISTORY + 1 + 8 * n as i64
+}
+
+fn notification_history() -> Accessory {
+    use Format::*;
+    let open = |iid, kind, name, format| characteristic(iid, kind, name, format, Owner::Car, None);
+    let both =
+        |iid, kind, name, format| characteristic(iid, kind, name, format, Owner::Shared, None);
+    let services = (0..HISTORY_SLOTS)
+        .map(|n| {
+            let iid = history_slot(n);
+            Service {
+                iid,
+                kind: 0x2100_0001,
+                characteristics: vec![
+                    open(iid + 1, 0x3000_0001, "historyLabel", String),
+                    open(iid + 2, 0x3000_0005, "historyDescription", String),
+                    open(iid + 3, 0x4900_0003, "historyTimestamp", Uint64)
+                        .up_to(u32::MAX)
+                        .in_units(SECONDS),
+                    both(iid + 4, 0x3000_005E, "historySymbol", String),
+                    both(iid + 5, 0x4900_0002, "historySeverity", Uint8).up_to(2),
+                    both(iid + 6, 0x3600_0063, "historyDismissible", Bool),
+                    both(iid + 7, 0x3600_0023, "historyHidden", Bool),
+                ],
+            }
+        })
+        .collect();
+    Accessory { name: "notification history", iid: HISTORY, kind: 0x0140_0001, services }
+}
+
+fn fetched_archives() -> std::sync::MutexGuard<'static, BTreeSet<String>> {
+    static FETCHED: std::sync::Mutex<BTreeSet<String>> = std::sync::Mutex::new(BTreeSet::new());
+    FETCHED.lock().unwrap_or_else(|e| e.into_inner())
+}
+
+fn archive_started() -> u32 {
+    static STARTED: std::sync::OnceLock<u32> = std::sync::OnceLock::new();
+    *STARTED.get_or_init(|| {
+        std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .map_or(0, |d| d.as_secs() as u32)
+    })
+}
+
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct ClusterContent {
     pub panel: String,
-    /// The content URL for zone 1 (centre) and zone 2 (right), empty for none.
     pub zones: [String; 2],
 }
 
@@ -957,7 +984,11 @@ fn zone_service(
     zone: &str,
 ) -> Service {
     use Format::*;
-    let mut characteristics = vec![car(iid + 1, url_kind, "contentURL", String, Value::str(url))];
+    let mut characteristics = vec![if kind == REQUEST_TEMPORARY_CONTENT {
+        shared(iid + 1, url_kind, "contentURL", String, Value::str(url))
+    } else {
+        car(iid + 1, url_kind, "contentURL", String, Value::str(url))
+    }];
     let mut next = iid + 2;
     if let Some(on) = on {
         characteristics.push(shared(next, 0x3000_0002, "on", Bool, Value::Bool(on)));
@@ -975,11 +1006,41 @@ fn zone_service(
     Service { iid, kind, characteristics }
 }
 
+fn notice_service(panel: &str) -> Service {
+    use Format::*;
+    let open = |iid, kind, name, format| characteristic(iid, kind, name, format, Owner::Car, None);
+    Service {
+        iid: NOTICE,
+        kind: 0x1700_0005,
+        characteristics: vec![
+            open(NOTICE + 1, 0x3000_0001, "userVisibleLabel", String),
+            open(NOTICE + 2, 0x3000_0005, "userVisibleDescription", String),
+            open(NOTICE + 3, 0x3000_0019, "identifier", String),
+            open(NOTICE + 4, 0x3700_0008, "symbolNameAndColor", Dict),
+            car(NOTICE + 5, 0x3700_0007, "displayPanelIdentifier", String, Value::str(panel))
+                .fixed(),
+            car(NOTICE + 6, 0x3700_000B, "displayZoneIdentifier", String, Value::str(ZONES[0]))
+                .fixed(),
+            open(NOTICE + 7, 0x3700_000C, "trailingButton", Dict),
+            characteristic(
+                NOTICE + 8,
+                0x3700_000D,
+                "trailingButtonState",
+                Uint8,
+                Owner::Shared,
+                None,
+            ),
+        ],
+    }
+}
+
+const NOTICE: i64 = 3360;
+const TEMPORARY_ZONE: i64 = 3085;
+const NOTICE_URL: &str = "minimalRemoteNotification://";
 const REQUEST_CONTENT: i64 = 0x1700_0004;
 const REQUEST_TEMPORARY_CONTENT: i64 = 0x1700_000C;
 const DYNAMIC_CONTENT_ELEMENT: i64 = 0x1700_000B;
 
-/// The car asks the phone for widgets, temporary content and dynamic elements per zone.
 fn cluster_content(content: &ClusterContent) -> [Accessory; 2] {
     let panel = content.panel.as_str();
     let mut requests = Vec::new();
@@ -1008,7 +1069,7 @@ fn cluster_content(content: &ClusterContent) -> [Accessory; 2] {
             zone,
         ));
     }
-    let elements = ZONES
+    let mut elements: Vec<Service> = ZONES
         .iter()
         .enumerate()
         .map(|(n, zone)| {
@@ -1016,6 +1077,7 @@ fn cluster_content(content: &ClusterContent) -> [Accessory; 2] {
             zone_service(base, DYNAMIC_CONTENT_ELEMENT, 0x3700_0013, "", None, panel, zone)
         })
         .collect();
+    elements.push(notice_service(panel));
     [
         Accessory { name: "cluster content", iid: 3072, kind: 0x0120_0001, services: requests },
         Accessory {
@@ -1056,7 +1118,6 @@ fn audio() -> Accessory {
     }
 }
 
-/// The readings in LIVI's telemetry the cluster shows, metric, by their telemetry names.
 pub type Gauges = serde_json::Map<String, serde_json::Value>;
 pub const GAUGE_KEYS: [&str; 8] = [
     "rpm",
@@ -1072,13 +1133,10 @@ pub const GAUGE_KEYS: [&str; 8] = [
 const DRIVER_TARGET_TEMPERATURE: i64 = 520;
 const PASSENGER_TARGET_TEMPERATURE: i64 = 534;
 const ZONES_SYNCED: i64 = 538;
-/// Level and on of each front seat's heating.
 const SEAT_HEATING: [(i64, i64); 2] = [(1026, 1027), (1030, 1031)];
 const FAN: (i64, i64) = (525, 524);
-/// Level and on of what runs at its level and stops at 0.
 const LEVELLED: [(i64, i64); 3] = [SEAT_HEATING[0], SEAT_HEATING[1], FAN];
 
-/// The climate block in LIVI's telemetry, metric, each key with the value it stands for.
 pub type Climate = serde_json::Map<String, serde_json::Value>;
 const CLIMATE_KEYS: [(&str, i64); 20] = [
     ("on", HVAC_ON),
@@ -1102,10 +1160,8 @@ const CLIMATE_KEYS: [(&str, i64); 20] = [
     ("driverSeatHeating", SEAT_HEATING[0].0),
     ("passengerSeatHeating", SEAT_HEATING[1].0),
 ];
-/// One switch for the automatic of all three vents.
 const VENTS_AUTO: &str = "ventsAuto";
 
-/// The climate LIVI starts with, AUTO at 21 °C.
 pub fn default_climate() -> Climate {
     VehicleState::new(false, "", "").climate().unwrap_or_default()
 }
@@ -1123,13 +1179,15 @@ pub struct VehicleState {
     accessories: Vec<Accessory>,
     values: BTreeMap<i64, Value>,
     followed: BTreeSet<i64>,
-    /// The level each switched off one comes back on with.
     resume: BTreeMap<i64, Value>,
-    /// What Max AC took over, given back when it ends.
     before_max_ac: Option<Vec<(i64, Value)>>,
-    /// Each command with the iid of the service it belongs to.
     controls: Vec<(i64, Control)>,
     radio_commands: Vec<RadioCommand>,
+    image_archive: Option<Vec<u8>>,
+    images: BTreeSet<String>,
+    history: Vec<HistoryEntry>,
+    hidden_by_phone: Vec<u64>,
+    zone_ready: bool,
     debug: bool,
 }
 
@@ -1147,6 +1205,7 @@ impl VehicleState {
             audio(),
             media(),
             now_playing(),
+            notification_history(),
         ];
         let values = accessories
             .iter()
@@ -1162,12 +1221,188 @@ impl VehicleState {
             before_max_ac: None,
             controls: radio_controls(),
             radio_commands: Vec::new(),
+            image_archive: None,
+            images: BTreeSet::new(),
+            history: Vec::new(),
+            hidden_by_phone: Vec::new(),
+            zone_ready: false,
             debug,
         }
     }
 
-    /// The theme's model name for the car, it picks the car pictures in the climate, vehicle and
-    /// tyre views. Left and right hand drive come with it.
+    pub fn with_images(mut self, images: &[(String, Vec<u8>)]) -> Self {
+        if images.is_empty() {
+            return self;
+        }
+        let archive = image_archive::build(images);
+        let version = Value::String(format!(
+            "{:08x}{:08x}",
+            image_archive::crc32(&archive),
+            archive_started()
+        ));
+        let version_iid = IMAGE_ARCHIVE_SERVICE + 1;
+        if let Some(resources) = self.accessories.iter_mut().find(|a| a.iid == 768) {
+            let identifier = car(
+                version_iid,
+                0x3000_0019,
+                "imageArchiveVersion",
+                Format::String,
+                version.clone(),
+            );
+            resources.services.push(Service {
+                iid: IMAGE_ARCHIVE_SERVICE,
+                kind: 0x2000_0002,
+                characteristics: vec![identifier.fixed()],
+            });
+        }
+        self.controls.push((
+            IMAGE_ARCHIVE_SERVICE,
+            Control {
+                iid: GET_IMAGE_ARCHIVE,
+                kind: 0x4800_0008,
+                name: "getImageArchive",
+                parameters: Vec::new(),
+                response: vec![("imageArchive", Format::Data)],
+            },
+        ));
+        self.values.insert(version_iid, version);
+        self.images = images.iter().map(|(name, _)| name.clone()).collect();
+        self.image_archive = Some(archive);
+        if !self.images.contains(LOGO) {
+            return self;
+        }
+        let line = self
+            .accessories
+            .iter_mut()
+            .flat_map(|a| &mut a.services)
+            .flat_map(|s| &mut s.characteristics)
+            .find(|c| c.iid == VERSION_LINE + 5);
+        if let Some(line) = line {
+            line.mutable = true;
+        }
+        self
+    }
+
+    fn archive_version(&self) -> Option<&str> {
+        self.image_archive.as_ref()?;
+        self.values.get(&(IMAGE_ARCHIVE_SERVICE + 1)).and_then(Value::as_str)
+    }
+
+    fn archive_fetched(&self) -> bool {
+        self.archive_version().is_some_and(|v| fetched_archives().contains(v))
+    }
+
+    fn symbol_name(&self, name: &str) -> String {
+        if self.archive_fetched() && self.images.contains(name) {
+            format!("imageArchive://?identifier={name}")
+        } else {
+            name.to_string()
+        }
+    }
+
+    fn logo_symbol_update(&mut self) -> Vec<(Lane, Vec<u8>)> {
+        if !self.archive_fetched() || !self.images.contains(LOGO) {
+            return Vec::new();
+        }
+        println!("[cpVehicle] car sets the version line's logo");
+        let symbol = Value::String(self.symbol_name(LOGO));
+        self.group(vec![(VERSION_LINE + 5, symbol)]).into_iter().collect()
+    }
+
+    pub fn set_history(&mut self, entries: Vec<HistoryEntry>) -> Vec<(Lane, Vec<u8>)> {
+        self.history = entries;
+        self.history.truncate(HISTORY_SLOTS);
+        if self.followed.contains(&(history_slot(0) + 1)) {
+            self.history_update()
+        } else {
+            Vec::new()
+        }
+    }
+
+    pub fn take_hidden_by_phone(&mut self) -> Vec<u64> {
+        std::mem::take(&mut self.hidden_by_phone)
+    }
+
+    fn history_update(&mut self) -> Vec<(Lane, Vec<u8>)> {
+        let mut out = Vec::new();
+        for n in 0..HISTORY_SLOTS {
+            let iid = history_slot(n);
+            let entry = self.history.get(n).cloned().unwrap_or_default();
+            let filled = n < self.history.len();
+            let symbol = Value::String(self.symbol_name(&entry.notice.symbol));
+            out.extend(self.group(vec![
+                (iid + 1, Value::String(entry.notice.title)),
+                (iid + 2, Value::String(entry.notice.text)),
+                (iid + 3, Value::Int(entry.at_secs as i64)),
+                (iid + 4, symbol),
+                (iid + 5, Value::Int(0)),
+                (iid + 6, Value::Bool(true)),
+                (iid + 7, Value::Bool(!filled || entry.hidden)),
+            ]));
+        }
+        out
+    }
+
+    pub fn notice_open(&self) -> bool {
+        self.values.get(&(TEMPORARY_ZONE + 2)) == Some(&Value::Bool(true))
+    }
+
+    pub fn take_zone_ready(&mut self) -> bool {
+        std::mem::take(&mut self.zone_ready)
+    }
+
+    pub fn show_notice(&mut self, notice: &Notice) -> Vec<(Lane, Vec<u8>)> {
+        if self.characteristic(NOTICE + 1).is_none()
+            || self.characteristic(TEMPORARY_ZONE + 1).is_none()
+        {
+            return Vec::new();
+        }
+        println!("[cpVehicle] car shows the notification {:?}", notice.title);
+        let name = self.symbol_name(&notice.symbol);
+        let symbol = dict([("name", Value::String(name)), ("color", Value::Int(0))]);
+        let button = dict([("contentURLAction", Value::str("")), ("type", Value::Int(1))]);
+        let identifier = std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .map_or(0, |d| d.as_millis());
+        let fields = self.group(vec![
+            (NOTICE + 1, Value::String(notice.title.clone())),
+            (NOTICE + 2, Value::String(notice.text.clone())),
+            (NOTICE + 3, Value::String(format!("livi-{identifier}"))),
+            (NOTICE + 4, symbol),
+            (NOTICE + 7, button),
+            (NOTICE + 8, Value::Int(0)),
+        ]);
+        let zone = self.group(vec![
+            (TEMPORARY_ZONE + 1, Value::str(NOTICE_URL)),
+            (TEMPORARY_ZONE + 2, Value::Bool(true)),
+        ]);
+        [fields, zone].into_iter().flatten().collect()
+    }
+
+    pub fn hide_notice(&mut self) -> Vec<(Lane, Vec<u8>)> {
+        if !self.notice_open() {
+            return Vec::new();
+        }
+        println!("[cpVehicle] car closes the notification");
+        self.group(vec![
+            (TEMPORARY_ZONE + 1, Value::str(NOTICE_URL)),
+            (TEMPORARY_ZONE + 2, Value::Bool(false)),
+        ])
+        .into_iter()
+        .collect()
+    }
+
+    fn group(&mut self, values: Vec<(i64, Value)>) -> Option<(Lane, Vec<u8>)> {
+        let pairs = values
+            .into_iter()
+            .map(|(iid, v)| {
+                self.values.insert(iid, v.clone());
+                (Value::Int(iid), v)
+            })
+            .collect();
+        update_notify(pairs)
+    }
+
     pub fn with_variant(mut self, model: &str) -> Self {
         if model.is_empty() {
             return self;
@@ -1205,7 +1440,6 @@ impl VehicleState {
         self
     }
 
-    /// Asks the theme to show `url` in a cluster zone (0 centre, 1 right), off when empty.
     pub fn show_in_zone(&mut self, zone: usize, url: &str) -> Vec<(Lane, Vec<u8>)> {
         let base = 3073 + 6 * zone as i64;
         if self.characteristic(base + 1).is_none() {
@@ -1279,7 +1513,6 @@ impl VehicleState {
         )
     }
 
-    /// The /info entry that tells the phone the car speaks the protocol and what it describes.
     pub fn info_entry(&self) -> (String, bplist::Value) {
         let plugin = dict([
             ("name", Value::str(PLUGIN)),
@@ -1295,7 +1528,6 @@ impl VehicleState {
         ("vehicleStateProtocolInfo".into(), to_plist(&info))
     }
 
-    /// One message from the phone, and what goes back on which stream.
     pub fn handle(&mut self, lane: Lane, message: &[u8]) -> Vec<(Lane, Vec<u8>)> {
         let Some(outer) = opack::decode(message) else {
             println!("[cpVehicle] a {} B message is not OPACK", message.len());
@@ -1321,7 +1553,20 @@ impl VehicleState {
             }
             "registerRequest" => {
                 let iids = values.and_then(Value::as_array).unwrap_or(&[]);
-                vec![(lane, wrap(&self.follow(iids, transaction)))]
+                let zone = iids.iter().any(|v| v.as_int() == Some(TEMPORARY_ZONE + 1));
+                let symbol = iids.iter().any(|v| v.as_int() == Some(VERSION_LINE + 5));
+                let history = iids.iter().any(|v| v.as_int() == Some(history_slot(0) + 1));
+                let mut out = vec![(lane, wrap(&self.follow(iids, transaction)))];
+                if symbol {
+                    out.extend(self.logo_symbol_update());
+                }
+                if history {
+                    out.extend(self.history_update());
+                }
+                if zone {
+                    self.zone_ready = true;
+                }
+                out
             }
             "writeRequest" => {
                 let written = values.and_then(Value::as_dict).unwrap_or(&[]);
@@ -1329,7 +1574,18 @@ impl VehicleState {
             }
             "controlRequest" => {
                 let commands = values.and_then(Value::as_dict).unwrap_or(&[]);
-                vec![(lane, wrap(&self.control(commands, transaction)))]
+                let fetched = commands.iter().any(|(k, _)| k.as_int() == Some(GET_IMAGE_ARCHIVE));
+                let mut out = vec![(lane, wrap(&self.control(commands, transaction)))];
+                if fetched && self.image_archive.is_some() {
+                    if let Some(version) = self.archive_version() {
+                        fetched_archives().insert(version.to_string());
+                    }
+                    out.extend(self.logo_symbol_update());
+                    if self.followed.contains(&(history_slot(0) + 1)) {
+                        out.extend(self.history_update());
+                    }
+                }
+                out
             }
             other => {
                 println!("[cpVehicle] phone sent {other:?}, not handled");
@@ -1338,8 +1594,6 @@ impl VehicleState {
         }
     }
 
-    /// The phone's commands. Each is answered at once, LIVI's radio acts on it and its new state
-    /// comes back through `set_radio`.
     fn control(&mut self, commands: &[(Value, Value)], transaction: Value) -> Value {
         let mut answered = Vec::new();
         let mut refused = Vec::new();
@@ -1353,6 +1607,12 @@ impl VehicleState {
                 refused.push((key.clone(), Value::Int(NO_SUCH_COMMAND)));
                 continue;
             };
+            if name == "getImageArchive" {
+                let zip = self.image_archive.clone().unwrap_or_default();
+                println!("[cpVehicle] phone fetched the image archive, {} B", zip.len());
+                answered.push((key.clone(), dict([("imageArchive", Value::Data(zip))])));
+                continue;
+            }
             println!("[cpVehicle] phone pressed {name} {}", shown(parameters));
             let text = |k| parameters.get(k).and_then(Value::as_str);
             let ours = |k| text(k).is_none_or(|s| s == RADIO_SOURCE);
@@ -1385,12 +1645,10 @@ impl VehicleState {
         Value::Dict(answer)
     }
 
-    /// What the Radio app asked for since the last call.
     pub fn take_radio_commands(&mut self) -> Vec<RadioCommand> {
         std::mem::take(&mut self.radio_commands)
     }
 
-    /// LIVI's radio as it is now, the phone hears what it follows that changed.
     pub fn set_radio(&mut self, radio: &Radio) -> Vec<(Lane, Vec<u8>)> {
         let items = Value::Array(radio.stations.iter().map(radio_item).collect());
         let images = Value::Array(
@@ -1481,13 +1739,19 @@ impl VehicleState {
                     continue;
                 }
             };
-            // Route data stays out of the normal log, the settings it asks the car for do not.
             if self.debug || owner == Owner::Shared {
                 println!("[cpVehicle] phone set {name} to {}", shown(v));
             } else {
                 println!("[cpVehicle] phone wrote {name}");
             }
             results.push((Value::Int(iid), Value::Int(WRITTEN)));
+            if *v == Value::Bool(true)
+                && let Some(n) = (0..HISTORY_SLOTS).find(|n| history_slot(*n) + 7 == iid)
+                && let Some(entry) = self.history.get_mut(n)
+            {
+                entry.hidden = true;
+                self.hidden_by_phone.push(entry.id);
+            }
             let before = self.values.insert(iid, v.clone());
             if before.as_ref() != Some(v) && self.followed.contains(&iid) {
                 changed.push((Value::Int(iid), v.clone()));
@@ -1504,12 +1768,10 @@ impl VehicleState {
         out
     }
 
-    /// 0 to 1, as LIVI's telemetry counts it.
     pub fn volume(&self) -> Option<f64> {
         self.level(VOLUME)
     }
 
-    /// Every volume by LIVI's name for it, 0 to 1.
     pub fn volumes(&self) -> Vec<(&'static str, f64)> {
         VOLUMES.iter().filter_map(|(name, iid)| Some((*name, self.level(*iid)?))).collect()
     }
@@ -1518,7 +1780,6 @@ impl VehicleState {
         Some(self.values.get(&iid)?.as_int()? as f64 / 100.0)
     }
 
-    /// The climate as LIVI's telemetry holds it, None when the description names no climate.
     pub fn climate(&self) -> Option<Climate> {
         self.characteristic(AUTO_CLIMATE)?;
         let mut block: Climate = CLIMATE_KEYS
@@ -1531,8 +1792,6 @@ impl VehicleState {
         Some(block)
     }
 
-    /// Climate set from outside the phone, by the car or in LIVI. What was named stands, the car
-    /// settles the rest, and the phone hears whatever it follows that changed.
     pub fn set_climate(&mut self, climate: &Climate) -> Vec<(Lane, Vec<u8>)> {
         if self.characteristic(AUTO_CLIMATE).is_none() {
             return Vec::new();
@@ -1577,7 +1836,6 @@ impl VehicleState {
         update_notify(changed).into_iter().collect()
     }
 
-    /// Readings from the car, the phone hears whatever it follows that changed.
     pub fn set_gauges(&mut self, gauges: &Gauges) -> Vec<(Lane, Vec<u8>)> {
         let num =
             |key| gauges.get(key).and_then(serde_json::Value::as_f64).filter(|n| n.is_finite());
@@ -1614,7 +1872,6 @@ impl VehicleState {
                 }
             }
         }
-        // Millilitres per 100 km.
         let efficiencies = [
             ("consumptionLPer100Km", FUEL_EFFICIENCY),
             ("consumptionAvgLPer100Km", AVERAGE_FUEL_EFFICIENCY),
@@ -1636,7 +1893,6 @@ impl VehicleState {
         update_notify(changed).into_iter().collect()
     }
 
-    /// What a car does on its own after a setting changed.
     fn settle(&mut self, written: &[(Value, Value)], changed: &mut Vec<(Value, Value)>) {
         self.keep_zones_synced(written, changed);
         self.switch_by_level(written, changed);
@@ -1645,8 +1901,6 @@ impl VehicleState {
         self.mute_by_volume(written, changed);
     }
 
-    /// Mute drops the volume to 0 and unmuting brings back the last level, turning the volume up
-    /// ends the mute.
     fn mute_by_volume(&mut self, written: &[(Value, Value)], changed: &mut Vec<(Value, Value)>) {
         let find = |iid| written.iter().find(|(k, _)| k.as_int() == Some(iid)).map(|(_, v)| v);
         let level = self.values.get(&VOLUME).and_then(Value::as_int).unwrap_or(0);
@@ -1666,8 +1920,6 @@ impl VehicleState {
         }
     }
 
-    /// Synced, the passenger side takes the driver's temperature, and setting the passenger side
-    /// on its own ends the sync, as a car does.
     fn keep_zones_synced(&mut self, written: &[(Value, Value)], changed: &mut Vec<(Value, Value)>) {
         if self.values.get(&ZONES_SYNCED) != Some(&Value::Bool(true)) {
             return;
@@ -1680,8 +1932,6 @@ impl VehicleState {
         }
     }
 
-    /// Level 0 is off: a level above 0 switches on, switching off drops to 0 and switching on
-    /// brings back the last level.
     fn switch_by_level(&mut self, written: &[(Value, Value)], changed: &mut Vec<(Value, Value)>) {
         let find = |iid| written.iter().find(|(k, _)| k.as_int() == Some(iid)).map(|(_, v)| v);
         for (level_iid, on_iid) in LEVELLED {
@@ -1702,8 +1952,6 @@ impl VehicleState {
         }
     }
 
-    /// AUTO runs the fan and picks the vents. Setting either by hand takes it out of
-    /// automatic and switches AUTO off.
     fn follow_auto(&mut self, written: &[(Value, Value)], changed: &mut Vec<(Value, Value)>) {
         let find = |iid| written.iter().find(|(k, _)| k.as_int() == Some(iid)).map(|(_, v)| v);
         let vents_auto = VENTS.map(|vent| vent + 2);
@@ -1729,9 +1977,6 @@ impl VehicleState {
         }
     }
 
-    /// Max AC cools with everything: both zones at LO, compressor and recirculation on, the fan
-    /// at its top level, AUTO off. Ending it gives the settings back, setting one of them by hand
-    /// ends it and keeps what was set.
     fn run_max_ac(&mut self, written: &[(Value, Value)], changed: &mut Vec<(Value, Value)>) {
         let (fan_level, fan_on) = FAN;
         let lo = Value::Real(TEMPERATURE_LO);
@@ -1811,7 +2056,6 @@ fn wrap(inner: &Value) -> Vec<u8> {
     ]))
 }
 
-/// The description holds no negative numbers and no empty values, so it converts one to one.
 fn to_plist(v: &Value) -> bplist::Value {
     match v {
         Value::Null => bplist::Value::Data(Vec::new()),
@@ -1913,7 +2157,6 @@ mod tests {
     #[test]
     fn the_phone_reads_follows_and_writes() {
         let mut state = VehicleState::new(false, "9.5.0", "2026-10-15 14:30");
-        // A configRequest as an iPhone sends it.
         let ask =
             hex("e248706c7567696e4944084a706c7567696e44617461912ee247636f6d6d616e644d636f6e666967
              526571756573744d7472616e73616374696f6e494433b960c362b52ed4f2");
@@ -2517,7 +2760,6 @@ mod tests {
         }
         assert_eq!(flag(FUEL_LEVEL, "maximumValue"), Some(Value::Int(100)));
         assert_eq!(flag(ODOMETER.km, "format"), Some(Value::Int(Format::Uint64 as i64)));
-        // Without a unit the phone cannot say the value.
         let units = |iid| flag(iid, "units");
         assert_eq!(units(FUEL_LEVEL), Some(Value::Int(PERCENT)));
         assert_eq!(units(FUEL_RANGE.km), Some(Value::Int(KILOMETERS)));
@@ -2747,6 +2989,164 @@ mod tests {
         assert_eq!(names, ["identifier", "sourceIdentifier"]);
         let play = controls.iter().find(|c| c.get("iid").and_then(Value::as_int) == Some(4360));
         assert!(play.unwrap().get("requestParameters").is_none());
+    }
+
+    #[test]
+    fn a_notice_goes_out_as_one_update_and_the_zone_opens_it() {
+        let content = ClusterContent {
+            panel: "Cluster_Display".into(),
+            zones: [String::new(), String::new()],
+        };
+        let mut state = VehicleState::new(false, "", "")
+            .with_cluster_content(Some(&content))
+            .with_images(&[("livi".into(), b"png".to_vec())]);
+        let field = state.characteristic(NOTICE + 1).unwrap();
+        assert!(field.initial.is_none(), "the fields come only by update");
+        assert!(!state.take_zone_ready());
+        let iids = [TEMPORARY_ZONE + 1, TEMPORARY_ZONE + 2].map(Value::Int).to_vec();
+        state.handle(Lane::Normal, &command("registerRequest", Value::Array(iids)));
+        assert!(state.take_zone_ready());
+        assert!(!state.take_zone_ready(), "once per subscription");
+        assert_eq!(state.symbol_name("livi"), "livi", "no picture before the phone fetched");
+        let asked = by_iid(&[(GET_IMAGE_ARCHIVE, Value::Null)]);
+        state.handle(Lane::Normal, &command("controlRequest", asked));
+
+        let notice =
+            Notice {
+                title: "Frost".into(), text: "Glätte möglich".into(), symbol: "livi".into()
+            };
+        let out = state.show_notice(&notice);
+        assert_eq!(out.len(), 2);
+        let fields = opened(&out[0].1);
+        let values = fields.get("values").and_then(Value::as_dict).unwrap().to_vec();
+        assert_eq!(values.len(), 6, "every field in one update");
+        let get = |values: &[(Value, Value)], iid| {
+            values.iter().find(|(k, _)| k.as_int() == Some(iid)).map(|(_, v)| v.clone())
+        };
+        assert_eq!(get(&values, NOTICE + 1), Some(Value::str("Frost")));
+        assert_eq!(get(&values, NOTICE + 2), Some(Value::str("Glätte möglich")));
+        let symbol = get(&values, NOTICE + 4).unwrap();
+        assert_eq!(symbol.get("name"), Some(&Value::str("imageArchive://?identifier=livi")));
+        let zone = opened(&out[1].1);
+        let opens = by_iid(&[
+            (TEMPORARY_ZONE + 1, Value::str(NOTICE_URL)),
+            (TEMPORARY_ZONE + 2, Value::Bool(true)),
+        ]);
+        assert_eq!(zone.get("values"), Some(&opens));
+        assert!(state.notice_open());
+
+        std::thread::sleep(std::time::Duration::from_millis(2));
+        let frost = Notice { symbol: "snowflake".into(), ..notice.clone() };
+        let again = opened(&state.show_notice(&frost)[0].1);
+        let again = again.get("values").and_then(Value::as_dict).unwrap().to_vec();
+        let name = get(&again, NOTICE + 4).and_then(|s| s.get("name").cloned());
+        assert_eq!(name, Some(Value::str("snowflake")), "an SF Symbol passes as it is");
+        assert_ne!(get(&again, NOTICE + 3), get(&values, NOTICE + 3), "each notice is a new one");
+
+        assert_eq!(state.hide_notice().len(), 1);
+        assert!(!state.notice_open());
+        assert!(state.hide_notice().is_empty(), "closed already");
+        state.show_notice(&notice);
+        let closed = by_iid(&[(TEMPORARY_ZONE + 2, Value::Bool(false))]);
+        state.handle(Lane::Normal, &command("writeRequest", closed));
+        assert!(!state.notice_open(), "the phone closes it too");
+
+        let mut plain = VehicleState::new(false, "", "");
+        assert!(plain.show_notice(&notice).is_empty(), "no cluster content, no notice");
+    }
+
+    #[test]
+    fn the_image_archive_is_described_and_handed_out() {
+        let plain = VehicleState::new(false, "9.5.0", "");
+        assert!(plain.characteristic(IMAGE_ARCHIVE_SERVICE + 1).is_none());
+        let symbol = plain.characteristic(VERSION_LINE + 5).unwrap().initial.clone();
+        assert_eq!(symbol, Some(Value::str("info.circle")));
+
+        let images = [("livi".into(), b"png".to_vec()), ("frost".into(), b"ice".to_vec())];
+        let mut state = VehicleState::new(false, "9.5.0", "").with_images(&images);
+        let archive = image_archive::build(&images);
+        let version = format!("{:08x}{:08x}", image_archive::crc32(&archive), archive_started());
+        assert_eq!(state.values.get(&(IMAGE_ARCHIVE_SERVICE + 1)), Some(&Value::String(version)));
+        assert_eq!(state.values.get(&(VERSION_LINE + 5)), Some(&Value::str("info.circle")));
+        assert!(state.characteristic(VERSION_LINE + 5).unwrap().mutable);
+        let line = Value::Array(vec![Value::Int(VERSION_LINE + 5)]);
+        let out = state.handle(Lane::Normal, &command("registerRequest", line.clone()));
+        assert_eq!(out.len(), 1, "the (i) stays until the phone fetched the archive");
+        let service = service_of(&state, IMAGE_ARCHIVE_SERVICE);
+        let control = &service.get("controls").and_then(Value::as_array).unwrap()[0];
+        assert_eq!(control.get("iid").and_then(Value::as_int), Some(GET_IMAGE_ARCHIVE));
+        let answer = &control.get("responseParameters").and_then(Value::as_array).unwrap()[0];
+        assert_eq!(answer.get("name").and_then(Value::as_str), Some("imageArchive"));
+        assert_eq!(answer.get("format").and_then(Value::as_int), Some(Format::Data as i64));
+        assert!(control.get("requestParameters").is_none());
+
+        let asked = by_iid(&[(GET_IMAGE_ARCHIVE, Value::Null)]);
+        let answers = state.handle(Lane::Normal, &command("controlRequest", asked));
+        let answer = opened(&answers[0].1);
+        let fetched =
+            by_iid(&[(GET_IMAGE_ARCHIVE, dict([("imageArchive", Value::Data(archive))]))]);
+        assert_eq!(answer.get("values"), Some(&fetched));
+        let logo = opened(&answers[1].1);
+        let set = by_iid(&[(VERSION_LINE + 5, Value::str("imageArchive://?identifier=livi"))]);
+        assert_eq!(logo.get("values"), Some(&set));
+        let out = state.handle(Lane::Normal, &command("registerRequest", line));
+        assert_eq!(out.len(), 2, "a later subscription hears the logo");
+        let mut next = VehicleState::new(false, "9.5.0", "").with_images(&images);
+        let line = Value::Array(vec![Value::Int(VERSION_LINE + 5)]);
+        let out = next.handle(Lane::Normal, &command("registerRequest", line));
+        assert_eq!(out.len(), 2, "the next session knows the phone has the archive");
+        assert!(state.take_radio_commands().is_empty());
+        assert!(VehicleState::new(false, "", "").with_images(&[]).image_archive.is_none());
+        let mut own = VehicleState::new(false, "9.5.0", "").with_images(&images[1..]);
+        let asked = by_iid(&[(GET_IMAGE_ARCHIVE, Value::Null)]);
+        own.handle(Lane::Normal, &command("controlRequest", asked));
+        assert!(own.image_archive.is_some());
+        assert_eq!(own.values.get(&(VERSION_LINE + 5)), Some(&Value::str("info.circle")));
+        assert!(own.logo_symbol_update().is_empty());
+    }
+
+    #[test]
+    fn the_history_shows_notices_until_the_phone_hides_them() {
+        let mut state =
+            VehicleState::new(false, "", "").with_images(&[("livi".into(), b"history".to_vec())]);
+        let entry = HistoryEntry {
+            id: 7,
+            notice: Notice { title: "Frost".into(), text: "Glätte".into(), symbol: "livi".into() },
+            at_secs: 1_760_000_000,
+            hidden: false,
+        };
+        assert!(state.set_history(vec![entry.clone()]).is_empty(), "nobody listens yet");
+        let first = Value::Array(vec![Value::Int(history_slot(0) + 1)]);
+        let out = state.handle(Lane::Normal, &command("registerRequest", first));
+        assert_eq!(out.len(), 1 + HISTORY_SLOTS, "one update per slot");
+        let slot = |out: &[(Lane, Vec<u8>)], n: usize| {
+            opened(&out[n].1).get("values").and_then(Value::as_dict).unwrap().to_vec()
+        };
+        let get = |values: &[(Value, Value)], iid| {
+            values.iter().find(|(k, _)| k.as_int() == Some(iid)).map(|(_, v)| v.clone())
+        };
+        let filled = slot(&out, 1);
+        assert_eq!(get(&filled, history_slot(0) + 1), Some(Value::str("Frost")));
+        assert_eq!(get(&filled, history_slot(0) + 3), Some(Value::Int(1_760_000_000)));
+        assert_eq!(get(&filled, history_slot(0) + 4), Some(Value::str("livi")));
+        assert_eq!(get(&filled, history_slot(0) + 7), Some(Value::Bool(false)));
+        assert_eq!(get(&slot(&out, 2), history_slot(1) + 7), Some(Value::Bool(true)));
+        let unit = state.characteristic(history_slot(0) + 3).unwrap();
+        assert_eq!(unit.units, Some(SECONDS), "the app reads the time as a measurement");
+
+        let asked = by_iid(&[(GET_IMAGE_ARCHIVE, Value::Null)]);
+        let out = state.handle(Lane::Normal, &command("controlRequest", asked));
+        assert_eq!(out.len(), 2 + HISTORY_SLOTS, "answer, logo, then every slot");
+        let refreshed = slot(&out, 2);
+        let picture = Value::str("imageArchive://?identifier=livi");
+        assert_eq!(get(&refreshed, history_slot(0) + 4), Some(picture), "fetched, so the picture");
+
+        let hide = by_iid(&[(history_slot(0) + 7, Value::Bool(true))]);
+        state.handle(Lane::Normal, &command("writeRequest", hide));
+        assert_eq!(state.take_hidden_by_phone(), [7]);
+        assert!(state.take_hidden_by_phone().is_empty());
+        let out = state.set_history(vec![HistoryEntry { hidden: true, ..entry }]);
+        assert_eq!(get(&slot(&out, 0), history_slot(0) + 7), Some(Value::Bool(true)));
     }
 
     #[test]

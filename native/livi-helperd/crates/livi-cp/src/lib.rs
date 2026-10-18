@@ -8,6 +8,7 @@ pub mod hls;
 pub mod hls_gateway;
 pub mod iap_tunnel;
 pub mod identity;
+pub mod image_archive;
 pub mod info;
 pub mod keep_alive;
 pub mod manager;

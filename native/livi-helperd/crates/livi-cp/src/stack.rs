@@ -32,7 +32,9 @@ use crate::rtsp::{self, Request, Response};
 use crate::timing::ntp64_now;
 use crate::timing_sync::TimingSync;
 use crate::ui_sync;
-use crate::vehicle_state::{self, Climate, Gauges, Lane, Radio, RadioCommand, VehicleState};
+use crate::vehicle_state::{
+    self, Climate, Gauges, HistoryEntry, Lane, Notice, Radio, RadioCommand, VehicleState,
+};
 use crate::video_playback;
 use crate::video_proxy::ProxyOffer;
 
@@ -41,15 +43,14 @@ const STREAM_ALT_SCREEN: u64 = 111;
 const STREAM_MAIN_AUDIO: u64 = 100;
 const STREAM_ALT_AUDIO: u64 = 101;
 const STREAM_MAIN_HIGH_AUDIO: u64 = 102;
-/// The generic data stream, the one iAP2 rides.
 const STREAM_DATA: u64 = 130;
 const IAP_DATASTREAM_UUID: &str = "E9459FD0-BCAD-4C45-820F-1E72447EF2F2";
 
-/// The phone answers the clock exchange every second and asks for feedback every two.
 const PHONE_SILENT: Duration = Duration::from_secs(10);
 const SILENCE_CHECK: Duration = Duration::from_millis(250);
 
 const CLUSTER_MAP_URL: &str = "maps:/car/instrumentcluster/map";
+const APPEARANCE_AUTOMATIC: u64 = 0;
 
 const AAC_LC_44K_STEREO: u64 = 0x40_0000;
 const AAC_LC_48K_STEREO: u64 = 0x80_0000;
@@ -62,7 +63,6 @@ const PLIST: &str = "application/x-apple-binary-plist";
 const PAIRING: &str = "application/pairing+tlv8";
 const OCTET: &str = "application/octet-stream";
 
-/// PCM only comes over the cable.
 fn pcm_format(fmt: u64) -> Option<(u32, u8)> {
     Some(match fmt {
         0x4 => (8000, 1),
@@ -81,7 +81,6 @@ fn pcm_format(fmt: u64) -> Option<(u32, u8)> {
     })
 }
 
-/// The values are the keys of the volume levels.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub enum AudioKind {
     Speech = 1,
@@ -116,26 +115,20 @@ pub enum ScreenCodec {
 #[derive(Debug, Clone, PartialEq)]
 pub struct StackConfig {
     pub info: InfoConfig,
-    /// Sink and source, empty for the system default.
     pub audio_device: String,
     pub audio_input_device: String,
-    /// The host plays a queued video itself, so the phone may hand one over.
     pub hls_video: bool,
-    /// Shown in the phone's vehicle app, with the build date.
     pub app_version: String,
     pub app_build_date: String,
-    /// The maps page the cluster stream shows, empty for the plain map.
     pub cluster_url: String,
-    /// The car's model in the car maker's theme, empty without a theme.
     pub vehicle_variant: String,
     pub engines: vehicle_state::Engines,
-    /// What the car asks the theme to show in the cluster zones.
     pub cluster_content: Option<vehicle_state::ClusterContent>,
+    pub images: Vec<(String, Vec<u8>)>,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq)]
 pub struct Touch {
-    /// 0 to 1 across the main screen.
     pub x: f64,
     pub y: f64,
     pub down: bool,
@@ -143,86 +136,51 @@ pub struct Touch {
 
 #[derive(Debug, Clone, PartialEq)]
 pub enum StackCmd {
-    /// Turns the phone's card carousel in the theme's centre zone one step.
     NextClusterContent,
-    /// The car shows another layout of its theme, the phone draws its part in it.
     ClusterLayout(ui_sync::Layout),
     Touches(Vec<Touch>),
-    Knob {
-        state: KnobState,
-        momentary: bool,
-    },
+    Knob { state: KnobState, momentary: bool },
     KnobSelect(bool),
+    Notification(Option<Notice>),
+    History(Vec<HistoryEntry>),
     Media(u8),
     Telephony(u8),
     Siri,
     NightMode(bool),
+    ClusterNightMode(bool),
     LimitedUi(bool),
     VideoAllowed(bool),
     Keyframe,
     ClusterActive(bool),
     VideoActive(bool),
     AudioActive(bool),
-    StreamVolume {
-        kind: AudioKind,
-        level: f64,
-        ramp_ms: u32,
-    },
+    StreamVolume { kind: AudioKind, level: f64, ramp_ms: u32 },
     PhoneBtMac(String),
     Climate(Climate),
     Gauges(Gauges),
-    /// LIVI's radio for the phone's Radio app.
     Radio(Box<Radio>),
     Stop,
 }
 
 #[derive(Debug, Clone, PartialEq)]
 pub enum StackEvent {
-    DeviceInfo {
-        name: String,
-        device_id: String,
-        wifi_mac: String,
-        model: String,
-    },
-    Active {
-        ip: String,
-        controller_id: Option<String>,
-    },
-    VideoCodec {
-        cluster: bool,
-        codec: ScreenCodec,
-    },
+    DeviceInfo { name: String, device_id: String, wifi_mac: String, model: String },
+    Active { ip: String, controller_id: Option<String> },
+    VideoCodec { cluster: bool, codec: ScreenCodec },
     MainScreenReady,
-    AudioActive {
-        profile: AudioProfile,
-        active: bool,
-    },
-    MicActive {
-        active: bool,
-        rate: u32,
-        channels: u8,
-    },
-    Duck {
-        level: f64,
-        duration_ms: u32,
-    },
+    AudioActive { profile: AudioProfile, active: bool },
+    MicActive { active: bool, rate: u32, channels: u8 },
+    Duck { level: f64, duration_ms: u32 },
     HostUiRequested,
     SpeechActive(bool),
     DisableBluetooth(String),
     Climate(Climate),
-    /// The Radio app steers LIVI's radio.
     Radio(RadioCommand),
-    /// The phone or Siri set a volume, by LIVI's name for it, 0 to 1.
-    Volume {
-        name: &'static str,
-        level: f64,
-    },
-    /// The phone's theme settings moved the cluster.
+    Volume { name: &'static str, level: f64 },
     Cluster(ui_sync::PhoneChoice),
-    /// Always the last event.
-    Closed {
-        was_active: bool,
-    },
+    Closed { was_active: bool },
+    NotificationClosed,
+    HistoryHidden(u64),
 }
 
 pub struct StackCtx<M: Media> {
@@ -231,10 +189,8 @@ pub struct StackCtx<M: Media> {
     pub helper: HelperSock,
     pub media: Arc<M>,
     pub config: watch::Receiver<StackConfig>,
-    /// The access point's MAC can change while LIVI runs, and /info must name the current one.
     pub refresh: Option<Arc<dyn Fn() + Send + Sync>>,
     pub debug: bool,
-    /// Where the payloads of the video streams are kept, for reading their format.
     pub video_capture: Option<std::path::PathBuf>,
 }
 
@@ -265,7 +221,6 @@ struct Conn<M: Media> {
     peer: SocketAddr,
     pair_setup: PairSetup,
     pair_verify: PairVerify,
-    /// Mutual authentication, once the phone asked for it on this connection.
     mfi4: Option<mfi4::Session>,
     cipher: Option<ControlCipher>,
     sealed: Vec<u8>,
@@ -284,23 +239,23 @@ struct Conn<M: Media> {
     iap_tunnel: Option<IapTunnel>,
     iap_out: Option<mpsc::UnboundedReceiver<Vec<u8>>>,
     iap_relay: Option<(UnixRead, UnixWrite)>,
-    /// The phone offered video playback and LIVI took it.
     video_playback: bool,
     video_capture: Option<video_playback::Capture>,
-    /// The iAP tunnel always is 1, every other data stream counts on from here.
     last_stream_id: u64,
     video_settings: Option<IapTunnel>,
     video_settings_out: Option<mpsc::UnboundedReceiver<Vec<u8>>>,
     video_overlay: Option<IapTunnel>,
     video_overlay_out: Option<mpsc::UnboundedReceiver<Vec<u8>>>,
-    /// The phone's layout channel to the car's theme.
     ui_sync_on: bool,
     ui_sync: Option<(IapTunnel, mpsc::UnboundedSender<Vec<u8>>)>,
     ui_sync_out: Option<mpsc::UnboundedReceiver<Vec<u8>>>,
     ui_sync_state: ui_sync::UiSync,
     vehicle_state: Option<VehicleState>,
-    /// Whether the phone offered the vehicle state protocol, so enabledFeatures only claims it back
-    /// when the phone asked for it.
+    notice: Option<Notice>,
+    notice_ready_at: Option<tokio::time::Instant>,
+    notice_ready: bool,
+    notice_shown: bool,
+    select_closed_notice: bool,
     offered_vehicle_state: bool,
     climate_reported: Option<Climate>,
     volume_reported: Option<Vec<(&'static str, f64)>>,
@@ -310,26 +265,23 @@ struct Conn<M: Media> {
     video_screen_borrowed: bool,
     video_allowed: bool,
     video_proxy: Option<Arc<ProxyOffer>>,
-    /// Where the player on this machine fetches the queued video.
     video_tunnel: Option<VideoRun>,
     event_listener: Option<TcpListener>,
     event: Option<EventConn>,
     live: bool,
     night_mode: Option<bool>,
+    cluster_night_mode: Option<bool>,
     limited_ui: Option<bool>,
     cluster_want: bool,
-    /// The page the cluster stream was last asked for.
     cluster_url: Option<String>,
     video_active: bool,
     audio_active: bool,
     call_active: bool,
     speech_active: bool,
     video_player: video_playback::Playback,
-    /// The phone's word, kept for a stream that is opened again.
     video_muted: Arc<AtomicBool>,
 }
 
-/// A queued video playing, ended by dropping it.
 struct VideoRun {
     _gateway: Gateway,
     restarts: tokio::task::JoinHandle<()>,
@@ -343,10 +295,8 @@ impl Drop for VideoRun {
     }
 }
 
-/// Room for the old plane to close before a stream that started over opens a new one.
 const VIDEO_REOPEN_PAUSE: Duration = Duration::from_millis(300);
 
-/// A stream that starts over comes back in another size, a fresh player takes it from there.
 async fn reopen_video<M: Media>(
     media: Arc<M>,
     url: String,
@@ -362,8 +312,6 @@ async fn reopen_video<M: Media>(
     }
 }
 
-/// The RTP sample the speaker plays now: the first one plus what played since, `lag_ms` behind
-/// its arrival.
 fn sounding_sample(first: u32, since_first_s: f64, lag_ms: u32, rate: u32) -> u32 {
     let played = (since_first_s - f64::from(lag_ms) / 1000.0).max(0.0);
     (i64::from(first) + (played * f64::from(rate) + 0.5).floor() as i64) as u32
@@ -409,7 +357,15 @@ async fn recv_started(
     }
 }
 
-/// The id salts the stream keys, so its text has to match what the phone derives them with.
+const NOTICE_DELAY: Duration = Duration::from_secs(5);
+
+async fn sleep_until(at: Option<tokio::time::Instant>) {
+    match at {
+        Some(at) => tokio::time::sleep_until(at).await,
+        None => std::future::pending().await,
+    }
+}
+
 fn id_text(v: Option<&Value>) -> String {
     match v {
         Some(Value::Int(n)) => n.to_string(),
@@ -479,7 +435,6 @@ fn octet(result: Result<Vec<u8>, String>, what: &str) -> Response {
     }
 }
 
-/// A number the way the phone writes headers: 0x for hex, a leading 0 for octal.
 fn header_number(req: &Request, name: &str) -> Option<u32> {
     let v = req.headers.get(name)?.trim();
     if let Some(hex) = v.strip_prefix("0x").or_else(|| v.strip_prefix("0X")) {
@@ -505,13 +460,13 @@ pub async fn run<M: Media>(
     println!("[cpStack] control connection from {peer}");
     let mut started = Some(ctx.media.audio_started());
     let (mut rd, mut wr) = stream.into_split();
-    // Always described, the phone's own Ultra or Classic choice decides what it uses.
     let vehicle_state = {
         let cfg = ctx.config.borrow();
         VehicleState::new(ctx.debug, &cfg.app_version, &cfg.app_build_date)
             .with_variant(&cfg.vehicle_variant)
             .with_engines(cfg.engines)
             .with_cluster_content(cfg.cluster_content.as_ref())
+            .with_images(&cfg.images)
     };
     let mut conn = Conn {
         ctx,
@@ -550,6 +505,11 @@ pub async fn run<M: Media>(
         ui_sync_state: ui_sync::UiSync::default(),
         vehicle_state: Some(vehicle_state),
         offered_vehicle_state: false,
+        notice: None,
+        notice_ready_at: None,
+        notice_ready: false,
+        notice_shown: false,
+        select_closed_notice: false,
         climate_reported: None,
         volume_reported: None,
         vehicle_streams: Vec::new(),
@@ -563,6 +523,7 @@ pub async fn run<M: Media>(
         event: None,
         live: false,
         night_mode: None,
+        cluster_night_mode: None,
         limited_ui: None,
         cluster_want: false,
         cluster_url: None,
@@ -592,6 +553,11 @@ pub async fn run<M: Media>(
                     }
                 }
             },
+            _ = sleep_until(conn.notice_ready_at), if conn.notice_ready_at.is_some() => {
+                conn.notice_ready_at = None;
+                conn.notice_ready = true;
+                conn.show_notice();
+            }
             _ = silence.tick() => {
                 if conn.went_silent() {
                     println!(
@@ -669,7 +635,6 @@ impl<M: Media> Conn<M> {
         let _ = self.events.send(event);
     }
 
-    /// Nothing is judged before the phone first answered the clock exchange.
     fn went_silent(&self) -> bool {
         let Some(answered) = self.timing.as_ref().and_then(TimingSync::last_heard) else {
             return false;
@@ -698,7 +663,6 @@ impl<M: Media> Conn<M> {
                 None => out,
             };
             wr.write_all(&sealed).await?;
-            // pair-verify M4 goes out in plain text, encryption starts with the next message.
             if self.cipher.is_none()
                 && let Some(keys) = self.pair_verify.control_keys()
             {
@@ -709,7 +673,6 @@ impl<M: Media> Conn<M> {
         Ok(())
     }
 
-    /// Also carries the phone's transcript proof through the channel, ours goes back the same way.
     async fn mfi4_auth_setup(&mut self, req: &Request) -> Response {
         let session = self.mfi4.get_or_insert_with(|| {
             println!("[cpStack] MFi4 mutual authentication");
@@ -754,10 +717,11 @@ impl<M: Media> Conn<M> {
             "RECORD" => {
                 println!("[cpStack] RECORD (session started)");
                 self.live = true;
-                // Commands only count once the session runs, older iOS stalls the
-                // bring-up on one sent before RECORD.
                 if let Some(night) = self.night_mode {
                     self.send_night_mode(night).await;
+                }
+                if let Some(night) = self.cluster_night_mode {
+                    self.send_cluster_appearance(night).await;
                 }
                 if let Some(limited) = self.limited_ui {
                     self.send_limited_ui(limited).await;
@@ -914,7 +878,6 @@ impl<M: Media> Conn<M> {
             return plist_response(&dict([("streams", Value::Array(out))]));
         }
 
-        // deviceID is the phone's Bluetooth MAC, macAddress its Wi-Fi MAC.
         let text = |k: &str| body.get(k).and_then(Value::as_str).unwrap_or("").to_string();
         let (name, device_id, model) = (text("name"), text("deviceID"), text("model"));
         let wifi_mac = text("macAddress").to_lowercase();
@@ -1096,9 +1059,6 @@ impl<M: Media> Conn<M> {
             self.ctx.media.set_audio_active(opened.id, true);
         }
 
-        // MainAudio goes both ways: a port in the phone's request asks for the
-        // microphone, keyed with the mirror of the output key. Over Wi-Fi the
-        // phone picks OPUS for it at its own rate.
         let phone_mic_port = if kind == STREAM_MAIN_AUDIO { int(sd.get("dataPort")) } else { 0 };
         let opus_rate = if fmt & OPUS_48K != 0 {
             48000
@@ -1155,7 +1115,6 @@ impl<M: Media> Conn<M> {
             profile,
             mic_plan,
         });
-        // The phone matches our answer to its request by the echoed id.
         Ok(dict([
             ("type", Value::Int(kind)),
             ("dataPort", Value::Int(u64::from(opened.data_port))),
@@ -1164,7 +1123,6 @@ impl<M: Media> Conn<M> {
         ]))
     }
 
-    /// One of the two vehicle state streams, both answered on their own connection.
     fn setup_vehicle_stream(&mut self, lane: Lane, sd: &Value) -> Result<Value, String> {
         let shared = self
             .pair_verify
@@ -1221,15 +1179,29 @@ impl<M: Media> Conn<M> {
         let Some(state) = &mut self.vehicle_state else { return };
         let answers = state.handle(lane, message);
         let commands = state.take_radio_commands();
+        let hidden = state.take_hidden_by_phone();
+        let open = state.notice_open();
+        if state.take_zone_ready() {
+            self.notice_ready = false;
+            self.notice_ready_at = Some(tokio::time::Instant::now() + NOTICE_DELAY);
+        }
         self.to_vehicle_streams(answers);
+        if self.notice_shown && !open {
+            println!("[cpStack] the phone closed the notification");
+            self.notice_shown = false;
+            self.notice = None;
+            self.emit(StackEvent::NotificationClosed);
+        }
         self.report_climate();
         self.report_volume();
         for c in commands {
             self.emit(StackEvent::Radio(c));
         }
+        for id in hidden {
+            self.emit(StackEvent::HistoryHidden(id));
+        }
     }
 
-    /// Only what the phone set goes back, LIVI's own pushes are known already.
     fn report_volume(&mut self) {
         let Some(levels) = self.vehicle_state.as_ref().map(VehicleState::volumes) else { return };
         let seen = self.volume_reported.replace(levels.clone());
@@ -1241,7 +1213,6 @@ impl<M: Media> Conn<M> {
         }
     }
 
-    /// LIVI's telemetry follows the climate the phone and the car settle on.
     fn report_climate(&mut self) {
         let Some(climate) = self.vehicle_state.as_ref().and_then(VehicleState::climate) else {
             return;
@@ -1250,6 +1221,24 @@ impl<M: Media> Conn<M> {
             self.climate_reported = Some(climate.clone());
             self.emit(StackEvent::Climate(climate));
         }
+    }
+
+    fn show_notice(&mut self) {
+        let (Some(notice), Some(state)) = (&self.notice, &mut self.vehicle_state) else { return };
+        if !self.notice_ready {
+            return;
+        }
+        let answers = state.show_notice(notice);
+        self.notice_shown = !answers.is_empty();
+        self.to_vehicle_streams(answers);
+    }
+
+    fn close_notice(&mut self) {
+        self.notice = None;
+        self.notice_shown = false;
+        let Some(state) = &mut self.vehicle_state else { return };
+        let answers = state.hide_notice();
+        self.to_vehicle_streams(answers);
     }
 
     fn to_vehicle_streams(&self, answers: Vec<(Lane, Vec<u8>)>) {
@@ -1415,7 +1404,6 @@ impl<M: Media> Conn<M> {
         self.send_event_command(&video_playback::borrow_screen(true)).await;
     }
 
-    /// Messages of the video settings and overlay streams, each on a socket of its own.
     fn keep_side_message(&mut self, source: &str, message: &[u8]) {
         let Some(capture) = &mut self.video_capture else { return };
         let kept = match capture.keep(source, message) {
@@ -1429,8 +1417,6 @@ impl<M: Media> Conn<M> {
         println!("[cpStack] video {source} message: {what} ({} B, {kept})", message.len());
     }
 
-    /// Payloads of a data stream that rides /command, such as video playback. In the trial every
-    /// request gets the answer a playing receiver would give.
     async fn on_stream_payload(&mut self, stream: &str, data: &[u8]) {
         let kept = match &mut self.video_capture {
             Some(capture) => match capture.keep(&format!("stream{stream}"), data) {
@@ -1494,7 +1480,6 @@ impl<M: Media> Conn<M> {
         }
     }
 
-    /// idle, video or audioOnly, as the phone should see it now.
     fn video_status_word(&self) -> &'static str {
         match (self.video_tunnel.is_some(), self.video_allowed) {
             (false, _) => "idle",
@@ -1503,7 +1488,6 @@ impl<M: Media> Conn<M> {
         }
     }
 
-    /// The phone is told, the picture goes at once whatever the phone does, the sound plays on.
     async fn set_video_allowed(&mut self, allowed: bool) {
         if self.video_allowed == allowed {
             return;
@@ -1521,7 +1505,6 @@ impl<M: Media> Conn<M> {
         if self.live {
             self.send_event_command(&video_playback::allowed_command(allowed, status)).await;
         }
-        // A video that started while the car could move never took the screen.
         if allowed && self.video_tunnel.is_some() {
             self.borrow_screen_for_video().await;
         }
@@ -1654,8 +1637,6 @@ impl<M: Media> Conn<M> {
         }
     }
 
-    /// The buffered media stream is clock driven, an empty answer makes the phone drop it every
-    /// few seconds.
     fn build_feedback(&self) -> Response {
         if self.audio.is_empty() {
             return status(200);
@@ -1669,7 +1650,6 @@ impl<M: Media> Conn<M> {
                     ("sampleRate".to_string(), Value::Int(u64::from(a.sample_rate))),
                 ];
                 if let Some((first, at)) = a.origin {
-                    // The jitter buffer, then what the pipeline measurably takes to the speaker.
                     let output = self.ctx.media.audio_output_delay(a.host_stream).unwrap_or(0);
                     let play = sounding_sample(
                         first,
@@ -1694,7 +1674,6 @@ impl<M: Media> Conn<M> {
         let kind = body.get("type").and_then(Value::as_str).unwrap_or("").to_string();
         let params = body.get("params").cloned().unwrap_or(Value::Dict(Vec::new()));
         match kind.as_str() {
-            // The car button in the dock asks for the head unit's own UI.
             "requestUI" => {
                 let url = params.get("url").and_then(Value::as_str).unwrap_or("");
                 if url == "videoplayback:" {
@@ -1716,7 +1695,6 @@ impl<M: Media> Conn<M> {
                     println!("[cpStack] modesChanged {params:?}");
                 }
             }
-            // The phone shows Now Playing on its own, nothing is left to do here.
             "changeVideoPlaybackToAudioOnly" => {
                 if self.ctx.debug {
                     println!("[cpStack] the phone moves the video to sound only");
@@ -1759,7 +1737,6 @@ impl<M: Media> Conn<M> {
                     None => println!("[cpStack] setProxyParameters without a usable proxy"),
                 }
             }
-            // Payloads of a data stream such as video playback come without a type.
             "" => {
                 let stream = req.headers.get("x-apple-streamid").map_or("none", String::as_str);
                 let data = params.get("data").and_then(Value::as_data).unwrap_or_default();
@@ -1770,8 +1747,6 @@ impl<M: Media> Conn<M> {
         status(200)
     }
 
-    /// appStateID 1 is Siri, speechMode 1 Recognizing and 2 Speaking. appStateID 2 with entity 1
-    /// is a call, which counts as no Siri.
     fn modes_changed(&mut self, params: &Value) {
         let Some(states) = params.get("appStates").and_then(Value::as_array) else { return };
         let mut in_call = self.call_active;
@@ -1802,8 +1777,6 @@ impl<M: Media> Conn<M> {
 
     fn on_event_connection(&mut self, sock: TcpStream) {
         println!("[cpStack] event channel connected");
-        // Encrypted from the first byte with the Events keys, not swapped: we write
-        // with Write and read with Read.
         let Some(shared) = self.pair_verify.shared_secret() else { return };
         let write = hkdf_sha512(&shared, b"Events-Salt", b"Events-Write-Encryption-Key");
         let read = hkdf_sha512(&shared, b"Events-Salt", b"Events-Read-Encryption-Key");
@@ -1818,7 +1791,6 @@ impl<M: Media> Conn<M> {
         });
     }
 
-    /// The phone also sends requests of its own here, and each needs an answer.
     async fn on_event_bytes(&mut self, chunk: &[u8]) {
         let debug = self.ctx.debug;
         let Some(ev) = self.event.as_mut() else { return };
@@ -1868,7 +1840,6 @@ impl<M: Media> Conn<M> {
         self.send_event_command_with(body, "").await;
     }
 
-    /// `headers` are extra lines, each ending in \r\n.
     async fn send_event_command_with(&mut self, body: &Value, headers: &str) {
         let kind = body.get("type").and_then(Value::as_str).unwrap_or("");
         if self.ctx.debug && !matches!(kind, "hidSendReport" | "iAPSendMessage") {
@@ -1903,6 +1874,31 @@ impl<M: Media> Conn<M> {
             ("params", dict([("nightMode", Value::Bool(night))])),
         ]))
         .await;
+        self.send_appearance(self.main_uuid(), night).await;
+    }
+
+    async fn send_cluster_appearance(&mut self, night: bool) {
+        if self.ctx.config.borrow().info.cluster.is_none() {
+            return;
+        }
+        self.send_appearance(self.alt_uuid(), night).await;
+    }
+
+    async fn send_appearance(&mut self, uuid: String, night: bool) {
+        for kind in ["uiAppearanceUpdate", "mapAppearanceUpdate"] {
+            self.send_event_command(&dict([
+                ("type", Value::String(kind.into())),
+                (
+                    "params",
+                    dict([
+                        ("uuid", Value::String(uuid.clone())),
+                        ("appearanceMode", Value::Int(u64::from(night))),
+                        ("appearanceSetting", Value::Int(APPEARANCE_AUTOMATIC)),
+                    ]),
+                ),
+            ]))
+            .await;
+        }
     }
 
     async fn send_limited_ui(&mut self, limited: bool) {
@@ -1951,7 +1947,6 @@ impl<M: Media> Conn<M> {
         if url.is_empty() { CLUSTER_MAP_URL.into() } else { url.clone() }
     }
 
-    /// A shown cluster switches to new settings at once.
     async fn follow_cluster_url(&mut self) {
         if self.cluster_url.is_none()
             || self.cluster_url == Some(self.wanted_cluster_url())
@@ -1987,7 +1982,29 @@ impl<M: Media> Conn<M> {
                     self.send_hid(hid::KNOB_HID_UID, &hid::knob_report(KnobState::default())).await;
                 }
             }
+            StackCmd::History(entries) => {
+                if let Some(state) = &mut self.vehicle_state {
+                    let answers = state.set_history(entries);
+                    self.to_vehicle_streams(answers);
+                }
+            }
+            StackCmd::Notification(notice) => match notice {
+                Some(notice) => {
+                    self.notice = Some(notice);
+                    self.show_notice();
+                }
+                None => self.close_notice(),
+            },
             StackCmd::KnobSelect(down) => {
+                if down && self.notice_shown {
+                    self.close_notice();
+                    self.emit(StackEvent::NotificationClosed);
+                    self.select_closed_notice = true;
+                    return;
+                }
+                if !down && std::mem::take(&mut self.select_closed_notice) {
+                    return;
+                }
                 let state = KnobState { select: down, ..Default::default() };
                 self.send_hid(hid::KNOB_HID_UID, &hid::knob_report(state)).await;
             }
@@ -2007,7 +2024,6 @@ impl<M: Media> Conn<M> {
                 if self.ctx.config.borrow().cluster_content.is_none() {
                     return;
                 }
-                // The centre zone is the phone's card carousel, the car only turns it.
                 println!("[cpStack] cluster knob turns the phone's centre zone");
                 let turn = KnobState { wheel: 1.0, ..KnobState::default() };
                 self.send_hid(hid::CLUSTER_KNOB_HID_UID, &hid::knob_report(turn)).await;
@@ -2020,7 +2036,6 @@ impl<M: Media> Conn<M> {
                     return;
                 }
                 println!("[cpStack] invokeSiri: requestSiri buttonDown+buttonUp (click)");
-                // siriAction 2 is buttonDown, 3 buttonUp.
                 for action in [2, 3] {
                     self.send_event_command(&dict([
                         ("type", Value::String("requestSiri".into())),
@@ -2032,6 +2047,15 @@ impl<M: Media> Conn<M> {
             StackCmd::NightMode(night) => {
                 self.night_mode = Some(night);
                 self.send_night_mode(night).await;
+                if let Some(cluster) = self.cluster_night_mode {
+                    self.send_cluster_appearance(cluster).await;
+                }
+            }
+            StackCmd::ClusterNightMode(night) => {
+                self.cluster_night_mode = Some(night);
+                self.send_cluster_appearance(night).await;
+                let answers = self.ui_sync_state.set_dark(night);
+                self.to_ui_sync(answers);
             }
             StackCmd::LimitedUi(limited) => {
                 self.limited_ui = Some(limited);
@@ -2258,7 +2282,6 @@ pub(crate) mod tests {
             self.request_with(method, path, "", body).await
         }
 
-        /// `headers` are extra lines, each ending in \r\n.
         pub(crate) async fn request_with(
             &mut self,
             method: &str,
@@ -2368,6 +2391,7 @@ pub(crate) mod tests {
                 vehicle_variant: String::new(),
                 engines: Default::default(),
                 cluster_content: None,
+                images: Vec::new(),
             });
             std::mem::forget(_tx);
             let media = FakeMedia::new();
@@ -2478,7 +2502,6 @@ pub(crate) mod tests {
         rig.phone.verify(&secret, b"phone-1").await;
         let resp = rig.phone.plist("SETUP", "/s", &dict([("timingPort", Value::Int(9))])).await;
 
-        // Before the phone has answered the clock exchange nothing is judged.
         tokio::time::sleep(PHONE_SILENT * 2).await;
         let (code, _) = rig.phone.request("POST", "/feedback", b"").await;
         assert_eq!(code, "200");
@@ -2693,7 +2716,6 @@ pub(crate) mod tests {
         assert_eq!(video_calls(&rig), ["play_video", "show_video"]);
         assert!(rig.media.calls().contains(&"show_video false".to_string()));
 
-        // A video queued while the car may move plays its sound without a picture.
         rig.phone.request_with("POST", "/command", "X-Apple-StreamID: 2\r\n", &queue()).await;
         assert_eq!(video_calls(&rig), ["play_video", "show_video", "stop_video", "play_video"]);
         assert_eq!(allowed(&rig.phone.plist("GET", "/info", &qualifier).await), Some(false));
@@ -3092,6 +3114,7 @@ pub(crate) mod tests {
         rig.cmds.send(StackCmd::Touches(vec![Touch { x: 0.5, y: 0.5, down: true }])).unwrap();
         rig.cmds.send(StackCmd::Keyframe).unwrap();
         rig.cmds.send(StackCmd::NightMode(true)).unwrap();
+        rig.cmds.send(StackCmd::ClusterNightMode(true)).unwrap();
         rig.cmds.send(StackCmd::LimitedUi(true)).unwrap();
         rig.cmds.send(StackCmd::Siri).unwrap();
         rig.cmds.send(StackCmd::Media(hid::media_button::NEXT)).unwrap();
@@ -3111,7 +3134,7 @@ pub(crate) mod tests {
         let mut plain = Vec::new();
         let mut chunk = vec![0u8; 16 * 1024];
         let mut commands = Vec::new();
-        while commands.len() < 13 {
+        while commands.len() < 15 {
             let n = tokio::time::timeout(Duration::from_secs(5), event.read(&mut chunk))
                 .await
                 .unwrap()
@@ -3133,6 +3156,8 @@ pub(crate) mod tests {
                 "hidSendReport",
                 "forceKeyFrame",
                 "setNightMode",
+                "uiAppearanceUpdate",
+                "mapAppearanceUpdate",
                 "setLimitedUI",
                 "requestSiri",
                 "requestSiri",

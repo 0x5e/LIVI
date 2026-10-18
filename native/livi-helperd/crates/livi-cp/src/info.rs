@@ -1,6 +1,3 @@
-//! The phone only asks for the screen when displays, audio formats and
-//! latencies, the resource modes and the HID devices are all there.
-
 use crate::bplist::{Value, dict};
 use crate::hid;
 
@@ -9,9 +6,10 @@ const STREAM_TYPE_ALT_SCREEN: u64 = 111;
 const DISPLAY_FEATURE_KNOBS: u64 = 0x02;
 const DISPLAY_FEATURE_HIGH_FIDELITY_TOUCH: u64 = 0x08;
 const PRIMARY_INPUT_KNOBS: u64 = 3;
+const APPEARANCE_DARK: u64 = 1;
+const APPEARANCE_AUTOMATIC: u64 = 0;
 
 const CARPLAY_FEATURES: u64 = 0x61_5653_aee2;
-/// The audio bits, cleared to offer neither audio source nor sink.
 const CARPLAY_AUDIO_FEATURES: u64 = 0x100_0454_0a00;
 
 pub const MAIN_UUID: &str = "b7e6c5a0-1111-4000-8000-000000000001";
@@ -43,9 +41,7 @@ pub struct DisplayConfig {
     pub view_area: Option<Insets>,
     pub safe_area: Option<Insets>,
     pub safe_area_draw_outside: Option<bool>,
-    /// Where the status bar and dock sit, 0 lets the phone pick.
     pub status_bar_edge: Option<u64>,
-    /// The CarPlay URL an alternate screen opens with.
     pub initial_url: Option<String>,
 }
 
@@ -65,9 +61,7 @@ pub struct InfoConfig {
     pub hevc: bool,
     pub main: DisplayConfig,
     pub cluster: Option<DisplayConfig>,
-    /// 44100 or 48000, for the entertainment stream.
     pub entertainment_sample_rate: u32,
-    /// No audio is offered, the phone plays it itself.
     pub disable_audio_output: bool,
     pub oem_label: String,
     pub icons: Vec<Icon>,
@@ -75,8 +69,6 @@ pub struct InfoConfig {
     pub theme_displays: Option<ThemeDisplays>,
 }
 
-/// The display names in the car maker's theme, the phone finds its layouts and wallpapers by
-/// the panel names.
 #[derive(Debug, Clone, PartialEq)]
 pub struct ThemeDisplays {
     pub main: String,
@@ -112,7 +104,6 @@ fn modes() -> Value {
     ])
 }
 
-/// Informational only, the phone keeps its own buffering latency.
 fn audio_latencies() -> Value {
     let base = |kind: u64, audio_type: Option<&str>| {
         let mut entry = vec![
@@ -138,8 +129,6 @@ fn audio_latencies() -> Value {
     ])
 }
 
-/// PCM only exists over USB, so over Wi-Fi the phone takes OPUS for the
-/// low-latency streams and AAC-LC for entertainment.
 fn audio_formats(entertainment_rate: u32) -> Value {
     let f = |kind: u64, audio_type: &str, output: u64, input: Option<u64>| {
         let mut entry = vec![
@@ -201,8 +190,6 @@ fn area(d: &DisplayConfig) -> Option<Value> {
     Some(Value::Dict(view))
 }
 
-/// The phone keeps its UI a fixed size in millimetres, so a display of unknown
-/// size grows with its pixels instead of only getting denser.
 const FALLBACK_DPI: f64 = 200.0;
 
 pub fn mm_at_dpi(pixels: i64, dpi: f64) -> i64 {
@@ -234,6 +221,10 @@ fn display(d: &DisplayConfig, kind: u64, uuid: &str) -> Value {
         ),
         ("cornerMasks".to_string(), Value::Bool(false)),
         ("adjacentViewAreas".to_string(), Value::Array(Vec::new())),
+        ("uiAppearanceMode".to_string(), Value::Int(APPEARANCE_DARK)),
+        ("uiAppearanceSetting".to_string(), Value::Int(APPEARANCE_AUTOMATIC)),
+        ("mapAppearanceMode".to_string(), Value::Int(APPEARANCE_DARK)),
+        ("mapAppearanceSetting".to_string(), Value::Int(APPEARANCE_AUTOMATIC)),
     ];
     if let Some(view) = area(d) {
         entry.push(("viewAreas".to_string(), Value::Array(vec![view])));
@@ -249,7 +240,6 @@ fn hid_axis(v: i64) -> u16 {
     (v & 0xffff) as u16
 }
 
-/// The main and cluster display ids. A car maker's theme names its displays itself.
 pub fn display_uuids(cfg: &InfoConfig) -> (String, String) {
     match &cfg.theme_displays {
         Some(names) => (names.main.clone(), names.cluster.clone()),
@@ -332,10 +322,6 @@ pub fn build(cfg: &InfoConfig) -> Value {
     Value::Dict(info)
 }
 
-/// Climate needs Ultra, and the phone counts the car as Ultra once a panel in
-/// `displayPanels` carries a display plug-in. A screen with a plug-in gets a
-/// black stream, so the plug-in sits on an extra panel without one. A theme only lays out a
-/// display that carries the plug-in itself, so with a theme it sits on the cluster.
 pub fn add_display_panels(info: &mut Value, theme_displays: Option<&ThemeDisplays>) {
     let Some(displays) = info.get("displays").and_then(Value::as_array) else { return };
     let size = |d: &Value, k: &str| d.get(k).cloned().unwrap_or(Value::Int(0));
@@ -369,7 +355,6 @@ pub fn add_display_panels(info: &mut Value, theme_displays: Option<&ThemeDisplay
         ];
         if plugin {
             let composed = streams.iter().map(|uuid| Value::String((*uuid).into())).collect();
-            // The phone takes the plug-in as the display a theme names.
             let plugin_uid =
                 if streams.is_empty() { format!("{CLUSTER_UID}-plugin") } else { uid.to_string() };
             let plugin = dict([
@@ -440,6 +425,10 @@ pub(crate) mod tests {
             let info = build(cfg);
             let main = &info.get("displays").and_then(Value::as_array).unwrap()[0];
             assert_eq!(main.get("type"), Some(&Value::Int(110)));
+            for key in ["uiAppearanceMode", "mapAppearanceMode"] {
+                assert_eq!(main.get(key), Some(&Value::Int(APPEARANCE_DARK)), "{key}");
+            }
+            assert_eq!(main.get("uiAppearanceSetting"), Some(&Value::Int(APPEARANCE_AUTOMATIC)));
             (main.get("widthPhysical").cloned(), main.get("heightPhysical").cloned())
         };
         assert_eq!(size(&sample()), (Some(Value::Int(163)), Some(Value::Int(92))));

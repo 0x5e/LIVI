@@ -19,21 +19,15 @@ pub type Snapshot = Map<String, Value>;
 pub const PORT: u16 = 4000;
 const UPDATE: &str = "telemetry:update";
 const PUSH: &str = "telemetry:push";
-/// The same as a push, for a shell or a program without Socket.IO.
 pub const HTTP_PUSH: &str = "/telemetry";
 pub const CLIMATE: &str = "climate";
-/// Who set the climate last.
+pub const NOTIFICATION: &str = "notification";
 pub const SOURCE: &str = "source";
-/// A climate push that names no source came from outside LIVI.
 const FROM_OUTSIDE: &str = "external";
 const FROM_DEFAULTS: &str = "default";
-/// As the last run left it.
 const FROM_LAST_RUN: &str = "saved";
-/// The old name a producer may still send, and the field it means.
 const RENAMED: [(&str, &str); 1] = [("turn", "turnSignal")];
-/// A producer may send these in parts, they merge field by field.
-const NESTED: [&str; 4] = ["gps", "can", CLIMATE, "tirePressure"];
-/// Rounding noise does not rewrite the config.
+const NESTED: [&str; 5] = ["gps", "can", CLIMATE, "tirePressure", NOTIFICATION];
 const VOLUME_STEP: f64 = 0.005;
 
 fn now_ms() -> u64 {
@@ -96,7 +90,6 @@ fn valid(lat: f64, lng: f64) -> bool {
         && !(lat == 0.0 && lng == 0.0)
 }
 
-/// Where the car stood at the end of the last run, without the speed it had then.
 fn last_fix(gps: &Map<String, Value>) -> Option<Value> {
     let num = |k: &str| gps.get(k).and_then(Value::as_f64).filter(|v| v.is_finite());
     let (lat, lng) = (num("lat")?, num("lng")?);
@@ -200,11 +193,10 @@ impl Telemetry {
         }
         self.appearance = mode;
         if let Some(night) = night_of(mode) {
-            self.push(&json!({ "nightMode": night })).await;
+            self.push(&json!({ "nightMode": night, "clusterNightMode": null })).await;
         }
     }
 
-    /// Steering wheel buttons, a serial bus radio or a dash app send this level.
     async fn volume_from(&mut self, raw: f64) {
         if !raw.is_finite() {
             return;
@@ -218,7 +210,6 @@ impl Telemetry {
         self.save(json!({ "huVolume": level })).await;
     }
 
-    /// What the car says beats the settings.
     async fn car_type_from(&self, name: &str) {
         let Some(car) = CarType::from_name(name) else { return };
         if self.core.hub.config().car_type == Some(car) {
@@ -386,6 +377,9 @@ mod tests {
         merge(&mut snap, &json!({ "tirePressure": { "frontLeftKpa": 230 } }));
         merge(&mut snap, &json!({ "tirePressure": { "rearRightKpa": 210 } }));
         assert_eq!(snap["tirePressure"], json!({ "frontLeftKpa": 230, "rearRightKpa": 210 }));
+        merge(&mut snap, &json!({ "notification": { "title": "Frost", "open": true } }));
+        merge(&mut snap, &json!({ "notification": { "open": false } }));
+        assert_eq!(snap["notification"], json!({ "title": "Frost", "open": false }));
 
         let changed = merge(&mut snap, &json!({ "can": { "id": 1 }, "ts": 7 })).unwrap();
         assert_eq!((&snap["ts"], &changed["can"]), (&json!(7), &json!({ "id": 1 })));
@@ -427,6 +421,7 @@ mod tests {
         };
         let mut t = Telemetry::new(core.clone(), io, &saved);
         assert_eq!(t.snap["nightMode"], true);
+        assert!(t.snap.get("clusterNightMode").is_none());
         assert_eq!((&t.snap["fuelPct"], &t.snap["odometerKm"]), (&json!(42), &json!(123456)));
         assert_eq!(t.snap["volume"], 0.5);
         assert_eq!(t.snap["gps"], json!({ "lat": 48.1, "lng": 11.5, "alt": 520.0, "fixTs": 9 }));
@@ -446,7 +441,8 @@ mod tests {
 
         t.appearance(AppearanceMode::Night).await;
         t.appearance(AppearanceMode::Day).await;
-        assert_eq!(core.hub.watch().borrow().telemetry["nightMode"], false);
+        let both = core.hub.watch().borrow().telemetry.clone();
+        assert_eq!((&both["nightMode"], &both["clusterNightMode"]), (&json!(false), &Value::Null));
         t.appearance(AppearanceMode::Auto).await;
         assert_eq!(t.snap["nightMode"], false);
     }

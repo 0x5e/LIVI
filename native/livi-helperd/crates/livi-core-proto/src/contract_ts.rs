@@ -13,15 +13,14 @@ use crate::message::{FromCore, ToCore};
 use crate::telemetry::TelemetrySnapshot;
 
 const FILE: &str = "contract.ts";
+const HEADER: &str = "// This file is auto-generated from livi-core-proto.";
 
-// ts-rs sorts its type aliases but leaves TS enums in export order, which is not
-// the same on every machine.
 fn sorted(contents: &str) -> String {
-    let (header, body) = contents.split_once("\n\n").unwrap();
+    let (_, body) = contents.split_once("\n\n").unwrap();
     let mut decls: Vec<&str> =
         body.split("\n\n").map(|d| d.trim_matches('\n')).filter(|d| !d.is_empty()).collect();
     decls.sort_by_key(|d| declared_name(d));
-    format!("{header}\n\n{}\n", decls.join("\n\n"))
+    format!("{HEADER}\n\n{}\n", decls.join("\n\n"))
 }
 
 fn declared_name(decl: &str) -> &str {
@@ -49,8 +48,6 @@ fn typescript_contract_is_current() {
     let generated = fs::read_to_string(out.join(FILE));
     let _ = fs::remove_dir_all(&out);
     assert_eq!(files, [FILE], "every contract type has to export to {FILE}");
-    // Values ts-rs has no export for: the numbers a client checks against and the settings
-    // before core answers.
     let defaults = serde_json::to_string_pretty(&defaults()).unwrap();
     let no_receiver = serde_json::to_string_pretty(&GnssInfo::default()).unwrap();
     let constants = format!(

@@ -38,18 +38,15 @@ use crate::hub::Hub;
 use crate::nav_text;
 use crate::spectrum;
 use crate::status_file::Activity;
-use crate::telemetry::{CLIMATE, SOURCE};
+use crate::telemetry::{CLIMATE, NOTIFICATION, SOURCE};
 use crate::theme_catalog::{self, ThemeId};
 use crate::update::UpdateAsk;
 
 const RAMP_DOWN_MS: u32 = 500;
 const RAMP_UP_MS: u32 = 1500;
 const KNOB_DEFLECT: f64 = 127.0;
-/// The goodbye is best effort, the session of a forgotten phone ends after it.
 const FORGET_GRACE: Duration = Duration::from_millis(1500);
-/// A bound select key is a click, the release follows on its own.
 const SELECT_RELEASE: Duration = Duration::from_millis(200);
-/// A typed name or a picker sends several changes in a row.
 const APPLY_AFTER_QUIET: Duration = Duration::from_secs(1);
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -185,7 +182,6 @@ struct Entry {
     active: bool,
     duck_level: f64,
     duck_ramp_ms: u32,
-    /// Kept per phone, so a held one comes back with its own.
     now_playing: NowPlaying,
     navigation: Navigation,
 }
@@ -325,7 +321,6 @@ fn bound(b: &KeyBindings, code: &str) -> Option<Key> {
     table.into_iter().find(|(c, _)| !c.is_empty() && c.as_str() == code).map(|(_, key)| key)
 }
 
-/// None while the car said neither.
 fn reversing(telemetry: &Map<String, Value>) -> Option<bool> {
     match telemetry.get("reverse").and_then(Value::as_bool) {
         Some(reverse) => Some(reverse),
@@ -372,11 +367,8 @@ pub struct Drivers {
     pub aa_crop: watch::Receiver<Option<Crop>>,
     pub phone_io: mpsc::UnboundedSender<Io>,
     pub phone_back: mpsc::UnboundedReceiver<Back>,
-    /// Into the telemetry, like any producer inside core.
     pub telemetry: mpsc::UnboundedSender<Value>,
-    /// Config patches, saved as if set in LIVI's settings.
     pub settings: mpsc::UnboundedSender<Value>,
-    /// Where car maker themes are kept once fetched.
     pub themes: PathBuf,
 }
 
@@ -390,7 +382,6 @@ pub struct Projection {
     telemetry: mpsc::UnboundedSender<Value>,
     settings: mpsc::UnboundedSender<Value>,
     hands_free: HandsFree,
-    /// Wired and USB serial of each Android Auto session until it projects.
     aa_spawned: HashMap<AaId, (bool, Option<String>)>,
     plane: Arc<MainPlane>,
     clusters: Arc<ClusterPlanes>,
@@ -404,12 +395,9 @@ pub struct Projection {
     duck_level: f64,
     duck_ramp_ms: u32,
     wants: PerScreen<Front>,
-    /// What the UI last reported, so only its own changes override core's.
     asked: PerScreen<Front>,
-    /// The kind holding the projection in front and the view main returns to.
     attention: Option<(Attention, Front)>,
     bindings: KeyBindings,
-    /// Telemetry reaches the state many times a second, the config rarely.
     config_seen: Config,
     telemetry_seen: Map<String, Value>,
     reversing: bool,
@@ -421,7 +409,6 @@ pub struct Projection {
     apply_due: Option<tokio::time::Instant>,
     cluster: Cluster,
     themes: PathBuf,
-    /// The theme fetched or being fetched, asked once per id.
     theme_asked: String,
     theme_ready: (mpsc::UnboundedSender<Theme>, mpsc::UnboundedReceiver<Theme>),
     dab: Option<mpsc::UnboundedSender<crate::dab::DabAsk>>,
@@ -453,9 +440,7 @@ pub struct UiAsks {
     pub spectrum: Arc<spectrum::Feed>,
     pub goodbye: mpsc::UnboundedReceiver<oneshot::Sender<()>>,
     pub activity: watch::Sender<Activity>,
-    /// Taken by the DAB task.
     pub dab: Option<crate::dab::DabAsks>,
-    /// The Radio app's commands go there.
     pub dab_from_phone: mpsc::UnboundedSender<crate::dab::DabAsk>,
 }
 
@@ -741,7 +726,6 @@ impl Projection {
                     profile.label,
                     if active { "started" } else { "stopped" }
                 );
-                // A stream opens at the host's default, it takes its level once it plays.
                 if active && self.is_active(Link::Cp(id)) {
                     self.push_level(profile.kind, 0);
                 }
@@ -771,7 +755,6 @@ impl Projection {
                     ip: ids.ip,
                     ..Default::default()
                 };
-                // A phone plugged in during a wireless session still runs CarPlay over the air.
                 let live = self.by_identity(&session_ids(&found));
                 let wired = live.map_or(found.usb_udid.is_some(), |i| {
                     self.sessions[i].transport == Transport::Usb
@@ -822,7 +805,9 @@ impl Projection {
                 climate.insert(SOURCE.into(), FROM_CARPLAY.into());
                 let _ = self.telemetry.send(serde_json::json!({ CLIMATE: climate }));
             }
-            // The head unit's volume lives in the telemetry, the stream volumes are settings.
+            CpEvent::NotificationClosed { .. } => {
+                let _ = self.telemetry.send(serde_json::json!({ NOTIFICATION: { "open": false } }));
+            }
             CpEvent::Volume { name, level, .. } => {
                 let to = if name == "volume" { &self.telemetry } else { &self.settings };
                 let _ = to.send(serde_json::json!({ name: level }));
@@ -906,8 +891,6 @@ impl Projection {
         }
     }
 
-    /// A wired driver taking over a wireless entry is the handover to the cable,
-    /// the entry keeps its index.
     fn upsert(&mut self, link: Link, transport: Transport, device: &Ids) -> u32 {
         let by_identity = self.by_identity(device);
         let steals_wired = by_identity.is_some_and(|i| {
@@ -1070,8 +1053,6 @@ impl Projection {
         self.activate(self.sessions[next].index);
     }
 
-    /// The helper reads its settings at start, and a phone takes the displays
-    /// it is offered only when it connects.
     fn apply_settings(&mut self) {
         println!("[core] applying the settings: helper restart, phones reconnect");
         self.apply_due = None;
@@ -1104,7 +1085,6 @@ impl Projection {
         }
     }
 
-    /// `done` fires once the last session ended and the helper has the empty paging list.
     fn goodbye(&mut self, done: oneshot::Sender<()>) {
         let paging_stopped = self.devices.stop_paging();
         let (ended, sessions_ended) = oneshot::channel();
@@ -1227,13 +1207,9 @@ impl Projection {
         }
     }
 
-    /// Back on the projection the phone goes to its home screen, unless a
-    /// call or Siri brought it there, which home would end. The plane needs a
-    /// full picture either way.
     fn asked(&mut self, asked: PerScreen<Front>) {
         let before = self.wants.main;
         let last = std::mem::replace(&mut self.asked, asked);
-        // While reversing, main follows the camera core put there, not a choice of the user.
         let camera = self.reverse_camera();
         for screen in [Screen::Main, Screen::Cluster, Screen::Aux] {
             if asked.get(screen) != last.get(screen) && !(camera && screen == Screen::Main) {
@@ -1310,7 +1286,6 @@ impl Projection {
         self.publish();
     }
 
-    /// A phone's place among the sessions and whether it is the active one.
     fn session_of(&self, ids: &devices::Ids) -> Option<(u32, bool)> {
         let ids = session_ids(ids);
         if !ids.any() {
@@ -1329,7 +1304,7 @@ impl Projection {
         };
         devices::reconnect_targets(
             &self.devices.registry,
-            self.hub.config().auto_conn,
+            devices::Paging::of(&self.hub.config()),
             &|ids| self.session_of(ids).is_some(),
             &on_cable,
         )
@@ -1439,7 +1414,6 @@ impl Projection {
         self.push_level(AudioKind::Media, ramp_ms);
     }
 
-    /// The layout went up on LIVI's side, the phone draws its part in it.
     fn cluster_changed(&mut self) {
         if let Some(Link::Cp(id)) = self.active().map(|s| s.link)
             && let Some(layout) = self.phone_layout()
@@ -1450,7 +1424,6 @@ impl Projection {
         self.publish();
     }
 
-    /// The layout as the phone gets it, only while the cluster runs the theme the phone draws.
     fn phone_layout(&self) -> Option<ui_sync::Layout> {
         let drawn = &self.config_seen.car_play_theme;
         if drawn.is_empty() || *drawn != self.cluster.theme.id {
@@ -1464,7 +1437,6 @@ impl Projection {
         })
     }
 
-    /// The cluster runs the configured car maker theme, fetched once when it is not kept yet.
     fn follow_theme(&mut self, cfg: &Config) {
         let configured = &cfg.car_play_theme;
         let theme = theme_catalog::cached(&self.themes, configured).unwrap_or_else(livi_theme);
@@ -1498,14 +1470,12 @@ impl Projection {
         }
     }
 
-    /// The user's arrangement goes into the config, the dashboard follows it from there.
     fn arrange_dashboard(&self, slots: Option<BTreeMap<String, LayoutSlot>>) {
         if let Some(slots) = slots {
             let _ = self.settings.send(serde_json::json!({ "dashboardLayouts": slots }));
         }
     }
 
-    /// LIVI comes back with the layout and the palettes picked last.
     fn keep_cluster(&self) {
         let _ = self.settings.send(serde_json::json!({
             "clusterLayout": self.cluster.layout,
@@ -1579,8 +1549,6 @@ impl Projection {
         self.stream_volumes_to_phone();
     }
 
-    /// The vehicle app shows the music, navigation and call volumes, the phone skips what did not
-    /// change.
     fn stream_volumes_to_phone(&self) {
         let levels = serde_json::json!({
             "audioVolume": self.levels.music,
@@ -1659,7 +1627,6 @@ impl Projection {
 
     fn key(&mut self, code: &str, down: bool) {
         let Some(key) = bound(&self.bindings, code) else { return };
-        // The cluster is the car's, it switches with or without a phone in front.
         if key == Key::ClusterLayout {
             if down && self.cluster.step(1) {
                 self.cluster_changed();
@@ -1684,7 +1651,6 @@ impl Projection {
         }
     }
 
-    /// Only the press counts, Siri on CarPlay is no push-to-talk.
     fn cp_key(&self, id: SessionId, key: Key) {
         let none = KnobState::default();
         let cmd = match key {
@@ -1708,7 +1674,6 @@ impl Projection {
             Key::Phone(button) => StackCmd::Telephony(button),
             Key::VoiceAssistant => StackCmd::Siri,
             Key::ClusterContent => StackCmd::NextClusterContent,
-            // The UI's own button for it is nextDevice, the cluster layout is handled above.
             Key::CycleSession | Key::VoiceAssistantRelease | Key::ClusterLayout => return,
         };
         self.cp.stack(id, cmd);
@@ -1721,7 +1686,6 @@ impl Projection {
         }
     }
 
-    /// Android Auto's assistant listens while the voice key is held.
     fn aa_key(&self, id: AaId, key: Key, down: bool) {
         use telephony_button as t;
         let command = match (key, down) {
@@ -1813,7 +1777,6 @@ impl Projection {
                 let link = Link::Aa(id);
                 let ids = match self.sessions.iter().find(|s| s.link == link) {
                     Some(s) => registry_ids(&s.device),
-                    // The battery can come before the session has its phone, the address still names it.
                     None => devices::Ids { ip: opt(&status.ip), ..Default::default() },
                 };
                 if status.battery_level.is_some() {
@@ -1832,7 +1795,6 @@ impl Projection {
                 self.close_by_link(Link::Aa(id));
             }
             AaEvent::Audio { id, stream, active, .. } => {
-                // A stream opens at the host's default, it takes its level once it plays.
                 if active && self.is_active(Link::Aa(id)) {
                     self.push_level(cp_kind(AaKind::of(stream)), 0);
                 }
@@ -1873,7 +1835,6 @@ impl Projection {
                 let pct = ev.get("pct").and_then(Value::as_f64);
                 let Some(mac) = text("mac") else { return };
                 println!("[core] HFP battery {mac}: ~{}%", pct.unwrap_or(0.0));
-                // Steps of 20 %, only until Android Auto's own reading arrives.
                 if self.hands_free.battery_precise || pct.is_none() {
                     return;
                 }
@@ -1942,7 +1903,6 @@ impl Projection {
         self.auto_activate(index);
     }
 
-    /// Wireless calls need the phone's hands-free link.
     fn ensure_aa_links(&mut self) {
         let known: Vec<String> = self.hands_free.bt_by_instance.values().cloned().collect();
         if known.is_empty() {
@@ -2714,7 +2674,6 @@ mod tests {
         assert_eq!(rig.front(), Front::Projection);
         rig.p.asked(PerScreen { cluster: Front::Cluster, ..livi() });
         assert_eq!(rig.front(), Front::Projection);
-        // The UI follows without a home press, that would end the call or Siri.
         rig.p.asked(PerScreen {
             main: Front::Projection,
             cluster: Front::Cluster,
@@ -2773,6 +2732,13 @@ mod tests {
             rig.telemetry.try_recv(),
             Ok(json!({ "climate": { "auto": false, "source": "carplay" } }))
         );
+    }
+
+    #[tokio::test]
+    async fn a_closed_notification_lands_in_the_telemetry() {
+        let mut rig = Rig::new();
+        rig.p.on_event(CpEvent::NotificationClosed { id: 1 });
+        assert_eq!(rig.telemetry.try_recv(), Ok(json!({ "notification": { "open": false } })));
     }
 
     #[tokio::test]
@@ -3069,7 +3035,7 @@ mod tests {
         let snap = |v: Value| v.as_object().cloned().unwrap_or_default();
         rig.p.on_state(cfg.clone(), snap(json!({ "nightMode": true, "ts": 1 })));
         rig.p.on_state(cfg.clone(), snap(json!({ "nightMode": true, "ts": 2 })));
-        assert_eq!(rig.drain(), [CpCmd::NightMode(true)]);
+        assert_eq!(rig.drain(), [CpCmd::NightMode(true), CpCmd::ClusterNightMode(true)]);
 
         let mut day = cfg.clone();
         day.appearance_mode = AppearanceMode::Day;
@@ -3085,7 +3051,7 @@ mod tests {
         rig.p.on_event(CpEvent::Spawned { id: 1 });
         assert_eq!(
             rig.drain(),
-            [CpCmd::NightMode(true), levels],
+            [CpCmd::NightMode(true), CpCmd::ClusterNightMode(true), levels],
             "a new session hears the volumes"
         );
     }

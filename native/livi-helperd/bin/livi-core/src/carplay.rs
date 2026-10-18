@@ -1,4 +1,5 @@
 use std::collections::HashMap;
+use std::path::{Path, PathBuf};
 use std::sync::{Arc, Mutex};
 
 use base64::Engine;
@@ -24,6 +25,7 @@ use crate::{host, hwaddr};
 const ICON_120: &str = include_str!("../../../../../src/main/shared/assets/icon-120.b64");
 const ICON_180: &str = include_str!("../../../../../src/main/shared/assets/icon-180.b64");
 const ICON_256: &str = include_str!("../../../../../src/main/shared/assets/icon-256.b64");
+const LOGO: &[u8] = include_bytes!("../../../../../src/main/shared/assets/livi-logo.png");
 
 pub struct GstMedia {
     gst: GstHost,
@@ -186,7 +188,6 @@ impl Media for GstMedia {
 }
 
 impl GstMedia {
-    /// What the last player said is no word about the next one.
     fn forget_video_status(&self) {
         *self.video_status.lock().unwrap_or_else(|e| e.into_inner()) = None;
     }
@@ -209,13 +210,11 @@ fn even(v: u32) -> u32 {
     v - v % 2
 }
 
-/// A dashboard layout can show the phone's cluster stream on any screen that has the dashboard.
 pub fn cluster_displayed(cfg: &Config) -> bool {
     let d = cfg.dashboard;
     d.main || d.cluster || d.aux
 }
 
-/// Sublinear, so a resolution step moves the phone one UI size class, not two.
 fn panel_mm(panel: Option<&Panel>, w: u32, h: u32) -> Option<(i64, i64)> {
     let g = panel?;
     if g.width_mm == 0 || g.height_mm == 0 || g.width_px == 0 || g.height_px == 0 {
@@ -377,18 +376,16 @@ pub fn stack_config(
         cluster_url: cluster_url(cfg),
         vehicle_variant: cfg.car_play_vehicle_model.clone(),
         engines: engines(cfg),
-        // Both zones start empty, the car shows its views when there is a reason.
         cluster_content: theme_displays(cfg, theme).map(|names| {
             livi_cp::vehicle_state::ClusterContent {
                 panel: names.cluster,
                 zones: [String::new(), String::new()],
             }
         }),
+        images: Vec::new(),
     }
 }
 
-/// The display names of the theme the cluster runs, only while the phone draws a car maker's
-/// theme.
 fn theme_displays(cfg: &Config, cluster: &Theme) -> Option<ThemeDisplays> {
     if cfg.car_play_theme.is_empty() {
         return None;
@@ -423,7 +420,6 @@ fn engines(cfg: &Config) -> Engines {
     }
 }
 
-/// The maneuver card takes no options.
 fn cluster_url(cfg: &Config) -> String {
     let path = match cfg.car_play_cluster_content {
         ClusterContent::Auto => "maps:/car/instrumentcluster",
@@ -473,6 +469,36 @@ pub struct ConfigSource {
     told: Mutex<HashMap<String, String>>,
 }
 
+fn images_dir() -> PathBuf {
+    PathBuf::from(std::env::var("HOME").unwrap_or_default()).join(".config/LIVI/carplay-images")
+}
+
+fn carplay_images(dir: &Path) -> Vec<(String, Vec<u8>)> {
+    let logo = dir.join("livi.png");
+    if !logo.exists() {
+        let written = std::fs::create_dir_all(dir).and_then(|_| std::fs::write(&logo, LOGO));
+        if let Err(e) = written {
+            println!("[core] cannot write {}: {e}", logo.display());
+        }
+    }
+    let Ok(entries) = std::fs::read_dir(dir) else { return Vec::new() };
+    let mut images: Vec<_> = entries
+        .filter_map(|entry| {
+            let path = entry.ok()?.path();
+            let png = path.extension().is_some_and(|e| e.eq_ignore_ascii_case("png"));
+            let name = path.file_stem()?.to_str()?.to_string();
+            png.then(|| Some((name, std::fs::read(&path).ok()?))).flatten()
+        })
+        .collect();
+    images.sort();
+    images
+}
+
+fn with_images(mut cfg: StackConfig) -> StackConfig {
+    cfg.images = carplay_images(&images_dir());
+    cfg
+}
+
 fn remembered(told: &mut HashMap<String, String>, key: String, found: Option<String>) -> String {
     match found {
         Some(address) => {
@@ -498,7 +524,8 @@ impl ConfigSource {
             (s.config.clone(), s.cluster.theme.clone())
         };
         let screen = host::screen_panel();
-        let first = stack_config(&cfg, &panels.borrow(), screen, false, &addresses, &cluster);
+        let first =
+            with_images(stack_config(&cfg, &panels.borrow(), screen, false, &addresses, &cluster));
         let (tx, rx) = watch::channel(first);
         let (aa, aa_rx) = watch::channel(aa_config(&cfg, Codecs::default(), &addresses));
         let source = Arc::new(Self {
@@ -514,7 +541,6 @@ impl ConfigSource {
         (source, rx, aa_rx)
     }
 
-    /// Blocks on the dongle while it is asked for its access point.
     pub fn refresh(&self) {
         let (cfg, cluster) = {
             let s = self.state.borrow();
@@ -547,14 +573,14 @@ impl ConfigSource {
             known.clone()
         };
         let codecs = *self.codecs.lock().unwrap_or_else(|e| e.into_inner());
-        let next = stack_config(
+        let next = with_images(stack_config(
             &cfg,
             &self.panels.borrow(),
             self.screen,
             codecs.hevc,
             &addresses,
             &cluster,
-        );
+        ));
         self.tx.send_if_modified(|cur| {
             let changed = *cur != next;
             *cur = next;
@@ -575,8 +601,6 @@ impl ConfigSource {
         *self.codecs.lock().unwrap_or_else(|e| e.into_inner()) = codecs;
     }
 
-    /// Telemetry changes the state many times a second, the addresses are not asked again for
-    /// that.
     pub fn follow(self: &Arc<Self>) {
         let source = self.clone();
         let mut state = self.state.clone();
@@ -593,6 +617,7 @@ impl ConfigSource {
                         sys.dongle,
                         sys.wifi_interfaces.clone(),
                         sys.bt_adapters.clone(),
+                        s.cluster.theme.id.clone(),
                     )
                 };
                 if panels_moved || seen.as_ref() != Some(&now) {
@@ -687,6 +712,24 @@ mod tests {
         assert!(sc.info.cluster.is_some());
         assert_eq!(sc.info.source_version, defaults().car_play_source_version);
         assert_eq!(sc.info.icons.len(), 2);
+    }
+
+    #[test]
+    fn the_image_folder_gets_the_logo_and_hands_out_every_png() {
+        let dir = std::env::temp_dir().join(format!("livi-carplay-images-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&dir);
+        assert_eq!(carplay_images(&dir), [("livi".to_string(), LOGO.to_vec())]);
+        std::fs::write(dir.join("frost.PNG"), b"ice").unwrap();
+        std::fs::write(dir.join("notes.txt"), b"no").unwrap();
+        std::fs::write(dir.join("livi.png"), b"own").unwrap();
+        let names: Vec<_> =
+            carplay_images(&dir).into_iter().map(|(name, png)| (name, png.len())).collect();
+        assert_eq!(names, [("frost".to_string(), 3), ("livi".to_string(), 3)]);
+        let _ = std::fs::remove_dir_all(&dir);
+        let blocked = dir.with_extension("file");
+        std::fs::write(&blocked, b"").unwrap();
+        assert!(carplay_images(&blocked).is_empty());
+        let _ = std::fs::remove_file(&blocked);
     }
 
     #[test]

@@ -25,8 +25,10 @@ livi-core telemetry pushes values into a running LIVI's telemetry.
 Examples:
   livi-core telemetry set speedKph=50 rpm=1500 gear=D lights=true
   livi-core telemetry set gear=R
+  livi-core telemetry set nightMode=false clusterNightMode=true
   livi-core telemetry set climate.passengerTargetC=17
   livi-core telemetry set path=/media
+  livi-core telemetry set notification.title=Frost notification.symbol=snowflake notification.open=true
   livi-core telemetry set gps.lat=53.5912 gps.lng=10.015 --every-ms 1000
 ";
 

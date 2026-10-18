@@ -1,11 +1,11 @@
 use livi_cp::helper_sock::HelperSock;
 use livi_cp::manager::{CpCmd, CpHandle};
-use livi_cp::vehicle_state::GAUGE_KEYS;
+use livi_cp::vehicle_state::{GAUGE_KEYS, Notice};
 use serde_json::{Map, Value};
 
 use crate::aa_telemetry::{LOW_FUEL_PCT, gear};
 use crate::nmea::{self, Position};
-use crate::telemetry::{CLIMATE, SOURCE};
+use crate::telemetry::{CLIMATE, NOTIFICATION, SOURCE};
 
 pub const FROM_CARPLAY: &str = "carplay";
 
@@ -15,6 +15,7 @@ const PARK: i64 = 101;
 pub struct CpTelemetry {
     helper: HelperSock,
     night: Option<bool>,
+    cluster_night: Option<bool>,
     limited_ui: Option<bool>,
     video_allowed: Option<bool>,
 }
@@ -64,7 +65,7 @@ fn connector(name: &str) -> Option<u8> {
 
 impl CpTelemetry {
     pub fn new(helper: HelperSock) -> Self {
-        Self { helper, night: None, limited_ui: None, video_allowed: None }
+        Self { helper, night: None, cluster_night: None, limited_ui: None, video_allowed: None }
     }
 
     pub fn follow(&mut self, prev: &Map<String, Value>, next: &Map<String, Value>, cp: &CpHandle) {
@@ -74,6 +75,16 @@ impl CpTelemetry {
         {
             self.night = Some(night);
             cp.send(CpCmd::NightMode(night));
+        }
+        if (changed(prev, next, "nightMode") || changed(prev, next, "clusterNightMode"))
+            && let Some(night) = next
+                .get("clusterNightMode")
+                .and_then(Value::as_bool)
+                .or_else(|| next.get("nightMode").and_then(Value::as_bool))
+            && self.cluster_night != Some(night)
+        {
+            self.cluster_night = Some(night);
+            cp.send(CpCmd::ClusterNightMode(night));
         }
         if (changed(prev, next, "gear") || changed(prev, next, "reverse"))
             && let Some(g) = gear(next.get("gear"), next.get("reverse").and_then(Value::as_bool))
@@ -150,6 +161,22 @@ impl CpTelemetry {
             let helper = self.helper.clone();
             tokio::spawn(async move { helper.send_location(&nmea).await });
         }
+        if changed(prev, next, NOTIFICATION) {
+            let note = next.get(NOTIFICATION).and_then(Value::as_object);
+            let text = |key: &str| {
+                note.and_then(|n| n.get(key))
+                    .and_then(Value::as_str)
+                    .unwrap_or_default()
+                    .to_string()
+            };
+            let open = note.and_then(|n| n.get("open")).and_then(Value::as_bool) == Some(true);
+            let notice = open.then(|| Notice {
+                title: text("title"),
+                text: text("text"),
+                symbol: text("symbol"),
+            });
+            cp.send(CpCmd::Notification(notice));
+        }
         if changed(prev, next, CLIMATE)
             && let Some(climate) = next.get(CLIMATE).and_then(Value::as_object)
             && climate.get(SOURCE).and_then(Value::as_str) != Some(FROM_CARPLAY)
@@ -168,6 +195,7 @@ impl CpTelemetry {
 
     pub fn hydrate(&mut self, snap: &Map<String, Value>, cp: &CpHandle) {
         self.night = None;
+        self.cluster_night = None;
         self.limited_ui = None;
         self.video_allowed = None;
         let mut rest = snap.clone();
@@ -225,6 +253,7 @@ mod tests {
         let first = obj(json!({ "nightMode": true, "speedKph": 50, "ts": 1 }));
         t.follow(&Map::new(), &first, &cp);
         assert_eq!(cmds.try_recv(), Ok(CpCmd::NightMode(true)));
+        assert_eq!(cmds.try_recv(), Ok(CpCmd::ClusterNightMode(true)));
 
         let second = obj(json!({
             "nightMode": true,
@@ -291,12 +320,65 @@ mod tests {
 
         t.hydrate(&second, &cp);
         assert_eq!(cmds.try_recv(), Ok(CpCmd::NightMode(true)));
+        assert_eq!(cmds.try_recv(), Ok(CpCmd::ClusterNightMode(true)));
         assert!(matches!(cmds.try_recv(), Ok(CpCmd::Gauges(_))));
         assert!(next(&mut lines).await.starts_with("vehicle-status "));
 
         t.follow(&second, &obj(json!({ "gps": { "lat": 1.0 } })), &cp);
         t.follow(&second, &obj(json!({ "nightMode": "dusk" })), &cp);
         assert!(cmds.try_recv().is_err());
+    }
+
+    #[test]
+    fn the_cluster_follows_the_night_mode_until_it_has_its_own() {
+        let (tx, mut cmds) = mpsc::unbounded_channel();
+        let cp = CpHandle::from_sender(tx);
+        let mut t = CpTelemetry::new(HelperSock::default());
+        let day = obj(json!({ "nightMode": false }));
+        t.follow(&Map::new(), &day, &cp);
+        assert_eq!(cmds.try_recv(), Ok(CpCmd::NightMode(false)));
+        assert_eq!(cmds.try_recv(), Ok(CpCmd::ClusterNightMode(false)));
+        let dark_cluster = obj(json!({ "nightMode": false, "clusterNightMode": true }));
+        t.follow(&day, &dark_cluster, &cp);
+        assert_eq!(cmds.try_recv(), Ok(CpCmd::ClusterNightMode(true)));
+        let night = obj(json!({ "nightMode": true, "clusterNightMode": true }));
+        t.follow(&dark_cluster, &night, &cp);
+        assert_eq!(cmds.try_recv(), Ok(CpCmd::NightMode(true)));
+        assert!(cmds.try_recv().is_err(), "the cluster keeps its own");
+        let cleared = obj(json!({ "nightMode": true, "clusterNightMode": null }));
+        let lit_cluster = obj(json!({ "nightMode": true, "clusterNightMode": false }));
+        t.follow(&night, &lit_cluster, &cp);
+        assert_eq!(cmds.try_recv(), Ok(CpCmd::ClusterNightMode(false)));
+        t.follow(&lit_cluster, &cleared, &cp);
+        assert_eq!(cmds.try_recv(), Ok(CpCmd::ClusterNightMode(true)), "back to nightMode");
+    }
+
+    #[test]
+    fn a_notification_opens_with_its_fields_and_closes() {
+        let (tx, mut cmds) = mpsc::unbounded_channel();
+        let cp = CpHandle::from_sender(tx);
+        let mut t = CpTelemetry::new(HelperSock::default());
+        let open = obj(json!({ "notification": {
+            "title": "Frost", "text": "Glätte möglich", "symbol": "snowflake", "open": true
+        } }));
+        t.follow(&Map::new(), &open, &cp);
+        let frost = Notice {
+            title: "Frost".into(),
+            text: "Glätte möglich".into(),
+            symbol: "snowflake".into(),
+        };
+        assert_eq!(cmds.try_recv(), Ok(CpCmd::Notification(Some(frost.clone()))));
+        t.follow(&open, &open, &cp);
+        assert!(cmds.try_recv().is_err(), "unchanged, nothing new");
+
+        let closed = obj(json!({ "notification": { "title": "Frost", "open": false } }));
+        t.follow(&open, &closed, &cp);
+        assert_eq!(cmds.try_recv(), Ok(CpCmd::Notification(None)));
+
+        t.hydrate(&open, &cp);
+        let reopened = std::iter::from_fn(|| cmds.try_recv().ok())
+            .any(|c| c == CpCmd::Notification(Some(frost.clone())));
+        assert!(reopened, "a new session shows the open notification");
     }
 
     #[test]

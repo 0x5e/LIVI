@@ -6,7 +6,8 @@
 //! does it, `livi-core telemetry set speedKph=73 gps.lat=53.59`, `livi-core telemetry help`
 //! lists the rest.
 //!
-//! A push may carry any subset of the fields. `gps`, `can`, `climate` and `tirePressure` merge
+//! A push may carry any subset of the fields. `gps`, `can`, `climate`, `tirePressure` and
+//! `notification` merge
 //! field by field, so `{ gps: { lat: 50 } }` keeps the last `lng`, every other field is replaced
 //! whole. LIVI sends the merged snapshot to every client as `telemetry:update`.
 //!
@@ -24,6 +25,7 @@
 //! | lights, highBeam, hazards           | ✓    | ✓            | ·               | ·             |
 //! | parkingBrake                        | ✓    | ✓            | ·               | ·             |
 //! | nightMode                           | ✓    | ✓            | ✓               | ✓             |
+//! | clusterNightMode                    | ·    | ·            | ✓               | ✓             |
 //! | path                                | ✓    | ·            | ·               | ·             |
 //! | volume                              | ✓    | ·            | ·               | ✓             |
 //! | fuelPct                             | ✓    | ✓            | ✓ (warning, %)  | ✓             |
@@ -55,6 +57,7 @@
 //! | can                                 | ✓    | ·            | ·               | ·             |
 //! | gnss                                | ✓    | ·            | ·               | ·             |
 //! | climate                             | ✓    | ·            | ·               | ✓             |
+//! | notification                        | ·    | ·            | ·               | ✓             |
 //!
 //! With `autoSwitchOnReverse` on, `gear` and `reverse` also bring the camera to the front of the
 //! main screen while the car reverses.
@@ -151,6 +154,9 @@ pub struct TelemetrySnapshot {
     pub dimmer_pct: Option<f64>,
     /// Day or night for Android Auto and CarPlay, LIVI's own look follows its setting.
     pub night_mode: Option<bool>,
+    /// Day or night for the CarPlay cluster, it follows `nightMode` while absent or null. A
+    /// change of LIVI's appearance setting sets `nightMode` and clears this one.
+    pub cluster_night_mode: Option<bool>,
     /// A page such as `/media` or `/settings/devices`, LIVI's main screen opens it once each time
     /// it changes. A path that names no page is ignored.
     pub path: Option<String>,
@@ -165,6 +171,7 @@ pub struct TelemetrySnapshot {
     /// No receiver uses it, it is for tooling and diagnostics.
     pub can: Option<CanFrame>,
     pub climate: Option<Climate>,
+    pub notification: Option<Notification>,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, TS)]
@@ -232,6 +239,23 @@ pub struct Climate {
     /// 0 to 2.
     pub driver_seat_heating: Option<u8>,
     pub passenger_seat_heating: Option<u8>,
+}
+
+/// A notification in the CarPlay cluster, for warnings such as range, temperature or frost. It
+/// stays until Enter or the phone closes it, either sets `open` back to false. Each one also lands
+/// in the Vehicle app's notification list, the last ten until the user clears them.
+#[derive(Debug, Clone, Default, PartialEq, Serialize, Deserialize, TS)]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
+#[ts(export_to = "contract.ts", optional_fields)]
+pub struct Notification {
+    pub title: Option<String>,
+    pub text: Option<String>,
+    /// An SF Symbol such as `snowflake`, or the name of a PNG in `~/.config/LIVI/carplay-images`
+    /// such as `livi`. A PNG shows only once the phone fetched the folder, from the next CarPlay
+    /// start and in practice only with a theme, else just SF Symbols work.
+    pub symbol: Option<String>,
+    /// True shows it, false closes it.
+    pub open: Option<bool>,
 }
 
 #[cfg(test)]

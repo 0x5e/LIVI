@@ -10,12 +10,12 @@
     "sha256": "b4e3e93557bb97d6207978c92e3a52f533a60cd3f0e9034a4253c080b83e872a"
   },
   "info": {
-    "len": 5107,
-    "sha256": "6ea06e204553e809559e5e0255ab83d5a5a868b293f9dc9015a3c754ef7d73f0"
+    "len": 5359,
+    "sha256": "4c7b559aeb535195c9c27fcf4ea7f4390cd80c4c1ed324e509d9036cf080f052"
   },
   "infoNoAudio": {
-    "len": 2555,
-    "sha256": "c0dc38240c1c9be9ace14d1fe59f382e80115964dc82805adcc7f1f391a9beed"
+    "len": 2673,
+    "sha256": "56b5230f0a1d0853eb2327bdb7221a3c0537c7e6ca647d24cd830433ccdd9534"
   },
   "touch": "00016500cf02010003000400",
   "knob": "018104ff",

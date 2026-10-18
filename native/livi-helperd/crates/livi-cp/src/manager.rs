@@ -1,5 +1,5 @@
-//! One connection is one session, and a session born at iAP2 identification
-//! gives the phone's metadata a target until it connects.
+// One connection is one session, and a session born at iAP2 identification
+// gives the phone's metadata a target until it connects.
 
 use std::collections::{HashMap, HashSet};
 use std::sync::Arc;
@@ -22,6 +22,7 @@ const RESTART_EVERY: Duration = Duration::from_millis(1000);
 const RESTART_TRIES: u32 = 10;
 const KEEPALIVE_IDLE: Duration = Duration::from_secs(3);
 const PENDING_MAX: usize = 8;
+const HISTORY_KEPT: usize = 10;
 
 pub type SessionId = u64;
 
@@ -37,8 +38,9 @@ pub struct DeviceIds {
 
 #[derive(Debug, Clone, PartialEq)]
 pub enum Presence {
-    /// RECORD: the session runs.
-    Active { ip: String },
+    Active {
+        ip: String,
+    },
     Device {
         bt_mac: String,
         wifi_mac: String,
@@ -55,7 +57,6 @@ pub enum Presence {
     },
 }
 
-/// Independent of any session.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum HelperPresence {
     Wifi { wifi_mac: String, ip: String, connected: bool },
@@ -72,102 +73,42 @@ pub enum CallPhase {
 
 #[derive(Debug, Clone, PartialEq)]
 pub enum CpEvent {
-    Spawned {
-        id: SessionId,
-    },
-    /// Sent once the main screen stream is set up.
-    Connected {
-        id: SessionId,
-        wired: bool,
-        controller_id: Option<String>,
-    },
-    Disconnected {
-        id: SessionId,
-    },
-    Presence {
-        id: SessionId,
-        wired: bool,
-        presence: Presence,
-    },
+    Spawned { id: SessionId },
+    Connected { id: SessionId, wired: bool, controller_id: Option<String> },
+    Disconnected { id: SessionId },
+    Presence { id: SessionId, wired: bool, presence: Presence },
     HelperPresence(HelperPresence),
     HelperConnected,
-    /// Summer time included.
-    PhoneUtcOffset {
-        minutes: i32,
-    },
-    VideoCodec {
-        id: SessionId,
-        cluster: bool,
-        codec: ScreenCodec,
-    },
-    AudioActive {
-        id: SessionId,
-        profile: AudioProfile,
-        active: bool,
-    },
-    Duck {
-        id: SessionId,
-        level: f64,
-        duration_ms: u32,
-    },
-    HostUiRequested {
-        id: SessionId,
-    },
-    SpeechActive {
-        id: SessionId,
-        active: bool,
-    },
-    Call {
-        id: SessionId,
-        phase: CallPhase,
-    },
-    Metadata {
-        id: SessionId,
-        event: Value,
-    },
-    Climate {
-        id: SessionId,
-        climate: Climate,
-    },
-    Volume {
-        id: SessionId,
-        name: &'static str,
-        level: f64,
-    },
-    Cluster {
-        id: SessionId,
-        choice: crate::ui_sync::PhoneChoice,
-    },
-    /// The phone's Radio app steers LIVI's radio.
-    Radio {
-        id: SessionId,
-        command: RadioCommand,
-    },
+    PhoneUtcOffset { minutes: i32 },
+    VideoCodec { id: SessionId, cluster: bool, codec: ScreenCodec },
+    AudioActive { id: SessionId, profile: AudioProfile, active: bool },
+    Duck { id: SessionId, level: f64, duration_ms: u32 },
+    HostUiRequested { id: SessionId },
+    SpeechActive { id: SessionId, active: bool },
+    Call { id: SessionId, phase: CallPhase },
+    Metadata { id: SessionId, event: Value },
+    Climate { id: SessionId, climate: Climate },
+    NotificationClosed { id: SessionId },
+    Volume { id: SessionId, name: &'static str, level: f64 },
+    Cluster { id: SessionId, choice: crate::ui_sync::PhoneChoice },
+    Radio { id: SessionId, command: RadioCommand },
 }
 
 #[derive(Debug, Clone, PartialEq)]
 pub enum CpCmd {
-    Stack {
-        id: SessionId,
-        cmd: StackCmd,
-    },
+    Stack { id: SessionId, cmd: StackCmd },
     NightMode(bool),
-    /// None for automatic.
+    ClusterNightMode(bool),
     InitialNightMode(Option<bool>),
     LimitedUi(bool),
     VideoAllowed(bool),
     ClusterActive(bool),
-    /// Climate set outside the phone, every session hears it.
     Climate(Climate),
-    /// Readings for the cluster and the vehicle app, every session hears them.
+    Notification(Option<crate::vehicle_state::Notice>),
     Gauges(Gauges),
-    /// LIVI's radio, every session and every later one hears it.
     Radio(Box<Radio>),
-    /// The phones reconnect.
     DropSessions,
-    Close {
-        id: SessionId,
-    },
+    Close { id: SessionId },
 }
 
 #[derive(Clone)]
@@ -191,14 +132,12 @@ impl CpHandle {
 
 #[derive(Default)]
 struct Session {
-    /// None for a session born at identification.
     stack: Option<mpsc::UnboundedSender<StackCmd>>,
     bt_mac: String,
     wifi_mac: String,
     peer_ip: String,
     local_ip: String,
     usb_udid: String,
-    /// Set by pair-verify.
     controller_id: Option<String>,
     connected: bool,
 }
@@ -240,21 +179,15 @@ struct Manager<M: Media> {
     ticks: mpsc::UnboundedSender<(String, u32)>,
     next_id: SessionId,
     sessions: HashMap<SessionId, Session>,
-    /// The session that owns the helper's single metadata feed.
     live: Option<SessionId>,
-    /// Waiting for their session.
     pending: Vec<DeviceIds>,
-    /// btMac (lower case) to usbUdid of the phones on the bus.
     wired: HashMap<String, String>,
-    /// Phones whose wireless session ended, their last events must not make a new one.
     gone: HashSet<String>,
-    /// Wireless sessions whose phone was plugged in while they ran.
     cabled: HashSet<SessionId>,
-    /// usbUdid to the address of ours the phone was told to reach over its cable.
     cable_addrs: HashMap<String, String>,
-    /// usbUdid to the next start, for a phone yet to connect over its cable.
     to_cable: HashMap<String, JoinHandle<()>>,
     initial_night_mode: Option<bool>,
+    notices: Notices,
     cluster_stream_active: bool,
     video_allowed: bool,
     radio: Option<Box<Radio>>,
@@ -294,6 +227,7 @@ async fn run<M: Media>(
         cable_addrs: HashMap::new(),
         to_cable: HashMap::new(),
         initial_night_mode: None,
+        notices: Notices::default(),
         cluster_stream_active: true,
         video_allowed: true,
         radio: None,
@@ -368,8 +302,12 @@ impl<M: Media> Manager<M> {
         self.next_id += 1;
         if let Some(night) = self.initial_night_mode {
             session.send(StackCmd::NightMode(night));
+            session.send(StackCmd::ClusterNightMode(night));
         }
         session.send(StackCmd::ClusterActive(self.cluster_stream_active));
+        if !self.notices.history.is_empty() {
+            session.send(StackCmd::History(self.notices.history.clone()));
+        }
         session.send(StackCmd::VideoAllowed(self.video_allowed));
         if let Some(radio) = &self.radio {
             session.send(StackCmd::Radio(radio.clone()));
@@ -384,8 +322,6 @@ impl<M: Media> Manager<M> {
         self.cable_addrs.iter().find(|(_, a)| **a == ip).map(|(udid, _)| udid.clone())
     }
 
-    /// A connected session is wired when it reached the address given over the
-    /// cable. Before that, it is wired when its iAP2 came over the cable.
     fn is_wired(&self, id: SessionId) -> bool {
         let Some(s) = self.sessions.get(&id) else { return false };
         if s.local_ip.is_empty() {
@@ -431,8 +367,6 @@ impl<M: Media> Manager<M> {
                 if let Some(s) = self.sessions.get_mut(&id) {
                     s.controller_id = controller_id;
                 }
-                // A session reaching RECORD supersedes an earlier connection of
-                // the same phone, the Bluetooth to Wi-Fi handover.
                 self.supersede(id);
                 self.presence(id, Presence::Active { ip });
             }
@@ -459,6 +393,24 @@ impl<M: Media> Manager<M> {
             StackEvent::HostUiRequested => self.emit(CpEvent::HostUiRequested { id }),
             StackEvent::SpeechActive(active) => self.emit(CpEvent::SpeechActive { id, active }),
             StackEvent::Climate(climate) => self.emit(CpEvent::Climate { id, climate }),
+            StackEvent::NotificationClosed => {
+                self.notices.open = None;
+                self.emit(CpEvent::NotificationClosed { id });
+            }
+            StackEvent::HistoryHidden(entry) => {
+                let was_open = self.notices.hide(entry);
+                for (other, s) in &self.sessions {
+                    if was_open {
+                        s.send(StackCmd::Notification(None));
+                    }
+                    if *other != id {
+                        s.send(StackCmd::History(self.notices.history.clone()));
+                    }
+                }
+                if was_open {
+                    self.emit(CpEvent::NotificationClosed { id });
+                }
+            }
             StackEvent::Volume { name, level } => self.emit(CpEvent::Volume { id, name, level }),
             StackEvent::Cluster(choice) => self.emit(CpEvent::Cluster { id, choice }),
             StackEvent::Radio(command) => self.emit(CpEvent::Radio { id, command }),
@@ -502,8 +454,6 @@ impl<M: Media> Manager<M> {
         self.emit(CpEvent::Disconnected { id });
     }
 
-    /// Right after its wireless session the phone drops a start without a
-    /// word, so it hears it again until it connects over the cable.
     fn start_again(&mut self, udid: &str, attempt: u32) {
         if let Some(old) = self.to_cable.remove(udid) {
             old.abort();
@@ -675,8 +625,6 @@ impl<M: Media> Manager<M> {
                 let found = self.match_session(&ids);
                 if let (Some(mac), Some(udid)) = (&ids.bt_mac, &ids.usb_udid) {
                     let mac = mac.to_lowercase();
-                    // A session already running when the phone comes onto the bus is
-                    // the wireless one.
                     if !self.wired.contains_key(&mac)
                         && let Some(id) = found
                         && self.sessions[&id].controller_id.is_some()
@@ -692,7 +640,6 @@ impl<M: Media> Manager<M> {
                 }
             }
             "link" => {
-                // The LIVI Link carries every wireless session, they end with it.
                 if ev.get("up") == Some(&Value::Bool(false)) {
                     let wireless: Vec<SessionId> =
                         self.sessions.keys().copied().filter(|id| !self.on_cable(*id)).collect();
@@ -709,7 +656,6 @@ impl<M: Media> Manager<M> {
                     return;
                 }
                 self.cable_addrs.insert(udid.clone(), ip);
-                // The phone runs one session at a time, so its wireless one makes room.
                 let ids = DeviceIds {
                     usb_udid: Some(udid.clone()),
                     bt_mac: opt(str_of(ev, "phoneId")),
@@ -752,8 +698,6 @@ impl<M: Media> Manager<M> {
                     .map(|(id, _)| *id)
                     .collect();
                 for id in matching {
-                    // A session that ran before the cable came is the wireless one, it
-                    // carries on.
                     if self.cabled.remove(&id) {
                         continue;
                     }
@@ -765,8 +709,6 @@ impl<M: Media> Manager<M> {
         }
     }
 
-    /// A phone that left the access point ended CarPlay over Wi-Fi itself, one
-    /// running over the cable stays.
     fn left_wifi(&mut self, wifi_mac: &str) {
         let ids = DeviceIds { wifi_mac: Some(wifi_mac.to_string()), ..Default::default() };
         let leaving: Vec<SessionId> = self
@@ -782,8 +724,6 @@ impl<M: Media> Manager<M> {
         }
     }
 
-    /// Metadata carries the phone's iAP2 identity, the same over Bluetooth and
-    /// both tunnels, and its controller id.
     fn route_metadata(&mut self, ev: &Value) {
         let phone_id = str_of(ev, "phoneId");
         let cid = str_of(ev, "cid");
@@ -865,11 +805,17 @@ impl<M: Media> Manager<M> {
                     s.send(StackCmd::NightMode(night));
                 }
             }
+            CpCmd::ClusterNightMode(night) => {
+                for s in self.sessions.values() {
+                    s.send(StackCmd::ClusterNightMode(night));
+                }
+            }
             CpCmd::InitialNightMode(night) => {
                 self.initial_night_mode = night;
                 if let Some(night) = night {
                     for s in self.sessions.values() {
                         s.send(StackCmd::NightMode(night));
+                        s.send(StackCmd::ClusterNightMode(night));
                     }
                 }
             }
@@ -895,6 +841,18 @@ impl<M: Media> Manager<M> {
                     s.send(StackCmd::Climate(climate.clone()));
                 }
             }
+            CpCmd::Notification(notice) => {
+                match &notice {
+                    Some(notice) => self.notices.add(notice.clone(), std::time::SystemTime::now()),
+                    None => self.notices.open = None,
+                }
+                for s in self.sessions.values() {
+                    s.send(StackCmd::Notification(notice.clone()));
+                    if notice.is_some() {
+                        s.send(StackCmd::History(self.notices.history.clone()));
+                    }
+                }
+            }
             CpCmd::Gauges(gauges) => {
                 for s in self.sessions.values() {
                     s.send(StackCmd::Gauges(gauges.clone()));
@@ -917,6 +875,39 @@ impl<M: Media> Manager<M> {
             }
             CpCmd::Close { id } => self.close(id),
         }
+    }
+}
+
+#[derive(Default)]
+struct Notices {
+    history: Vec<crate::vehicle_state::HistoryEntry>,
+    open: Option<u64>,
+}
+
+impl Notices {
+    fn add(&mut self, notice: crate::vehicle_state::Notice, at: std::time::SystemTime) {
+        let since = at.duration_since(std::time::UNIX_EPOCH).unwrap_or_default();
+        let id = (since.as_millis() as u64).max(self.history.first().map_or(0, |e| e.id + 1));
+        let entry = crate::vehicle_state::HistoryEntry {
+            id,
+            notice,
+            at_secs: since.as_secs(),
+            hidden: false,
+        };
+        self.history.insert(0, entry);
+        self.history.truncate(HISTORY_KEPT);
+        self.open = Some(id);
+    }
+
+    fn hide(&mut self, id: u64) -> bool {
+        if let Some(entry) = self.history.iter_mut().find(|e| e.id == id) {
+            entry.hidden = true;
+        }
+        let was_open = self.open == Some(id);
+        if was_open {
+            self.open = None;
+        }
+        was_open
     }
 }
 
@@ -1023,6 +1014,7 @@ mod tests {
                 vehicle_variant: String::new(),
                 engines: Default::default(),
                 cluster_content: None,
+                images: Vec::new(),
             });
             std::mem::forget(tx);
             let ctx = Arc::new(StackCtx {
@@ -1093,6 +1085,28 @@ mod tests {
             name: if ip.is_empty() { "iPhone".into() } else { String::new() },
             model: String::new(),
         }
+    }
+
+    #[test]
+    fn clearing_the_open_notice_in_the_history_closes_it() {
+        use crate::vehicle_state::Notice;
+        let mut notices = Notices::default();
+        let at = std::time::UNIX_EPOCH + Duration::from_secs(1_760_000_000);
+        let frost = Notice { title: "Frost".into(), ..Notice::default() };
+        notices.add(frost.clone(), at);
+        notices.add(Notice { title: "Range".into(), ..frost }, at);
+        let (newest, older) = (notices.history[0].id, notices.history[1].id);
+        assert_ne!(newest, older, "two notices in the same millisecond stay apart");
+        assert_eq!(notices.history[0].at_secs, 1_760_000_000);
+        assert!(!notices.hide(older), "an older entry is not on screen");
+        assert!(notices.history[1].hidden);
+        assert!(notices.hide(newest), "the open one closes");
+        assert!(notices.open.is_none());
+        assert!(!notices.hide(newest), "closed already");
+        for n in 0..HISTORY_KEPT {
+            notices.add(Notice { title: n.to_string(), ..Notice::default() }, at);
+        }
+        assert_eq!(notices.history.len(), HISTORY_KEPT);
     }
 
     #[tokio::test]
@@ -1179,6 +1193,7 @@ mod tests {
 
         rig.handle.stack(id, StackCmd::Keyframe);
         rig.handle.send(CpCmd::NightMode(true));
+        rig.handle.send(CpCmd::ClusterNightMode(true));
         rig.handle.send(CpCmd::InitialNightMode(Some(false)));
         rig.handle.send(CpCmd::LimitedUi(true));
         rig.handle.send(CpCmd::VideoAllowed(false));
@@ -1250,8 +1265,6 @@ mod tests {
             rig.until(|e| matches!(e, CpEvent::Connected { .. })).await,
             CpEvent::Connected { id: wired_id, wired: true, controller_id: None }
         );
-        // A wifi leave and a lost link do not end the session on the cable. The
-        // cable leaving does, once the phone identified on it.
         rig.helper
             .push(serde_json::json!({ "type": "wifi", "mac": "11:22", "event": "left" }))
             .await;
@@ -1276,7 +1289,6 @@ mod tests {
             rig.until(|e| matches!(e, CpEvent::Disconnected { .. })).await,
             CpEvent::Disconnected { id: a }
         );
-        // The phone that left is gone, its last metadata makes no session.
         rig.helper.push(serde_json::json!({ "type": "nowplaying", "phoneId": "A1:A1" })).await;
         rig.helper
             .push(serde_json::json!({ "type": "wifi", "mac": "aa:02", "event": "joined" }))
@@ -1293,7 +1305,6 @@ mod tests {
                 connected: true
             })
         );
-        // Untagged metadata with two sessions belongs to nobody.
         rig.helper.push(serde_json::json!({ "type": "device", "usbUdid": "u9" })).await;
         rig.helper.push(serde_json::json!({ "type": "link", "up": false })).await;
         assert_eq!(

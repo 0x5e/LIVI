@@ -11,7 +11,6 @@ use tokio::net::UnixStream;
 const SHARED_SOCK: &str = "/tmp/livi-shared.sock";
 const IAP_PROFILE_UUID: &str = "00000000-deca-fade-deca-deafdecacafe";
 pub const HFP_AG_UUID: &str = "0000111f-0000-1000-8000-00805f9b34fb";
-/// Class of device major 0x04: headphones, speakers, car kits.
 const BT_MAJOR_AUDIO: u32 = 0x04;
 
 #[derive(Debug, Clone, Default, PartialEq)]
@@ -137,7 +136,6 @@ pub fn norm_mac(v: &str) -> String {
     (0..6).map(|i| &hex[i * 2..i * 2 + 2]).collect::<Vec<_>>().join(":")
 }
 
-/// Android Auto names every phone "Android".
 fn real_name(v: Option<&str>) -> Option<String> {
     let name = v?.trim();
     (!name.is_empty() && !name.eq_ignore_ascii_case("android")).then(|| name.to_string())
@@ -167,7 +165,6 @@ pub struct Seen {
 pub struct Registry {
     path: PathBuf,
     entries: Vec<Entry>,
-    /// A file that would not read is never overwritten.
     load_ok: bool,
 }
 
@@ -244,7 +241,6 @@ impl Registry {
 
     fn merge(&mut self, mut list: Vec<usize>) -> usize {
         let mut first = list.remove(0);
-        // From the back, so the indices still to come stay valid.
         list.sort_unstable_by(|a, b| b.cmp(a));
         for i in list {
             let o = self.entries.remove(i);
@@ -400,7 +396,6 @@ impl Registry {
     }
 }
 
-/// A phone's place among the sessions and whether it is the active one.
 pub type SessionOf<'a> = &'a dyn Fn(&Ids) -> Option<(u32, bool)>;
 
 pub fn views(reg: &Registry, session_of: SessionOf) -> Vec<DeviceView> {
@@ -455,13 +450,38 @@ fn wake_uuid(protocol: Option<Protocol>) -> Option<String> {
     }
 }
 
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub struct Paging {
+    pub auto_connect: bool,
+    pub carplay: bool,
+    pub android_auto: bool,
+}
+
+impl Paging {
+    pub fn of(cfg: &livi_core_proto::config::Config) -> Self {
+        Self {
+            auto_connect: cfg.auto_conn,
+            carplay: cfg.wireless_cp_enabled,
+            android_auto: cfg.wireless_aa_enabled,
+        }
+    }
+
+    fn pages(self, protocol: Option<Protocol>) -> bool {
+        match protocol {
+            Some(Protocol::Carplay) => self.carplay,
+            Some(Protocol::Androidauto) => self.android_auto,
+            None => self.carplay || self.android_auto,
+        }
+    }
+}
+
 pub fn reconnect_targets(
     reg: &Registry,
-    auto_connect: bool,
+    paging: Paging,
     in_session: &dyn Fn(&Ids) -> bool,
     on_cable: &dyn Fn(&str) -> bool,
 ) -> Vec<(String, Option<String>)> {
-    if !auto_connect {
+    if !paging.auto_connect {
         return Vec::new();
     }
     let mut known: Vec<&Entry> = reg.entries().iter().collect();
@@ -471,6 +491,7 @@ pub fn reconnect_targets(
     known
         .into_iter()
         .filter(|e| e.stored.protocol.is_some() || e.stored.name.is_some())
+        .filter(|e| paging.pages(e.protocol()))
         .filter_map(|e| {
             let mac = e.bt_mac()?;
             (!in_session(&e.ids()) && !on_cable(mac))
@@ -510,7 +531,6 @@ impl Devices {
         });
     }
 
-    /// The dongle pages on its own, so it needs the empty list before the helper goes.
     pub fn stop_paging(&mut self) -> impl Future<Output = ()> + use<> {
         self.leaving = true;
         self.sent = Some(Vec::new());
@@ -585,7 +605,6 @@ pub async fn connected_phones() -> Vec<String> {
         .collect()
 }
 
-/// Phones hang on to a head unit that is gone unless they are sent away.
 pub async fn leave_phones() {
     let _ = shared("deauth-ap".into(), Duration::from_secs(2)).await;
     for mac in connected_phones().await {
@@ -744,13 +763,41 @@ mod tests {
         reg.note_device(&aa);
         let in_session = |ids: &Ids| ids.bt_mac.as_deref() == Some("aa:00:00:00:00:02");
         let on_cable = |mac: &str| mac == "aa:00:00:00:00:03";
-        let targets = reconnect_targets(&reg, true, &in_session, &on_cable);
+        let targets = reconnect_targets(&reg, ALL_ON, &in_session, &on_cable);
         let macs: Vec<_> = targets.iter().map(|(m, _)| m.as_str()).collect();
         assert!(macs.contains(&"AA:00:00:00:00:01") && macs.contains(&"AA:00:00:00:00:04"));
         assert_eq!(macs.len(), 2);
         assert!(targets.contains(&("AA:00:00:00:00:04".into(), Some(HFP_AG_UUID.into()))));
         assert!(targets.contains(&("AA:00:00:00:00:01".into(), Some(IAP_PROFILE_UUID.into()))));
-        assert!(reconnect_targets(&reg, false, &in_session, &on_cable).is_empty());
+        assert!(
+            reconnect_targets(
+                &reg,
+                Paging { auto_connect: false, ..ALL_ON },
+                &in_session,
+                &on_cable
+            )
+            .is_empty()
+        );
+    }
+
+    const ALL_ON: Paging = Paging { auto_connect: true, carplay: true, android_auto: true };
+
+    #[test]
+    fn a_phone_is_paged_only_for_a_wireless_protocol_that_is_on() {
+        let dir = TempDir::new();
+        let mut reg = Registry::load(&dir.0.join("devices.json"));
+        reg.note_device(&seen("aa:00:00:00:00:01", "", "iPhone", false));
+        let mut aa = seen("aa:00:00:00:00:02", "", "Pixel", false);
+        aa.protocol = Some(Protocol::Androidauto);
+        reg.note_device(&aa);
+        let none = |_: &Ids| false;
+        let off = |_: &str| false;
+        let macs = |paging| -> Vec<String> {
+            reconnect_targets(&reg, paging, &none, &off).into_iter().map(|(m, _)| m).collect()
+        };
+        assert!(macs(Paging { carplay: false, android_auto: false, ..ALL_ON }).is_empty());
+        assert_eq!(macs(Paging { android_auto: false, ..ALL_ON }), ["AA:00:00:00:00:01"]);
+        assert_eq!(macs(Paging { carplay: false, ..ALL_ON }), ["AA:00:00:00:00:02"]);
     }
 
     #[test]

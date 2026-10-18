@@ -71,7 +71,6 @@ impl DeviceConfig {
     }
 }
 
-/// The channel number alone is ambiguous once 6 GHz is picked.
 fn configured_channel(dc: &DeviceConfig) -> Channel {
     let band = Band::of_setting(&dc.string("wifiType", "LIVI_WIFI_TYPE", "5ghz"));
     Channel::of_setting(band.unwrap_or(Band::Ghz5), dc.int("wifiChannel", "LIVI_CHANNEL", 36u32))
@@ -85,7 +84,6 @@ fn ap_iface(dc: &DeviceConfig) -> String {
     livi_link_host::link::host_iface().unwrap_or(iface)
 }
 
-/// Only the chosen controller may be made discoverable, so the helper waits for the dongle's.
 async fn bt_adapter(dc: &DeviceConfig) -> String {
     let adapter = dc.string("btAdapter", "LIVI_BT_ADAPTER", "hci0");
     if adapter != livi_link_host::link::CHOICE {
@@ -364,14 +362,21 @@ async fn serve() -> Result<(), Box<dyn std::error::Error>> {
         });
     }
 
+    let wireless = bt::Wireless {
+        carplay: std::env::var("LIVI_CP_WIRELESS").is_ok_and(|v| v == "1"),
+        android_auto: std::env::var("LIVI_AA_WIRELESS").unwrap_or_else(|_| "1".into()) != "0",
+    };
     let bluetooth = async || -> Result<(), Box<dyn std::error::Error>> {
         let adapter = bt_adapter(&dc).await;
-        livi_runtime::bluetoothd::setup();
-        println!("[helperd] starting BlueZ profile on {adapter}");
-        let (conn, mut incoming, held) = bt::start(&adapter, &identity.name, true).await?;
-        // Off unless asked for, since the tunnelled adapter wants the same controller.
+        livi_runtime::bluetoothd::setup(wireless);
+        println!(
+            "[helperd] starting BlueZ profile on {adapter} (wireless CarPlay {}, wireless Android Auto {})",
+            if wireless.carplay { "on" } else { "off" },
+            if wireless.android_auto { "on" } else { "off" }
+        );
+        let (conn, mut incoming, held) = bt::start(&adapter, &identity.name, wireless).await?;
         let mut dongle_iap = std::env::var("LIVI_BT_VIA_DONGLE")
-            .is_ok_and(|v| v == "1")
+            .is_ok_and(|v| v == "1" && wireless.carplay)
             .then(|| livi_link_host::accessory::sessions(|| true));
         let bt_mac = bt::adapter_address(&conn, &adapter).await?;
         println!("[helperd] adapter {} up (RFCOMM ch {})", format_mac(&bt_mac), bt::IAP_CHANNEL);
@@ -385,8 +390,6 @@ async fn serve() -> Result<(), Box<dyn std::error::Error>> {
             state.clone(),
         ));
 
-        // Android Auto takes its calls over hands-free on the cable too, the switch below only
-        // adds the Wi-Fi bootstrap.
         let hfp = livi_runtime::hfp::Hfp::default();
         hfp.set_events(aa_events.clone());
         if let Err(e) = bt::start_hfp(&conn, &adapter, hfp).await {
@@ -394,7 +397,7 @@ async fn serve() -> Result<(), Box<dyn std::error::Error>> {
         }
         livi_runtime::sco::serve(aa_events.clone(), sco_sink.clone());
 
-        if std::env::var("LIVI_AA_WIRELESS").unwrap_or_else(|_| "1".into()) != "0" {
+        if wireless.android_auto {
             let aa_port = env_or("LIVI_PORT", livi_aa::consts::TCP_PORT);
             let events = aa_events.clone();
             tokio::spawn(livi_aa::server::run(aa_port, move |socket, peer| {
@@ -521,7 +524,7 @@ async fn serve() -> Result<(), Box<dyn std::error::Error>> {
                     tokio::spawn(pump_events_for(rx, bcast.clone(), "bt", None, ident.clone()));
                     tokio::spawn(pump_artwork(art_rx, bcast.clone(), ident));
                 }
-                conn = incoming.recv() => {
+                conn = incoming.recv(), if wireless.carplay => {
                     let Some(conn) = conn else { return Ok(()) };
                     if state.carkit_claims(&conn.peer_mac) {
                         println!("[helperd] {} is on the cable, its Bluetooth link goes", conn.peer_mac);
@@ -560,7 +563,6 @@ async fn serve() -> Result<(), Box<dyn std::error::Error>> {
     Ok(())
 }
 
-/// The dongle's access-point MAC can change, so it is read for every session.
 fn session_cp(cp: &CpConfig, dongle_ap: bool) -> CpConfig {
     if !dongle_ap {
         return cp.clone();

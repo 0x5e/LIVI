@@ -6,6 +6,8 @@ use tokio::sync::mpsc;
 use zbus::Connection;
 use zbus::zvariant::{ObjectPath, OwnedObjectPath, OwnedValue, Value};
 
+pub use crate::bluetoothd::Wireless;
+
 pub const AA_UUID: &str = "4de17a00-52cb-11e6-bdf4-0800200c9a66";
 pub const AA_CHANNEL: u16 = 8;
 const AA_PATH: &str = "/livi/aa/profile";
@@ -127,7 +129,6 @@ impl Agent {
     fn cancel(&self) {}
 }
 
-/// A controller's settings as LIVI found them.
 #[derive(Clone, Debug, PartialEq)]
 struct Found {
     alias: String,
@@ -136,12 +137,9 @@ struct Found {
     discoverable_timeout: u32,
 }
 
-/// Every controller LIVI changed, with what goes back when it lets go.
 #[derive(Default)]
 pub struct Held(Vec<(String, Found)>);
 
-/// LIVI's name on a controller it has not touched yet is left over from a run that never let go,
-/// so that one goes back to the system's name, out of sight.
 fn to_put_back(found: Found, alias: &str) -> Found {
     if found.alias == alias {
         Found { alias: String::new(), discoverable: false, ..found }
@@ -184,7 +182,6 @@ async fn controllers(conn: &Connection) -> Result<Vec<(String, Found)>, Box<dyn 
     Ok(out)
 }
 
-/// Phones pair on LIVI's controller only, every other one stays out of their sight meanwhile.
 async fn hold(conn: &Connection, adapter: &str, alias: &str) -> Held {
     let found = match controllers(conn).await {
         Ok(found) => found,
@@ -214,9 +211,7 @@ async fn hold(conn: &Connection, adapter: &str, alias: &str) -> Held {
     Held(held)
 }
 
-/// Puts every controller back the way LIVI found it. Powered stays as it is.
 pub async fn let_go(conn: &Connection, adapter: &str, held: &Held) {
-    // While our advertisement runs the controller answers Busy to every discoverable change.
     stop_ble_ad(conn, adapter).await;
     for (name, back) in &held.0 {
         let path = format!("/org/bluez/{name}");
@@ -234,7 +229,6 @@ pub async fn let_go(conn: &Connection, adapter: &str, held: &Held) {
     }
 }
 
-/// BlueZ offers a profile on every controller, but only the chosen one is LIVI's.
 fn refuse_other_adapter(device: &str, adapter: &str) -> zbus::fdo::Result<()> {
     if device.starts_with(&format!("/org/bluez/{adapter}/")) {
         return Ok(());
@@ -276,43 +270,15 @@ async fn register_profile(
 pub async fn start(
     adapter: &str,
     alias: &str,
-    discoverable: bool,
+    wireless: Wireless,
 ) -> Result<(Connection, mpsc::UnboundedReceiver<IncomingConn>, Held), Box<dyn Error>> {
     let conn = Connection::system().await?;
     let (tx, rx) = mpsc::unbounded_channel();
 
     let ours = || adapter.to_string();
-    conn.object_server().at(IAP_SERVER_PATH, Profile { tx: tx.clone(), adapter: ours() }).await?;
-    conn.object_server().at(IAP_CLIENT_PATH, Profile { tx: tx.clone(), adapter: ours() }).await?;
-    conn.object_server().at(CARPLAY_PATH, Profile { tx, adapter: ours() }).await?;
     conn.object_server().at(AGENT_PATH, Agent { adapter: ours() }).await?;
-
-    let mut iap_opts: HashMap<&str, Value> = HashMap::new();
-    iap_opts.insert("Role", Value::from("server"));
-    iap_opts.insert("Channel", Value::from(IAP_CHANNEL));
-    iap_opts.insert("ServiceRecord", Value::from(IAP_RECORD));
-    iap_opts.insert("RequireAuthentication", Value::from(false));
-    iap_opts.insert("RequireAuthorization", Value::from(false));
-    register_profile(&conn, IAP_SERVER_PATH, IAP_SERVER_UUID, iap_opts).await?;
-
-    // The client profile with AutoConnect lets BlueZ page a known phone back after a restart.
-    // Without authentication on our own pages a phone that lost its key pairs without bonding,
-    // and BlueZ forgets it again on the next disconnect.
-    let mut client_opts: HashMap<&str, Value> = HashMap::new();
-    client_opts.insert("Role", Value::from("client"));
-    client_opts.insert("AutoConnect", Value::from(true));
-    client_opts.insert("RequireAuthentication", Value::from(true));
-    if let Err(e) = register_profile(&conn, IAP_CLIENT_PATH, IAP_CLIENT_UUID, client_opts).await {
-        eprintln!("[cp] could not register iAP client profile: {e}");
-    }
-
-    let mut cp_opts: HashMap<&str, Value> = HashMap::new();
-    cp_opts.insert("Role", Value::from("server"));
-    cp_opts.insert("ServiceRecord", Value::from(CARPLAY_RECORD));
-    cp_opts.insert("RequireAuthentication", Value::from(false));
-    cp_opts.insert("RequireAuthorization", Value::from(false));
-    if let Err(e) = register_profile(&conn, CARPLAY_PATH, CARPLAY_SERVICE_UUID, cp_opts).await {
-        eprintln!("[cp] could not publish CarPlay service UUID: {e}");
+    if wireless.carplay {
+        start_carplay(&conn, adapter, tx).await?;
     }
 
     conn.call_method(
@@ -336,21 +302,59 @@ pub async fn start(
     wait_for_adapter(&conn, &adapter_path).await?;
     let held = hold(&conn, adapter, alias).await;
     set_prop(&conn, &adapter_path, "Alias", Value::from(alias)).await?;
-    set_prop(&conn, &adapter_path, "DiscoverableTimeout", Value::from(0u32)).await?;
-    // A soft-blocked adapter refuses Powered with org.bluez.Error.Blocked.
+    if wireless.any() {
+        set_prop(&conn, &adapter_path, "DiscoverableTimeout", Value::from(0u32)).await?;
+    }
     let _ = std::process::Command::new(crate::sys::tool("rfkill"))
         .args(["unblock", "bluetooth"])
         .stdout(std::process::Stdio::null())
         .stderr(std::process::Stdio::null())
         .status();
     set_prop(&conn, &adapter_path, "Powered", Value::from(true)).await?;
-    set_prop(&conn, &adapter_path, "Discoverable", Value::from(discoverable)).await?;
-    set_prop(&conn, &adapter_path, "Pairable", Value::from(discoverable)).await?;
+    set_prop(&conn, &adapter_path, "Discoverable", Value::from(wireless.any())).await?;
+    set_prop(&conn, &adapter_path, "Pairable", Value::from(true)).await?;
 
     Ok((conn, rx, held))
 }
 
-/// A tunnelled controller shows up in BlueZ late.
+async fn start_carplay(
+    conn: &Connection,
+    adapter: &str,
+    tx: mpsc::UnboundedSender<IncomingConn>,
+) -> Result<(), Box<dyn Error>> {
+    let ours = || adapter.to_string();
+    conn.object_server().at(IAP_SERVER_PATH, Profile { tx: tx.clone(), adapter: ours() }).await?;
+    conn.object_server().at(IAP_CLIENT_PATH, Profile { tx: tx.clone(), adapter: ours() }).await?;
+    conn.object_server().at(CARPLAY_PATH, Profile { tx, adapter: ours() }).await?;
+
+    let mut iap_opts: HashMap<&str, Value> = HashMap::new();
+    iap_opts.insert("Role", Value::from("server"));
+    iap_opts.insert("Channel", Value::from(IAP_CHANNEL));
+    iap_opts.insert("ServiceRecord", Value::from(IAP_RECORD));
+    iap_opts.insert("RequireAuthentication", Value::from(false));
+    iap_opts.insert("RequireAuthorization", Value::from(false));
+    register_profile(conn, IAP_SERVER_PATH, IAP_SERVER_UUID, iap_opts).await?;
+
+    let mut client_opts: HashMap<&str, Value> = HashMap::new();
+    client_opts.insert("Role", Value::from("client"));
+    client_opts.insert("AutoConnect", Value::from(true));
+    client_opts.insert("RequireAuthentication", Value::from(true));
+    if let Err(e) = register_profile(conn, IAP_CLIENT_PATH, IAP_CLIENT_UUID, client_opts).await {
+        eprintln!("[cp] could not register iAP client profile: {e}");
+    }
+
+    let mut cp_opts: HashMap<&str, Value> = HashMap::new();
+    cp_opts.insert("Role", Value::from("server"));
+    cp_opts.insert("ServiceRecord", Value::from(CARPLAY_RECORD));
+    cp_opts.insert("RequireAuthentication", Value::from(false));
+    cp_opts.insert("RequireAuthorization", Value::from(false));
+    if let Err(e) = register_profile(conn, CARPLAY_PATH, CARPLAY_SERVICE_UUID, cp_opts).await {
+        eprintln!("[cp] could not publish CarPlay service UUID: {e}");
+    }
+
+    Ok(())
+}
+
 async fn wait_for_adapter(conn: &Connection, path: &str) -> Result<(), Box<dyn Error>> {
     let deadline = std::time::Instant::now() + ADAPTER_WAIT;
     loop {
@@ -382,7 +386,6 @@ async fn set_prop(
     set_prop_within(conn, path, name, value, ADAPTER_WAIT).await
 }
 
-/// BlueZ answers Busy on an adapter it has only just published.
 async fn set_prop_within(
     conn: &Connection,
     path: &str,
@@ -436,7 +439,6 @@ fn busy(e: &zbus::Error) -> bool {
     }
 }
 
-/// A mode change that meets another one in flight comes back as Failed with Busy in its text.
 fn busy_answer(name: &str, message: Option<&str>) -> bool {
     name == "org.bluez.Error.Busy" || (name == "org.bluez.Error.Failed" && message == Some("Busy"))
 }
@@ -489,7 +491,6 @@ impl HfpProfile {
     fn release(&self) {}
 }
 
-/// The audio daemon usually holds HF already, and a second SLC makes the phone drop one.
 pub async fn start_hfp(
     conn: &Connection,
     adapter: &str,
@@ -499,7 +500,6 @@ pub async fn start_hfp(
     let mut opts: HashMap<&str, Value> = HashMap::new();
     opts.insert("Name", Value::from("HFP Hands-Free"));
     opts.insert("Role", Value::from("client"));
-    // We page the phone on this profile, see the iAP client.
     opts.insert("RequireAuthentication", Value::from(true));
     opts.insert("RequireAuthorization", Value::from(false));
     opts.insert("Features", Value::from(0x009cu16));
@@ -535,7 +535,6 @@ impl BleAd {
     }
 }
 
-/// Lets phones find the head unit without a BR/EDR scan.
 pub async fn start_ble_ad(
     conn: &Connection,
     adapter: &str,
@@ -556,7 +555,6 @@ pub async fn start_ble_ad(
     Ok(())
 }
 
-/// Without wireless Android Auto there is none, so a refusal is no news.
 async fn stop_ble_ad(conn: &Connection, adapter: &str) {
     let Ok(ad) = ObjectPath::try_from(BLE_AD_PATH) else { return };
     let _ = conn
@@ -608,13 +606,11 @@ impl MprisRoot {
     }
 }
 
-/// BlueZ hands AVRCP passthrough keys to this player.
 pub struct MprisPlayer {
     events: crate::livi_sock::Broadcaster,
     status: std::sync::Arc<std::sync::Mutex<String>>,
 }
 
-/// The peer's play/pause toggle picks its verb from PlaybackStatus.
 #[derive(Clone)]
 pub struct MediaPlayerHandle {
     conn: Connection,
@@ -804,7 +800,6 @@ pub async fn adapter_address(conn: &Connection, adapter: &str) -> Result<[u8; 6]
     Ok(mac)
 }
 
-/// CarPlay over the cable keeps the phone's Bluetooth to the accessory disconnected.
 pub fn drop_link(conn: &Connection, adapter: &str, mac: String) {
     let (conn, adapter) = (conn.clone(), adapter.to_string());
     tokio::spawn(async move {

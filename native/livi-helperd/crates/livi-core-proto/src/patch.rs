@@ -1,5 +1,3 @@
-//! After the snapshot, the state travels as patches.
-
 use std::fmt;
 
 use serde::{Deserialize, Serialize};
@@ -20,7 +18,6 @@ pub enum PatchOp {
     },
 }
 
-/// The UI has to resync.
 #[derive(Debug, PartialEq, Eq)]
 pub enum PatchError {
     MissingParent(Vec<String>),
@@ -40,7 +37,6 @@ impl fmt::Display for PatchError {
 
 impl std::error::Error for PatchError {}
 
-/// Only objects are compared key by key, anything else is replaced whole.
 pub fn diff(old: &Value, new: &Value) -> Vec<PatchOp> {
     let mut ops = Vec::new();
     diff_into(old, new, &mut Vec::new(), &mut ops);

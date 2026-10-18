@@ -1,5 +1,3 @@
-//! The state says what to show, never why.
-
 use std::collections::BTreeMap;
 
 use serde::{Deserialize, Serialize};
@@ -18,10 +16,7 @@ pub struct State {
     pub now_playing: NowPlaying,
     pub navigation: Navigation,
     pub system: System,
-    /// Those in a session first.
     pub devices: Vec<DeviceView>,
-    /// What the car and outside producers pushed, merged into one snapshot. A producer may add
-    /// fields LIVI does not know.
     #[ts(type = "TelemetrySnapshot & Record<string, unknown>")]
     pub telemetry: Map<String, Value>,
     pub update: Update,
@@ -30,33 +25,23 @@ pub struct State {
     pub config: Config,
 }
 
-/// The DAB+ receiver, LIVI's own audio source.
 #[derive(Debug, Clone, PartialEq, Default, Serialize, Deserialize, TS)]
 #[serde(rename_all = "camelCase")]
 #[ts(export_to = "contract.ts")]
 pub struct Dab {
-    /// The stick's name while one is plugged in.
     pub receiver: Option<String>,
-    /// The stations in the listener's own order, as state/sdr.json keeps them.
     pub stations: Vec<DabStation>,
-    /// Service id of the station played last.
     pub last_station: Option<u32>,
     pub scan: Option<DabScan>,
-    /// DAB+ is the chosen source of the player, not the phone.
     pub active: bool,
-    /// Service id of the tuned station, it stays while paused.
     pub station: Option<u32>,
-    /// True once its audio plays.
     pub playing: bool,
-    /// The station's scrolling text.
     pub text: Option<String>,
     pub signal: DabSignal,
     pub error: Option<String>,
-    /// The gain steps the tuner offers, for the gain setting.
     pub gains_db: Vec<f64>,
 }
 
-/// One DAB+ programme as a scan found it.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, TS)]
 #[serde(rename_all = "camelCase")]
 #[ts(export_to = "contract.ts")]
@@ -65,16 +50,12 @@ pub struct DabStation {
     pub label: String,
     pub short_label: String,
     pub ensemble: String,
-    /// Band III channel name, 5A to 13F.
     pub channel: String,
     pub frequency_hz: u32,
     #[serde(default)]
     pub favorite: bool,
-    /// Left out of the band, the steps and the phone's Radio app, the station list shows it at the end.
     #[serde(default)]
     pub hidden: bool,
-    /// The station's logo from the ensemble's service information, base64. Never stored in
-    /// state/sdr.json, the files live in dab/logos.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     #[ts(optional)]
     pub logo: Option<String>,
@@ -95,7 +76,6 @@ pub struct DabScan {
 #[ts(export_to = "contract.ts")]
 pub struct DabSignal {
     pub locked: bool,
-    /// Share of the ensemble data that arrived intact, percent.
     pub quality: u32,
 }
 
@@ -103,14 +83,11 @@ pub struct DabSignal {
 #[serde(rename_all = "camelCase")]
 #[ts(export_to = "contract.ts")]
 pub struct Update {
-    /// On the chosen channel, as the last check found it.
     pub latest: Option<Release>,
     pub checking: bool,
-    /// Also true when the feed did not answer.
     pub checked: bool,
     pub phase: UpdatePhase,
     pub received: f64,
-    /// 0 while the server did not say how big the download is.
     pub total: f64,
     pub error: Option<String>,
 }
@@ -121,9 +98,7 @@ pub struct Update {
 pub struct Release {
     pub version: String,
     pub commit: String,
-    /// The build number of a nightly.
     pub run: String,
-    /// None when the release has no build for this machine.
     pub url: Option<String>,
 }
 
@@ -170,14 +145,11 @@ pub struct DeviceView {
     #[serde(default, skip_serializing_if = "Option::is_none")]
     #[ts(optional)]
     pub carrier_name: Option<String>,
-    /// Place among the sessions, counted from 1.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     #[ts(optional)]
     pub session: Option<u32>,
 }
 
-/// Active projects, available is held or on the access point, offline is
-/// only remembered.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default, Serialize, Deserialize, TS)]
 #[serde(rename_all = "lowercase")]
 #[ts(export_to = "contract.ts")]
@@ -192,24 +164,16 @@ pub enum DeviceStatus {
 #[serde(rename_all = "camelCase")]
 #[ts(export_to = "contract.ts")]
 pub struct System {
-    /// The LIVI Link is among them while it answers.
     pub wifi_interfaces: Vec<String>,
     pub bt_adapters: Vec<String>,
-    /// The chip behind an interface, by its name, where the system can tell.
     pub interface_models: BTreeMap<String, String>,
-    /// None while the LIVI Link does not answer.
     pub dongle: Option<DongleRadios>,
-    /// The phone's Wi-Fi link on the access point.
     pub link_speed: Option<LinkSpeed>,
-    /// The bands an access point on the chosen interface can run on.
     pub wifi_bands: Vec<WifiBand>,
-    /// Allowed in the chosen band and country.
     pub wifi_channels: Vec<u32>,
     pub wifi_countries: Vec<String>,
-    /// The panel's modes as "WIDTHxHEIGHT", largest first.
-    pub display_modes: Vec<String>,
-    /// Under GNOME the modes are only shown, LIVI cannot put the panel into one.
-    pub display_mode_settable: bool,
+    pub displays: Vec<Display>,
+    pub displays_settable: bool,
     pub audio_sinks: Vec<AudioDevice>,
     pub audio_sources: Vec<AudioDevice>,
 }
@@ -221,7 +185,6 @@ pub struct AudioDevice {
     pub id: String,
     pub name: String,
     pub is_default: bool,
-    /// A paired Bluetooth device that is not connected right now.
     pub offline: bool,
 }
 
@@ -232,19 +195,16 @@ pub struct DongleRadios {
     pub bt: bool,
 }
 
-/// Down is phone to car, the stream, up is car to phone, touch and mic.
 #[derive(Debug, Clone, Copy, PartialEq, Serialize, Deserialize, TS)]
 #[serde(rename_all = "camelCase")]
 #[ts(export_to = "contract.ts")]
 pub struct LinkSpeed {
     pub down_mbps: f64,
     pub up_mbps: f64,
-    /// The negotiated bitrates, 0 until a phone is on the air.
     pub down_rate: f64,
     pub up_rate: f64,
 }
 
-/// The route guidance of the phone in front, as far as it told.
 #[derive(Debug, Clone, PartialEq, Default, Serialize, Deserialize, TS)]
 #[serde(rename_all = "camelCase")]
 #[ts(export_to = "contract.ts")]
@@ -256,27 +216,21 @@ pub struct Navigation {
     pub destination_name: Option<String>,
     pub time_to_destination: Option<f64>,
     pub distance_to_destination: Option<f64>,
-    /// To the next maneuver.
     pub remain_distance: Option<f64>,
     pub maneuver_type: Option<u32>,
     pub turn_side: Option<u32>,
     pub junction_type: Option<u32>,
     pub turn_angle: Option<i32>,
-    /// Arrival in Unix seconds, the UI shows it on its own clock.
     pub eta: Option<f64>,
-    /// Arrival as the phone wrote it, for a phone that sends no time.
     pub eta_text: Option<String>,
     pub app_name: Option<String>,
-    /// The phone's own picture of the next maneuver, base64.
     pub image: Option<String>,
-    /// In the UI's language.
     pub maneuver_text: Option<String>,
     pub maneuver_distance_text: Option<String>,
     pub destination_distance_text: Option<String>,
     pub time_left_text: Option<String>,
 }
 
-/// What the phone in front plays, as far as it told.
 #[derive(Debug, Clone, PartialEq, Default, Serialize, Deserialize, TS)]
 #[serde(rename_all = "camelCase")]
 #[ts(export_to = "contract.ts")]
@@ -286,10 +240,8 @@ pub struct NowPlaying {
     pub album: Option<String>,
     pub app: Option<String>,
     pub duration_ms: Option<f64>,
-    /// Where the track was when the phone last said, the UI counts on from there.
     pub elapsed_ms: Option<f64>,
     pub playing: Option<bool>,
-    /// Base64 image data.
     pub artwork: Option<String>,
 }
 
@@ -298,7 +250,6 @@ pub struct NowPlaying {
 #[ts(export_to = "contract.ts")]
 pub struct Sessions {
     pub active: Option<Protocol>,
-    /// Counted from 1, 0 without an active session.
     pub position: u32,
     pub total: u32,
 }
@@ -324,11 +275,21 @@ pub enum Screen {
 #[serde(rename_all = "camelCase")]
 #[ts(export_to = "contract.ts")]
 pub enum Front {
-    /// Which page is up to the UI.
     Livi,
     Projection,
     Cluster,
     Camera,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Default, Serialize, Deserialize, TS)]
+#[serde(rename_all = "camelCase")]
+#[ts(export_to = "contract.ts")]
+pub struct Display {
+    pub connector: String,
+    pub panel: String,
+    pub screen: Option<Screen>,
+    pub current: Option<String>,
+    pub modes: Vec<String>,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default, Serialize, Deserialize, TS)]

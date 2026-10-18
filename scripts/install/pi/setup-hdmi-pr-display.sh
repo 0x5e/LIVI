@@ -542,5 +542,4 @@ echo "  sudo reboot"
 echo
 echo "After reboot, verify:"
 echo "  kmsprint | grep -i hdmi     expect the native panel mode (DBLCLK shows as '2x', the 4x is in the wire clock)"
-echo "  wlr-randr                   expect the native panel resolution"
 echo "  sudo cat /sys/kernel/debug/dri/1/state | grep -i tmds   expect ~32.5 MHz for a sub-12.5 MHz panel (4x)"

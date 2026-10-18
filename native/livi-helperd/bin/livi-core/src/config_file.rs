@@ -130,6 +130,18 @@ fn current_names(file: &Value) -> Value {
     ] {
         rename(top, old, new);
     }
+    if let Some(Value::String(main)) = top.remove("displayMode") {
+        let screens = [
+            ("main", main),
+            ("cluster", String::new()),
+            ("aux", String::new()),
+        ]
+        .map(|(s, m)| (s.to_string(), Value::String(m)));
+        top.insert(
+            "displayMode".to_string(),
+            Value::Object(screens.into_iter().collect()),
+        );
+    }
     for per_screen in ["kiosk", "camera", "media", "custom"] {
         if let Some(Value::Object(screens)) = top.get_mut(per_screen) {
             rename(screens, "dash", "cluster");
@@ -346,6 +358,7 @@ pub mod tests {
             "dashScreenHeight": 600,
             "dashScreenBounds": bounds,
             "clusterScreenHeight": 480,
+            "displayMode": "1920x1080",
             "kiosk": { "main": false, "dash": true, "aux": false },
             "media": { "main": true, "dash": true, "aux": false },
             "dashboards": {
@@ -369,6 +382,8 @@ pub mod tests {
             (1024, 480)
         );
         assert_eq!(config.cluster_screen_bounds.map(|b| b.width), Some(1211));
+        assert_eq!(config.display_mode.main, "1920x1080");
+        assert_eq!(config.display_mode.cluster, "");
         assert_eq!(
             config.kiosk,
             PerScreen {

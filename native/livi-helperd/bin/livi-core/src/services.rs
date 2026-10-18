@@ -57,6 +57,30 @@ fn watch_compositor(mut child: Child, quit: Arc<Notify>) -> Watched {
     Watched { stop, task }
 }
 
+async fn follow_displays(
+    mut displays: tokio::sync::watch::Receiver<Option<Vec<livi_core_proto::state::Display>>>,
+    hub: Arc<Hub>,
+) {
+    while displays.changed().await.is_ok() {
+        let Some(list) = displays.borrow_and_update().clone() else {
+            continue;
+        };
+        let main = list
+            .iter()
+            .find(|d| d.screen == Some(livi_core_proto::state::Screen::Main))
+            .and_then(|d| Some((d.connector.clone(), d.current.clone()?)));
+        hub.update(|s| {
+            s.system.displays_settable = true;
+            s.system.displays = list;
+        });
+        let cfg = hub.config();
+        let kiosk = cfg.kiosk.main || std::env::var("LIVI_KIOSK").is_ok_and(|v| v == "1");
+        if kiosk && let Some((connector, current)) = main {
+            crate::host_output::pin(&connector, &current).await;
+        }
+    }
+}
+
 fn crash_log() -> PathBuf {
     let dir = std::env::var_os("APPIMAGE")
         .and_then(|a| Path::new(&a).parent().map(Path::to_path_buf))
@@ -139,6 +163,7 @@ impl Services {
             None
         };
         let ctrl = CompositorControl::connect(ctrl_path);
+        tokio::spawn(follow_displays(ctrl.displays(), hub.clone()));
         let gst = GstHost::new(runtime.join("gst.sock"));
         gst.set_launch(host_launch(&res, user_data, None));
         let plane = MainPlane::new(gst.clone(), ctrl.clone());

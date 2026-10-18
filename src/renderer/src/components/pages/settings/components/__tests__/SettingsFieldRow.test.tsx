@@ -116,13 +116,13 @@ describe('SettingsFieldRow', () => {
       path: 'displayMode',
       label: 'Display Mode',
       options: [],
-      disabled: (system: System | null) => !system?.displayModeSettable
+      disabled: (system: System | null) => !system?.displaysSettable
     } as any
     const row = () => (
       <SettingsFieldRow node={node} value="" state={{}} onChange={vi.fn()} onClick={onClick} />
     )
 
-    useLiviStore.setState({ system: { displayModeSettable: true } as System })
+    useLiviStore.setState({ system: { displaysSettable: true } as System })
     const { unmount } = render(row())
     fireEvent.click(screen.getByTestId('stack-item'))
     expect(onClick).toHaveBeenCalledTimes(1)

@@ -166,6 +166,8 @@
     "mainScreen": "Affichage Principal",
     "displayMode": "Mode d'affichage",
     "displayModeDefault": "Réglage du panneau",
+    "displayConnector": "Connecteur",
+    "displayConnectorAuto": "Automatique",
     "mainScreenWidth": "Largeur",
     "mainScreenHeight": "Hauteur",
     "clusterWidth": "Largeur",

@@ -43,6 +43,8 @@ linux:
       to: livi-wifi-ap.service.template
     - from: assets/linux/99-LIVI-wifi-ap.sudoers.template
       to: 99-LIVI-wifi-ap.sudoers.template
+    - from: assets/linux/livi-kiosk.service.template
+      to: livi-kiosk.service.template
     - from: assets/linux/livi-touch-filter
       to: livi-touch-filter
     - from: assets/displays

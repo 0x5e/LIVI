@@ -73,7 +73,6 @@ pub struct HostState {
     pub xdg_shell: Option<XdgShell>,
     pub egl_display: Option<EGLDisplay>,
     pub egl_context: Option<EGLContext>,
-    pub renderer: Option<GlesRenderer>,
     pub windows: Vec<(usize, HostWindow)>,
     pub pointer_pos: (f64, f64),
     pub pointer_screen: Option<usize>,
@@ -90,7 +89,6 @@ pub struct HostState {
     pub host_seat: Option<CWlSeat>,
     pub touch_positions: Vec<(i32, f64, f64)>,
     pub alt_held: bool,
-    pub cal_program: Option<smithay::backend::renderer::gles::GlesTexProgram>,
     pub deco: std::collections::HashMap<usize, crate::deco::DecoSet>,
 }
 
@@ -106,7 +104,6 @@ impl HostState {
             xdg_shell: None,
             egl_display: None,
             egl_context: None,
-            renderer: None,
             windows: Vec::new(),
             pointer_pos: (0.0, 0.0),
             pointer_screen: None,
@@ -123,7 +120,6 @@ impl HostState {
             host_seat: None,
             touch_positions: Vec::new(),
             alt_held: false,
-            cal_program: None,
             deco: std::collections::HashMap::new(),
         }
     }
@@ -190,6 +186,35 @@ impl EGLNativeDisplay for HostNativeDisplay {
     }
 }
 
+pub fn serve_dmabuf(state: &mut LiviState, egl_display: &EGLDisplay, renderer: &GlesRenderer) {
+    state.render_node = render_node(egl_display);
+
+    let formats = renderer.dmabuf_formats();
+    let feedback = state.render_node.as_deref().and_then(|node| {
+        let dev = std::os::unix::fs::MetadataExt::rdev(&std::fs::metadata(node).ok()?);
+        DmabufFeedbackBuilder::new(dev, formats.clone())
+            .build()
+            .ok()
+    });
+    let _global = match &feedback {
+        Some(feedback) => state
+            .dmabuf_state
+            .create_global_with_default_feedback::<LiviState>(&state.display_handle, feedback),
+        None => state
+            .dmabuf_state
+            .create_global::<LiviState>(&state.display_handle, formats),
+    };
+
+    match state.render_node.as_deref().and_then(syncobj_device) {
+        Some(fd) => {
+            log::info!("explicit sync over {:?}", state.render_node);
+            state.syncobj_state =
+                Some(DrmSyncobjState::new::<LiviState>(&state.display_handle, fd));
+        }
+        None => log::info!("no explicit sync, inner clients rely on implicit dmabuf fences"),
+    }
+}
+
 fn render_node(display: &EGLDisplay) -> Option<std::path::PathBuf> {
     let device = EGLDevice::device_for_display(display).ok()?;
     device
@@ -252,32 +277,7 @@ pub fn init(state: &mut LiviState, handle: &LoopHandle<'static, LiviState>) {
     }
     .expect("GlesRenderer");
 
-    state.render_node = render_node(&egl_display);
-
-    let formats = renderer.dmabuf_formats();
-    let feedback = state.render_node.as_deref().and_then(|node| {
-        let dev = std::os::unix::fs::MetadataExt::rdev(&std::fs::metadata(node).ok()?);
-        DmabufFeedbackBuilder::new(dev, formats.clone())
-            .build()
-            .ok()
-    });
-    let _global = match &feedback {
-        Some(feedback) => state
-            .dmabuf_state
-            .create_global_with_default_feedback::<LiviState>(&state.display_handle, feedback),
-        None => state
-            .dmabuf_state
-            .create_global::<LiviState>(&state.display_handle, formats),
-    };
-
-    match state.render_node.as_deref().and_then(syncobj_device) {
-        Some(fd) => {
-            log::info!("explicit sync over {:?}", state.render_node);
-            state.syncobj_state =
-                Some(DrmSyncobjState::new::<LiviState>(&state.display_handle, fd));
-        }
-        None => log::info!("no explicit sync, inner clients rely on implicit dmabuf fences"),
-    }
+    serve_dmabuf(state, &egl_display, &renderer);
 
     WaylandSource::new(conn.clone(), event_queue)
         .insert(handle.clone())
@@ -293,7 +293,7 @@ pub fn init(state: &mut LiviState, handle: &LoopHandle<'static, LiviState>) {
     state.host.shm = Some(shm);
     state.host.egl_display = Some(egl_display);
     state.host.egl_context = Some(egl_context);
-    state.host.renderer = Some(renderer);
+    state.renderer = Some(renderer);
 
     open_screen(state, 0);
 }
@@ -316,6 +316,10 @@ fn default_size(state: &LiviState, screen_idx: usize) -> (i32, i32) {
 }
 
 pub fn open_screen(state: &mut LiviState, screen_idx: usize) {
+    if state.drm.is_some() {
+        crate::drm::open_screen(state, screen_idx);
+        return;
+    }
     if state.host.window_for_screen(screen_idx).is_some() {
         return;
     }
@@ -378,6 +382,10 @@ pub fn open_screen(state: &mut LiviState, screen_idx: usize) {
 }
 
 pub fn close_screen(state: &mut LiviState, screen_idx: usize) {
+    if state.drm.is_some() {
+        crate::drm::close_screen(state, screen_idx);
+        return;
+    }
     let Some(pos) = state
         .host
         .windows
@@ -402,7 +410,7 @@ pub fn close_screen(state: &mut LiviState, screen_idx: usize) {
     }
 }
 
-fn ensure_server_output(state: &mut LiviState, screen_idx: usize) {
+pub fn ensure_server_output(state: &mut LiviState, screen_idx: usize) {
     let s = &mut state.screens[screen_idx];
     if s.output.is_some() {
         return;
@@ -498,12 +506,16 @@ pub const EDGE_BOTTOM: u32 = 4;
 use smithay_client_toolkit::reexports::protocols::xdg::shell::client::xdg_toplevel::ResizeEdge as XdgResizeEdge;
 
 pub fn damage_all(state: &mut LiviState) {
+    crate::drm::damage(state);
     for (_, w) in state.host.windows.iter_mut() {
         w.needs_redraw = true;
     }
 }
 
 pub fn panel_mm(state: &LiviState, screen_idx: usize) -> Option<(i32, i32)> {
+    if state.drm.is_some() {
+        return crate::drm::panel_mm(state, screen_idx);
+    }
     let outputs = state.host.sctk_outputs.as_ref()?;
     let output = state
         .host
@@ -629,7 +641,7 @@ pub fn import_dmabuf(
     state: &mut LiviState,
     dmabuf: &smithay::backend::allocator::dmabuf::Dmabuf,
 ) -> bool {
-    if let Some(r) = state.host.renderer.as_mut() {
+    if let Some(r) = state.renderer.as_mut() {
         r.import_dmabuf(dmabuf, None).is_ok()
     } else {
         false
@@ -637,6 +649,7 @@ pub fn import_dmabuf(
 }
 
 pub fn pump(state: &mut LiviState) {
+    crate::drm::pump(state);
     let idxs: Vec<usize> = state
         .host
         .windows
@@ -1179,7 +1192,7 @@ pub fn cursor_requested(host: &mut HostState, want: Option<CursorIcon>) {
     }
 }
 
-fn shown_cursor(host: &HostState) -> Option<CursorIcon> {
+pub fn shown_cursor(host: &HostState) -> Option<CursorIcon> {
     if host.pointer_on_deco {
         Some(CursorIcon::Default)
     } else {

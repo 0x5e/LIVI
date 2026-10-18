@@ -125,7 +125,10 @@ pub struct LiviState {
     pub video_cfgs: Vec<VideoCfg>,
 
     pub cal: CalState,
+    pub renderer: Option<smithay::backend::renderer::gles::GlesRenderer>,
+    pub cal_program: Option<smithay::backend::renderer::gles::GlesTexProgram>,
     pub host: HostState,
+    pub drm: Option<crate::drm::DrmState>,
 
     pub ctrl_client: Option<std::os::unix::net::UnixStream>,
     pub ctrl_buf: String,
@@ -251,7 +254,10 @@ impl LiviState {
                 contrast: 1.0,
                 gain: [1.0, 1.0, 1.0],
             },
+            renderer: None,
+            cal_program: None,
             host: HostState::new(),
+            drm: None,
             ctrl_client: None,
             ctrl_buf: String::new(),
             ctrl_out: Vec::new(),

@@ -8,10 +8,10 @@ set -euo pipefail
 # OS Lite and on x86 Debian alike. Everything it shares with the desktop
 # installer lives in scripts/install/common.sh.
 #
-#   - Installs Cage (Wayland kiosk compositor), seatd, PipeWire
+#   - Installs seatd and PipeWire, LIVI drives the display itself
 #   - Writes the udev rule and the sudoers drop-in from the templates inside the
 #     AppImage, so first launch needs no pkexec dialog
-#   - Configures tty1 autologin through a systemd getty drop-in and starts Cage
+#   - Configures tty1 autologin through a systemd getty drop-in and starts LIVI on tty1
 #     from the livi-kiosk service
 #
 # Re-runnable. Refuses to run as root (sudo is used internally).
@@ -80,6 +80,10 @@ UDEV_TEMPLATE="$(livi_fetch_template "$APPIMAGE_PATH" "$LIVI_UDEV_TEMPLATE")" ||
 }
 SUDOERS_TEMPLATE="$(livi_fetch_template "$APPIMAGE_PATH" "$LIVI_SUDOERS_TEMPLATE")" || {
   echo "Error: cannot obtain $LIVI_SUDOERS_TEMPLATE" >&2
+  exit 1
+}
+KIOSK_TEMPLATE="$(livi_fetch_template "$APPIMAGE_PATH" "$LIVI_KIOSK_TEMPLATE")" || {
+  echo "Error: cannot obtain $LIVI_KIOSK_TEMPLATE" >&2
   exit 1
 }
 TOUCH_FILTER="$(livi_fetch_template "$APPIMAGE_PATH" "$LIVI_TOUCH_FILTER_TEMPLATE")" || {
@@ -155,34 +159,12 @@ auth      required  pam_permit.so
 EOF
 
 echo "→ Writing $KIOSK_UNIT"
-CAGE_BIN="$(command -v cage || echo /usr/bin/cage)"
 SYSTEMCTL_BIN="$(command -v systemctl || echo /usr/bin/systemctl)"
-sudo tee "$KIOSK_UNIT" >/dev/null <<EOF
-[Unit]
-Description=LIVI kiosk
-After=systemd-user-sessions.service seatd.service getty@tty1.service
-Conflicts=getty@tty1.service
-
-[Service]
-Type=simple
-User=$USER
-PAMName=livi-kiosk
-WorkingDirectory=$USER_HOME
-TTYPath=/dev/tty1
-TTYReset=yes
-TTYVHangup=yes
-StandardInput=tty-fail
-StandardOutput=journal
-StandardError=inherit
-Environment=ELECTRON_OZONE_PLATFORM_HINT=wayland
-Environment=LIVI_KIOSK=1
-ExecStart=$CAGE_BIN -s -- $APPIMAGE_PATH
-ExecStopPost=+$SYSTEMCTL_BIN --no-block start getty@tty1.service
-Restart=no
-
-[Install]
-WantedBy=multi-user.target
-EOF
+sed -e "s|__USERNAME__|$USER|g" \
+    -e "s|__HOME__|$USER_HOME|g" \
+    -e "s|__APPIMAGE__|$APPIMAGE_PATH|g" \
+    -e "s|__SYSTEMCTL__|$SYSTEMCTL_BIN|g" \
+    "$KIOSK_TEMPLATE" | sudo tee "$KIOSK_UNIT" >/dev/null
 
 sudo systemctl daemon-reload
 sudo systemctl enable livi-kiosk.service

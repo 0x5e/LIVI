@@ -50,10 +50,10 @@ void main() {
 "#;
 
 pub fn cal_program(state: &mut LiviState) -> Option<GlesTexProgram> {
-    if let Some(p) = state.host.cal_program.clone() {
+    if let Some(p) = state.cal_program.clone() {
         return Some(p);
     }
-    let renderer = state.host.renderer.as_mut()?;
+    let renderer = state.renderer.as_mut()?;
     match renderer.compile_custom_texture_shader(
         CAL_FRAG,
         &[
@@ -63,7 +63,7 @@ pub fn cal_program(state: &mut LiviState) -> Option<GlesTexProgram> {
         ],
     ) {
         Ok(p) => {
-            state.host.cal_program = Some(p.clone());
+            state.cal_program = Some(p.clone());
             Some(p)
         }
         Err(e) => {
@@ -138,7 +138,7 @@ fn collect_elements(state: &mut LiviState, screen_idx: usize) -> Vec<LiviElement
     let (sx, sw, sh) = (s.x, s.width, s.height);
     let fullscreen = s.fullscreen;
     let role = s.role.clone();
-    let renderer = state.host.renderer.as_mut().unwrap();
+    let renderer = state.renderer.as_mut().unwrap();
     let mut elements: Vec<LiviElement> = Vec::new();
     let scale = smithay::utils::Scale::from(1.0);
 
@@ -175,7 +175,7 @@ fn collect_elements(state: &mut LiviState, screen_idx: usize) -> Vec<LiviElement
             let set = crate::deco::build(&role, sw);
             state.host.deco.insert(screen_idx, set);
         }
-        let renderer = state.host.renderer.as_mut().unwrap();
+        let renderer = state.renderer.as_mut().unwrap();
         if let Some(set) = state.host.deco.get(&screen_idx) {
             let slot = BTN_W + BTN_GAP;
             let items: [(
@@ -204,7 +204,7 @@ fn collect_elements(state: &mut LiviState, screen_idx: usize) -> Vec<LiviElement
         }
     }
 
-    let renderer = state.host.renderer.as_mut().unwrap();
+    let renderer = state.renderer.as_mut().unwrap();
     for t in state
         .toplevels
         .iter()
@@ -249,22 +249,14 @@ fn collect_elements(state: &mut LiviState, screen_idx: usize) -> Vec<LiviElement
     elements
 }
 
-pub fn render_screen(state: &mut LiviState, screen_idx: usize) {
-    if state.host.renderer.is_none() {
-        return;
-    }
-    let Some(w) = state.host.window_for_screen(screen_idx) else {
-        return;
-    };
-    if !w.configured {
-        return;
-    }
-    let (width, height) = (w.width, w.height);
-    if width <= 0 || height <= 0 {
-        return;
-    }
-    w.needs_redraw = false;
+pub struct FrameParts {
+    pub elements: Vec<LiviElement>,
+    pub clear: Color32F,
+    pub cal: Option<GlesTexProgram>,
+    pub uniforms: Vec<Uniform<'static>>,
+}
 
+pub fn frame_parts(state: &mut LiviState, screen_idx: usize) -> FrameParts {
     let backdrop = {
         let s = &state.screens[screen_idx];
         if std::env::var("LIVI_DEBUG_BG").is_ok() {
@@ -275,7 +267,6 @@ pub fn render_screen(state: &mut LiviState, screen_idx: usize) {
             [0.0, 0.0, 0.0, 1.0]
         }
     };
-
     let elements = collect_elements(state, screen_idx);
     let cal = if state.cal.active {
         cal_program(state)
@@ -290,45 +281,97 @@ pub fn render_screen(state: &mut LiviState, screen_idx: usize) {
             (state.cal.gain[0], state.cal.gain[1], state.cal.gain[2]),
         ),
     ];
+    FrameParts {
+        elements,
+        clear: Color32F::new(backdrop[0], backdrop[1], backdrop[2], backdrop[3]),
+        cal,
+        uniforms,
+    }
+}
 
+pub type Damage = Option<Vec<Rectangle<i32, smithay::utils::Physical>>>;
+
+pub fn draw<T>(
+    renderer: &mut GlesRenderer,
+    target: &mut T,
+    tracker: &mut OutputDamageTracker,
+    age: usize,
+    parts: &FrameParts,
+    size: (i32, i32),
+    transform: Transform,
+) -> Result<(SyncPoint, Damage), Box<dyn std::error::Error>>
+where
+    GlesRenderer: Bind<T>,
+{
+    if let Some(program) = parts.cal.as_ref() {
+        let sync = render_calibrated(
+            renderer,
+            target,
+            &parts.elements,
+            parts.clear,
+            size,
+            program,
+            &parts.uniforms,
+            transform,
+        )?;
+        return Ok((sync, None));
+    }
+    let mut fb = renderer.bind(target)?;
+    let result = tracker.render_output::<LiviElement, _>(
+        renderer,
+        &mut fb,
+        age,
+        &parts.elements,
+        parts.clear,
+    )?;
+    Ok((result.sync, result.damage.cloned()))
+}
+
+pub fn render_screen(state: &mut LiviState, screen_idx: usize) {
+    if state.drm.is_some() {
+        crate::drm::render(state, screen_idx);
+        return;
+    }
+    if state.renderer.is_none() {
+        return;
+    }
+    let Some(w) = state.host.window_for_screen(screen_idx) else {
+        return;
+    };
+    if !w.configured {
+        return;
+    }
+    let (width, height) = (w.width, w.height);
+    if width <= 0 || height <= 0 {
+        return;
+    }
+    w.needs_redraw = false;
+
+    let parts = frame_parts(state, screen_idx);
     let mut tracker = OutputDamageTracker::new((width, height), 1.0, Transform::Flipped180);
 
     let res = {
-        let host = &mut state.host;
-        let renderer = host.renderer.as_mut().unwrap();
-        let hw = host
+        let renderer = state.renderer.as_mut().unwrap();
+        let hw = state
+            .host
             .windows
             .iter_mut()
             .find(|(i, _)| *i == screen_idx)
             .map(|(_, w)| w)
             .unwrap();
-        let clear = Color32F::new(backdrop[0], backdrop[1], backdrop[2], backdrop[3]);
-        if let Some(program) = cal.as_ref() {
-            render_calibrated(
-                renderer,
-                &mut hw.egl_surface,
-                &elements,
-                clear,
-                (width, height),
-                program,
-                &uniforms,
-            )
-        } else {
-            match renderer.bind(&mut hw.egl_surface) {
-                Ok(mut fb) => tracker
-                    .render_output::<LiviElement, _>(renderer, &mut fb, 0, &elements, clear)
-                    .map(|r| r.sync)
-                    .map_err(|e| Box::new(e) as Box<dyn std::error::Error>),
-                Err(e) => {
-                    log::error!("bind failed: {e}");
-                    return;
-                }
-            }
-        }
+        draw(
+            renderer,
+            &mut hw.egl_surface,
+            &mut tracker,
+            0,
+            &parts,
+            (width, height),
+            Transform::Flipped180,
+        )
     };
 
     match res {
-        Ok(sync) => {
+        Ok((sync, _)) => {
             crate::host::request_frame(state, screen_idx);
             if let Some(w) = state.host.window_for_screen(screen_idx)
                 && let Err(e) = w.egl_surface.swap_buffers(None)
@@ -345,29 +388,32 @@ pub fn render_screen(state: &mut LiviState, screen_idx: usize) {
 }
 
 #[allow(clippy::too_many_arguments)]
-fn render_calibrated(
+fn render_calibrated<T>(
     renderer: &mut GlesRenderer,
-    egl_surface: &mut smithay::backend::egl::EGLSurface,
+    target: &mut T,
     elements: &[LiviElement],
     clear: Color32F,
     size: (i32, i32),
     program: &GlesTexProgram,
     uniforms: &[Uniform<'static>],
-) -> Result<SyncPoint, Box<dyn std::error::Error>> {
+    transform: Transform,
+) -> Result<SyncPoint, Box<dyn std::error::Error>>
+where
+    GlesRenderer: Bind<T>,
+{
     let (w, h) = size;
-    let mut tex: GlesTexture =
-        renderer.create_buffer(Fourcc::Abgr8888, smithay::utils::Size::from((w, h)))?;
+    let mut tex: GlesTexture = Offscreen::<GlesTexture>::create_buffer(
+        renderer,
+        Fourcc::Abgr8888,
+        smithay::utils::Size::from((w, h)),
+    )?;
     {
         let mut offscreen_tracker = OutputDamageTracker::new((w, h), 1.0, Transform::Normal);
-        let mut fb = renderer.bind(&mut tex)?;
+        let mut fb = Bind::<GlesTexture>::bind(renderer, &mut tex)?;
         offscreen_tracker.render_output::<LiviElement, _>(renderer, &mut fb, 0, elements, clear)?;
     }
-    let mut fb = renderer.bind(egl_surface)?;
-    let mut frame = renderer.render(
-        &mut fb,
-        smithay::utils::Size::from((w, h)),
-        Transform::Flipped180,
-    )?;
+    let mut fb = renderer.bind(target)?;
+    let mut frame = renderer.render(&mut fb, smithay::utils::Size::from((w, h)), transform)?;
     let full = Rectangle::<i32, smithay::utils::Physical>::new((0, 0).into(), (w, h).into());
     frame.render_texture_from_to(
         &tex,

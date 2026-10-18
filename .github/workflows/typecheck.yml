@@ -85,7 +85,8 @@ jobs:
           sudo apt-get install -y --no-install-recommends \
               build-essential pkg-config libudev1 ca-certificates libssl-dev \
               libgstreamer1.0-dev libgstreamer-plugins-base1.0-dev \
-              cmake libwayland-dev libxkbcommon-dev
+              cmake libwayland-dev libxkbcommon-dev \
+              libudev-dev libinput-dev libseat-dev libgbm-dev
           sudo rm -rf /var/lib/apt/lists/*
 
       - name: Check Rust formatting

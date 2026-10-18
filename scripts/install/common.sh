@@ -12,6 +12,7 @@ LIVI_TOUCH_FILTER_TEMPLATE="livi-touch-filter"
 LIVI_TOUCH_FILTER_FILE="/usr/local/lib/livi/livi-touch-filter"
 LIVI_SUDOERS_FILE="/etc/sudoers.d/99-LIVI-helper"
 LIVI_SUDOERS_TEMPLATE="99-LIVI-helper.sudoers.template"
+LIVI_KIOSK_TEMPLATE="livi-kiosk.service.template"
 LIVI_BOOT_CONFIG="${LIVI_BOOT_CONFIG:-/boot/firmware/config.txt}"
 
 # I2C for the Apple MFi coprocessor, matching carPlayMfiI2cBus in config.json

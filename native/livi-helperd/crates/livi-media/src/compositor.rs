@@ -4,6 +4,7 @@ use std::process::Stdio;
 use std::time::Duration;
 
 use livi_core_proto::config::Config;
+use livi_core_proto::state::{Display, Screen};
 use tokio::io::{AsyncBufReadExt, AsyncWriteExt, BufReader};
 use tokio::net::UnixStream;
 use tokio::sync::{mpsc, oneshot, watch};
@@ -33,7 +34,62 @@ pub fn env(cfg: &Config, ctrl: &Path) -> Vec<(String, String)> {
             format!("{}x{h}", cfg.main_screen_width),
         ));
     }
+    let screens = [
+        ("MAIN", &cfg.display_mode.main, &cfg.display_connector.main),
+        (
+            "CLUSTER",
+            &cfg.display_mode.cluster,
+            &cfg.display_connector.cluster,
+        ),
+        ("AUX", &cfg.display_mode.aux, &cfg.display_connector.aux),
+    ];
+    for (role, mode, connector) in screens {
+        if !mode.is_empty() {
+            let key = if role == "MAIN" {
+                "LIVI_DISPLAY_MODE".to_string()
+            } else {
+                format!("LIVI_{role}_DISPLAY_MODE")
+            };
+            env.push((key, mode.clone()));
+        }
+        if !connector.is_empty() {
+            env.push((format!("LIVI_{role}_CONNECTOR"), connector.clone()));
+        }
+    }
     env
+}
+
+fn screen_of(role: &str) -> Option<Screen> {
+    match role {
+        "main" => Some(Screen::Main),
+        "cluster" => Some(Screen::Cluster),
+        "aux" => Some(Screen::Aux),
+        _ => None,
+    }
+}
+
+fn display_of(line: &str) -> Option<Display> {
+    let mut words = line.splitn(6, ' ');
+    let (Some("display"), Some(connector), Some(role), Some(current), Some(modes)) = (
+        words.next(),
+        words.next(),
+        words.next(),
+        words.next(),
+        words.next(),
+    ) else {
+        return None;
+    };
+    Some(Display {
+        connector: connector.to_string(),
+        panel: words.next().unwrap_or("").trim().to_string(),
+        screen: screen_of(role),
+        current: (current != "-").then(|| current.to_string()),
+        modes: if modes == "-" {
+            Vec::new()
+        } else {
+            modes.split(',').map(str::to_string).collect()
+        },
+    })
 }
 
 pub fn start(bin: &Path, cfg: &Config, ctrl: &Path, log: &Path) -> Option<tokio::process::Child> {
@@ -101,6 +157,7 @@ pub struct CompositorControl {
     tx: mpsc::UnboundedSender<Cmd>,
     panels: watch::Receiver<HashMap<String, Panel>>,
     ui: watch::Receiver<Option<Ui>>,
+    displays: watch::Receiver<Option<Vec<Display>>>,
 }
 
 impl CompositorControl {
@@ -108,8 +165,18 @@ impl CompositorControl {
         let (tx, rx) = mpsc::unbounded_channel();
         let (panels_tx, panels) = watch::channel(HashMap::new());
         let (ui_tx, ui) = watch::channel(None);
-        tokio::spawn(Actor::new(path, panels_tx, ui_tx).run(rx));
-        Self { tx, panels, ui }
+        let (displays_tx, displays) = watch::channel(None);
+        tokio::spawn(Actor::new(path, panels_tx, ui_tx, displays_tx).run(rx));
+        Self {
+            tx,
+            panels,
+            ui,
+            displays,
+        }
+    }
+
+    pub fn displays(&self) -> watch::Receiver<Option<Vec<Display>>> {
+        self.displays.clone()
     }
 
     pub async fn claim(&self, tag: &str) {
@@ -222,6 +289,8 @@ struct Actor {
     claim_deadline: Option<tokio::time::Instant>,
     panels: watch::Sender<HashMap<String, Panel>>,
     ui: watch::Sender<Option<Ui>>,
+    displays: watch::Sender<Option<Vec<Display>>>,
+    incoming: Option<(usize, Vec<Display>)>,
 }
 
 impl Actor {
@@ -229,6 +298,7 @@ impl Actor {
         path: PathBuf,
         panels: watch::Sender<HashMap<String, Panel>>,
         ui: watch::Sender<Option<Ui>>,
+        displays: watch::Sender<Option<Vec<Display>>>,
     ) -> Self {
         Self {
             path,
@@ -240,6 +310,8 @@ impl Actor {
             claim_deadline: None,
             panels,
             ui,
+            displays,
+            incoming: None,
         }
     }
 
@@ -362,6 +434,18 @@ impl Actor {
                     });
                 }
             }
+            Some("displays") => {
+                let count = words.next().and_then(|n| n.parse().ok()).unwrap_or(0);
+                self.incoming = Some((count, Vec::new()));
+                self.take_displays();
+            }
+            Some("display") => {
+                if let (Some((_, list)), Some(display)) = (self.incoming.as_mut(), display_of(line))
+                {
+                    list.push(display);
+                }
+                self.take_displays();
+            }
             Some("ui") => {
                 let (Some(display), node) = (words.next(), words.next()) else {
                     return;
@@ -373,6 +457,24 @@ impl Actor {
                 }));
             }
             _ => {}
+        }
+    }
+
+    fn take_displays(&mut self) {
+        if let Some((count, list)) = &self.incoming
+            && list.len() >= *count
+        {
+            for d in list {
+                println!(
+                    "[core] display {} {:?} at {} '{}'",
+                    d.connector,
+                    d.screen,
+                    d.current.as_deref().unwrap_or("-"),
+                    d.panel
+                );
+            }
+            self.displays.send_replace(Some(list.clone()));
+            self.incoming = None;
         }
     }
 
@@ -513,7 +615,7 @@ mod tests {
         ctrl.screen("cluster", true, Some((800, 480)));
         let (mut rd, mut wr) = comp.accept().await;
         assert_eq!(line(&mut rd).await, "screen cluster 1 800 480\n");
-        wr.write_all(b"ui wayland-2 /dev/dri/renderD129\npanel main 344 194 1920 1080\n")
+        wr.write_all(b"ui wayland-2 /dev/dri/renderD129\npanel main 344 194 1920 1080\ndisplays 2\ndisplay HDMI-A-1 main 1280x720@60 1920x1080,1280x720 DELL U2415\ndisplay DSI-1 - - 800x480 \n")
             .await
             .unwrap();
         tokio::time::timeout(Duration::from_secs(5), ui.changed())
@@ -536,6 +638,30 @@ mod tests {
         .unwrap()
         .unwrap();
         assert_eq!(panels.borrow()["main"].width_mm, 344);
+        let mut displays = ctrl.displays();
+        tokio::time::timeout(Duration::from_secs(5), displays.wait_for(Option::is_some))
+            .await
+            .unwrap()
+            .unwrap();
+        assert_eq!(
+            *displays.borrow(),
+            Some(vec![
+                Display {
+                    connector: "HDMI-A-1".into(),
+                    panel: "DELL U2415".into(),
+                    screen: Some(Screen::Main),
+                    current: Some("1280x720@60".into()),
+                    modes: vec!["1920x1080".into(), "1280x720".into()],
+                },
+                Display {
+                    connector: "DSI-1".into(),
+                    panel: String::new(),
+                    screen: None,
+                    current: None,
+                    modes: vec!["800x480".into()],
+                },
+            ])
+        );
     }
 
     #[test]
@@ -557,6 +683,24 @@ mod tests {
             get(&env(&cfg, Path::new("/run/c")), "LIVI_COMPOSITOR_CTRL").as_deref(),
             Some("/run/c")
         );
+        assert_eq!(
+            get(&env(&cfg, Path::new("/run/c")), "LIVI_DISPLAY_MODE"),
+            None
+        );
+        cfg.display_mode.main = "1024x600".into();
+        cfg.display_mode.cluster = "1920x720".into();
+        cfg.display_connector.cluster = "DSI-1".into();
+        let set = env(&cfg, Path::new("/run/c"));
+        assert_eq!(get(&set, "LIVI_DISPLAY_MODE").as_deref(), Some("1024x600"));
+        assert_eq!(
+            get(&set, "LIVI_CLUSTER_DISPLAY_MODE").as_deref(),
+            Some("1920x720")
+        );
+        assert_eq!(
+            get(&set, "LIVI_CLUSTER_CONNECTOR").as_deref(),
+            Some("DSI-1")
+        );
+        assert_eq!(get(&set, "LIVI_MAIN_CONNECTOR"), None);
     }
 
     #[test]

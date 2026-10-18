@@ -16,6 +16,7 @@ const SWITCHES: &[&str] = &[
     "--install-wifi-ap",
     "--install-udev-rule",
     "--install-gvfs-guard",
+    "--install-kiosk-unit",
     "--wifi-ap-claim",
     "--wifi-ap-teardown",
     "--bt-tunnel",
@@ -85,6 +86,9 @@ fn main() -> ExitCode {
         if let Some(at) = std::env::args().position(|a| a == "--install-udev-rule") {
             let mut rest = std::env::args().skip(at + 1);
             return linux_main::run_install_udev_rule(rest.next(), rest.next());
+        }
+        if let Some(at) = std::env::args().position(|a| a == "--install-kiosk-unit") {
+            return linux_main::run_install_kiosk_unit(std::env::args().nth(at + 1));
         }
         if let Some(at) = std::env::args().position(|a| a == "--install-gvfs-guard") {
             let mut rest = std::env::args().skip(at + 1);

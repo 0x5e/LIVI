@@ -66,6 +66,7 @@ import SatelliteAltOutlinedIcon from '@mui/icons-material/SatelliteAltOutlined'
 import ScheduleOutlinedIcon from '@mui/icons-material/ScheduleOutlined'
 import SettingsEthernetOutlinedIcon from '@mui/icons-material/SettingsEthernetOutlined'
 import SettingsInputAntennaOutlinedIcon from '@mui/icons-material/SettingsInputAntennaOutlined'
+import SettingsInputHdmiOutlinedIcon from '@mui/icons-material/SettingsInputHdmiOutlined'
 import ShutterSpeedOutlinedIcon from '@mui/icons-material/ShutterSpeedOutlined'
 import SmartphoneOutlinedIcon from '@mui/icons-material/SmartphoneOutlined'
 import SpeakerOutlinedIcon from '@mui/icons-material/SpeakerOutlined'
@@ -110,6 +111,7 @@ const ICONS: Record<string, SvgIconComponent> = {
   clusterScreen: SpeedOutlinedIcon,
   auxScreen: TvOutlinedIcon,
   displayMode: AspectRatioOutlinedIcon,
+  displayConnector: SettingsInputHdmiOutlinedIcon,
   width: SettingsEthernetOutlinedIcon,
   height: HeightOutlinedIcon,
   fullscreen: FullscreenOutlinedIcon,

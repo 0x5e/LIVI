@@ -177,6 +177,14 @@ pub fn run_install_udev_rule(rule: Option<String>, filter: Option<String>) -> Ex
     )
 }
 
+pub fn run_install_kiosk_unit(unit: Option<String>) -> ExitCode {
+    let Some(unit) = unit else {
+        eprintln!("[kiosk] usage: --install-kiosk-unit <unit file>");
+        return ExitCode::FAILURE;
+    };
+    installed("kiosk", livi_runtime::privileged::install_kiosk_unit(&unit))
+}
+
 pub fn run_install_gvfs_guard(script: Option<String>, rule: Option<String>) -> ExitCode {
     let (Some(script), Some(rule)) = (script, rule) else {
         eprintln!("[gvfs] usage: --install-gvfs-guard <script file> <sudoers file>");

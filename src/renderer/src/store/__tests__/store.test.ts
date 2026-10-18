@@ -87,8 +87,8 @@ const state = (config: unknown, main = 'livi'): State =>
       wifiBands: [],
       wifiChannels: [],
       wifiCountries: [],
-      displayModes: [],
-      displayModeSettable: false,
+      displays: [],
+      displaysSettable: false,
       audioSinks: [],
       audioSources: []
     },

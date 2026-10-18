@@ -10,33 +10,14 @@ use crate::state::{Front, Screen, State};
 #[serde(tag = "type", rename_all = "camelCase")]
 #[ts(export_to = "contract.ts")]
 pub enum ToCore {
-    Hello {
-        protocol: u32,
-        client: String,
-    },
+    Hello { protocol: u32, client: String },
     Resync,
-    Input {
-        input: Input,
-    },
-    Action {
-        id: u32,
-        action: Action,
-    },
-    /// The UI's route, only because state/status.json publishes it.
-    Path {
-        path: String,
-    },
-    Spectrum {
-        on: bool,
-    },
-    /// The dongle's Wi-Fi driver is asked for rates only while a UI shows them.
-    LinkSpeed {
-        on: bool,
-    },
-    /// Only the browser sees the cameras, core needs one to show it while reversing.
-    Camera {
-        found: bool,
-    },
+    Input { input: Input },
+    Action { id: u32, action: Action },
+    Path { path: String },
+    Spectrum { on: bool },
+    LinkSpeed { on: bool },
+    Camera { found: bool },
 }
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize, TS)]
@@ -49,20 +30,25 @@ pub enum FromCore {
         rev: u64,
         state: Box<State>,
     },
-    /// Sent instead of the welcome, then core closes the connection.
-    Refused { reason: String },
-    /// Follows the state of `rev - 1`, anything else means resync.
-    Patch { rev: u64, ops: Vec<PatchOp> },
+    Refused {
+        reason: String,
+    },
+    Patch {
+        rev: u64,
+        ops: Vec<PatchOp>,
+    },
     Reply {
         id: u32,
         #[serde(default, skip_serializing_if = "Option::is_none")]
         #[ts(optional)]
         error: Option<String>,
     },
-    /// 0 to 1 per band, only to clients that asked. Never part of the state.
-    Spectrum { bands: Vec<f32> },
-    /// The telemetry asked for a page once, never part of the state.
-    OpenPage { path: String },
+    Spectrum {
+        bands: Vec<f32>,
+    },
+    OpenPage {
+        path: String,
+    },
 }
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize, TS)]
@@ -80,7 +66,6 @@ pub enum Action {
     Media {
         control: MediaControl,
     },
-    /// CarPlay only
     #[serde(rename_all = "camelCase")]
     Seek {
         position_ms: u32,
@@ -95,42 +80,33 @@ pub enum Action {
         id: String,
     },
     NextDevice,
-    /// One of the theme's cluster layouts, also asked of the phone while it draws in it.
     SelectClusterLayout {
         layout: String,
     },
-    /// Forward or back through the cluster layouts.
     StepClusterLayout {
         by: i32,
     },
-    /// Moves a layout in the dashboard's order.
     MoveClusterLayout {
         layout: String,
         by: i32,
     },
-    /// Offers a layout on the dashboard or not.
     ShowClusterLayout {
         layout: String,
         on: bool,
     },
-    /// For settings that only take hold once the phones negotiate anew.
     ApplySettings,
     CheckUpdate,
     DownloadUpdate,
     InstallUpdate,
     AbortUpdate,
-    /// Searches Band III and replaces the station list.
     DabScan,
     DabStopScan,
     #[serde(rename_all = "camelCase")]
     DabPlay {
         service_id: u32,
     },
-    /// Makes DAB+ the player's source, the tuned or last station plays.
     DabResume,
-    /// The station stays tuned, only its audio stops.
     DabPause,
-    /// Leaves DAB+, the phone is the player's source again.
     DabStop,
     #[serde(rename_all = "camelCase")]
     DabFavorite {
@@ -142,7 +118,6 @@ pub enum Action {
         service_id: u32,
         hidden: bool,
     },
-    /// Moves a station in the own order, negative towards the top.
     #[serde(rename_all = "camelCase")]
     DabMove {
         service_id: u32,

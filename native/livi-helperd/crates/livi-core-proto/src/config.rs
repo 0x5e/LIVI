@@ -1,12 +1,9 @@
-//! Fields only the UI reads live here as well, so the settings file has one owner.
-
 use serde::{Deserialize, Serialize};
 use serde_repr::{Deserialize_repr, Serialize_repr};
 use ts_rs::TS;
 
 use crate::state::PerScreen;
 
-/// The length a WPA2 passphrase may have.
 pub const WIFI_PASSWORD_MIN: usize = 8;
 pub const WIFI_PASSWORD_MAX: usize = 63;
 
@@ -30,29 +27,21 @@ pub struct Config {
 
     pub car_play_source_version: String,
     pub car_play_mfi_i2c_bus: u32,
-    /// -1 when the coprocessor has no power pin.
     pub car_play_mfi_power_gpio: i32,
-    /// Video in the car: the phone's AirPlay video while parked, in LIVI's own video plane.
     pub car_play_hls_video: bool,
-    /// Where the phone puts its dock and status bar.
     pub car_play_dock_position: DockPosition,
-    /// What the phone draws into the cluster stream.
     pub car_play_cluster_content: ClusterContent,
     pub car_play_cluster_compass: bool,
     pub car_play_cluster_eta: bool,
     pub car_play_cluster_speed_limit: bool,
-    /// A car maker theme the phone loads from Apple, as `id:version:sdk`, empty for none.
     pub car_play_theme: String,
-    /// The theme's car model (VehicleVariant), picks the car pictures, empty for none.
     pub car_play_vehicle_model: String,
-    /// The cluster layout the car showed last, and the palette picked per layout.
     pub cluster_layout: String,
     pub cluster_palettes: std::collections::BTreeMap<String, String>,
 
     pub gps_enabled: bool,
     pub gps_device: String,
     pub gps_baud_rate: u32,
-    /// From the last GPS fix, applied at startup.
     pub timezone: String,
 
     pub projection_width: u32,
@@ -89,7 +78,6 @@ pub struct Config {
     pub overlay_messages: bool,
     pub display_brightness: f64,
     pub display_brightness_auto: bool,
-    /// The Wi-Fi AP, Bluetooth and head-unit name, at most 20 characters.
     pub car_name: String,
     pub oem_name: String,
     pub hand: HandDriveType,
@@ -97,17 +85,13 @@ pub struct Config {
     pub car_type: Option<CarType>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub ev_connector_types: Option<Vec<EvConnectorType>>,
-    /// The fastest AC charging the car takes, for its AC plugs.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub ev_max_ac_power_kw: Option<f64>,
-    /// The fastest DC charging the car takes, for its DC plugs.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub ev_max_dc_power_kw: Option<f64>,
     pub max_speed_kph: u32,
-    /// Speed between two numbered marks on the dash, in the unit shown.
     pub speed_scale_step: u32,
     pub max_rpm: u32,
-    /// 0 for none.
     pub redline_rpm: u32,
     pub speed_unit: SpeedUnit,
     pub temperature_unit: TemperatureUnit,
@@ -133,10 +117,8 @@ pub struct Config {
     pub audio_input_device_label: Option<String>,
     pub visual_audio_delay_ms: u32,
 
-    /// LIVI steers the gain by the signal level, else `dab_gain_db`.
     pub dab_gain_auto: bool,
     pub dab_gain_db: f64,
-    /// Crystal error of the DAB stick.
     pub dab_ppm: i32,
 
     pub auto_conn: bool,
@@ -148,8 +130,8 @@ pub struct Config {
     pub ui_zoom_percent: u32,
     pub appearance_mode: AppearanceMode,
 
-    /// "WIDTHxHEIGHT", empty leaves the panel at the mode it came up in.
-    pub display_mode: String,
+    pub display_mode: PerScreen<String>,
+    pub display_connector: PerScreen<String>,
 
     pub display_gamma: f64,
     pub display_contrast: f64,
@@ -163,9 +145,7 @@ pub struct Config {
     #[ts(type = "0 | 90 | 180 | 270")]
     pub camera_rotation: u16,
     pub media: PerScreen<bool>,
-    /// The screens that show the dashboard.
     pub dashboard: PerScreen<bool>,
-    /// Which of the theme's layouts the dashboard offers and in which order.
     pub dashboard_layouts: std::collections::BTreeMap<String, crate::theme::LayoutSlot>,
     pub custom: PerScreen<bool>,
     pub custom_url: String,
@@ -198,7 +178,6 @@ pub struct Config {
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub background_color_light: Option<String>,
 
-    /// Override for the logo on the CarPlay tile that leads back to LIVI.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub carplay_icon120: Option<String>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
@@ -253,7 +232,6 @@ pub enum DockPosition {
 #[serde(rename_all = "camelCase")]
 #[ts(export_to = "contract.ts")]
 pub enum ClusterContent {
-    /// The phone picks map, maneuver card or both for the size of the stream.
     Auto,
     Map,
     Maneuver,
@@ -301,7 +279,6 @@ pub enum CarType {
 }
 
 impl CarType {
-    /// The names the UI uses, in any case.
     pub fn from_name(name: &str) -> Option<Self> {
         const ALL: [(&str, CarType); 13] = [
             ("Gasoline", CarType::Gasoline),
@@ -340,7 +317,6 @@ pub enum EvConnectorType {
 }
 
 impl EvConnectorType {
-    /// The names the UI uses, in any case.
     pub fn from_name(name: &str) -> Option<Self> {
         const ALL: [(&str, EvConnectorType); 8] = [
             ("J1772", EvConnectorType::J1772),
@@ -367,7 +343,6 @@ pub struct WindowBounds {
     pub height: u32,
 }
 
-/// Each value is a KeyboardEvent.code, empty when unbound.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, TS)]
 #[serde(rename_all = "camelCase")]
 #[ts(export_to = "contract.ts")]
@@ -387,9 +362,7 @@ pub struct KeyBindings {
 
     pub home: String,
     pub cycle_session: String,
-    /// The next cluster layout, LIVI's own or a car maker theme's.
     pub cluster_layout: String,
-    /// The next card of the phone's carousel in a car maker theme's centre zone.
     pub cluster_content: String,
     pub play_pause: String,
     pub play: String,
@@ -531,7 +504,8 @@ pub fn defaults() -> Config {
         kiosk: off,
         ui_zoom_percent: 100,
         appearance_mode: AppearanceMode::Auto,
-        display_mode: String::new(),
+        display_mode: PerScreen::default(),
+        display_connector: PerScreen::default(),
         display_gamma: 1.0,
         display_contrast: 1.0,
         display_color_r: 1.0,

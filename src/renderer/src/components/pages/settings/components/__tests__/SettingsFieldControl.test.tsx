@@ -582,7 +582,7 @@ describe('SettingsFieldControl', () => {
       label: 'Display Mode',
       path: 'displayMode',
       options: [{ label: '1920x1080', value: '1920x1080' }],
-      readOnly: (system: System | null) => !system?.displayModeSettable
+      readOnly: (system: System | null) => !system?.displaysSettable
     } as any
     const control = () => <SettingsFieldControl node={node} value="" onChange={onChange} />
 
@@ -592,7 +592,7 @@ describe('SettingsFieldControl', () => {
     expect(onChange).not.toHaveBeenCalled()
     unmount()
 
-    useLiviStore.setState({ system: { displayModeSettable: true } as System })
+    useLiviStore.setState({ system: { displaysSettable: true } as System })
     render(control())
     fireEvent.click(screen.getByText('1920x1080'))
     expect(onChange).toHaveBeenCalledWith('1920x1080')

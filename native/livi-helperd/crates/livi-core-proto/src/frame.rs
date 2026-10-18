@@ -1,5 +1,3 @@
-//! Frames on the socket: a little-endian u32 byte count, then that many bytes of JSON.
-
 use std::fmt;
 
 use serde::Serialize;
@@ -7,7 +5,6 @@ use serde::de::DeserializeOwned;
 
 const LEN_BYTES: usize = 4;
 
-/// A peer announcing more is broken, the stream cannot find the next frame again.
 pub const MAX_FRAME: usize = 16 << 20;
 
 #[derive(Debug)]
@@ -52,7 +49,6 @@ impl Decoder {
         self.buf.extend_from_slice(chunk);
     }
 
-    /// After `TooLarge` the connection has to go.
     pub fn next_message<T: DeserializeOwned>(&mut self) -> Option<Result<T, FrameError>> {
         let mut head = [0; LEN_BYTES];
         head.copy_from_slice(self.buf.get(..LEN_BYTES)?);

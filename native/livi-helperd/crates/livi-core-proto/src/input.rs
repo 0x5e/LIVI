@@ -1,5 +1,3 @@
-//! Raw input the UI hands on. Core decides what it means.
-
 use serde::{Deserialize, Serialize};
 use ts_rs::TS;
 
@@ -9,13 +7,10 @@ use crate::state::Screen;
 #[serde(tag = "kind", rename_all = "camelCase")]
 #[ts(export_to = "contract.ts")]
 pub enum Input {
-    /// A mouse is the single point 0.
     Pointer { screen: Screen, points: Vec<Point> },
-    /// A key the UI's own menus did not take, as KeyboardEvent.code.
     Key { code: String, down: bool },
 }
 
-/// Position as a fraction of the screen's content area, 0 to 1.
 #[derive(Debug, Clone, Copy, PartialEq, Serialize, Deserialize, TS)]
 #[ts(export_to = "contract.ts")]
 pub struct Point {

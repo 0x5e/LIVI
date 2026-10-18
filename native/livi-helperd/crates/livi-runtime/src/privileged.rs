@@ -80,6 +80,31 @@ pub fn install_wifi_ap(unit_src: &str, rule_src: &str) -> Result<(), String> {
     Ok(())
 }
 
+const KIOSK_UNIT: &str = "/etc/systemd/system/livi-kiosk.service";
+
+pub fn install_kiosk_unit(unit_src: &str) -> Result<(), String> {
+    if !std::path::Path::new(KIOSK_UNIT).exists() {
+        return Err(format!("{KIOSK_UNIT} is not installed"));
+    }
+    write_root_file(KIOSK_UNIT, &read(unit_src)?, 0o644)?;
+    run("systemctl", &["daemon-reload"]);
+    let systemctl = crate::sys::tool("systemctl");
+    let switch =
+        format!("{systemctl} stop livi-kiosk.service; {systemctl} start livi-kiosk.service");
+    run(
+        "systemd-run",
+        &[
+            "--no-block",
+            "--collect",
+            "--unit=livi-kiosk-switch",
+            "/bin/sh",
+            "-c",
+            &switch,
+        ],
+    );
+    Ok(())
+}
+
 fn install_own_copy(path: &str) -> Result<(), String> {
     require_root()?;
     let me = std::env::current_exe().map_err(|e| format!("own binary: {e}"))?;

@@ -1,5 +1,3 @@
-//! LIVI_WRITE_CONTRACT=1 rewrites the UI's copy of these types.
-
 use std::fs;
 use std::path::PathBuf;
 

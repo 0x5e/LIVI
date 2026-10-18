@@ -1,10 +1,6 @@
-//! What a GNSS receiver reports. The GPS settings page and state/gps.json read these shapes as
-//! they are, the fix itself travels as `gps` through the telemetry.
-
 use serde::{Serialize, Serializer};
 use ts_rs::TS;
 
-/// Declared in name order, lists of them are sorted by name.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Serialize, TS)]
 #[ts(export_to = "contract.ts", rename = "GnssConstellation")]
 #[serde(rename_all = "lowercase")]
@@ -17,7 +13,6 @@ pub enum Constellation {
     Unknown,
 }
 
-/// The fix quality of a GGA sentence, numbered there 0 to 8.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default, Serialize, TS)]
 #[ts(export_to = "contract.ts", rename = "GnssFixQuality")]
 #[serde(rename_all = "camelCase")]
@@ -63,7 +58,6 @@ pub struct Satellite {
         serialize_with = "optional_number"
     )]
     pub azimuth: Option<f64>,
-    /// Absent while the receiver only knows where the satellite is.
     #[serde(
         skip_serializing_if = "Option::is_none",
         serialize_with = "optional_number"
@@ -71,7 +65,6 @@ pub struct Satellite {
     pub snr: Option<f64>,
 }
 
-/// Only a u-blox receiver reports it.
 #[derive(Debug, Clone, Default, PartialEq, Serialize, TS)]
 #[ts(export_to = "contract.ts", rename = "GnssVersion", optional_fields)]
 pub struct Version {
@@ -83,7 +76,6 @@ pub struct Version {
     pub protocol: Option<String>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub model: Option<String>,
-    /// The constellations the firmware can track.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub supported: Option<Vec<String>>,
 }
@@ -126,7 +118,6 @@ pub struct Rf {
     pub antenna_status: AntennaStatus,
     pub antenna_power: AntennaPower,
     pub noise: u16,
-    /// High gain on a weak signal means the antenna delivers too little.
     pub agc: u16,
     pub jamming_indicator: u8,
 }
@@ -135,7 +126,6 @@ pub struct Rf {
 #[ts(export_to = "contract.ts", optional_fields)]
 #[serde(rename_all = "camelCase")]
 pub struct GnssInfo {
-    /// True while bytes arrive, an open but silent port is not connected.
     pub connected: bool,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub device: Option<String>,
@@ -169,13 +159,11 @@ pub struct GnssInfo {
         serialize_with = "optional_number"
     )]
     pub vdop: Option<f64>,
-    /// Unix milliseconds.
     #[serde(
         skip_serializing_if = "Option::is_none",
         serialize_with = "optional_number"
     )]
     pub receiver_time: Option<f64>,
-    /// Unix milliseconds of the last bytes.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub updated_at: Option<u64>,
     #[serde(skip_serializing_if = "Option::is_none")]
@@ -211,7 +199,6 @@ pub struct GpsFix {
         serialize_with = "optional_number"
     )]
     pub speed_ms: Option<f64>,
-    /// Horizontal.
     #[serde(
         skip_serializing_if = "Option::is_none",
         serialize_with = "optional_number"
@@ -222,7 +209,6 @@ pub struct GpsFix {
         serialize_with = "optional_number"
     )]
     pub satellites: Option<f64>,
-    /// Unix milliseconds.
     #[serde(
         skip_serializing_if = "Option::is_none",
         serialize_with = "optional_number"
@@ -248,7 +234,6 @@ impl GpsFix {
     }
 }
 
-/// Whole numbers go out as integers, which the readers of these fields expect.
 fn number<S: Serializer>(value: &f64, s: S) -> Result<S::Ok, S::Error> {
     if value.fract() == 0.0 && value.abs() < 9_007_199_254_740_992.0 {
         s.serialize_i64(*value as i64)

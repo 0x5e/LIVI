@@ -166,6 +166,8 @@
     "mainScreen": "Main Screen",
     "displayMode": "Display Mode",
     "displayModeDefault": "Panel default",
+    "displayConnector": "Connector",
+    "displayConnectorAuto": "Automatic",
     "mainScreenWidth": "Width",
     "mainScreenHeight": "Height",
     "clusterWidth": "Width",

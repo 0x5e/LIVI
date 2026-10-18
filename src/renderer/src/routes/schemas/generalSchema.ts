@@ -1,4 +1,4 @@
-import type { WifiBand } from '@shared/core/contract'
+import type { Display, System, WifiBand } from '@shared/core/contract'
 import type { Config } from '@shared/types'
 import { PAGES, WIFI_PASSWORD_MAX, WIFI_PASSWORD_MIN } from '@shared/types'
 import {
@@ -22,10 +22,73 @@ const panelDefaultOption: SelectOption = {
   labelKey: 'settings.displayModeDefault'
 }
 
-async function loadDisplayModes(): Promise<SelectOption[]> {
-  const list = useLiviStore.getState().system?.displayModes ?? []
-  return [panelDefaultOption, ...list.map((m) => ({ value: m, label: m }))]
+const autoConnectorOption: SelectOption = {
+  value: '',
+  label: 'Automatic',
+  labelKey: 'settings.displayConnectorAuto'
 }
+
+type ScreenKey = 'main' | 'cluster' | 'aux'
+
+function displayFor(screen: ScreenKey): Display | undefined {
+  const { system, settings } = useLiviStore.getState()
+  const displays = system?.displays ?? []
+  const chosen = settings?.displayConnector[screen] ?? ''
+  const shown = displays.find((d) => (chosen ? d.connector === chosen : d.screen === screen))
+  return shown ?? (screen === 'main' && !chosen ? displays[0] : undefined)
+}
+
+const loadDisplayModes = (screen: ScreenKey) => async (): Promise<SelectOption[]> => {
+  const modes = displayFor(screen)?.modes ?? []
+  return [panelDefaultOption, ...modes.map((m) => ({ value: m, label: m }))]
+}
+
+async function loadConnectors(): Promise<SelectOption[]> {
+  const displays = useLiviStore.getState().system?.displays ?? []
+  return [
+    autoConnectorOption,
+    ...displays.map((d) => ({
+      value: d.connector,
+      label: d.panel ? `${d.connector} · ${d.panel}` : d.connector
+    }))
+  ]
+}
+
+const notSettable = (system: System | null): boolean => !system?.displaysSettable
+const sizeFollowsDisplay = (system: System | null): boolean => system?.displaysSettable === true
+
+const displayRows = (screen: ScreenKey): SettingsNode<Config>[] => [
+  {
+    type: 'select',
+    label: 'Connector',
+    labelKey: 'settings.displayConnector',
+    icon: 'displayConnector',
+    path: `displayConnector.${screen}`,
+    displayValue: true,
+    options: [autoConnectorOption],
+    loadOptions: loadConnectors,
+    readOnly: notSettable,
+    page: {
+      title: 'Connector',
+      labelTitle: 'settings.displayConnector'
+    }
+  },
+  {
+    type: 'select',
+    label: 'Display Mode',
+    labelKey: 'settings.displayMode',
+    icon: 'displayMode',
+    path: `displayMode.${screen}`,
+    displayValue: true,
+    options: [panelDefaultOption],
+    loadOptions: loadDisplayModes(screen),
+    readOnly: notSettable,
+    page: {
+      title: 'Display Mode',
+      labelTitle: 'settings.displayMode'
+    }
+  }
+]
 
 const BAND_LABELS: Record<WifiBand, string> = {
   '2.4ghz': '2.4 GHz',
@@ -301,27 +364,14 @@ export const generalSchema: SettingsNode<Config> = {
           route: 'mainScreen',
           path: '',
           children: [
-            {
-              type: 'select',
-              label: 'Display Mode',
-              labelKey: 'settings.displayMode',
-              icon: 'displayMode',
-              path: 'displayMode',
-              displayValue: true,
-              options: [panelDefaultOption],
-              loadOptions: loadDisplayModes,
-              readOnly: (system) => !system?.displayModeSettable,
-              page: {
-                title: 'Display Mode',
-                labelTitle: 'settings.displayMode'
-              }
-            },
+            ...displayRows('main'),
             {
               type: 'number',
               label: 'Width',
               labelKey: 'settings.mainScreenWidth',
               icon: 'width',
               path: 'mainScreenWidth',
+              disabled: sizeFollowsDisplay,
               min: MIN_WIDTH,
               max: MAX_WIDTH,
               step: 1,
@@ -337,6 +387,7 @@ export const generalSchema: SettingsNode<Config> = {
               labelKey: 'settings.mainScreenHeight',
               icon: 'height',
               path: 'mainScreenHeight',
+              disabled: sizeFollowsDisplay,
               min: MIN_HEIGHT,
               max: MAX_HEIGHT,
               step: 1,
@@ -370,12 +421,14 @@ export const generalSchema: SettingsNode<Config> = {
               icon: 'active',
               path: 'clusterScreenActive'
             },
+            ...displayRows('cluster'),
             {
               type: 'number',
               label: 'Width',
               labelKey: 'settings.clusterScreenWidth',
               icon: 'width',
               path: 'clusterScreenWidth',
+              disabled: sizeFollowsDisplay,
               min: MIN_WIDTH,
               max: MAX_WIDTH,
               step: 1,
@@ -391,6 +444,7 @@ export const generalSchema: SettingsNode<Config> = {
               labelKey: 'settings.clusterScreenHeight',
               icon: 'height',
               path: 'clusterScreenHeight',
+              disabled: sizeFollowsDisplay,
               min: MIN_HEIGHT,
               max: MAX_HEIGHT,
               step: 1,
@@ -424,12 +478,14 @@ export const generalSchema: SettingsNode<Config> = {
               icon: 'active',
               path: 'auxScreenActive'
             },
+            ...displayRows('aux'),
             {
               type: 'number',
               label: 'Width',
               labelKey: 'settings.auxScreenWidth',
               icon: 'width',
               path: 'auxScreenWidth',
+              disabled: sizeFollowsDisplay,
               min: MIN_WIDTH,
               max: MAX_WIDTH,
               step: 1,
@@ -445,6 +501,7 @@ export const generalSchema: SettingsNode<Config> = {
               labelKey: 'settings.auxScreenHeight',
               icon: 'height',
               path: 'auxScreenHeight',
+              disabled: sizeFollowsDisplay,
               min: MIN_HEIGHT,
               max: MAX_HEIGHT,
               step: 1,

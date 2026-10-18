@@ -1,7 +1,3 @@
-//! What the car draws on its displays, built like a car maker's CarPlay theme: displays with
-//! layouts, each layout with palettes and zones that show one component at a time. The phone
-//! fills the zones it owns (the map), the car draws the rest per layout.
-
 use std::collections::BTreeMap;
 
 use serde::{Deserialize, Serialize};
@@ -20,7 +16,6 @@ pub struct Theme {
 #[serde(rename_all = "camelCase")]
 #[ts(export_to = "contract.ts")]
 pub struct ThemeDisplay {
-    /// The display's id in the theme, also the panel's uid towards the phone.
     pub id: String,
     pub kind: DisplayKind,
     pub layouts: Vec<ThemeLayout>,
@@ -40,7 +35,6 @@ pub enum DisplayKind {
 pub struct ThemeLayout {
     pub id: String,
     pub name: String,
-    /// The palettes the layout offers, the first is its default.
     pub palettes: Vec<String>,
     pub zones: Vec<Zone>,
 }
@@ -50,11 +44,9 @@ pub struct ThemeLayout {
 #[ts(export_to = "contract.ts")]
 pub struct Zone {
     pub id: String,
-    /// What the zone shows while the layout is up.
     pub component: String,
 }
 
-/// A palette's accent colour, as `#rrggbbaa`, for dark and light appearance.
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize, TS)]
 #[serde(rename_all = "camelCase")]
 #[ts(export_to = "contract.ts")]
@@ -74,8 +66,6 @@ pub enum AppearancePreference {
     Dark,
 }
 
-/// The cluster as the car shows it now. The phone's theme settings and LIVI's own controls both
-/// move it.
 #[derive(Debug, Clone, PartialEq, Default, Serialize, Deserialize, TS)]
 #[serde(rename_all = "camelCase")]
 #[ts(export_to = "contract.ts")]
@@ -83,11 +73,8 @@ pub struct Cluster {
     pub theme: Theme,
     pub layout: String,
     pub palette: String,
-    /// The palette picked per layout. A layout comes back with it, like a car keeps it.
     pub palettes: BTreeMap<String, String>,
-    /// The layouts the page dots and the layout key step through, in the user's order.
     pub shown: Vec<String>,
-    /// Every cluster layout in the user's order, the switched off ones too.
     pub arranged: Vec<ArrangedLayout>,
     pub appearance: AppearancePreference,
 }
@@ -100,8 +87,6 @@ pub struct ArrangedLayout {
     pub on: bool,
 }
 
-/// Whether a layout is offered and where, as the user arranged it. A layout without a slot is on,
-/// after the arranged ones in the theme's order.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, TS)]
 #[serde(rename_all = "camelCase")]
 #[ts(export_to = "contract.ts")]
@@ -123,7 +108,6 @@ impl Theme {
 }
 
 impl Cluster {
-    /// Starts on the layout and palettes kept from before, where the theme still has them.
     pub fn new(
         theme: Theme,
         layout: &str,
@@ -156,8 +140,6 @@ impl Cluster {
         c
     }
 
-    /// Steps through the shown layouts, wrapping around. From a layout that is not shown it
-    /// starts at the first.
     pub fn step(&mut self, by: i32) -> bool {
         let n = self.shown.len() as i32;
         if n == 0 {
@@ -170,8 +152,6 @@ impl Cluster {
         self.select(&next, None)
     }
 
-    /// Orders and filters the layouts as the user arranged them. With every layout off all of
-    /// them stay, so the dashboard never ends up empty. False when nothing changed.
     pub fn arrange(&mut self, slots: &BTreeMap<String, LayoutSlot>) -> bool {
         let all: Vec<&ThemeLayout> = self
             .theme
@@ -205,7 +185,6 @@ impl Cluster {
         changed
     }
 
-    /// The arrangement with one layout moved by some places, None past either end.
     pub fn moved(&self, layout: &str, by: i32) -> Option<BTreeMap<String, LayoutSlot>> {
         let at = self.arranged.iter().position(|l| l.id == layout)?;
         let to = at
@@ -217,15 +196,12 @@ impl Cluster {
         Some(slots_of(&list))
     }
 
-    /// The arrangement with one layout switched on or off.
     pub fn switched(&self, layout: &str, on: bool) -> Option<BTreeMap<String, LayoutSlot>> {
         let mut list = self.arranged.clone();
         list.iter_mut().find(|l| l.id == layout)?.on = on;
         Some(slots_of(&list))
     }
 
-    /// Without a palette the layout comes back with the one picked for it last, else its
-    /// default. False for a layout the theme does not have, or one already up like that.
     pub fn select(&mut self, layout: &str, palette: Option<&str>) -> bool {
         let Some(found) = self.theme.cluster_layout(layout) else {
             return false;
@@ -240,8 +216,6 @@ impl Cluster {
         self.show(layout, palette)
     }
 
-    /// The phone's choice. Its theme knows palettes LIVI's copy may not list, so the palette is
-    /// taken as it comes.
     pub fn follow(&mut self, layout: &str, palette: Option<&str>) -> bool {
         if self.theme.cluster_layout(layout).is_none() {
             return false;
@@ -275,7 +249,6 @@ const LIVI_CLUSTER: &str = "Cluster_Display";
 const LIVI_CENTER: &str = "Center_Display";
 const MAP_ZONE: &str = "map";
 
-/// LIVI's own theme. Its layouts are the dashes LIVI draws around the phone's cluster stream.
 pub fn livi_theme() -> Theme {
     let layout = |id: &str, name: &str, map: &str| ThemeLayout {
         id: id.into(),
@@ -322,7 +295,6 @@ mod tests {
     const FIRST: &str = "6C45CC47-EC01-527A-B40D-1316AA9C936F";
     const MAPS: &str = "DB7C6944-5DFF-58DF-94E9-91006781FA93";
 
-    /// A car maker theme's shape: layouts offering palettes, default first, each with its colour.
     fn maker_theme() -> Theme {
         let layout = |id: &str, palettes: &[&str]| ThemeLayout {
             id: id.into(),

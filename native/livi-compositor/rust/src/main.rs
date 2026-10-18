@@ -1,5 +1,6 @@
 mod ctrl;
 mod deco;
+mod drm;
 mod host;
 mod input;
 mod layout;
@@ -46,7 +47,11 @@ fn main() {
 
     let mut state = LiviState::new(&mut event_loop, startup_cmd);
 
-    host::init(&mut state, &event_loop.handle());
+    if drm::wanted() {
+        drm::init(&mut state, &event_loop.handle());
+    } else {
+        host::init(&mut state, &event_loop.handle());
+    }
     ctrl::init(&mut state, &event_loop.handle());
     ctrl::leave_with_core(&event_loop.handle());
     spawn::spawn_startup(&mut state);

@@ -34,6 +34,7 @@ mod host_output;
 mod host_setup;
 mod hub;
 mod hwaddr;
+mod kiosk_unit;
 mod log_file;
 mod nav_text;
 mod nmea;
@@ -214,6 +215,9 @@ async fn run() -> Result<Exit, String> {
     };
     if udev_rule::ensure(&privileged).await {
         return Ok(Exit::Restart(None));
+    }
+    if kiosk_unit::ensure(&privileged).await {
+        return Ok(Exit::Quit);
     }
     tokio::spawn(gvfs_guard::start(privileged.clone()));
     tokio::spawn(wifi_ap::follow(core.clone(), privileged));

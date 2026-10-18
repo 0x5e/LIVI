@@ -27,6 +27,7 @@ export const requiresRestartParams: (keyof Config)[] = [
   'carPlayDockPosition',
 
   'displayMode',
+  'displayConnector',
 
   'projectionWidth',
   'projectionHeight',

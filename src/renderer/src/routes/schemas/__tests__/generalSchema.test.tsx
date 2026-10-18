@@ -1,3 +1,4 @@
+import type { Display } from '@shared/core/contract'
 import { useLiviStore } from '../../../store/store'
 import type { SettingsNode } from '../../types'
 import { generalSchema } from '../generalSchema'
@@ -16,7 +17,7 @@ const system = (
   dongle: { wifi: boolean; bt: boolean } | null = null,
   wifiChannels: number[] = [36, 40],
   wifiCountries: string[] = ['DE', 'AT'],
-  displayModes: string[] = ['800x480', '1024x600'],
+  displays: Display[] = [],
   wifiBands: Array<'2.4ghz' | '5ghz' | '6ghz'> = [],
   interfaceModels: Record<string, string> = {}
 ) =>
@@ -30,8 +31,8 @@ const system = (
       wifiBands,
       wifiChannels,
       wifiCountries,
-      displayModes,
-      displayModeSettable: true,
+      displays,
+      displaysSettable: true,
       audioSinks: [],
       audioSources: []
     }
@@ -49,7 +50,7 @@ function collectLoaders(node: SettingsNode<unknown>): LoadFn[] {
 }
 
 afterEach(() => {
-  useLiviStore.setState({ system: null, dab: null })
+  useLiviStore.setState({ system: null, dab: null, settings: null })
   coreActionMock.mockClear()
 })
 
@@ -165,23 +166,67 @@ describe('generalSchema loadOptions', () => {
     expect((await bands!.loadOptions()).map((o) => o.value)).toEqual(['2.4ghz', '5ghz'])
   })
 
-  test('display modes keep the panel-default option ahead of the reported modes', async () => {
-    system([], [], null, [], [], ['1024x600', '800x480'])
-    const displayNode = (generalSchema.children as SettingsNode<unknown>[])
-      .flatMap((c) => (c.children ?? []) as SettingsNode<unknown>[])
-      .flatMap((c) => (c.children ?? []) as SettingsNode<unknown>[])
-      .find((n) => (n as { path?: string }).path === 'displayMode') as {
+  test('each screen offers the modes of its display and the connectors by name', async () => {
+    const display = (
+      connector: string,
+      panel: string,
+      screen: Display['screen'],
+      modes: string[]
+    ): Display => ({ connector, panel, screen, current: null, modes })
+    system(
+      [],
+      [],
+      null,
+      [],
+      [],
+      [
+        display('HDMI-A-1', 'DELL U2415', 'main', ['1920x1080', '1280x720']),
+        display('DSI-1', '', null, ['800x480'])
+      ]
+    )
+    type Row = {
+      path?: string
       loadOptions: LoadFn
-      readOnly: (system: { displayModeSettable: boolean } | null) => boolean
+      readOnly: (system: { displaysSettable: boolean } | null) => boolean
+      disabled: (system: { displaysSettable: boolean } | null) => boolean
     }
-    const opts = await displayNode.loadOptions()
-    expect(opts[0]).toMatchObject({ value: '', labelKey: 'settings.displayModeDefault' })
-    expect(opts[opts.length - 1]).toMatchObject({ value: '800x480', label: '800x480' })
+    const rows: Row[] = []
+    const walk = (n: Record<string, unknown>): void => {
+      rows.push(n as unknown as Row)
+      if (Array.isArray(n.children)) for (const c of n.children) walk(c as Record<string, unknown>)
+    }
+    walk(generalSchema as unknown as Record<string, unknown>)
+    const row = (path: string): Row => rows.find((r) => r.path === path) as Row
+    const values = async (path: string) => (await row(path).loadOptions()).map((o) => o.value)
 
-    // Under GNOME the modes are only shown
-    expect(displayNode.readOnly({ displayModeSettable: true })).toBe(false)
-    expect(displayNode.readOnly({ displayModeSettable: false })).toBe(true)
-    expect(displayNode.readOnly(null)).toBe(true)
+    const mainModes = await row('displayMode.main').loadOptions()
+    expect(mainModes[0]).toMatchObject({ value: '', labelKey: 'settings.displayModeDefault' })
+    expect(await values('displayMode.main')).toEqual(['', '1920x1080', '1280x720'])
+    expect(await values('displayMode.cluster')).toEqual([''])
+    useLiviStore.setState({
+      settings: { displayConnector: { main: '', cluster: 'DSI-1', aux: '' } } as never
+    })
+    expect(await values('displayMode.cluster')).toEqual(['', '800x480'])
+    expect(await row('displayConnector.aux').loadOptions()).toEqual([
+      { value: '', label: 'Automatic', labelKey: 'settings.displayConnectorAuto' },
+      { value: 'HDMI-A-1', label: 'HDMI-A-1 · DELL U2415' },
+      { value: 'DSI-1', label: 'DSI-1' }
+    ])
+
+    // GNOME names no screen, main shows the first display
+    useLiviStore.setState({ settings: null })
+    system([], [], null, [], [], [display('DP-4', '', null, ['3840x2160'])])
+    expect(await values('displayMode.main')).toEqual(['', '3840x2160'])
+    expect(await values('displayMode.aux')).toEqual([''])
+    useLiviStore.setState({ system: null })
+    expect(await values('displayConnector.main')).toEqual([''])
+    expect(await values('displayMode.main')).toEqual([''])
+
+    expect(row('displayConnector.main').readOnly({ displaysSettable: true })).toBe(false)
+    expect(row('displayConnector.main').readOnly({ displaysSettable: false })).toBe(true)
+    expect(row('displayMode.main').readOnly(null)).toBe(true)
+    expect(row('mainScreenWidth').disabled({ displaysSettable: true })).toBe(true)
+    expect(row('auxScreenHeight').disabled(null)).toBe(false)
   })
 
   test('value transforms round-trip and format their values', () => {

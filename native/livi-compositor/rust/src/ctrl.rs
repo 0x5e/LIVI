@@ -56,6 +56,7 @@ pub fn init(state: &mut LiviState, handle: &LoopHandle<'static, LiviState>) {
                     state.ctrl_out.clear();
                     send_ui(state);
                     send_panels(state);
+                    send_displays(state);
                 }
                 Ok(PostAction::Continue)
             },
@@ -160,6 +161,12 @@ fn send_ui(state: &mut LiviState) {
         .map_or_else(|| "-".to_string(), |p| p.display().to_string());
     let line = format!("ui {} {node}\n", state.ui_socket);
     send(state, &line);
+}
+
+pub fn send_displays(state: &mut LiviState) {
+    if let Some(lines) = crate::drm::displays_lines(state) {
+        send(state, &lines);
+    }
 }
 
 pub fn send_panels(state: &mut LiviState) {

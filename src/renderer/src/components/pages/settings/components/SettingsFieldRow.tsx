@@ -1,9 +1,10 @@
 import { Typography } from '@mui/material'
 import { SettingsNode } from '@renderer/routes'
+import { useLiviStore } from '@renderer/store/store'
 import type { Config } from '@shared/types'
 import { useTranslation } from 'react-i18next'
 import { Devices } from '../pages/devices'
-import { getValueByPath } from '../utils'
+import { getValueByPath, isNodeDisabled } from '../utils'
 import { PosSensitiveList } from './posSensitiveList/PosSensitiveList'
 import { SettingsFieldControl } from './SettingsFieldControl'
 import { SettingsItemRow } from './settingsItemRow'
@@ -31,6 +32,7 @@ export const SettingsFieldRow = <T, K>({
   onLabelChange
 }: Props<T, K>) => {
   const { t } = useTranslation()
+  const rowDisabled = useLiviStore((s) => isNodeDisabled(node, s.system))
   const label = node.labelKey ? t(node.labelKey, node.label) : node.label
 
   if (node.type === 'posList') {
@@ -49,8 +51,6 @@ export const SettingsFieldRow = <T, K>({
   }
 
   if (onClick) {
-    // A disabled node keeps its row (the value stays visible) but loses the navigation.
-    const rowDisabled = 'disabled' in node && node.disabled === true
     return (
       <StackItem
         withForwardIcon

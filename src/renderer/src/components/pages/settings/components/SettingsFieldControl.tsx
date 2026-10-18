@@ -2,11 +2,12 @@ import VolumeOffRounded from '@mui/icons-material/VolumeOffRounded'
 import { Slider, Switch, TextField } from '@mui/material'
 import { SettingsNode } from '@renderer/routes'
 import type { SelectOption } from '@renderer/routes/types'
-import { useLiviStore } from '@renderer/store/store'
+import { coreAction, useLiviStore } from '@renderer/store/store'
 import type { Config } from '@shared/types'
 import { isHttpUrlInput } from '@shared/utils'
 import { useEffect, useRef, useState } from 'react'
 import { useTranslation } from 'react-i18next'
+import { isNodeDisabled } from '../utils'
 import { ColorPickerControl } from './colorPicker/ColorPickerControl'
 import { extractBtMac, withGhostOption } from './ghostOption'
 import NumberSpinner from './numberSpinner/numberSpinner'
@@ -98,11 +99,7 @@ function VolumeSlider<T>({ value, onChange }: { value: T; onChange: (v: T) => vo
   )
 }
 
-//text field that commits on blur/Enter, NOT per keystroke - a per-keystroke
-//onChange writes the whole config each time (saveSettings), which thrashes the
-//store and, on the slow kiosk, races the controlled value into duplicated
-//characters. Local draft keeps typing smooth; the parent only sees the final
-//value. `format: 'url'` blocks the commit until the value is a valid URL.
+// Each commit writes the whole config, so typing only changes the draft.
 function StringField({
   value,
   minLength,
@@ -119,7 +116,6 @@ function StringField({
   const [draft, setDraft] = useState(value)
   const focused = useRef(false)
 
-  //follow external changes only while the user is not editing
   useEffect(() => {
     if (!focused.current) setDraft(value)
   }, [value])
@@ -130,7 +126,7 @@ function StringField({
 
   const commit = () => {
     focused.current = false
-    if (invalid) return //keep the draft visible with its error, do not write
+    if (invalid) return
     const next = isUrl ? draft.trim() : draft
     if (next !== value) onCommit(next)
   }
@@ -172,6 +168,8 @@ export const SettingsFieldControl = <T,>({
   onLabelChange,
   onDone
 }: Props<T>) => {
+  const disabled = useLiviStore((s) => isNodeDisabled(node, s.system))
+  const settings = useLiviStore((s) => s.settings)
   switch (node.type) {
     case 'string':
       return (
@@ -185,23 +183,32 @@ export const SettingsFieldControl = <T,>({
       )
 
     case 'number': {
-      const min = node.min ?? 0
-      const max = node.max ?? Number.MAX_SAFE_INTEGER
-      const step = node.step ?? 1
+      const stored = typeof value === 'number' && Number.isFinite(value) ? value : 0
+      const unit = node.unit?.(settings)
+      const step = unit?.step ?? node.step ?? 1
+      let min = node.min ?? 0
+      let max = node.max ?? Number.MAX_SAFE_INTEGER
+      if (unit) {
+        // Whole steps in the unit, so the spinner does not walk 37, 47, 57.
+        min = Math.ceil((min * unit.factor) / step) * step
+        max = Math.min(
+          Math.floor((max * unit.factor) / step) * step,
+          unit.max ?? Number.POSITIVE_INFINITY
+        )
+      }
 
       return (
         <NumberSpinner
           size="medium"
-          value={typeof value === 'number' && Number.isFinite(value) ? value : 0}
+          value={unit ? Math.min(max, Math.round((stored * unit.factor) / step) * step) : stored}
           min={min}
           max={max}
           step={step}
-          // Committed, not per keystroke
           onValueCommitted={(v) => {
             if (typeof v !== 'number' || !Number.isFinite(v)) return
 
             const next = clampInt(v, min, max, step)
-            onChange(next as T)
+            onChange((unit ? Math.round(next / unit.factor) : next) as T)
           }}
         />
       )
@@ -211,7 +218,7 @@ export const SettingsFieldControl = <T,>({
       return (
         <Switch
           checked={Boolean(value)}
-          disabled={node.disabled === true}
+          disabled={disabled}
           onChange={(_, v) => onChange(v as T)}
         />
       )
@@ -258,6 +265,7 @@ function DynamicSelect({
 }: DynamicSelectProps) {
   const { t } = useTranslation()
   const audioDevicesRevision = useLiviStore((s) => s.audioDevicesRevision)
+  const readOnly = useLiviStore((s) => node.readOnly?.(s.system) === true)
   const [options, setOptions] = useState<SelectOption[]>(
     () => getCachedOptions(node) ?? node.options
   )
@@ -268,7 +276,7 @@ function DynamicSelect({
     void resolveOptions(node, { force: true }).then((opts) => {
       if (!alive) return
       setOptions(opts)
-      // Migrate stored id to live id when MAC matches but profile suffix changed
+      // A device keeps its MAC, but the profile suffix of its id can change.
       const valueMac = extractBtMac(value)
       if (valueMac) {
         const liveMatch = opts.find(
@@ -297,16 +305,10 @@ function DynamicSelect({
     onChange(next)
     node.onPick?.(next)
 
-    // Offline BT entry → trigger BlueZ Connect
     const pickedOption = renderedOptions.find((o) => o.value === next)
     if (pickedOption?.offline && typeof next === 'string') {
       const mac = extractBtMac(next)
-      if (mac) {
-        const ipc = window.projection?.ipc
-        if (ipc && typeof ipc.connectBluetoothPairedDevice === 'function') {
-          void ipc.connectBluetoothPairedDevice(mac).catch(() => {})
-        }
-      }
+      if (mac) void coreAction({ kind: 'connectDevice', id: mac }).catch(() => {})
     }
 
     if (!onLabelChange) return
@@ -325,7 +327,6 @@ function DynamicSelect({
 
   const selectedValue = inList ? value : ''
 
-  // Flat list instead of a dropdown: one tap selects, selected row gets a dot marker, then close.
   return (
     <>
       {renderedOptions.map((o) => (
@@ -333,6 +334,7 @@ function DynamicSelect({
           key={String(o.value)}
           label={labelFor(o)}
           selected={o.value === selectedValue}
+          disabled={readOnly}
           onClick={() => {
             handlePick(o.value)
             onDone?.()

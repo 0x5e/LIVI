@@ -5,7 +5,7 @@ import { DashFrame } from '../DashFrame'
 
 const useVehicleTelemetryMock = vi.fn()
 const setClusterDashActive = vi.fn()
-let carType: unknown
+let settings: Record<string, unknown> | undefined
 
 vi.mock('../../../hooks/useVehicleTelemetry', () => ({
   useVehicleTelemetry: () => useVehicleTelemetryMock()
@@ -16,20 +16,36 @@ vi.mock('../../../components/DashShell', () => ({
 }))
 
 vi.mock('@store/store', () => ({
-  useLiviStore: (selector: (s: { settings: { carType: unknown } }) => unknown) =>
-    selector({ settings: { carType } }),
+  useLiviStore: (selector: (s: { settings: unknown }) => unknown) => selector({ settings }),
   useStatusStore: (selector: (s: { setClusterDashActive: unknown }) => unknown) =>
     selector({ setClusterDashActive })
 }))
 
 vi.mock('../../../widgets', () => ({
-  GaugeArc: ({ value, shadow }: { value: number; shadow?: boolean }) => (
-    <div>{`Gauge:${value}:${shadow}`}</div>
+  GaugeArc: ({
+    value,
+    shadow,
+    scaleMax,
+    redline,
+    labels
+  }: {
+    value: number
+    shadow?: boolean
+    scaleMax: number
+    redline?: number
+    labels: string[]
+  }) => (
+    <div
+      data-scale={`${scaleMax}:${redline}:${labels.join(',')}`}
+    >{`Gauge:${value}:${shadow}`}</div>
   ),
+  labelOverflow: (gauge: { labels: string[] }) => (gauge.labels.length > 10 ? 12 : 0),
   FuelGauge: ({ level, mode }: { level: number; mode: string }) => (
     <div>{`Fuel:${mode}:${level}`}</div>
   ),
-  TempGauge: ({ value }: { value: number }) => <div>{`Temp:${value}`}</div>,
+  TempGauge: ({ value, unit }: { value: number; unit: string }) => (
+    <div>{`Temp:${value}:${unit}`}</div>
+  ),
   SoftReadout: ({
     value,
     label,
@@ -60,13 +76,13 @@ vi.mock('../../../widgets', () => ({
 describe('DashFrame', () => {
   beforeEach(() => {
     vi.clearAllMocks()
-    carType = undefined
+    settings = { carType: undefined }
 
     useVehicleTelemetryMock.mockReturnValue({ telemetry: {} })
   })
 
   test('renders the full-cluster frame and toggles the cluster-dash flag', () => {
-    carType = CarType.Electric
+    settings = { carType: CarType.Electric }
     useVehicleTelemetryMock.mockReturnValue({
       telemetry: {
         speedKph: 88,
@@ -104,6 +120,44 @@ describe('DashFrame', () => {
     expect(screen.getByText('Soft:KPH:0:undefined')).toBeInTheDocument()
     expect(screen.getAllByText('Gauge:0:undefined')).toHaveLength(2)
     expect(screen.getByText('Telltale:none:false:false:false:false:undefined')).toBeInTheDocument()
+  })
+
+  test('without settings the scales keep their defaults', () => {
+    settings = undefined
+    const { container } = render(<DashFrame />)
+
+    const scales = Array.from(container.querySelectorAll('[data-scale]')).map((g) =>
+      g.getAttribute('data-scale')
+    )
+    expect(scales).toEqual(['200:undefined:0,40,80,120,160,200', '5000:4500:0,1,2,3,4,5'])
+    expect(screen.getByText('Temp:0:celsius')).toBeInTheDocument()
+  })
+
+  test('shows the car in its own units and limits', () => {
+    settings = {
+      speedUnit: 'mph',
+      temperatureUnit: 'fahrenheit',
+      maxSpeedKph: 260,
+      speedScaleStep: 10,
+      maxRpm: 8000,
+      redlineRpm: 6500
+    }
+    useVehicleTelemetryMock.mockReturnValue({ telemetry: { speedKph: 100, oilC: 90 } })
+    const { container } = render(<DashFrame />)
+
+    expect(screen.getByText('Soft:MPH:62:undefined')).toBeInTheDocument()
+    expect(screen.getByText('Temp:90:fahrenheit')).toBeInTheDocument()
+    const scales = Array.from(container.querySelectorAll('[data-scale]')).map((g) =>
+      g.getAttribute('data-scale')
+    )
+    expect(scales).toEqual([
+      '150:undefined:0,10,20,30,40,50,60,70,80,90,100,110,120,130,140,150',
+      '8000:6500:0,1,2,3,4,5,6,7,8'
+    ])
+    const shifts = Array.from(container.querySelectorAll('div'))
+      .map((d) => window.getComputedStyle(d).transform)
+      .filter((t) => t.endsWith('px)'))
+    expect(shifts).toEqual(['translateX(12px)', 'translateX(-12px)'])
   })
 
   test('forwards a right turn signal', () => {

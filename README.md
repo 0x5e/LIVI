@@ -285,9 +285,9 @@ After this, the app will launch normally and future updates will work without ad
 Make sure the following packages and tools are installed on your system before building. The lists below cover both building and running, including everything native CarPlay needs:
 
 - **Node.js 24.x** (with `corepack` for `pnpm`)
-- **Rust** (stable, ≥ 1.88 — via [rustup](https://rustup.rs)): builds everything native — `livi-helperd`, `livi-compositor`, and the addons `livi-crypto`, `livi-gst-video` and `livi-gst-host`.
+- **Rust** (via [rustup](https://rustup.rs), which installs the version pinned in `rust-toolchain.toml`): builds everything native, that is `livi-helperd`, `livi-compositor` and `livi-gst-host`.
 - **build-essential** (Linux: includes `gcc`, `g++`, `make`, etc.)
-- **libgstreamer1.0-dev** + **libgstreamer-plugins-base1.0-dev** (required to build the `livi-gst-video` addon and the `livi-gst-host` binary)
+- **libgstreamer1.0-dev** + **libgstreamer-plugins-base1.0-dev** (required to build the `livi-gst-host` binary)
 - **pkg-config**, **cmake** (AWS-LC build), **libwayland-dev** + **libxkbcommon-dev** (Linux only: the embedded Wayland compositor links both)
 - runtime packages for native CarPlay and wireless Android Auto: **bluez**, **libspa-0.2-bluetooth**, **hostapd**, **dnsmasq-base**, **iw**, **rfkill**, **avahi-daemon**, **avahi-utils**, **pulseaudio-utils**
 
@@ -327,12 +327,7 @@ curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs | sh -s -- -y
 
 Fedora has no `rfkill` package, the command comes with `util-linux`. `libspa-0.2-bluetooth` is a Debian name too: it holds PipeWire's Bluetooth plugin, which Fedora ships inside `pipewire-libs`. Wireless Android Auto needs that plugin because the phone will only start a session over an HFP connection, and PipeWire is what puts HFP into the adapter's service record. LIVI's package check probes for the plugin's directory rather than a package name, so it reports the gap on any distro. Everything else, including wireless CarPlay, works the same.
 
-On macOS, the `livi-gst-video` addon links against the **GStreamer.framework**. Install
-both the runtime and development packages (matching versions) from
-[gstreamer.freedesktop.org](https://gstreamer.freedesktop.org/download/#macos)
-before building. The cargo build discovers it via `pkg-config` under
-`/Library/Frameworks/GStreamer.framework`; besides that, macOS needs only
-Node.js, pnpm and Rust.
+On macOS, building needs only Node.js, pnpm and Rust.
 
 ### Clone & Build
 

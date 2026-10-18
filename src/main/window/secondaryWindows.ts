@@ -1,5 +1,4 @@
 import { EventEmitter } from 'node:events'
-import { COMPOSITOR_TITLEBAR_H } from '@main/app/compositorLayout'
 import {
   DEFAULT_HEIGHT,
   DEFAULT_WIDTH,
@@ -8,23 +7,20 @@ import {
   MIN_HEIGHT,
   MIN_WIDTH
 } from '@main/constants'
-import { configEvents, saveSettings } from '@main/ipc/utils'
-import { backdropHex, setCompositorScreen, setMacBackdrop } from '@main/services/video/GstVideo'
+import { saveConfig } from '@main/core'
 import { runtimeStateProps } from '@main/types'
 import { isDev } from '@main/utils'
+import { drawVideoIn } from '@main/video'
+import { configEvents } from '@main/window/applyConfig'
 import type { Config, WindowBounds } from '@shared/types'
 import { BrowserWindow, shell } from 'electron'
 import { join } from 'path'
 import { sanitizeBounds } from './utils'
 
-// Inside livi-compositor the host window is the compositor's own output (titled by role);
-// the Electron title only tells the compositor which screen this window belongs to.
+// In livi-compositor the window title tells the compositor which screen the window is for.
 const inCompositor = process.env.LIVI_COMPOSITOR === '1'
 
-// Fires 'ready' with the role once a secondary window has loaded, so listeners
-// can attach content that needs a live webContents (e.g. cluster planes).
 export const secondaryWindowEvents = new EventEmitter()
-// one 'ready' listener per ProjectionService instance
 secondaryWindowEvents.setMaxListeners(0)
 
 export type SecondaryWindowRole = 'dash' | 'aux'
@@ -60,8 +56,7 @@ const SPECS: SecondaryWindowSpec[] = [
 const windows = new Map<SecondaryWindowRole, BrowserWindow>()
 const boundsTimers = new Map<SecondaryWindowRole, NodeJS.Timeout>()
 
-// A size out of range reaches this from a hand-edited config as easily as from the
-// UI, so the window geometry is bounded here regardless of where the value came from.
+// A hand-edited config can hold any size, so the window geometry is bounded here.
 function clampSize(v: unknown, fallback: number, min: number, max: number): number {
   const n = Math.round(Number(v))
   if (!Number.isFinite(n) || n <= 0) return fallback
@@ -95,7 +90,7 @@ function readBounds(cfg: Config, spec: SecondaryWindowSpec): WindowBounds | unde
 }
 
 function persistBounds(spec: SecondaryWindowSpec, runtimeState: runtimeStateProps) {
-  // In the compositor the host window's geometry is WM-managed
+  // The compositor manages the window geometry.
   if (inCompositor) return
   const win = windows.get(spec.role)
   if (!win || win.isDestroyed()) return
@@ -113,7 +108,7 @@ function persistBounds(spec: SecondaryWindowSpec, runtimeState: runtimeStateProp
   ) {
     return
   }
-  saveSettings(runtimeState, { [spec.boundsKey]: next } as Partial<Config>)
+  saveConfig({ [spec.boundsKey]: next } as Partial<Config>)
 }
 
 function scheduleBoundsSave(spec: SecondaryWindowSpec, runtimeState: runtimeStateProps) {
@@ -163,7 +158,7 @@ function spawn(spec: SecondaryWindowSpec, runtimeState: runtimeStateProps) {
   if (wantKiosk) {
     win.once('ready-to-show', () => {
       if (win.isDestroyed()) return
-      // In the compositor, fullscreen the HOST output via xdg set_fullscreen
+      // In the compositor this fullscreens the host output.
       if (process.platform === 'darwin' || inCompositor) win.setFullScreen(true)
       else win.setKiosk(true)
     })
@@ -191,18 +186,8 @@ function spawn(spec: SecondaryWindowSpec, runtimeState: runtimeStateProps) {
   win.on('resized', onMoveResize)
   win.once('ready-to-show', () => scheduleBoundsSave(spec, runtimeState))
 
-  // The window is spawned lazily, the global applyBackdrop loop misses it before its
-  // content view is realized. Paint the backdrop once the window is ready.
-  win.once('ready-to-show', () => {
-    if (win.isDestroyed()) return
-    const cfg = runtimeState.config
-    setMacBackdrop(
-      win,
-      backdropHex(cfg.darkMode, cfg.backgroundColorDark, cfg.backgroundColorLight)
-    )
-  })
-
   win.on('closed', () => {
+    drawVideoIn(spec.role, null)
     windows.delete(spec.role)
     const t = boundsTimers.get(spec.role)
     if (t) {
@@ -211,11 +196,12 @@ function spawn(spec: SecondaryWindowSpec, runtimeState: runtimeStateProps) {
     }
     if (runtimeState.isQuitting) return
     if (runtimeState.config[spec.activeKey] === true) {
-      saveSettings(runtimeState, { [spec.activeKey]: false } as Partial<Config>)
+      saveConfig({ [spec.activeKey]: false } as Partial<Config>)
     }
   })
 
   windows.set(spec.role, win)
+  drawVideoIn(spec.role, win)
   win.webContents.once?.('did-finish-load', () => secondaryWindowEvents.emit('ready', spec.role))
 }
 
@@ -257,26 +243,12 @@ export function syncSecondaryWindows(runtimeState: runtimeStateProps, prev?: Con
       (prev[spec.widthKey] !== cfg[spec.widthKey] || prev[spec.heightKey] !== cfg[spec.heightKey])
     const kioskChanged = prev && (prev.kiosk?.[spec.role] === true) !== getKioskFor(cfg, spec.role)
 
-    const { w, h } = getSize(cfg, spec)
-    const outH = getKioskFor(cfg, spec.role) ? h : h + COMPOSITOR_TITLEBAR_H
-
-    if (!prev || prev[spec.activeKey] !== cfg[spec.activeKey]) {
-      setCompositorScreen(spec.role, wantActive, w, outH)
-    }
-
     if (wantActive && !windows.has(spec.role)) {
       spawn(spec, runtimeState)
     } else if (!wantActive && windows.has(spec.role)) {
       close(spec.role)
     } else if (wantActive) {
-      if (sizeChanged) {
-        resize(spec, runtimeState)
-
-        if (inCompositor) {
-          setCompositorScreen(spec.role, false)
-          setCompositorScreen(spec.role, true, w, outH)
-        }
-      }
+      if (sizeChanged) resize(spec, runtimeState)
       if (kioskChanged) applyKiosk(spec, runtimeState)
     }
   }

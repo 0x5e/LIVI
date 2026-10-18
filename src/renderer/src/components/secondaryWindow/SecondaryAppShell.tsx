@@ -5,8 +5,7 @@ import { isClusterOnScreen } from '@shared/utils'
 import { useEffect, useRef } from 'react'
 import { MemoryRouter, Route, Routes } from 'react-router'
 import type { BindKey } from '../../hooks/keysControl/types'
-import { useFftPcm } from '../../hooks/useFftPcm'
-import { useLiviStore, useStatusStore } from '../../store/store'
+import { reportShown, sendInput, useLiviStore, useStatusStore } from '../../store/store'
 import { broadcastMediaKey } from '../../utils/broadcastMediaKey'
 import { AppLayout } from '../layouts/AppLayout'
 import { Camera } from '../pages/camera'
@@ -78,9 +77,11 @@ const SecondaryShellInner = ({ role }: InnerProps) => {
   const clusterDashActive = useStatusStore((s) => s.clusterDashActive)
   const hasClusterDash = isClusterOnScreen(settings, role)
 
-  useFftPcm()
+  // Core puts the cluster plane on this screen while a cluster dash shows
+  useEffect(() => {
+    reportShown(role, clusterDashActive ? 'cluster' : 'livi')
+  }, [role, clusterDashActive])
 
-  // Receive media-key broadcasts from main so this window's Media UI also flashes.
   useEffect(() => {
     return window.app?.onMediaKey?.((command) => {
       window.dispatchEvent(new CustomEvent('car-media-key', { detail: { command } }))
@@ -96,21 +97,18 @@ const SecondaryShellInner = ({ role }: InnerProps) => {
       if (typeof code === 'string' && code) codeToAction.set(code, action as BindKey)
     }
 
-    let pttPressed = false
+    let pttCode: string | null = null
 
-    const dispatch = (cmd: string) => {
-      try {
-        window.projection.ipc.sendCommand(cmd)
-      } catch (e) {
-        console.warn('[secondary keys] sendCommand failed', e)
-      }
-      broadcastMediaKey(cmd)
+    const dispatch = (code: string, down: boolean, action: string) => {
+      sendInput({ kind: 'key', code, down })
+      broadcastMediaKey(action)
     }
 
     const releasePtt = () => {
-      if (!pttPressed) return
-      pttPressed = false
-      dispatch('voiceAssistantRelease')
+      if (pttCode === null) return
+      const code = pttCode
+      pttCode = null
+      dispatch(code, false, 'voiceAssistantRelease')
     }
 
     const onKeyDown = (e: KeyboardEvent) => {
@@ -122,14 +120,14 @@ const SecondaryShellInner = ({ role }: InnerProps) => {
           e.preventDefault()
           return
         }
-        pttPressed = true
-        dispatch('voiceAssistant')
+        pttCode = e.code
+        dispatch(e.code, true, 'voiceAssistant')
         e.preventDefault()
         return
       }
 
       if (TRANSPORT_ACTIONS.includes(action)) {
-        dispatch(action)
+        dispatch(e.code, true, action)
         e.preventDefault()
       }
     }
@@ -165,7 +163,7 @@ const SecondaryShellInner = ({ role }: InnerProps) => {
       )}
       <Routes>
         <Route path={ROUTES.TELEMETRY} element={<Telemetry windowRole={role} />} />
-        <Route path={ROUTES.MEDIA} element={<Media forceHydrate />} />
+        <Route path={ROUTES.MEDIA} element={<Media />} />
         <Route path={ROUTES.CAMERA} element={<Camera />} />
         <Route path="*" element={null} />
       </Routes>

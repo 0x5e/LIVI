@@ -1,8 +1,11 @@
 /** Live view of the connected GNSS receiver, fed by the telemetry store. */
 
+import { speedIn, speedSuffix } from '@renderer/utils/units'
 import { SettingsValueRow } from '@settings/components'
+import { DEFAULT_CONFIG } from '@shared/types'
 import type { GnssConstellation, GnssInfo, GnssSatellite } from '@shared/types/Gnss'
 import type { GpsPayload } from '@shared/types/Telemetry'
+import { useLiviStore } from '@store/store'
 import { useMemo } from 'react'
 import { useTranslation } from 'react-i18next'
 import { useVehicleTelemetry } from '../../../../telemetry/hooks/useVehicleTelemetry'
@@ -101,6 +104,7 @@ type Row = { label: string; value: string; mono?: boolean }
 export const GpsInfo = () => {
   const { t } = useTranslation()
   const { telemetry } = useVehicleTelemetry()
+  const speedUnit = useLiviStore((s) => s.settings?.speedUnit ?? DEFAULT_CONFIG.speedUnit)
 
   const gnss = telemetry?.gnss as GnssInfo | undefined
   const fix = telemetry?.gps as GpsPayload | undefined
@@ -177,13 +181,13 @@ export const GpsInfo = () => {
     if (fix?.speedMs !== undefined) {
       out.push({
         label: t('settings.gpsSpeed'),
-        value: `${(fix.speedMs * 3.6).toFixed(1)} km/h`,
+        value: `${speedIn(fix.speedMs * 3.6, speedUnit).toFixed(1)} ${speedSuffix(speedUnit)}`,
         mono: true
       })
     }
 
     return out
-  }, [gnss, fix, t])
+  }, [gnss, fix, t, speedUnit])
 
   if (rows.length === 0) {
     return <SettingsValueRow label={t('settings.gpsStatus')} value={t('settings.gpsDisabled')} />

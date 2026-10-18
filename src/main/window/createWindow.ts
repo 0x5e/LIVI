@@ -1,7 +1,8 @@
-import { saveSettings } from '@main/ipc/utils'
+import { saveConfig } from '@main/core'
 import { customProxy } from '@main/services/custom/CustomProxy'
-import { runtimeStateProps, ServicesProps } from '@main/types'
-import { isDev, isMacPlatform, pushSettingsToRenderer } from '@main/utils'
+import { runtimeStateProps } from '@main/types'
+import { isDev, isMacPlatform } from '@main/utils'
+import { drawVideoIn } from '@main/video'
 import type { WindowBounds } from '@shared/types'
 import { app, BrowserWindow, screen, session, shell } from 'electron'
 import { join } from 'path'
@@ -11,8 +12,7 @@ import {
   applyWindowedContentSize,
   attachKioskStateSync,
   attachResizeReflow,
-  currentKiosk,
-  persistKioskAndBroadcast,
+  persistKiosk,
   sanitizeBounds,
   uiZoomFactor
 } from './utils'
@@ -34,9 +34,10 @@ function readMainBounds(rs: runtimeStateProps): WindowBounds | undefined {
   return undefined
 }
 
-export function createMainWindow(runtimeState: runtimeStateProps, services: ServicesProps) {
-  const { projectionService } = services
+export function createMainWindow(runtimeState: runtimeStateProps) {
   const isMac = isMacPlatform()
+  // A checkout started by core runs the built UI, the dev tools belong to the Vite server.
+  const devServer = isDev() ? process.env.ELECTRON_RENDERER_URL : undefined
   const compositorMode = process.env.LIVI_COMPOSITOR === '1'
   const transparentWindow = compositorMode || isMac
 
@@ -67,7 +68,10 @@ export function createMainWindow(runtimeState: runtimeStateProps, services: Serv
     }
   })
 
-  // Re-apply bounds after the compositor shows the window.
+  drawVideoIn('main', mainWindow)
+  mainWindow.on('closed', () => drawVideoIn('main', null))
+
+  // The window manager may move the window when it first shows it.
   if (savedBounds) {
     mainWindow.once('ready-to-show', () => {
       if (!mainWindow || mainWindow.isDestroyed()) return
@@ -80,7 +84,6 @@ export function createMainWindow(runtimeState: runtimeStateProps, services: Serv
     })
   }
 
-  // Persist last-known geometry on move/resize
   let boundsTimer: NodeJS.Timeout | null = null
   const persistMainBounds = () => {
     if (!mainWindow || mainWindow.isDestroyed()) return
@@ -88,9 +91,7 @@ export function createMainWindow(runtimeState: runtimeStateProps, services: Serv
     try {
       if (mainWindow.isFullScreen()) return
       if (typeof mainWindow.isKiosk === 'function' && mainWindow.isKiosk()) return
-    } catch {
-      // mock / shim
-    }
+    } catch {}
     if (typeof mainWindow.getPosition !== 'function') return
     if (typeof mainWindow.getContentSize !== 'function') return
     const [x, y] = mainWindow.getPosition()
@@ -106,7 +107,7 @@ export function createMainWindow(runtimeState: runtimeStateProps, services: Serv
     ) {
       return
     }
-    saveSettings(runtimeState, { mainScreenBounds: next })
+    saveConfig({ mainScreenBounds: next })
   }
   const scheduleMainBoundsSave = () => {
     if (boundsTimer) clearTimeout(boundsTimer)
@@ -120,7 +121,6 @@ export function createMainWindow(runtimeState: runtimeStateProps, services: Serv
   mainWindow.on('resize', scheduleMainBoundsSave)
   mainWindow.on('resized', scheduleMainBoundsSave)
 
-  // keep in sync with WM
   attachKioskStateSync(runtimeState)
   attachResizeReflow()
 
@@ -150,11 +150,10 @@ export function createMainWindow(runtimeState: runtimeStateProps, services: Serv
     const baseW = savedBounds?.width || runtimeState.config.mainScreenWidth || 1200
     const baseH = savedBounds?.height || runtimeState.config.mainScreenHeight || 720
 
-    // In compositor mode the compositor owns the size (tiled toplevel); else start windowed.
+    // In compositor mode the compositor owns the size.
     if (!compositorMode) applyWindowedContentSize(win, baseW, baseH)
     win.show()
 
-    // Snapshot the geometry
     scheduleMainBoundsSave()
 
     const forceKiosk = process.env.LIVI_KIOSK === '1'
@@ -182,10 +181,8 @@ export function createMainWindow(runtimeState: runtimeStateProps, services: Serv
       }
 
       if (compositorMode) {
-        // The nested compositor only learns the monitor size once the host fullscreens
-        // the output. Going fullscreen at ready-to-show is too early: the output/host
-        // handshake hasn't settled, so the UI ends up sized to the windowed mode inside
-        // the fullscreen window. Defer a beat so the output is established first.
+        // The nested compositor learns the monitor size only after the host fullscreens the
+        // output. Going fullscreen at ready-to-show leaves the UI at the windowed size.
         setTimeout(goFullscreen, 400)
       } else {
         setImmediate(goFullscreen)
@@ -196,15 +193,9 @@ export function createMainWindow(runtimeState: runtimeStateProps, services: Serv
       uiZoomFactor(runtimeState.config.uiZoomPercent, win.getContentSize()[1])
     )
 
-    pushSettingsToRenderer(runtimeState, {
-      kiosk: { ...runtimeState.config.kiosk, main: currentKiosk(runtimeState.config) }
-    })
-
-    if (isDev()) {
+    if (devServer) {
       win.webContents.openDevTools({ mode: 'detach' })
     }
-
-    projectionService.attachRenderer(win.webContents)
   })
 
   if (isMac) {
@@ -215,7 +206,7 @@ export function createMainWindow(runtimeState: runtimeStateProps, services: Serv
         runtimeState.config.mainScreenWidth || 800,
         runtimeState.config.mainScreenHeight || 480
       )
-      persistKioskAndBroadcast(true, runtimeState)
+      persistKiosk(true, runtimeState)
     })
 
     mainWindow.on('leave-full-screen', () => {
@@ -228,7 +219,7 @@ export function createMainWindow(runtimeState: runtimeStateProps, services: Serv
         runtimeState.config.mainScreenWidth || 800,
         runtimeState.config.mainScreenHeight || 480
       )
-      persistKioskAndBroadcast(false, runtimeState)
+      persistKiosk(false, runtimeState)
     })
   }
 
@@ -241,8 +232,8 @@ export function createMainWindow(runtimeState: runtimeStateProps, services: Serv
     return { action: 'deny' }
   })
 
-  if (isDev() && process.env.ELECTRON_RENDERER_URL) {
-    mainWindow.loadURL(process.env.ELECTRON_RENDERER_URL)
+  if (devServer) {
+    mainWindow.loadURL(devServer)
   } else mainWindow.loadURL('app://index.html')
 
   mainWindow.on('close', (e) => {
@@ -264,7 +255,7 @@ export function createMainWindow(runtimeState: runtimeStateProps, services: Serv
     }
   })
 
-  if (isDev()) {
+  if (devServer) {
     const gpuWindow = new BrowserWindow({
       width: 1000,
       height: 800,
@@ -274,7 +265,7 @@ export function createMainWindow(runtimeState: runtimeStateProps, services: Serv
     gpuWindow.loadURL('chrome://gpu')
   }
 
-  if (isDev()) {
+  if (devServer) {
     const mediaWindow = new BrowserWindow({
       width: 1000,
       height: 800,

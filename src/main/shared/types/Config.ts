@@ -6,8 +6,8 @@ export enum HandDriveType {
 export enum CarType {
   Unknown = 0,
   Gasoline = 1,
-  DieselWinter = 3, // US DIESEL_1 — low-temp / kerosene-blend diesel
-  Diesel = 4, // US DIESEL_2 — regular pump diesel
+  DieselWinter = 3, // US DIESEL_1, low-temperature or kerosene-blend diesel
+  Diesel = 4, // US DIESEL_2, regular pump diesel
   Biodiesel = 5,
   E85 = 6,
   LPG = 7,
@@ -58,8 +58,9 @@ export type LastKnownGps = {
 
 export type AppearanceMode = 'auto' | 'night' | 'day'
 
-/** carName is the Wi-Fi AP, Bluetooth and head-unit name, so it stays short. */
-export const CAR_NAME_MAX = 20
+export type SpeedUnit = 'kmh' | 'mph'
+
+export type TemperatureUnit = 'celsius' | 'fahrenheit'
 
 /** WPA passphrase bounds. */
 export const WIFI_PASSWORD_MIN = 8
@@ -73,19 +74,16 @@ export type WindowBounds = {
 }
 
 export type Config = {
-  // Logging
   debugLogging: boolean
 
-  // Wireless protocols
   wirelessAaEnabled: boolean
   wirelessCpEnabled: boolean
 
-  // Wi-Fi + Bluetooth
   wifiPassword: string
   btAdapter: string
   wifiInterface: string
   wifiDedicatedInterface: boolean
-  wifiType: '2.4ghz' | '5ghz'
+  wifiType: '2.4ghz' | '5ghz' | '6ghz'
   wifiChannel: number
   wifiChannelWidth: number
   country: string
@@ -97,7 +95,6 @@ export type Config = {
   carPlayMfiI2cBus: number
   carPlayMfiPowerGpio: number
 
-  // Serial GNSS receiver
   gpsEnabled: boolean
   gpsDevice: string
   gpsBaudRate: number
@@ -105,7 +102,6 @@ export type Config = {
   /** Last zone derived from a fix, applied at startup. */
   timezone: string
 
-  // Main stream
   projectionWidth: number
   projectionHeight: number
   projectionFps: number
@@ -122,7 +118,6 @@ export type Config = {
   projectionSafeAreaRight: number
   projectionSafeAreaDrawOutside: boolean
 
-  // Cluster stream
   clusterWidth: number
   clusterHeight: number
   clusterFps: number
@@ -138,21 +133,26 @@ export type Config = {
   clusterSafeAreaLeft: number
   clusterSafeAreaRight: number
 
-  // Phone session state
   lastConnectedAaBtMac?: string
 
-  // Theme / vehicle identity
   darkMode: boolean
+  overlayMessages: boolean
   displayBrightness: number
   displayBrightnessAuto: boolean
-  nightMode: boolean
   carName: string
   oemName: string
   hand: HandDriveType
   carType?: CarType
   evConnectorTypes?: EvConnectorType[]
+  maxSpeedKph: number
+  /** Speed between two numbered marks on the dash, in the unit shown. */
+  speedScaleStep: number
+  maxRpm: number
+  /** 0 for none. */
+  redlineRpm: number
+  speedUnit: SpeedUnit
+  temperatureUnit: TemperatureUnit
 
-  // Audio
   samplingFrequency: 0 | 1
   disableAudioOutput: boolean
   huVolume: number
@@ -168,11 +168,9 @@ export type Config = {
   audioInputDeviceLabel?: string
   visualAudioDelayMs: number
 
-  // Auto-connect + auto-switch
   autoConn: boolean
   autoSwitchOnReverse: boolean
 
-  // LIVI UI
   startPage: string
   language: string
   kiosk: WindowAssignment
@@ -189,7 +187,6 @@ export type Config = {
   displayColorG: number
   displayColorB: number
 
-  // Camera + dashboards + media slots
   cameraId: string
   camera: WindowAssignment
   cameraMirror: boolean
@@ -199,7 +196,6 @@ export type Config = {
   custom: WindowAssignment
   customUrl: string
 
-  // Multi-window bounds
   mainScreenBounds?: WindowBounds
   dashScreenBounds?: WindowBounds
   auxScreenBounds?: WindowBounds
@@ -214,7 +210,6 @@ export type Config = {
 
   lastKnownGps?: LastKnownGps
 
-  // Theme overrides
   primaryColorDark?: string
   primaryColorLight?: string
   highlightColorLight?: string
@@ -227,18 +222,16 @@ export type Config = {
   carplayIcon180?: string
   carplayIcon256?: string
 
-  // Take the rolling build of main instead of the latest release
+  // On follows the rolling build of main, off the latest release
   updateNightly: boolean
 
   // System packages the user chose not to be asked about again
   dismissedPackages: string[]
 
-  // Key bindings
   bindings: KeyBindings
 }
 
 export type KeyBindings = {
-  // D-PAD
   up: string
   down: string
   left: string
@@ -247,13 +240,11 @@ export type KeyBindings = {
   selectDown: string
   back: string
 
-  // Rotary Knob
   knobLeft: string
   knobRight: string
   knobUp: string
   knobDown: string
 
-  // Media Control
   home: string
   cycleSession: string
   playPause: string
@@ -262,7 +253,6 @@ export type KeyBindings = {
   next: string
   prev: string
 
-  // Phone
   acceptPhone: string
   rejectPhone: string
   phoneKey0: string
@@ -279,13 +269,11 @@ export type KeyBindings = {
   phoneKeyHash: string
   phoneKeyHookSwitch: string
 
-  // Voice
   voiceAssistant: string
   voiceAssistantRelease: string
 }
 
 export const DEFAULT_BINDINGS: KeyBindings = {
-  // D-PAD
   up: 'ArrowUp',
   down: 'ArrowDown',
   left: 'ArrowLeft',
@@ -294,13 +282,11 @@ export const DEFAULT_BINDINGS: KeyBindings = {
   selectDown: 'Enter',
   back: 'Backspace',
 
-  // Rotary Knob
   knobLeft: '',
   knobRight: '',
   knobUp: '',
   knobDown: '',
 
-  // Media Control
   home: 'KeyH',
   cycleSession: 'KeyS',
   playPause: 'KeyP',
@@ -309,7 +295,6 @@ export const DEFAULT_BINDINGS: KeyBindings = {
   next: 'KeyN',
   prev: 'KeyB',
 
-  // Phone
   acceptPhone: 'KeyA',
   rejectPhone: 'KeyR',
   phoneKey0: 'Digit0',
@@ -326,7 +311,6 @@ export const DEFAULT_BINDINGS: KeyBindings = {
   phoneKeyHash: '',
   phoneKeyHookSwitch: '',
 
-  // Voice / UI
   voiceAssistant: 'KeyV',
   voiceAssistantRelease: ''
 }

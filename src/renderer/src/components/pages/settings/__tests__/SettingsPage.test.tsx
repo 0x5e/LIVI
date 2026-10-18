@@ -8,8 +8,7 @@ const handleFieldChange = vi.fn()
 const restartMock = vi.fn()
 
 const statusState = {
-  isDongleHardwarePresent: true,
-  activeProtocol: null as 'carplay' | 'androidauto' | null
+  sessionsOpen: true
 }
 const liviState = {
   settings: { some: 'settings', wirelessAaEnabled: false } as Record<string, unknown>
@@ -34,8 +33,7 @@ vi.mock('react-i18next', () => ({
 vi.mock('@store/store', () => ({
   useStatusStore: (selector: (s: any) => unknown) => selector(statusState),
   useLiviStore: (selector: (s: any) => unknown) => selector(liviState),
-  useProjectionActive: () =>
-    statusState.isDongleHardwarePresent || statusState.activeProtocol !== null
+  useSessionsOpen: () => statusState.sessionsOpen
 }))
 
 vi.mock('../hooks/useSmartSettingsFromSchema', () => ({
@@ -120,8 +118,7 @@ describe('SettingsPage', () => {
     navigateMock.mockReset()
     restartMock.mockReset()
     handleFieldChange.mockReset()
-    statusState.isDongleHardwarePresent = true
-    statusState.activeProtocol = null
+    statusState.sessionsOpen = true
     liviState.settings = { some: 'settings', wirelessAaEnabled: false }
     smartState.needsRestart = false
   })
@@ -220,9 +217,8 @@ describe('SettingsPage', () => {
     expect(handleFieldChange).toHaveBeenCalledWith('cx', 'changed')
   })
 
-  test('handleRestart no-ops when neither dongle nor AA is connected', () => {
-    statusState.isDongleHardwarePresent = false
-    statusState.activeProtocol = null
+  test('handleRestart no-ops with no phone connected', () => {
+    statusState.sessionsOpen = false
     mockNode = { type: 'route', label: 'Audio', children: [] }
     render(<SettingsPage />)
     fireEvent.click(screen.getByTestId('restart'))
@@ -237,16 +233,6 @@ describe('SettingsPage', () => {
   })
 
   test('handleRestart calls restart() when needsRestart is true', () => {
-    smartState.needsRestart = true
-    mockNode = { type: 'route', label: 'Audio', children: [] }
-    render(<SettingsPage />)
-    fireEvent.click(screen.getByTestId('restart'))
-    expect(restartMock).toHaveBeenCalled()
-  })
-
-  test('AA-active alone is enough to enable restart', () => {
-    statusState.isDongleHardwarePresent = false
-    liviState.settings = { wirelessAaEnabled: true }
     smartState.needsRestart = true
     mockNode = { type: 'route', label: 'Audio', children: [] }
     render(<SettingsPage />)

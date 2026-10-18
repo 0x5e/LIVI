@@ -19,8 +19,7 @@ export default defineConfig({
         ...coverageConfigDefaults.exclude,
         'native/**',
         '**/*.d.ts',
-        '**/*.md',
-        'src/main/services/time/vendor/**'
+        '**/*.md'
       ]
     },
     projects: [
@@ -32,7 +31,6 @@ export default defineConfig({
             '@pkg': r('package.json'),
             '@settings': r('src/renderer/src/components/pages/settings'),
             '@renderer': r('src/renderer/src'),
-            '@worker': r('src/renderer/src/components/worker'),
             '@store': r('src/renderer/src/store'),
             '@utils': r('src/renderer/src/utils'),
             '@shared': r('src/main/shared'),
@@ -54,8 +52,6 @@ export default defineConfig({
         define,
         resolve: {
           alias: {
-            '@projection/messages': r('src/main/services/projection/messages'),
-            '@projection': r('src/main/services/projection'),
             '@main': r('src/main'),
             '@shared': r('src/main/shared')
           }
@@ -65,9 +61,7 @@ export default defineConfig({
           globals: true,
           environment: 'node',
           setupFiles: ['./vitest.main.setup.ts'],
-          include: ['src/main/**/*.test.ts', 'src/preload/**/*.test.ts'],
-          // import-heavy tests (ProjectionService module graph) can exceed the 5s default under load
-          testTimeout: 15000
+          include: ['src/main/**/*.test.ts', 'src/preload/**/*.test.ts']
         }
       }
     ]

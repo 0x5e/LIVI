@@ -1,63 +1,20 @@
-import type { Config, TransportSnapshot } from '@shared/types'
-import type { MultiTouchPoint } from '@shared/types/TouchTypes'
-import { contextBridge, IpcRendererEvent, ipcRenderer } from 'electron'
+import type { FromCore, ToCore } from '@shared/core/contract'
+import { CoreLink, coreSocketPath } from '@shared/core/link'
+import { contextBridge, ipcRenderer } from 'electron'
 
-type ApiCallback<TArgs extends unknown[] = unknown[]> = (
-  event: IpcRendererEvent,
-  ...args: TArgs
-) => void
-
-let usbEventQueue: Array<[IpcRendererEvent, ...unknown[]]> = []
-let usbEventHandlers: Array<ApiCallback> = []
-
-ipcRenderer.on('usb-event', (event, ...args: unknown[]) => {
-  if (usbEventHandlers.length) {
-    usbEventHandlers.forEach((h) => h(event, ...args))
-  } else {
-    usbEventQueue.push([event, ...args])
+// The renderer talks to core itself, Electron main only keeps the windows.
+contextBridge.exposeInMainWorld('core', {
+  connect: (client: string, onMessage: (msg: FromCore) => void, onClose?: () => void) => {
+    const link = new CoreLink({ path: coreSocketPath(), client, onMessage, onClose })
+    // A reload starts a new link, the old one must not linger.
+    ;(globalThis as unknown as EventTarget).addEventListener('pagehide', () => link.close())
+    return {
+      send: (msg: ToCore): boolean => link.send(msg),
+      close: (): void => link.close()
+    }
   }
 })
 
-type ChunkHandler = (payload: unknown) => void
-let audioChunkQueue: unknown[] = []
-let audioChunkHandler: ChunkHandler | null = null
-
-let lastClusterResolution: unknown = null
-let clusterResolutionHandlers: ChunkHandler[] = []
-
-type TelemetryHandler = (payload: unknown) => void
-let telemetryHandlers: TelemetryHandler[] = []
-
-let projectionEventQueue: Array<[IpcRendererEvent, ...unknown[]]> = []
-let projectionEventHandlers: Array<ApiCallback> = []
-
-ipcRenderer.on('projection-audio-chunk', (_event, payload: unknown) => {
-  if (audioChunkHandler) audioChunkHandler(payload)
-  else {
-    // a window that never shows the visualizer would buffer forever; keep it bounded
-    audioChunkQueue.push(payload)
-    if (audioChunkQueue.length > 32) audioChunkQueue.shift()
-  }
-})
-
-ipcRenderer.on('cluster-video-resolution', (_event, payload: unknown) => {
-  lastClusterResolution = payload
-  for (const h of clusterResolutionHandlers) h(payload)
-})
-
-ipcRenderer.on('telemetry:update', (_event, payload: unknown) => {
-  telemetryHandlers.forEach((handler) => handler(payload))
-})
-
-ipcRenderer.on('projection-event', (event, ...args: unknown[]) => {
-  if (projectionEventHandlers.length) {
-    projectionEventHandlers.forEach((handler) => handler(event, ...args))
-  } else {
-    projectionEventQueue.push([event, ...args])
-  }
-})
-
-// Main broadcasts media key events
 type MediaKeyHandler = (command: string) => void
 const mediaKeyHandlers: MediaKeyHandler[] = []
 let mediaKeyQueue: string[] = []
@@ -72,182 +29,23 @@ ipcRenderer.on('app:media-key', (_event, command: unknown) => {
 })
 
 const api = {
-  quit: (): Promise<void> => ipcRenderer.invoke('quit'),
-
-  usb: {
-    listenForEvents: (callback: ApiCallback): (() => void) => {
-      usbEventHandlers.push(callback)
-      usbEventQueue.forEach(([evt, ...args]) => callback(evt, ...args))
-      usbEventQueue = []
-      return () => {
-        usbEventHandlers = usbEventHandlers.filter((cb) => cb !== callback)
-      }
-    }
-  },
-
-  settings: {
-    get: (): Promise<Config> => ipcRenderer.invoke('getSettings'),
-    save: (settings: Partial<Config>): Promise<void> =>
-      ipcRenderer.invoke('save-settings', settings),
-    onUpdate: (callback: ApiCallback<[Config]>): (() => void) => {
-      const ch = 'settings'
-      ipcRenderer.on(ch, callback)
-      return () => ipcRenderer.removeListener(ch, callback)
-    },
-    // Live Wi-Fi link readout. The payload is null while no dongle/phone is on the air.
-    onLinkSpeed: (callback: ApiCallback): (() => void) => {
-      const ch = 'link-speed'
-      ipcRenderer.on(ch, callback)
-      return () => ipcRenderer.removeListener(ch, callback)
-    }
-  },
-
-  audio: {
-    listSinks: (): Promise<
-      Array<{ id: string; name: string; isDefault: boolean; offline?: boolean }>
-    > => ipcRenderer.invoke('audio:listSinks'),
-    listSources: (): Promise<
-      Array<{ id: string; name: string; isDefault: boolean; offline?: boolean }>
-    > => ipcRenderer.invoke('audio:listSources')
-  },
-
   ipc: {
-    start: (): Promise<void> => ipcRenderer.invoke('projection-start'),
-    stop: (): Promise<void> => ipcRenderer.invoke('projection-stop'),
-    restart: (): Promise<void> => ipcRenderer.invoke('projection-restart'),
-    setVisible: (visible: boolean): Promise<void> =>
-      ipcRenderer.invoke('projection-set-visible', visible),
-    sendFrame: (): Promise<void> => ipcRenderer.invoke('projection-sendframe'),
-    connectBluetoothPairedDevice: (mac: string): Promise<{ ok: boolean }> =>
-      ipcRenderer.invoke('projection-bt-connect-device', mac),
-    switchTransport: (): Promise<{ ok: boolean; active: 'aa' | 'cp' | null }> =>
-      ipcRenderer.invoke('transport:switch'),
-    getTransportState: (): Promise<TransportSnapshot> => ipcRenderer.invoke('transport:state'),
-    getDevices: (): Promise<
-      Array<{
-        id: string
-        name?: string
-        model?: string
-        protocol?: 'carplay' | 'androidauto'
-        lastTransport?: string
-        status: 'active' | 'available' | 'offline'
-        batteryLevel?: number
-        batteryCharging?: boolean
-        signalStrength?: number
-        carrierName?: string
-      }>
-    > => ipcRenderer.invoke('devices:list'),
-    selectDevice: (id: string): Promise<{ ok: boolean }> =>
-      ipcRenderer.invoke('devices:select', id),
-    cycleSession: (): Promise<void> => ipcRenderer.invoke('devices:cycle'),
-    forgetDevice: (id: string): Promise<{ ok: boolean }> =>
-      ipcRenderer.invoke('devices:forget', id),
-    sendTouch: (x: number, y: number, action: number): void =>
-      ipcRenderer.send('projection-touch', { x, y, action }),
-    sendMultiTouch: (points: MultiTouchPoint[]): void =>
-      ipcRenderer.send('projection-multi-touch', points),
-    sendCommand: (key: string): void => ipcRenderer.send('projection-command', key),
-    onEvent: (callback: ApiCallback): (() => void) => {
-      projectionEventHandlers.push(callback)
-      projectionEventQueue.forEach(([evt, ...args]) => callback(evt, ...args))
-      projectionEventQueue = []
-      return () => {
-        projectionEventHandlers = projectionEventHandlers.filter((cb) => cb !== callback)
-      }
-    },
-    readMedia: (): Promise<unknown> => ipcRenderer.invoke('projection-media-read'),
-    readNavigation: (): Promise<unknown> => ipcRenderer.invoke('projection-navigation-read'),
-    onAudioChunk: (handler: ChunkHandler): void => {
-      audioChunkHandler = handler
-      audioChunkQueue.forEach((chunk) => handler(chunk))
-      audioChunkQueue = []
-    },
-    offAudioChunk: (handler: ChunkHandler): void => {
-      if (audioChunkHandler === handler) {
-        audioChunkHandler = null
-      }
-    },
-    setVolume: (stream: 'music' | 'nav' | 'voiceAssistant' | 'call', volume: number): void => {
-      ipcRenderer.send('projection-set-volume', { stream, volume })
-    },
-    setVisualizerEnabled: (enabled: boolean): void => {
-      ipcRenderer.send('projection-set-visualizer-enabled', !!enabled)
-    },
-    requestCluster: (enabled: boolean): Promise<{ ok: boolean; enabled: boolean }> =>
-      ipcRenderer.invoke('cluster:request', enabled),
-    // macOS-only: nudge the window a pixel to force a surface repaint, clearing the
-    // transparent-window stale-paint that otherwise hides the cluster plane until a manual resize.
-    clusterRepaintNudge: (): Promise<{ ok: boolean }> =>
-      ipcRenderer.invoke('cluster:repaint-nudge'),
-    onClusterResolution: (handler: ChunkHandler): (() => void) => {
-      clusterResolutionHandlers.push(handler)
-      // replay the latest so a late subscriber immediately knows the stream is live
-      if (lastClusterResolution != null) handler(lastClusterResolution)
-      return () => {
-        clusterResolutionHandlers = clusterResolutionHandlers.filter((h) => h !== handler)
-      }
-    },
-    onTelemetry: (handler: (payload: unknown) => void): void => {
-      telemetryHandlers.push(handler)
-    },
-    offTelemetry: (handler: (payload: unknown) => void): void => {
-      telemetryHandlers = telemetryHandlers.filter((h) => h !== handler)
-    },
-    getTelemetrySnapshot: (): Promise<unknown> => ipcRenderer.invoke('telemetry:snapshot')
+    // macOS only. Nudges the window a pixel so a stale paint stops hiding the cluster plane.
+    clusterRepaintNudge: (): Promise<{ ok: boolean }> => ipcRenderer.invoke('cluster:repaint-nudge')
   }
 }
 
 contextBridge.exposeInMainWorld('projection', api)
 
-type UpdateEvent = { phase: string; message?: string }
-type UpdateProgress = { phase?: string; percent?: number; received?: number; total?: number }
-
 const appApi = {
   platform: process.platform,
   compositor: process.env.LIVI_COMPOSITOR === '1',
   getVersion: (): Promise<string> => ipcRenderer.invoke('app:getVersion'),
-  listDisplayModes: (): Promise<string[]> => ipcRenderer.invoke('app:listDisplayModes'),
-  listWifiChannels: (): Promise<number[]> => ipcRenderer.invoke('app:listWifiChannels'),
-  listWifiCountryCodes: (): Promise<string[]> => ipcRenderer.invoke('app:listWifiCountryCodes'),
-  listWifiInterfaces: (): Promise<string[]> => ipcRenderer.invoke('app:listWifiInterfaces'),
-  listBtAdapters: (): Promise<string[]> => ipcRenderer.invoke('app:listBtAdapters'),
-  dongleRadios: (): Promise<{ wifi: boolean | null; bt: boolean | null }> =>
-    ipcRenderer.invoke('app:dongleRadios'),
-  switchDongleRadio: (radio: 'wifi' | 'bt', on: boolean): Promise<void> =>
-    ipcRenderer.invoke('app:switchDongleRadio', radio, on),
-  getLatestRelease: (): Promise<{ version?: string; url?: string }> =>
-    ipcRenderer.invoke('app:getLatestRelease'),
-  performUpdate: (imageUrl?: string): Promise<void> =>
-    ipcRenderer.invoke('app:performUpdate', imageUrl),
-
-  onUpdateEvent: (cb: (payload: UpdateEvent) => void): (() => void) => {
-    const ch = 'update:event'
-    const handler = (_e: IpcRendererEvent, payload: UpdateEvent) => cb(payload)
-    ipcRenderer.on(ch, handler)
-    return () => ipcRenderer.removeListener(ch, handler)
-  },
-  onUpdateProgress: (cb: (payload: UpdateProgress) => void): (() => void) => {
-    const ch = 'update:progress'
-    const handler = (_e: IpcRendererEvent, payload: UpdateProgress) => cb(payload)
-    ipcRenderer.on(ch, handler)
-    return () => ipcRenderer.removeListener(ch, handler)
-  },
-
-  beginInstall: (): Promise<void> => ipcRenderer.invoke('app:beginInstall'),
-  abortUpdate: (): Promise<void> => ipcRenderer.invoke('app:abortUpdate'),
   customPageUrl: (): Promise<string | null> => ipcRenderer.invoke('app:customPageUrl'),
   customIconUrl: (): Promise<string | null> => ipcRenderer.invoke('app:customIconUrl'),
-  quitApp: (): Promise<void> => ipcRenderer.invoke('app:quitApp'),
-  restartApp: (): Promise<void> => ipcRenderer.invoke('app:restartApp'),
-  openExternal: (url: string): Promise<{ ok: boolean; error?: string }> =>
-    ipcRenderer.invoke('app:openExternal', url),
 
   notifyUserActivity: (): void => {
     ipcRenderer.send('app:user-activity')
-  },
-
-  reportPath: (path: string): void => {
-    ipcRenderer.send('ui:path', path)
   },
 
   broadcastMediaKey: (command: string): void => {

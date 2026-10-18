@@ -1,280 +1,478 @@
+import type { FromCore, State, ToCore } from '@shared/core/contract'
 import type { Config } from '@shared/types'
 import { act, renderHook } from '@testing-library/react'
-import type { Mock } from 'vitest'
 
-type ProjectionApiOverrides = {
-  settings?: {
-    get?: Mock | undefined
-    save?: Mock | undefined
-    onUpdate?: Mock | undefined
-  }
-  ipc?: {
-    setVolume?: Mock | undefined
-    sendCommand?: Mock | undefined
-    onTelemetry?: Mock | undefined
-    offTelemetry?: Mock | undefined
-  }
+type FakeCore = {
+  client?: string
+  onMessage?: (msg: FromCore) => void
+  onClose?: () => void
+  sent: ToCore[]
+  connected: boolean
+  connects: number
 }
 
-type TestProjectionApi = {
-  settings: {
-    get: Mock
-    save: Mock
-    onUpdate: Mock
-  }
-  ipc: {
-    setVolume: Mock | undefined
-    sendCommand: Mock | undefined
-    onTelemetry: Mock | undefined
-    offTelemetry: Mock | undefined
-  }
+type TestWindow = Window & {
+  core?: unknown
 }
 
-type TestWindow = Omit<Window, 'projection'> & {
-  projection?: TestProjectionApi
+const baseSettings = {
+  audioVolume: 0.8,
+  navVolume: 0.4,
+  voiceAssistantVolume: 0.5,
+  callVolume: 0.6,
+  visualAudioDelayMs: 120,
+  darkMode: false
+} as unknown as Config
+
+const testWindow = window as unknown as TestWindow
+
+function installCore(): FakeCore {
+  const fake: FakeCore = { sent: [], connected: true, connects: 0 }
+  testWindow.core = {
+    connect: (client: string, onMessage: (msg: FromCore) => void, onClose?: () => void) => {
+      fake.connects += 1
+      fake.client = client
+      fake.onMessage = onMessage
+      fake.onClose = onClose
+      return {
+        send: (msg: ToCore) => {
+          fake.sent.push(msg)
+          return fake.connected
+        },
+        close: vi.fn()
+      }
+    }
+  }
+  return fake
+}
+
+const state = (config: unknown, main = 'livi'): State =>
+  ({
+    front: { main, dash: 'livi', aux: 'livi' },
+    sessions: { active: null, position: 0, total: 0 },
+    nowPlaying: {
+      title: null,
+      artist: null,
+      album: null,
+      app: null,
+      durationMs: null,
+      elapsedMs: null,
+      playing: null,
+      artwork: null
+    },
+    navigation: {
+      active: null,
+      orderType: null,
+      roadName: null,
+      afterRoadName: null,
+      destinationName: null,
+      timeToDestination: null,
+      distanceToDestination: null,
+      remainDistance: null,
+      maneuverType: null,
+      turnSide: null,
+      junctionType: null,
+      turnAngle: null,
+      eta: null,
+      etaText: null,
+      appName: null,
+      image: null
+    },
+    system: {
+      wifiInterfaces: [],
+      btAdapters: [],
+      interfaceModels: {},
+      dongle: null,
+      linkSpeed: null,
+      wifiBands: [],
+      wifiChannels: [],
+      wifiCountries: [],
+      displayModes: [],
+      displayModeSettable: false,
+      audioSinks: [],
+      audioSources: []
+    },
+    devices: [],
+    telemetry: {},
+    update: {
+      latest: null,
+      checking: false,
+      checked: false,
+      phase: 'idle',
+      received: 0,
+      total: 0,
+      error: null
+    },
+    config
+  }) as unknown as State
+
+const welcome = (fake: FakeCore, config: unknown) =>
+  fake.onMessage?.({ type: 'welcome', protocol: 1, version: '0', rev: 0, state: state(config) })
+
+const patch = (fake: FakeCore, rev: number, ops: unknown[]) =>
+  fake.onMessage?.({ type: 'patch', rev, ops } as FromCore)
+
+async function loadFreshStore(opts: { core?: boolean } = {}) {
+  vi.resetModules()
+  testWindow.core = undefined
+  const fake = opts.core === false ? null : installCore()
+  const store = await import('../store')
+  return { ...store, fake: fake as FakeCore }
 }
 
 describe('store', () => {
-  const makeProjectionApi = (overrides?: {
-    settings?: Partial<{
-      get: Mock
-      save: Mock
-      onUpdate: Mock
-    }>
-    ipc?: Partial<{
-      setVolume: Mock | undefined
-      sendCommand: Mock | undefined
-      onTelemetry: Mock | undefined
-      offTelemetry: Mock | undefined
-    }>
-  }) => ({
-    settings: {
-      get: vi.fn(),
-      save: vi.fn(),
-      onUpdate: vi.fn(),
-      ...(overrides?.settings ?? {})
-    },
-    ipc: {
-      setVolume: vi.fn(),
-      sendCommand: vi.fn(),
-      onTelemetry: vi.fn(),
-      offTelemetry: vi.fn(),
-      ...(overrides?.ipc ?? {})
-    }
+  afterEach(() => {
+    vi.restoreAllMocks()
+    testWindow.core = undefined
   })
 
-  const baseSettings = {
-    audioVolume: 0.8,
-    navVolume: 0.4,
-    voiceAssistantVolume: 0.5,
-    callVolume: 0.6,
-    visualAudioDelayMs: 120,
-    darkMode: false,
-    dashboards: {
-      dash1: { main: false, dash: false, aux: false, pos: 1 },
-      dash2: { main: false, dash: false, aux: false, pos: 2 },
-      dash3: { main: false, dash: false, aux: false, pos: 3 },
-      dash4: { main: false, dash: false, aux: false, pos: 4 }
-    }
-  } as unknown as Config
+  describe('settings from core', () => {
+    test('the welcome brings the config and the derived audio values', async () => {
+      const { useLiviStore, fake } = await loadFreshStore()
+      expect(fake.client).toBe('ui:main')
 
-  const loadFreshStore = async (projectionOverrides?: ProjectionApiOverrides) => {
-    vi.resetModules()
+      welcome(fake, baseSettings)
 
-    const testWindow = window as unknown as TestWindow
-    testWindow.projection = undefined
+      const s = useLiviStore.getState()
+      expect(s.settings).toEqual(baseSettings)
+      expect(s.restartBaseline).toEqual(baseSettings)
+      expect(s.audioVolume).toBe(0.8)
+      expect(s.navVolume).toBe(0.4)
+      expect(s.voiceAssistantVolume).toBe(0.5)
+      expect(s.callVolume).toBe(0.6)
+    })
 
-    if (projectionOverrides) {
-      testWindow.projection = makeProjectionApi(projectionOverrides)
-    }
+    test('a secondary window names its role', async () => {
+      window.history.replaceState({}, '', '/?role=dash')
+      const { fake } = await loadFreshStore()
+      expect(fake.client).toBe('ui:dash')
+      window.history.replaceState({}, '', '/')
+    })
 
-    return await import('../store')
-  }
+    test('missing audio fields fall back to their defaults', async () => {
+      const { useLiviStore, fake } = await loadFreshStore()
+      welcome(fake, {})
 
-  const waitForStoreSettings = async (useLiviStore: {
-    getState: () => { settings: Config | null }
-  }) => {
-    for (let i = 0; i < 10; i += 1) {
-      if (useLiviStore.getState().settings) return
-      await Promise.resolve()
-    }
-    throw new Error('store settings were not initialized')
-  }
+      const s = useLiviStore.getState()
+      expect(s.audioVolume).toBe(1.0)
+      expect(s.navVolume).toBe(0.5)
+      expect(s.voiceAssistantVolume).toBe(0.5)
+      expect(s.callVolume).toBe(1.0)
+    })
 
-  beforeEach(async () => {
-    vi.clearAllMocks()
-    const testWindow = window as unknown as TestWindow
-    testWindow.projection = undefined
+    test('during a session a config patch keeps the restart baseline', async () => {
+      const { useLiviStore, fake } = await loadFreshStore()
+      welcome(fake, baseSettings)
+      patch(fake, 1, [{ op: 'set', path: ['sessions', 'total'], value: 1 }])
+
+      patch(fake, 2, [{ op: 'set', path: ['config', 'darkMode'], value: true }])
+
+      expect(useLiviStore.getState().settings?.darkMode).toBe(true)
+      expect(useLiviStore.getState().restartBaseline).toEqual(baseSettings)
+    })
+
+    test('during a session without a baseline the incoming config becomes it', async () => {
+      const { useLiviStore, fake } = await loadFreshStore()
+      welcome(fake, baseSettings)
+      patch(fake, 1, [{ op: 'set', path: ['sessions', 'total'], value: 1 }])
+      useLiviStore.setState({ restartBaseline: null })
+
+      patch(fake, 2, [{ op: 'set', path: ['config', 'darkMode'], value: true }])
+
+      expect(useLiviStore.getState().restartBaseline?.darkMode).toBe(true)
+    })
+
+    test('with no phone connected the baseline follows the config', async () => {
+      const { useLiviStore, useSessionsOpen, fake } = await loadFreshStore()
+      welcome(fake, baseSettings)
+
+      patch(fake, 1, [{ op: 'set', path: ['config', 'darkMode'], value: true }])
+
+      expect(useLiviStore.getState().restartBaseline?.darkMode).toBe(true)
+      expect(renderHook(() => useSessionsOpen()).result.current).toBe(false)
+    })
+
+    test('when the last phone leaves the waiting changes count as applied', async () => {
+      const { useLiviStore, useSessionsOpen, fake } = await loadFreshStore()
+      welcome(fake, baseSettings)
+      patch(fake, 1, [{ op: 'set', path: ['sessions', 'total'], value: 1 }])
+      expect(renderHook(() => useSessionsOpen()).result.current).toBe(true)
+      patch(fake, 2, [{ op: 'set', path: ['config', 'darkMode'], value: true }])
+      expect(useLiviStore.getState().restartBaseline).toEqual(baseSettings)
+
+      patch(fake, 3, [{ op: 'set', path: ['sessions', 'total'], value: 0 }])
+
+      expect(useLiviStore.getState().restartBaseline?.darkMode).toBe(true)
+    })
+
+    test('a patch that leaves the config alone leaves the settings alone', async () => {
+      const { useLiviStore, fake } = await loadFreshStore()
+      welcome(fake, baseSettings)
+      const before = useLiviStore.getState().settings
+
+      patch(fake, 1, [{ op: 'set', path: ['front', 'main'], value: 'projection' }])
+
+      expect(useLiviStore.getState().settings).toBe(before)
+    })
+
+    test('the phones core holds reach the status store', async () => {
+      const { useLiviStore, useStatusStore, fake } = await loadFreshStore()
+      welcome(fake, baseSettings)
+      expect(useStatusStore.getState().isStreaming).toBe(false)
+
+      patch(fake, 1, [
+        { op: 'set', path: ['sessions', 'active'], value: 'carplay' },
+        { op: 'set', path: ['sessions', 'position'], value: 1 },
+        { op: 'set', path: ['sessions', 'total'], value: 2 }
+      ])
+      const sessions = useLiviStore.getState().sessions
+      expect(sessions).toEqual({ active: 'carplay', position: 1, total: 2 })
+      expect(useStatusStore.getState().activeProtocol).toBe('carplay')
+      expect(useStatusStore.getState().isStreaming).toBe(true)
+
+      patch(fake, 2, [{ op: 'set', path: ['config', 'darkMode'], value: true }])
+      expect(useLiviStore.getState().sessions).toBe(sessions)
+
+      patch(fake, 3, [
+        { op: 'set', path: ['sessions', 'active'], value: null },
+        { op: 'set', path: ['sessions', 'position'], value: 0 },
+        { op: 'set', path: ['sessions', 'total'], value: 0 }
+      ])
+      expect(useStatusStore.getState().activeProtocol).toBeNull()
+      expect(useStatusStore.getState().isStreaming).toBe(false)
+    })
+
+    test('what each screen has in front follows core', async () => {
+      const { useLiviStore, fake } = await loadFreshStore()
+      expect(useLiviStore.getState().front).toBeNull()
+      welcome(fake, baseSettings)
+      expect(useLiviStore.getState().front?.main).toBe('livi')
+
+      patch(fake, 1, [{ op: 'set', path: ['front', 'main'], value: 'projection' }])
+      expect(useLiviStore.getState().front?.main).toBe('projection')
+    })
+
+    test('now playing follows core', async () => {
+      const { useLiviStore, fake } = await loadFreshStore()
+      expect(useLiviStore.getState().nowPlaying).toBeNull()
+      welcome(fake, baseSettings)
+      expect(useLiviStore.getState().nowPlaying?.title).toBeNull()
+
+      patch(fake, 1, [{ op: 'set', path: ['nowPlaying', 'title'], value: 'Song' }])
+      expect(useLiviStore.getState().nowPlaying?.title).toBe('Song')
+    })
+
+    test('navigation follows core', async () => {
+      const { useLiviStore, fake } = await loadFreshStore()
+      expect(useLiviStore.getState().navigation).toBeNull()
+      welcome(fake, baseSettings)
+      patch(fake, 1, [{ op: 'set', path: ['navigation', 'active'], value: true }])
+      expect(useLiviStore.getState().navigation?.active).toBe(true)
+    })
+
+    test('the system lists follow core', async () => {
+      const { useLiviStore, fake } = await loadFreshStore()
+      expect(useLiviStore.getState().system).toBeNull()
+      welcome(fake, baseSettings)
+      patch(fake, 1, [{ op: 'set', path: ['system', 'wifiInterfaces'], value: ['wlan0'] }])
+      expect(useLiviStore.getState().system?.wifiInterfaces).toEqual(['wlan0'])
+    })
+
+    test('a new audio device list makes the pickers load again', async () => {
+      const { useLiviStore, fake } = await loadFreshStore()
+      welcome(fake, baseSettings)
+      const before = useLiviStore.getState().audioDevicesRevision
+      patch(fake, 1, [{ op: 'set', path: ['system', 'wifiChannels'], value: [1] }])
+      expect(useLiviStore.getState().audioDevicesRevision).toBe(before)
+      const sink = { id: 'out', name: 'Out', isDefault: true, offline: false }
+      patch(fake, 2, [{ op: 'set', path: ['system', 'audioSinks'], value: [sink] }])
+      expect(useLiviStore.getState().audioDevicesRevision).toBe(before + 1)
+      patch(fake, 3, [{ op: 'set', path: ['system', 'audioSources'], value: [sink] }])
+      expect(useLiviStore.getState().audioDevicesRevision).toBe(before + 2)
+    })
+
+    test('the device list follows core', async () => {
+      const { useLiviStore, fake } = await loadFreshStore()
+      expect(useLiviStore.getState().devices).toEqual([])
+      welcome(fake, baseSettings)
+      patch(fake, 1, [{ op: 'set', path: ['devices'], value: [{ id: 'a', status: 'active' }] }])
+      expect(useLiviStore.getState().devices).toEqual([{ id: 'a', status: 'active' }])
+    })
+
+    test('the update follows core', async () => {
+      const { useLiviStore, fake } = await loadFreshStore()
+      expect(useLiviStore.getState().update).toBeNull()
+      welcome(fake, baseSettings)
+      patch(fake, 1, [{ op: 'set', path: ['update', 'phase'], value: 'download' }])
+      expect(useLiviStore.getState().update?.phase).toBe('download')
+    })
+
+    test('init runs once', async () => {
+      const { useLiviStore, fake } = await loadFreshStore()
+      useLiviStore.getState().init()
+      expect(fake.connects).toBe(1)
+    })
+
+    test('without core the defaults stay', async () => {
+      const { useLiviStore } = await loadFreshStore({ core: false })
+      const s = useLiviStore.getState()
+      expect(s.settings).toBeNull()
+      expect(s.audioVolume).toBe(0.95)
+      expect(s.navVolume).toBe(0.95)
+      expect(s.voiceAssistantVolume).toBe(0.95)
+      expect(s.callVolume).toBe(0.95)
+    })
   })
 
-  test('init loads settings from projection api and applies derived audio values', async () => {
-    const projection = makeProjectionApi({
-      settings: {
-        get: vi.fn().mockResolvedValue(baseSettings)
-      }
+  describe('saveSettings', () => {
+    test('updates at once and asks core to keep it', async () => {
+      const { useLiviStore, fake } = await loadFreshStore()
+      welcome(fake, baseSettings)
+
+      const saved = useLiviStore.getState().saveSettings({ audioVolume: 0.3 })
+
+      expect(useLiviStore.getState().settings?.audioVolume).toBe(0.3)
+      expect(useLiviStore.getState().audioVolume).toBe(0.3)
+      expect(fake.sent).toEqual([
+        { type: 'action', id: 1, action: { kind: 'setConfig', patch: { audioVolume: 0.3 } } }
+      ])
+      fake.onMessage?.({ type: 'reply', id: 1 })
+      await expect(saved).resolves.toBeUndefined()
     })
 
-    const { useLiviStore } = await loadFreshStore(projection)
+    test('a refused change goes back to what core has', async () => {
+      const warn = vi.spyOn(console, 'warn').mockImplementation(() => {})
+      const { useLiviStore, fake } = await loadFreshStore()
+      welcome(fake, baseSettings)
 
-    await waitForStoreSettings(useLiviStore)
+      const saved = useLiviStore.getState().saveSettings({ audioVolume: 7 } as Partial<Config>)
+      fake.onMessage?.({ type: 'reply', id: 1, error: 'out of range' })
+      await saved
 
-    const state = useLiviStore.getState()
+      expect(warn).toHaveBeenCalledWith('settings not saved', expect.any(Error))
+      expect(fake.sent.at(-1)).toEqual({ type: 'resync' })
+    })
 
-    expect(projection.settings.get).toHaveBeenCalledTimes(1)
-    expect(state.settings).toEqual(baseSettings)
-    expect(state.restartBaseline).toEqual(baseSettings)
-    expect(state.audioVolume).toBe(0.8)
-    expect(state.navVolume).toBe(0.4)
-    expect(state.voiceAssistantVolume).toBe(0.5)
-    expect(state.callVolume).toBe(0.6)
-    expect(state.visualAudioDelayMs).toBe(120)
+    test('a lost core fails the change and asks again later', async () => {
+      vi.spyOn(console, 'warn').mockImplementation(() => {})
+      const { useLiviStore, fake } = await loadFreshStore()
+      welcome(fake, baseSettings)
 
-    expect(projection.ipc.setVolume).toHaveBeenCalledWith('music', 0.8)
-    expect(projection.ipc.setVolume).toHaveBeenCalledWith('nav', 0.4)
-    expect(projection.ipc.setVolume).toHaveBeenCalledWith('voiceAssistant', 0.5)
-    expect(projection.ipc.setVolume).toHaveBeenCalledWith('call', 0.6)
+      const saved = useLiviStore.getState().saveSettings({ darkMode: true })
+      fake.onClose?.()
+      await saved
+
+      expect(fake.sent.at(-1)).toEqual({ type: 'resync' })
+    })
+
+    test('goes to core even before the first config arrived', async () => {
+      const { useLiviStore, fake } = await loadFreshStore()
+
+      const saved = useLiviStore.getState().saveSettings({ darkMode: true })
+
+      expect(useLiviStore.getState().settings).toBeNull()
+      expect(fake.sent).toHaveLength(1)
+      fake.onMessage?.({ type: 'reply', id: 1 })
+      await saved
+    })
+
+    test('without core only the optimistic update happens', async () => {
+      const { useLiviStore } = await loadFreshStore({ core: false })
+      useLiviStore.setState({ settings: baseSettings })
+
+      await expect(
+        useLiviStore.getState().saveSettings({ darkMode: true })
+      ).resolves.toBeUndefined()
+
+      expect(useLiviStore.getState().settings?.darkMode).toBe(true)
+    })
   })
 
-  test('markRestartBaseline stores current settings as restart baseline', async () => {
-    const projection = makeProjectionApi({
-      settings: {
-        get: vi.fn().mockResolvedValue(baseSettings)
-      }
+  describe('core actions', () => {
+    test('coreAction goes to core and waits for the reply', async () => {
+      const { coreAction, fake } = await loadFreshStore()
+      const done = coreAction({ kind: 'quit' })
+      expect(fake.sent).toEqual([{ type: 'action', id: 1, action: { kind: 'quit' } }])
+      fake.onMessage?.({ type: 'reply', id: 1 })
+      await expect(done).resolves.toBeUndefined()
     })
 
-    const { useLiviStore } = await loadFreshStore(projection)
-
-    await waitForStoreSettings(useLiviStore)
-
-    useLiviStore.setState({
-      settings: { ...baseSettings, darkMode: true } as Config,
-      restartBaseline: null
+    test('coreAction fails without core', async () => {
+      const { coreAction } = await loadFreshStore({ core: false })
+      await expect(coreAction({ kind: 'restart' })).rejects.toThrow('core is not connected')
     })
 
+    test('reportPath tells core the route, and is a no-op without core', async () => {
+      const { reportPath, fake } = await loadFreshStore()
+      reportPath('/media')
+      expect(fake.sent).toEqual([{ type: 'path', path: '/media' }])
+
+      const without = await loadFreshStore({ core: false })
+      expect(() => without.reportPath('/media')).not.toThrow()
+    })
+
+    test('sendInput hands input to core, and is a no-op without core', async () => {
+      const { sendInput, fake } = await loadFreshStore()
+      const touch = { kind: 'pointer', screen: 'main', points: [] } as const
+      sendInput(touch)
+      expect(fake.sent).toEqual([{ type: 'input', input: touch }])
+
+      const without = await loadFreshStore({ core: false })
+      expect(() => without.sendInput(touch)).not.toThrow()
+    })
+
+    test('reportShown tells core what a screen shows, and is a no-op without core', async () => {
+      const { reportShown, fake } = await loadFreshStore()
+      reportShown('main', 'projection')
+      expect(fake.sent).toEqual([
+        { type: 'action', id: 1, action: { kind: 'show', screen: 'main', front: 'projection' } }
+      ])
+
+      const without = await loadFreshStore({ core: false })
+      expect(() => without.reportShown('main', 'livi')).not.toThrow()
+    })
+
+    test('a window drawing the spectrum asks for its frames and gets them', async () => {
+      const { reportSpectrum, onSpectrum, fake } = await loadFreshStore()
+      welcome(fake, baseSettings)
+      const frames: number[][] = []
+      const stop = onSpectrum((bands) => frames.push(bands))
+      reportSpectrum(true)
+      expect(fake.sent).toEqual([{ type: 'spectrum', on: true }])
+      fake.onMessage?.({ type: 'spectrum', bands: [0.5] })
+      stop()
+      fake.onMessage?.({ type: 'spectrum', bands: [1] })
+      expect(frames).toEqual([[0.5]])
+
+      const without = await loadFreshStore({ core: false })
+      expect(() => without.reportSpectrum(false)).not.toThrow()
+      expect(() => without.onSpectrum(() => {})()).not.toThrow()
+    })
+
+    test('a window showing the link speed tells core', async () => {
+      const { reportLinkSpeed, fake } = await loadFreshStore()
+      welcome(fake, baseSettings)
+      reportLinkSpeed(true)
+      reportLinkSpeed(false)
+      expect(fake.sent).toEqual([
+        { type: 'linkSpeed', on: true },
+        { type: 'linkSpeed', on: false }
+      ])
+
+      const without = await loadFreshStore({ core: false })
+      expect(() => without.reportLinkSpeed(true)).not.toThrow()
+    })
+  })
+
+  test('markRestartBaseline stores the current settings and ignores none', async () => {
+    const { useLiviStore, fake } = await loadFreshStore()
     useLiviStore.getState().markRestartBaseline()
+    expect(useLiviStore.getState().restartBaseline).toBeNull()
 
-    expect(useLiviStore.getState().restartBaseline).toEqual({
-      ...baseSettings,
-      darkMode: true
-    })
-  })
-
-  test('saveSettings updates store optimistically, persists patch and refreshes from main', async () => {
-    const projection = makeProjectionApi({
-      settings: {
-        get: vi
-          .fn()
-          .mockResolvedValueOnce(baseSettings)
-          .mockResolvedValueOnce({
-            ...baseSettings,
-            audioVolume: 0.1,
-            nightMode: true
-          }),
-        save: vi.fn().mockResolvedValue(undefined)
-      }
-    })
-
-    const { useLiviStore } = await loadFreshStore(projection)
-
-    await waitForStoreSettings(useLiviStore)
-
-    await useLiviStore.getState().saveSettings({
-      audioVolume: 0.1,
-      nightMode: true
-    })
-
-    const state = useLiviStore.getState()
-
-    expect(projection.settings.save).toHaveBeenCalledWith({
-      audioVolume: 0.1,
-      nightMode: true
-    })
-
-    expect(projection.ipc.sendCommand).toHaveBeenCalledWith('enableNightMode')
-    expect(state.audioVolume).toBe(0.1)
-    expect(state.settings).toEqual({
-      ...baseSettings,
-      audioVolume: 0.1,
-      nightMode: true
-    })
-  })
-
-  test('saveSettings persists dashboards patch as-is', async () => {
-    const dashboardsOn: Config['dashboards'] = {
-      dash1: { main: true, dash: false, aux: false, pos: 1 },
-      dash2: { main: false, dash: false, aux: false, pos: 2 },
-      dash3: { main: false, dash: false, aux: false, pos: 3 },
-      dash4: { main: false, dash: false, aux: false, pos: 4 }
-    }
-
-    const projection = makeProjectionApi({
-      settings: {
-        get: vi
-          .fn()
-          .mockResolvedValueOnce(baseSettings)
-          .mockResolvedValueOnce({
-            ...baseSettings,
-            dashboards: dashboardsOn
-          }),
-        save: vi.fn().mockResolvedValue(undefined)
-      }
-    })
-
-    const { useLiviStore } = await loadFreshStore(projection)
-
-    await waitForStoreSettings(useLiviStore)
-
-    await useLiviStore.getState().saveSettings({ dashboards: dashboardsOn })
-
-    expect(projection.settings.save).toHaveBeenCalledWith({ dashboards: dashboardsOn })
-  })
-
-  test('setAudioInfo and setPcmData update store', async () => {
-    const projection = makeProjectionApi({
-      settings: {
-        get: vi.fn().mockResolvedValue(baseSettings)
-      }
-    })
-
-    const { useLiviStore } = await loadFreshStore(projection)
-
-    await waitForStoreSettings(useLiviStore)
-
-    const pcm = new Float32Array([0.1, 0.2])
-
-    useLiviStore.getState().setAudioInfo({ sampleRate: 48000 })
-    useLiviStore.getState().setPcmData(pcm)
-
-    const state = useLiviStore.getState()
-    expect(state.audioSampleRate).toBe(48000)
-    expect(state.audioPcmData).toBe(pcm)
-  })
-
-  test('telemetry onTelemetry handler persists incoming nightMode and bridges to wire', async () => {
-    let telemetryHandler: ((payload: unknown) => void) | undefined
-
-    const projection = makeProjectionApi({
-      settings: {
-        get: vi.fn().mockResolvedValue(baseSettings),
-        save: vi.fn().mockResolvedValue(undefined)
-      },
-      ipc: {
-        onTelemetry: vi.fn((handler) => {
-          telemetryHandler = handler
-        })
-      }
-    })
-
-    const { useLiviStore } = await loadFreshStore(projection)
-
-    await waitForStoreSettings(useLiviStore)
-
-    telemetryHandler?.({ nightMode: true })
-    await Promise.resolve()
-    await Promise.resolve()
-
-    expect(projection.settings.save).toHaveBeenCalledWith({ nightMode: true })
-    expect(projection.ipc.sendCommand).toHaveBeenCalledWith('enableNightMode')
+    welcome(fake, baseSettings)
+    useLiviStore.setState({ settings: { ...baseSettings, darkMode: true } })
+    useLiviStore.getState().markRestartBaseline()
+    expect(useLiviStore.getState().restartBaseline?.darkMode).toBe(true)
   })
 
   test('status store setters update status flags', async () => {
@@ -286,732 +484,94 @@ describe('store', () => {
     useStatusStore.getState().setLights(true)
 
     expect(useStatusStore.getState()).toEqual(
-      expect.objectContaining({
-        cameraFound: true,
-        isStreaming: true,
-        reverse: true,
-        lights: true
-      })
+      expect.objectContaining({ cameraFound: true, isStreaming: true, reverse: true, lights: true })
     )
   })
 
-  test('getSettings swallows settings.get errors and keeps state stable', async () => {
-    const warnSpy = vi.spyOn(console, 'warn').mockImplementation(() => {})
-    const projection = makeProjectionApi({
-      settings: {
-        get: vi.fn().mockRejectedValue(new Error('get failed'))
+  describe('telemetry', () => {
+    async function withTelemetry() {
+      const store = await loadFreshStore()
+      welcome(store.fake, baseSettings)
+      let rev = 0
+      const send = (telemetry: Record<string, unknown>) => {
+        rev += 1
+        patch(store.fake, rev, [{ op: 'set', path: ['telemetry'], value: telemetry }])
       }
-    })
-
-    const { useLiviStore } = await loadFreshStore(projection)
-
-    await Promise.resolve()
-    await Promise.resolve()
-
-    expect(projection.settings.get).toHaveBeenCalled()
-    expect(useLiviStore.getState().settings).toBeNull()
-    expect(warnSpy).toHaveBeenCalledWith('settings-get IPC failed', expect.any(Error))
-  })
-
-  test('saveSettings swallows settings.save errors after optimistic update', async () => {
-    const warnSpy = vi.spyOn(console, 'warn').mockImplementation(() => {})
-    const projection = makeProjectionApi({
-      settings: {
-        get: vi
-          .fn()
-          .mockResolvedValueOnce(baseSettings)
-          .mockResolvedValueOnce({
-            ...baseSettings,
-            audioVolume: 0.12
-          }),
-        save: vi.fn().mockRejectedValue(new Error('save failed'))
-      }
-    })
-
-    const { useLiviStore } = await loadFreshStore(projection)
-
-    await waitForStoreSettings(useLiviStore)
-    await useLiviStore.getState().saveSettings({ audioVolume: 0.12 })
-
-    expect(projection.settings.save).toHaveBeenCalledWith({ audioVolume: 0.12 })
-    expect(warnSpy).toHaveBeenCalledWith('settings-save IPC failed', expect.any(Error))
-  })
-
-  test('saveSettings clamps the outgoing music volume to 0..1', async () => {
-    const projection = makeProjectionApi({
-      settings: {
-        get: vi
-          .fn()
-          .mockResolvedValueOnce(baseSettings)
-          .mockResolvedValueOnce({ ...baseSettings, audioVolume: 2 })
-      }
-    })
-
-    const { useLiviStore } = await loadFreshStore(projection)
-
-    await waitForStoreSettings(useLiviStore)
-    await useLiviStore.getState().saveSettings({ audioVolume: 2 })
-
-    expect(projection.ipc.setVolume).toHaveBeenCalledWith('music', 1)
-  })
-
-  test('saveSettings clamps a negative outgoing nav volume to 0', async () => {
-    const projection = makeProjectionApi({
-      settings: {
-        get: vi
-          .fn()
-          .mockResolvedValueOnce(baseSettings)
-          .mockResolvedValueOnce({ ...baseSettings, navVolume: -1 })
-      }
-    })
-
-    const { useLiviStore } = await loadFreshStore(projection)
-
-    await waitForStoreSettings(useLiviStore)
-    await useLiviStore.getState().saveSettings({ navVolume: -1 })
-
-    expect(projection.ipc.setVolume).toHaveBeenCalledWith('nav', 0)
-  })
-
-  test('saveSettings sends a changed voice assistant and call volume to the mixer', async () => {
-    const projection = makeProjectionApi({
-      settings: {
-        get: vi.fn().mockResolvedValue(baseSettings)
-      }
-    })
-
-    const { useLiviStore } = await loadFreshStore(projection)
-
-    await waitForStoreSettings(useLiviStore)
-    vi.mocked(projection.ipc.setVolume!).mockClear()
-    await useLiviStore.getState().saveSettings({ voiceAssistantVolume: 0.33, callVolume: 0.44 })
-
-    expect(projection.ipc.setVolume).toHaveBeenCalledWith('voiceAssistant', 0.33)
-    expect(projection.ipc.setVolume).toHaveBeenCalledWith('call', 0.44)
-  })
-
-  test('saveSettings sends disableNightMode for false', async () => {
-    const projection = makeProjectionApi({
-      settings: {
-        get: vi
-          .fn()
-          .mockResolvedValueOnce({ ...baseSettings, nightMode: true })
-          .mockResolvedValueOnce({ ...baseSettings, nightMode: false }),
-        save: vi.fn().mockResolvedValue(undefined)
-      }
-    })
-
-    const { useLiviStore } = await loadFreshStore(projection)
-
-    await waitForStoreSettings(useLiviStore)
-    await useLiviStore.getState().saveSettings({ nightMode: false })
-
-    expect(projection.ipc.sendCommand).toHaveBeenCalledWith('disableNightMode')
-  })
-
-  test('telemetry handler ignores non-object payloads', async () => {
-    let telemetryHandler: ((payload: unknown) => void) | undefined
-
-    const projection = makeProjectionApi({
-      settings: {
-        get: vi.fn().mockResolvedValue(baseSettings),
-        save: vi.fn().mockResolvedValue(undefined)
-      },
-      ipc: {
-        onTelemetry: vi.fn((handler) => {
-          telemetryHandler = handler
-        })
-      }
-    })
-
-    const { useLiviStore } = await loadFreshStore(projection)
-
-    await waitForStoreSettings(useLiviStore)
-
-    telemetryHandler?.(null)
-    telemetryHandler?.('oops')
-    telemetryHandler?.(123)
-
-    expect(projection.settings.save).not.toHaveBeenCalled()
-  })
-
-  test('saveSettings swallows projection setVolume ipc errors', async () => {
-    const warnSpy = vi.spyOn(console, 'warn').mockImplementation(() => {})
-    const projection = makeProjectionApi({
-      settings: {
-        get: vi
-          .fn()
-          .mockResolvedValueOnce(baseSettings)
-          .mockResolvedValueOnce({ ...baseSettings, audioVolume: 0.7 }),
-        save: vi.fn().mockResolvedValue(undefined)
-      },
-      ipc: {
-        setVolume: vi.fn(() => {
-          throw new Error('volume failed')
-        })
-      }
-    })
-
-    const { useLiviStore } = await loadFreshStore(projection)
-
-    await waitForStoreSettings(useLiviStore)
-    await useLiviStore.getState().saveSettings({ audioVolume: 0.7 })
-
-    expect(warnSpy).toHaveBeenCalledWith('projection-set-volume IPC failed', expect.any(Error))
-  })
-
-  test('saveSettings swallows projection night mode ipc errors', async () => {
-    const warnSpy = vi.spyOn(console, 'warn').mockImplementation(() => {})
-    const projection = makeProjectionApi({
-      settings: {
-        get: vi
-          .fn()
-          .mockResolvedValueOnce(baseSettings)
-          .mockResolvedValueOnce({ ...baseSettings, nightMode: true }),
-        save: vi.fn().mockResolvedValue(undefined)
-      },
-      ipc: {
-        sendCommand: vi.fn(() => {
-          throw new Error('night failed')
-        })
-      }
-    })
-
-    const { useLiviStore } = await loadFreshStore(projection)
-
-    await waitForStoreSettings(useLiviStore)
-    await useLiviStore.getState().saveSettings({ nightMode: true })
-
-    expect(warnSpy).toHaveBeenCalledWith('projection-set-night-mode IPC failed', expect.any(Error))
-  })
-
-  test('init applies live settings updates from settings.onUpdate', async () => {
-    let onUpdateHandler: ((event: unknown, settings: Config) => void) | undefined
-
-    const projection = makeProjectionApi({
-      settings: {
-        get: vi.fn().mockResolvedValue(baseSettings),
-        onUpdate: vi.fn((cb) => {
-          onUpdateHandler = cb
-          return () => {}
-        })
-      }
-    })
-
-    const { useLiviStore } = await loadFreshStore(projection)
-
-    await waitForStoreSettings(useLiviStore)
-
-    onUpdateHandler?.(undefined, {
-      ...baseSettings,
-      audioVolume: 0.25,
-      navVolume: 0.35,
-      voiceAssistantVolume: 0.45,
-      callVolume: 0.55
-    } as Config)
-
-    const state = useLiviStore.getState()
-    expect(state.audioVolume).toBe(0.25)
-    expect(state.navVolume).toBe(0.35)
-    expect(state.voiceAssistantVolume).toBe(0.45)
-    expect(state.callVolume).toBe(0.55)
-
-    expect(projection.ipc.setVolume).toHaveBeenCalledWith('music', 0.25)
-    expect(projection.ipc.setVolume).toHaveBeenCalledWith('nav', 0.35)
-    expect(projection.ipc.setVolume).toHaveBeenCalledWith('voiceAssistant', 0.45)
-    expect(projection.ipc.setVolume).toHaveBeenCalledWith('call', 0.55)
-  })
-
-  test('saveSettings does not send night mode command when ipc.sendCommand is missing', async () => {
-    const projection = makeProjectionApi({
-      settings: {
-        get: vi
-          .fn()
-          .mockResolvedValueOnce(baseSettings)
-          .mockResolvedValueOnce({
-            ...baseSettings,
-            nightMode: true
-          }),
-        save: vi.fn().mockResolvedValue(undefined)
-      },
-      ipc: {
-        sendCommand: undefined
-      }
-    })
-
-    const { useLiviStore } = await loadFreshStore(projection)
-
-    await waitForStoreSettings(useLiviStore)
-    await useLiviStore.getState().saveSettings({ nightMode: true })
-
-    expect(projection.settings.save).toHaveBeenCalledWith({ nightMode: true })
-  })
-
-  test('saveSettings does not send volume when ipc.setVolume is missing', async () => {
-    const projection = makeProjectionApi({
-      settings: {
-        get: vi
-          .fn()
-          .mockResolvedValueOnce(baseSettings)
-          .mockResolvedValueOnce({
-            ...baseSettings,
-            audioVolume: 0.42
-          }),
-        save: vi.fn().mockResolvedValue(undefined)
-      },
-      ipc: {
-        setVolume: undefined
-      }
-    })
-
-    const { useLiviStore } = await loadFreshStore(projection)
-
-    await waitForStoreSettings(useLiviStore)
-    await useLiviStore.getState().saveSettings({ audioVolume: 0.42 })
-
-    expect(projection.settings.save).toHaveBeenCalledWith({ audioVolume: 0.42 })
-  })
-
-  test('init keeps settings null when projection settings.get is missing', async () => {
-    const { useLiviStore } = await loadFreshStore({
-      settings: {
-        get: undefined
-      }
-    })
-
-    await Promise.resolve()
-    await Promise.resolve()
-
-    expect(useLiviStore.getState().settings).toBeNull()
-  })
-
-  test('init applies fallback derived audio values when settings fields are missing', async () => {
-    const projection = makeProjectionApi({
-      settings: {
-        get: vi.fn().mockResolvedValue({
-          ...baseSettings,
-          audioVolume: undefined,
-          navVolume: undefined,
-          voiceAssistantVolume: undefined,
-          callVolume: undefined,
-          visualAudioDelayMs: undefined
-        })
-      }
-    })
-
-    const { useLiviStore } = await loadFreshStore(projection)
-
-    await waitForStoreSettings(useLiviStore)
-
-    const state = useLiviStore.getState()
-    expect(state.audioVolume).toBe(1)
-    expect(state.navVolume).toBe(0.5)
-    expect(state.voiceAssistantVolume).toBe(0.5)
-    expect(state.callVolume).toBe(1)
-    expect(state.visualAudioDelayMs).toBe(120)
-  })
-
-  test('init does nothing when called a second time', async () => {
-    const projection = makeProjectionApi({
-      settings: {
-        get: vi.fn().mockResolvedValue(baseSettings)
-      }
-    })
-
-    const { useLiviStore } = await loadFreshStore(projection)
-
-    await waitForStoreSettings(useLiviStore)
-
-    useLiviStore.getState().init()
-
-    expect(projection.settings.get).toHaveBeenCalledTimes(1)
-  })
-
-  test('init live update preserves existing restartBaseline', async () => {
-    let onUpdateHandler: ((event: unknown, settings: Config) => void) | undefined
-
-    const projection = makeProjectionApi({
-      settings: {
-        get: vi.fn().mockResolvedValue(baseSettings),
-        onUpdate: vi.fn((cb) => {
-          onUpdateHandler = cb
-          return () => {}
-        })
-      }
-    })
-
-    const { useLiviStore } = await loadFreshStore(projection)
-
-    await waitForStoreSettings(useLiviStore)
-
-    const existingBaseline = {
-      ...baseSettings,
-      audioVolume: 0.99
-    } as Config
-
-    useLiviStore.setState({
-      restartBaseline: existingBaseline
-    })
-
-    onUpdateHandler?.(undefined, {
-      ...baseSettings,
-      audioVolume: 0.25
-    } as Config)
-
-    expect(useLiviStore.getState().restartBaseline).toEqual(existingBaseline)
-    expect(useLiviStore.getState().audioVolume).toBe(0.25)
-  })
-
-  test('init keeps the defaults when the settings api resolves null', async () => {
-    const projection = makeProjectionApi({
-      settings: {
-        get: vi.fn().mockResolvedValue(null)
-      }
-    })
-
-    const { useLiviStore } = await loadFreshStore(projection)
-
-    await Promise.resolve()
-    await Promise.resolve()
-
-    expect(useLiviStore.getState().settings).toBeNull()
-    expect(useLiviStore.getState().audioVolume).toBe(0.95)
-    expect(useLiviStore.getState().navVolume).toBe(0.95)
-    expect(useLiviStore.getState().voiceAssistantVolume).toBe(0.95)
-    expect(useLiviStore.getState().callVolume).toBe(0.95)
-  })
-
-  test('saveSettings persists and refreshes even when current settings are null', async () => {
-    const projection = makeProjectionApi({
-      settings: {
-        get: vi.fn().mockResolvedValue({
-          ...baseSettings,
-          audioVolume: 0.66
-        }),
-        save: vi.fn().mockResolvedValue(undefined)
-      }
-    })
-
-    const { useLiviStore } = await loadFreshStore(projection)
-
-    useLiviStore.setState({
-      settings: null
-    })
-
-    await useLiviStore.getState().saveSettings({ audioVolume: 0.66 })
-
-    expect(projection.settings.save).toHaveBeenCalledWith({ audioVolume: 0.66 })
-    expect(useLiviStore.getState().settings).toEqual({
-      ...baseSettings,
-      audioVolume: 0.66
-    })
-    expect(useLiviStore.getState().audioVolume).toBe(0.66)
-  })
-
-  test('init skips settings.onUpdate registration when handler is missing', async () => {
-    const projection = makeProjectionApi({
-      settings: {
-        get: vi.fn().mockResolvedValue(baseSettings),
-        onUpdate: undefined
-      }
-    })
-
-    const { useLiviStore } = await loadFreshStore(projection)
-
-    await waitForStoreSettings(useLiviStore)
-
-    expect(useLiviStore.getState().settings).toEqual(baseSettings)
-  })
-
-  test('init skips telemetry registration when ipc.onTelemetry is missing', async () => {
-    const projection = makeProjectionApi({
-      settings: {
-        get: vi.fn().mockResolvedValue(baseSettings)
-      },
-      ipc: {
-        onTelemetry: undefined
-      }
-    })
-
-    const { useLiviStore } = await loadFreshStore(projection)
-
-    await waitForStoreSettings(useLiviStore)
-
-    expect(useLiviStore.getState().settings).toEqual(baseSettings)
-  })
-
-  test('markRestartBaseline does nothing when settings are null', async () => {
-    const { useLiviStore } = await loadFreshStore()
-
-    useLiviStore.setState({
-      settings: null,
-      restartBaseline: null
-    })
-
-    useLiviStore.getState().markRestartBaseline()
-
-    expect(useLiviStore.getState().restartBaseline).toBeNull()
-  })
-
-  test('telemetry handler ignores object payloads with non-boolean nightMode', async () => {
-    let telemetryHandler: ((payload: unknown) => void) | undefined
-
-    const projection = makeProjectionApi({
-      settings: {
-        get: vi.fn().mockResolvedValue(baseSettings),
-        save: vi.fn().mockResolvedValue(undefined)
-      },
-      ipc: {
-        onTelemetry: vi.fn((handler) => {
-          telemetryHandler = handler
-        })
-      }
-    })
-
-    const { useLiviStore } = await loadFreshStore(projection)
-
-    await waitForStoreSettings(useLiviStore)
-
-    telemetryHandler?.({ nightMode: 'yes' })
-    telemetryHandler?.({ nightMode: 1 })
-    telemetryHandler?.({ other: true })
-
-    expect(projection.settings.save).not.toHaveBeenCalled()
-  })
-
-  test('saveSettings returns after optimistic update when settings.save api is missing', async () => {
-    const projection = makeProjectionApi({
-      settings: {
-        get: vi.fn().mockResolvedValue(baseSettings),
-        save: undefined
-      }
-    })
-
-    const { useLiviStore } = await loadFreshStore(projection)
-
-    await waitForStoreSettings(useLiviStore)
-    await useLiviStore.getState().saveSettings({ audioVolume: 0.8 })
-
-    expect(useLiviStore.getState().audioVolume).toBe(0.8)
-  })
-
-  test('saveSettings persists dashboards even when current settings are null', async () => {
-    const dashboardsOff: Config['dashboards'] = {
-      dash1: { main: false, dash: false, aux: false, pos: 1 },
-      dash2: { main: false, dash: false, aux: false, pos: 2 },
-      dash3: { main: false, dash: false, aux: false, pos: 3 },
-      dash4: { main: false, dash: false, aux: false, pos: 4 }
+      return { ...store, send }
     }
 
-    const projection = makeProjectionApi({
-      settings: {
-        get: vi.fn().mockResolvedValue({
-          ...baseSettings,
-          dashboards: dashboardsOff
-        }),
-        save: vi.fn().mockResolvedValue(undefined)
-      }
+    const welcomeWith = (fake: FakeCore, telemetry: Record<string, unknown>) =>
+      fake.onMessage?.({
+        type: 'welcome',
+        protocol: 1,
+        version: '0',
+        rev: 0,
+        state: { ...state(baseSettings), telemetry } as unknown as State
+      })
+
+    test('forwards explicit reverse and lights to the status store', async () => {
+      const { useLiviStore, useStatusStore, send } = await withTelemetry()
+      send({ reverse: true, lights: true })
+      expect(useStatusStore.getState().reverse).toBe(true)
+      expect(useStatusStore.getState().lights).toBe(true)
+      expect(useLiviStore.getState().telemetry).toEqual({ reverse: true, lights: true })
     })
 
-    const { useLiviStore } = await loadFreshStore(projection)
+    test('skips no-op writes when reverse and lights already match', async () => {
+      const { useStatusStore, send } = await withTelemetry()
+      useStatusStore.getState().setReverse(true)
+      useStatusStore.getState().setLights(true)
+      const setReverse = vi.spyOn(useStatusStore.getState(), 'setReverse')
+      const setLights = vi.spyOn(useStatusStore.getState(), 'setLights')
 
-    useLiviStore.setState({
-      settings: null
+      send({ reverse: true, lights: true })
+
+      expect(setReverse).not.toHaveBeenCalled()
+      expect(setLights).not.toHaveBeenCalled()
     })
 
-    await useLiviStore.getState().saveSettings({ dashboards: dashboardsOff })
-
-    expect(projection.settings.save).toHaveBeenCalledWith({ dashboards: dashboardsOff })
-  })
-
-  test('init keeps defaults when projection api is completely missing', async () => {
-    const { useLiviStore } = await loadFreshStore()
-    await Promise.resolve()
-
-    expect(useLiviStore.getState().settings).toBeNull()
-    expect(useLiviStore.getState().audioVolume).toBe(0.95)
-    expect(useLiviStore.getState().navVolume).toBe(0.95)
-    expect(useLiviStore.getState().voiceAssistantVolume).toBe(0.95)
-    expect(useLiviStore.getState().callVolume).toBe(0.95)
-  })
-
-  test('actions handle missing projection api gracefully', async () => {
-    vi.resetModules()
-
-    const w = global.window as unknown as { projection?: unknown }
-    const originalProjection = w.projection
-    w.projection = undefined
-
-    const { useLiviStore } = await import('../store')
-
-    await expect(useLiviStore.getState().saveSettings({ darkMode: true })).resolves.toBeUndefined()
-
-    expect(useLiviStore.getState().settings).toBeNull()
-
-    w.projection = originalProjection
-  })
-
-  test('init live update sets restartBaseline to incoming settings when baseline is null', async () => {
-    let onUpdateHandler: ((event: unknown, settings: Config) => void) | undefined
-
-    const projection = makeProjectionApi({
-      settings: {
-        get: vi.fn().mockResolvedValue(baseSettings),
-        onUpdate: vi.fn((cb) => {
-          onUpdateHandler = cb
-          return () => {}
-        })
-      }
+    test('derives reverse from the gear', async () => {
+      const { useStatusStore, send } = await withTelemetry()
+      send({ gear: 'R' })
+      expect(useStatusStore.getState().reverse).toBe(true)
+      send({ gear: -1 })
+      expect(useStatusStore.getState().reverse).toBe(true)
+      send({ gear: 3 })
+      expect(useStatusStore.getState().reverse).toBe(false)
     })
 
-    const { useLiviStore } = await loadFreshStore(projection)
-
-    await waitForStoreSettings(useLiviStore)
-
-    useLiviStore.setState({
-      restartBaseline: null
+    test('ignores fields it does not use', async () => {
+      const { useStatusStore, fake, send } = await withTelemetry()
+      send({ nightMode: true })
+      expect(useStatusStore.getState().reverse).toBe(false)
+      expect(useStatusStore.getState().lights).toBe(false)
+      expect(fake.sent).toEqual([])
     })
 
-    const nextSettings = {
-      ...baseSettings,
-      audioVolume: 0.25
-    } as Config
-
-    onUpdateHandler?.(undefined, nextSettings)
-
-    expect(useLiviStore.getState().settings).toEqual(nextSettings)
-    expect(useLiviStore.getState().restartBaseline).toEqual(nextSettings)
-  })
-
-  test('telemetry handler forwards explicit reverse and lights to the status store', async () => {
-    let telemetryHandler: ((payload: unknown) => void) | undefined
-    const projection = makeProjectionApi({
-      settings: { get: vi.fn().mockResolvedValue(baseSettings) },
-      ipc: {
-        onTelemetry: vi.fn((h) => {
-          telemetryHandler = h
-        })
-      }
+    test('a path request is taken when it changes, not again from the kept snapshot', async () => {
+      const { useStatusStore, send } = await withTelemetry()
+      send({ path: '/camera' })
+      expect(useStatusStore.getState().requestedPath).toBe('/camera')
+      useStatusStore.getState().clearRequestedPath()
+      send({ path: '/camera', speedKph: 5 })
+      expect(useStatusStore.getState().requestedPath).toBeNull()
+      send({ path: '/media', speedKph: 5 })
+      expect(useStatusStore.getState().requestedPath).toBe('/media')
     })
-    const { useLiviStore, useStatusStore } = await loadFreshStore(projection)
-    await waitForStoreSettings(useLiviStore)
 
-    telemetryHandler?.({ reverse: true, lights: true })
-    expect(useStatusStore.getState().reverse).toBe(true)
-    expect(useStatusStore.getState().lights).toBe(true)
-  })
-
-  test('telemetry handler skips no-op writes when reverse/lights already match', async () => {
-    let telemetryHandler: ((payload: unknown) => void) | undefined
-    const projection = makeProjectionApi({
-      settings: { get: vi.fn().mockResolvedValue(baseSettings) },
-      ipc: {
-        onTelemetry: vi.fn((h) => {
-          telemetryHandler = h
-        })
-      }
+    test('the welcome brings the snapshot', async () => {
+      const { useStatusStore, fake } = await loadFreshStore()
+      welcomeWith(fake, { reverse: true, lights: true })
+      expect(useStatusStore.getState().reverse).toBe(true)
+      expect(useStatusStore.getState().lights).toBe(true)
     })
-    const { useLiviStore, useStatusStore } = await loadFreshStore(projection)
-    await waitForStoreSettings(useLiviStore)
 
-    useStatusStore.getState().setReverse(true)
-    useStatusStore.getState().setLights(true)
-    const setReverseSpy = vi.spyOn(useStatusStore.getState(), 'setReverse')
-    const setLightsSpy = vi.spyOn(useStatusStore.getState(), 'setLights')
-
-    telemetryHandler?.({ reverse: true, lights: true })
-    expect(setReverseSpy).not.toHaveBeenCalled()
-    expect(setLightsSpy).not.toHaveBeenCalled()
-  })
-
-  test('telemetry handler derives reverse from gear "R" / -1 / numeric', async () => {
-    let telemetryHandler: ((payload: unknown) => void) | undefined
-    const projection = makeProjectionApi({
-      settings: { get: vi.fn().mockResolvedValue(baseSettings) },
-      ipc: {
-        onTelemetry: vi.fn((h) => {
-          telemetryHandler = h
-        })
-      }
+    test('an empty snapshot changes nothing', async () => {
+      const { useStatusStore, fake } = await loadFreshStore()
+      welcomeWith(fake, {})
+      expect(useStatusStore.getState().reverse).toBe(false)
+      expect(useStatusStore.getState().lights).toBe(false)
     })
-    const { useLiviStore, useStatusStore } = await loadFreshStore(projection)
-    await waitForStoreSettings(useLiviStore)
-
-    telemetryHandler?.({ gear: 'R' })
-    expect(useStatusStore.getState().reverse).toBe(true)
-
-    telemetryHandler?.({ gear: -1 })
-    expect(useStatusStore.getState().reverse).toBe(true)
-
-    telemetryHandler?.({ gear: 3 })
-    expect(useStatusStore.getState().reverse).toBe(false)
-  })
-
-  test('telemetry handler ignores non-object payloads', async () => {
-    let telemetryHandler: ((payload: unknown) => void) | undefined
-    const projection = makeProjectionApi({
-      settings: { get: vi.fn().mockResolvedValue(baseSettings) },
-      ipc: {
-        onTelemetry: vi.fn((h) => {
-          telemetryHandler = h
-        })
-      }
-    })
-    const { useLiviStore, useStatusStore } = await loadFreshStore(projection)
-    await waitForStoreSettings(useLiviStore)
-    const before = { ...useStatusStore.getState() }
-
-    telemetryHandler?.(null)
-    telemetryHandler?.('garbage')
-
-    const after = useStatusStore.getState()
-    expect(after.reverse).toBe(before.reverse)
-    expect(after.lights).toBe(before.lights)
-  })
-
-  test('telemetry hydration via getTelemetrySnapshot seeds the status store', async () => {
-    const getTelemetrySnapshot = vi.fn().mockResolvedValue({ reverse: true, lights: true })
-    const projection = makeProjectionApi({
-      settings: { get: vi.fn().mockResolvedValue(baseSettings) },
-      ipc: {
-        onTelemetry: vi.fn()
-        // Add the snapshot hook dynamically — makeProjectionApi doesn't include it.
-      }
-    }) as unknown as TestProjectionApi & { ipc: { getTelemetrySnapshot: Mock } }
-    projection.ipc.getTelemetrySnapshot = getTelemetrySnapshot
-    ;(window as unknown as { projection: TestProjectionApi }).projection = projection
-
-    vi.resetModules()
-    const { useLiviStore, useStatusStore } = await import('../store')
-    await waitForStoreSettings(useLiviStore)
-    // Wait for the snapshot promise to resolve and applyTelemetryControls to run
-    await Promise.resolve()
-    await Promise.resolve()
-
-    expect(getTelemetrySnapshot).toHaveBeenCalled()
-    expect(useStatusStore.getState().reverse).toBe(true)
-    expect(useStatusStore.getState().lights).toBe(true)
-  })
-
-  test('telemetry hydration ignores an empty snapshot', async () => {
-    const getTelemetrySnapshot = vi.fn().mockResolvedValue({})
-    const projection = makeProjectionApi({
-      settings: { get: vi.fn().mockResolvedValue(baseSettings) },
-      ipc: { onTelemetry: vi.fn() }
-    }) as unknown as TestProjectionApi & { ipc: { getTelemetrySnapshot: Mock } }
-    projection.ipc.getTelemetrySnapshot = getTelemetrySnapshot
-    ;(window as unknown as { projection: TestProjectionApi }).projection = projection
-
-    vi.resetModules()
-    const { useLiviStore, useStatusStore } = await import('../store')
-    await waitForStoreSettings(useLiviStore)
-    await Promise.resolve()
-    await Promise.resolve()
-
-    expect(getTelemetrySnapshot).toHaveBeenCalled()
-    // Defaults preserved
-    expect(useStatusStore.getState().reverse).toBe(false)
-    expect(useStatusStore.getState().lights).toBe(false)
   })
 
   test('setActiveProtocol flips the status flag and useProjectionActive reflects it', async () => {
@@ -1029,44 +589,13 @@ describe('store', () => {
     act(() => {
       useStatusStore.getState().setActiveProtocol(null)
     })
-    expect(useStatusStore.getState().activeProtocol).toBe(null)
     expect(result.current).toBe(false)
   })
 
-  test('audio-devices revision and cluster-dash setters update state', async () => {
-    const { useLiviStore, useStatusStore } = await loadFreshStore()
-
-    const before = useLiviStore.getState().audioDevicesRevision
-    useLiviStore.getState().bumpAudioDevicesRevision()
-    expect(useLiviStore.getState().audioDevicesRevision).toBe(before + 1)
+  test('the cluster-dash setter updates state', async () => {
+    const { useStatusStore } = await loadFreshStore()
 
     useStatusStore.getState().setClusterDashActive(true)
     expect(useStatusStore.getState().clusterDashActive).toBe(true)
-  })
-
-  test('telemetry path request parks the path until it is consumed', async () => {
-    let telemetryHandler: ((payload: unknown) => void) | undefined
-
-    const projection = makeProjectionApi({
-      settings: {
-        get: vi.fn().mockResolvedValue(baseSettings),
-        save: vi.fn().mockResolvedValue(undefined)
-      },
-      ipc: {
-        onTelemetry: vi.fn((handler) => {
-          telemetryHandler = handler
-        })
-      }
-    })
-
-    const { useLiviStore, useStatusStore } = await loadFreshStore(projection)
-
-    await waitForStoreSettings(useLiviStore)
-
-    telemetryHandler?.({ path: '/camera' })
-    expect(useStatusStore.getState().requestedPath).toBe('/camera')
-
-    useStatusStore.getState().clearRequestedPath()
-    expect(useStatusStore.getState().requestedPath).toBeNull()
   })
 })

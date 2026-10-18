@@ -1,29 +1,10 @@
 import { createTheme, ThemeProvider } from '@mui/material/styles'
 import { act, render, waitFor } from '@testing-library/react'
-import { FFTSpectrum, normalizePcmBuffer } from '../FFTSpectrum'
+import { FFTSpectrum } from '../FFTSpectrum'
 
-const postMessageMock = vi.fn()
-const terminateMock = vi.fn()
-
-const workerInstance = {
-  postMessage: postMessageMock,
-  terminate: terminateMock,
-  onmessage: null as ((e: MessageEvent) => void) | null
-}
-
-vi.mock('../createFftWorker', () => ({
-  createFftWorker: () => workerInstance
-}))
-
-let mockState = {
-  audioSampleRate: 48000,
-  visualAudioDelayMs: 120,
-  audioPcmData: null as Float32Array | null
-}
-
-const subscribeMock = vi.fn<() => void, [(s: typeof mockState) => void]>(
-  (_cb: (s: typeof mockState) => void) => vi.fn()
-)
+let spectrumListener: ((bands: number[]) => void) | null = null
+const stopListeningMock = vi.fn()
+const reportSpectrumMock = vi.fn()
 const observeMock = vi.fn()
 const disconnectMock = vi.fn()
 const clearRectMock = vi.fn()
@@ -35,9 +16,11 @@ const strokeMock = vi.fn()
 const fillTextMock = vi.fn()
 
 vi.mock('@store/store', () => ({
-  useLiviStore: Object.assign((selector: (s: typeof mockState) => unknown) => selector(mockState), {
-    subscribe: (cb: (s: typeof mockState) => void) => subscribeMock(cb)
-  })
+  onSpectrum: (listener: (bands: number[]) => void) => {
+    spectrumListener = listener
+    return stopListeningMock
+  },
+  reportSpectrum: (on: boolean) => reportSpectrumMock(on)
 }))
 
 describe('FFTSpectrum', () => {
@@ -48,15 +31,7 @@ describe('FFTSpectrum', () => {
       toFake: ['setTimeout', 'clearTimeout', 'setInterval', 'clearInterval', 'Date']
     })
 
-    mockState = {
-      audioSampleRate: 48000,
-      visualAudioDelayMs: 120,
-      audioPcmData: null
-    }
-
-    workerInstance.postMessage = postMessageMock
-    workerInstance.terminate = terminateMock
-    workerInstance.onmessage = null
+    spectrumListener = null
 
     const requestAnimationFrameMock = vi.fn((cb: FrameRequestCallback) => {
       return setTimeout(() => cb(performance.now() + 100), 0) as unknown as number
@@ -176,117 +151,22 @@ describe('FFTSpectrum', () => {
     vi.useRealTimers()
   })
 
-  test('creates worker and posts init message', async () => {
-    render(<FFTSpectrum />)
-
-    await waitFor(() => {
-      expect(postMessageMock).toHaveBeenCalledWith({
-        type: 'init',
-        fftSize: 4096,
-        points: 24,
-        sampleRate: 48000,
-        minFreq: 20,
-        maxFreq: 20000
-      })
-    })
-  })
-
-  test('terminates worker and disconnects resize observer on unmount', async () => {
+  test('asks core for frames while mounted and stops asking on unmount', async () => {
     const { unmount } = render(<FFTSpectrum />)
+    expect(reportSpectrumMock).toHaveBeenCalledWith(true)
 
     unmount()
 
-    expect(terminateMock).toHaveBeenCalled()
+    expect(reportSpectrumMock).toHaveBeenLastCalledWith(false)
+    expect(stopListeningMock).toHaveBeenCalled()
     expect(disconnectMock).toHaveBeenCalled()
   })
 
-  test('posts pcm to worker with configured visual delay', async () => {
-    let subscriber!: (s: typeof mockState) => void
-    subscribeMock.mockImplementation((cb) => {
-      subscriber = cb
-      return vi.fn()
-    })
-
+  test('draws the bands core sends, as many bars as it has room for', async () => {
     render(<FFTSpectrum />)
 
-    const pcm = new Float32Array([0.1, 0.2, 0.3])
-    subscriber({ ...mockState, audioPcmData: pcm })
-
-    expect(postMessageMock).toHaveBeenCalledTimes(1)
-
-    act(() => {
-      vi.advanceTimersByTime(120)
-    })
-
-    await waitFor(() => {
-      expect(postMessageMock).toHaveBeenCalledTimes(2)
-    })
-
-    expect(postMessageMock.mock.calls[1][0]).toEqual({
-      type: 'pcm',
-      buffer: expect.any(ArrayBuffer)
-    })
-    expect(postMessageMock.mock.calls[1][1]).toHaveLength(1)
-  })
-
-  test('posts pcm immediately when visual delay is zero', async () => {
-    mockState.visualAudioDelayMs = 0
-
-    let subscriber!: (s: typeof mockState) => void
-    subscribeMock.mockImplementation((cb) => {
-      subscriber = cb
-      return vi.fn()
-    })
-
-    render(<FFTSpectrum />)
-
-    const pcm = new Float32Array([0.1, 0.2, 0.3])
-    subscriber({ ...mockState, visualAudioDelayMs: 0, audioPcmData: pcm })
-
-    await waitFor(() => {
-      expect(postMessageMock).toHaveBeenCalledTimes(2)
-    })
-
-    expect(postMessageMock.mock.calls[1][0]).toEqual({
-      type: 'pcm',
-      buffer: expect.any(ArrayBuffer)
-    })
-  })
-
-  test('ignores empty pcm payloads', async () => {
-    let subscriber!: (s: typeof mockState) => void
-    subscribeMock.mockImplementation((cb) => {
-      subscriber = cb
-      return vi.fn()
-    })
-
-    render(<FFTSpectrum />)
-
-    subscriber({ ...mockState, audioPcmData: new Float32Array(0) })
-
-    expect(postMessageMock).toHaveBeenCalledTimes(1)
-  })
-
-  test('ignores null pcm payloads', async () => {
-    let subscriber!: (s: typeof mockState) => void
-    subscribeMock.mockImplementation((cb) => {
-      subscriber = cb
-      return vi.fn()
-    })
-
-    render(<FFTSpectrum />)
-
-    subscriber({ ...mockState, audioPcmData: null })
-
-    expect(postMessageMock).toHaveBeenCalledTimes(1)
-  })
-
-  test('updates bins from worker message and draws bars', async () => {
-    render(<FFTSpectrum />)
-
-    workerInstance.onmessage?.({
-      data: { type: 'bins', bins: new Float32Array(24).fill(0.5) }
-    } as MessageEvent)
+    spectrumListener?.(new Array(30).fill(0.5))
+    spectrumListener?.([1, 0.25])
 
     act(() => {
       vi.runOnlyPendingTimers()
@@ -336,26 +216,6 @@ describe('FFTSpectrum', () => {
     await waitFor(() => {
       expect(fillRectMock).toHaveBeenCalled()
     })
-  })
-
-  test('ignores worker messages with unknown type', async () => {
-    render(<FFTSpectrum />)
-
-    act(() => {
-      vi.runOnlyPendingTimers()
-    })
-
-    const callsBefore = fillRectMock.mock.calls.length
-
-    workerInstance.onmessage?.({
-      data: { type: 'unknown', bins: new Float32Array(24).fill(1) }
-    } as MessageEvent)
-
-    act(() => {
-      vi.runOnlyPendingTimers()
-    })
-
-    expect(fillRectMock.mock.calls.length).toBeGreaterThanOrEqual(callsBefore)
   })
 
   test('skips background draw when width is zero', async () => {
@@ -425,32 +285,6 @@ describe('FFTSpectrum', () => {
     })
   })
 
-  test('does not update bins when worker sends non-bins message', async () => {
-    render(<FFTSpectrum />)
-
-    const prev = new Float32Array(24).fill(0.25)
-
-    workerInstance.onmessage?.({
-      data: { type: 'bins', bins: prev }
-    } as MessageEvent)
-
-    act(() => {
-      vi.runOnlyPendingTimers()
-    })
-
-    const callsBefore = fillRectMock.mock.calls.length
-
-    workerInstance.onmessage?.({
-      data: { type: 'other', bins: new Float32Array(24).fill(1) }
-    } as MessageEvent)
-
-    act(() => {
-      vi.runOnlyPendingTimers()
-    })
-
-    expect(fillRectMock.mock.calls.length).toBeGreaterThanOrEqual(callsBefore)
-  })
-
   test('skips draw when canvas is null after unmount', async () => {
     const { unmount } = render(<FFTSpectrum />)
 
@@ -499,78 +333,6 @@ describe('FFTSpectrum', () => {
     await waitFor(() => {
       expect(fillRectMock).toHaveBeenCalled()
     })
-  })
-
-  test('uses default sampleRate and visualAudioDelayMs when store values are missing', async () => {
-    mockState = {
-      audioSampleRate: undefined as unknown as number,
-      visualAudioDelayMs: undefined as unknown as number,
-      audioPcmData: null
-    }
-
-    let subscriber!: (s: typeof mockState) => void
-    subscribeMock.mockImplementation((cb) => {
-      subscriber = cb
-      return vi.fn()
-    })
-
-    render(
-      <ThemeProvider theme={createTheme({ palette: { mode: 'dark' } })}>
-        <FFTSpectrum />
-      </ThemeProvider>
-    )
-
-    await waitFor(() => {
-      expect(postMessageMock).toHaveBeenCalledWith({
-        type: 'init',
-        fftSize: 4096,
-        points: 24,
-        sampleRate: 48000,
-        minFreq: 20,
-        maxFreq: 20000
-      })
-    })
-
-    subscriber({
-      ...mockState,
-      audioPcmData: new Float32Array([0.1, 0.2, 0.3])
-    })
-
-    act(() => {
-      vi.advanceTimersByTime(120)
-    })
-
-    await waitFor(() => {
-      expect(postMessageMock).toHaveBeenCalledTimes(2)
-    })
-  })
-
-  test('converts non-Float32Array pcm with new Float32Array(pcm)', async () => {
-    mockState.visualAudioDelayMs = 0
-
-    let subscriber!: (s: typeof mockState) => void
-    subscribeMock.mockImplementation((cb) => {
-      subscriber = cb
-      return vi.fn()
-    })
-
-    render(<FFTSpectrum />)
-
-    subscriber({
-      ...mockState,
-      visualAudioDelayMs: 0,
-      audioPcmData: [0.1, 0.2, 0.3] as unknown as Float32Array
-    })
-
-    await waitFor(() => {
-      expect(postMessageMock).toHaveBeenCalledTimes(2)
-    })
-
-    expect(postMessageMock.mock.calls[1][0]).toEqual({
-      type: 'pcm',
-      buffer: expect.any(ArrayBuffer)
-    })
-    expect(postMessageMock.mock.calls[1][1]).toHaveLength(1)
   })
 
   test('does nothing when resize observer callback is never triggered', async () => {
@@ -650,28 +412,5 @@ describe('FFTSpectrum', () => {
     expect(fillRectMock.mock.calls.length).toBe(before)
 
     nowMock.mockRestore()
-  })
-
-  test('normalizePcmBuffer clones Float32Array input', async () => {
-    const pcm = new Float32Array([0.1, 0.2, 0.3])
-
-    const result = normalizePcmBuffer(pcm)
-
-    expect(result).toBeInstanceOf(Float32Array)
-    expect(result).not.toBe(pcm)
-    expect(result).toHaveLength(3)
-    expect(result[0]).toBeCloseTo(0.1)
-    expect(result[1]).toBeCloseTo(0.2)
-    expect(result[2]).toBeCloseTo(0.3)
-  })
-
-  test('normalizePcmBuffer converts array-like pcm input', async () => {
-    const result = normalizePcmBuffer([0.1, 0.2, 0.3])
-
-    expect(result).toBeInstanceOf(Float32Array)
-    expect(result).toHaveLength(3)
-    expect(result[0]).toBeCloseTo(0.1)
-    expect(result[1]).toBeCloseTo(0.2)
-    expect(result[2]).toBeCloseTo(0.3)
   })
 })

@@ -1,6 +1,8 @@
+import { DEFAULT_CONFIG } from '@shared/types'
 import type { GnssInfo, GnssSatellite } from '@shared/types/Gnss'
 import { EMPTY_GNSS_INFO } from '@shared/types/Gnss'
 import type { GpsPayload } from '@shared/types/Telemetry'
+import { useLiviStore } from '@store/store'
 import { cleanup, render, screen } from '@testing-library/react'
 import { GpsInfo } from '../GpsInfo'
 
@@ -153,6 +155,16 @@ describe('GpsInfo', () => {
     expect(screen.getByText('28.2 m')).toBeInTheDocument()
     expect(screen.getByText('36.0 km/h')).toBeInTheDocument()
     expect(screen.getByText('± 2.5 m')).toBeInTheDocument()
+  })
+
+  test('shows the speed in mph when asked', () => {
+    useLiviStore.setState({ settings: { ...DEFAULT_CONFIG, speedUnit: 'mph' } })
+    try {
+      show(CONNECTED, { lat: 53.3, lng: 10.5, speedMs: 10 })
+      expect(screen.getByText('22.4 mph')).toBeInTheDocument()
+    } finally {
+      useLiviStore.setState({ settings: null })
+    }
   })
 
   test('omits the position row when the fix carries no coordinates', () => {

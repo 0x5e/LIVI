@@ -1,10 +1,10 @@
-import { useStatusStore } from '@store/store'
+import { coreAction, useLiviStore } from '@store/store'
 import { Suspense, useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { Controls, ProgressBar } from './components'
 import { FFTSpectrum } from './components/createFFTSpectrum'
 import { MIN_TEXT_COL, OPTIMISTIC_PLAY_TIMEOUT_MS } from './constants'
 import { useElementSize, useMediaState, useOptimisticPlaying, usePressFeedback } from './hooks'
-import { MediaEventType, UsbEvent } from './types'
+import { MediaEventType } from './types'
 import { clamp } from './utils'
 import { flash } from './utils/flash'
 import { mediaControlOps } from './utils/mediaControllOps'
@@ -12,23 +12,19 @@ import { mediaLayoutArtworksOps } from './utils/mediaLayoutArtworksOps'
 import { mediaProjectionOps } from './utils/mediaProjectionOps'
 import { mediaScaleOps } from './utils/mediaScaleOps'
 
-type MediaProps = { forceHydrate?: boolean }
-
-export const Media = ({ forceHydrate = false }: MediaProps = {}) => {
-  const isStreaming = useStatusStore((s: { isStreaming: boolean }) => s.isStreaming)
-
+export const Media = () => {
   const [rootRef, { w, h }] = useElementSize<HTMLDivElement>()
-  const { snap, livePlayMs, stalled } = useMediaState(forceHydrate || isStreaming)
+  const { snap, livePlayMs, stalled } = useMediaState()
+  const sessionKey = useLiviStore((s) => `${s.sessions.active}:${s.sessions.position}`)
+  const carPlayActive = useLiviStore((s) => s.sessions.active === 'carplay')
 
-  // Scales (base)
   const { titlePx, artistPx, albumPx, pagePad, colGap, sectionGap, ctrlSize, ctrlGap, progressH } =
     mediaScaleOps({ w, h })
 
-  // Tiny-screen helpers (e.g. 320x240)
   const isTinyHeight = h > 0 && h <= 320
   const textScale = isTinyHeight ? 0.88 : 1
 
-  // Clamp padding on tiny screens, otherwise the progress bar has no space left
+  // On tiny screens the full padding leaves the progress bar no room.
   const pagePadClamped = isTinyHeight ? Math.min(pagePad, 10) : pagePad
 
   const titlePxScaled = Math.max(12, Math.round(titlePx * textScale))
@@ -36,13 +32,10 @@ export const Media = ({ forceHydrate = false }: MediaProps = {}) => {
   const albumPxScaled = Math.max(10, Math.round(albumPx * textScale))
   const appPxScaled = Math.max(10, Math.round(12 * textScale))
 
-  // Slightly slimmer bar on tiny screens
   const progressHScaled = Math.max(6, Math.round(progressH * (isTinyHeight ? 0.85 : 1)))
 
-  // Compute usable inner width (hard clamp) for anything that must not overflow
   const innerMaxWidth = Math.max(0, Math.floor(w - pagePadClamped * 2))
 
-  // Layout + artwork
   const { canTwoCol, artPx } = mediaLayoutArtworksOps({
     ctrlSize,
     progressH: progressHScaled,
@@ -55,7 +48,6 @@ export const Media = ({ forceHydrate = false }: MediaProps = {}) => {
     albumPx: albumPxScaled
   })
 
-  // Media projection
   const {
     mediaPayloadError,
     title,
@@ -75,32 +67,22 @@ export const Media = ({ forceHydrate = false }: MediaProps = {}) => {
   )
   const { press, bump, reset: resetPress } = usePressFeedback()
 
-  // Artwork <-> FFT toggle
   const [showFft, setShowFft] = useState(false)
 
   const toggleArtworkFft = useCallback(() => {
     setShowFft((v) => !v)
   }, [])
 
-  // Enable visualizer only when FFT is visible
-  useEffect(() => {
-    window.projection?.ipc?.setVisualizerEnabled?.(!!showFft)
-    return () => window.projection?.ipc?.setVisualizerEnabled?.(false)
-  }, [showFft])
-
-  // Per-button focus
   const [focus, setFocus] = useState<{ play: boolean; next: boolean; prev: boolean }>({
     play: false,
     next: false,
     prev: false
   })
 
-  // Refs for visual flash
   const prevBtnRef = useRef<HTMLButtonElement | null>(null)
   const playBtnRef = useRef<HTMLButtonElement | null>(null)
   const nextBtnRef = useRef<HTMLButtonElement | null>(null)
 
-  // Backward-jump guard controls
   const prevElapsedRef = useRef(0)
   const allowBackwardOnceRef = useRef(false)
 
@@ -151,23 +133,22 @@ export const Media = ({ forceHydrate = false }: MediaProps = {}) => {
     return () => window.removeEventListener('car-media-key', handler as EventListener)
   }, [bump])
 
-  // Clear overrides on session change
+  const sessionKeyRef = useRef(sessionKey)
   useEffect(() => {
-    const handler = (_evt: unknown, ...args: unknown[]) => {
-      const data = (args[0] ?? {}) as UsbEvent
-      if (data?.type === 'media-reset') {
-        clearOverride()
-        resetPress()
-        setShowFft(false)
-      }
-    }
-    const unsubscribe = window.projection.ipc.onEvent(handler)
-    return unsubscribe
-  }, [clearOverride, resetPress])
+    if (sessionKeyRef.current === sessionKey) return
+    sessionKeyRef.current = sessionKey
+    clearOverride()
+    resetPress()
+    setShowFft(false)
+  }, [sessionKey, clearOverride, resetPress])
 
-  // Progress from elapsed/total
   const elapsedMs = Math.max(0, livePlayMs || 0)
   const totalMs = Math.max(0, durationMs || 0)
+  const onSeek = carPlayActive
+    ? (ms: number) => {
+        coreAction({ kind: 'seek', positionMs: ms }).catch(() => {})
+      }
+    : undefined
   const lastProgressRef = useRef(0)
   const lastTrackSigRef = useRef<string>('')
 
@@ -187,7 +168,7 @@ export const Media = ({ forceHydrate = false }: MediaProps = {}) => {
 
   let progress = totalMs > 0 ? elapsedMs / totalMs : 0
 
-  // Block jitter while playing, but allow explicit restarts/back
+  // The phone's elapsed time jitters backwards while playing.
   if (realPlaying && !isRestart && progress + 0.001 < lastProgressRef.current) {
     progress = lastProgressRef.current
   }
@@ -201,15 +182,11 @@ export const Media = ({ forceHydrate = false }: MediaProps = {}) => {
 
   const iconPx = Math.round(ctrlSize * 0.46)
 
-  // Slightly reduce side padding for text on tiny screens
   const textSidePad = Math.max(6, Math.round(pagePadClamped * 0.75))
 
   const ART_ROUND = canTwoCol ? 34 : 18
   const fftPad = Math.max(8, Math.round(artPx * 0.06))
 
-  // IMPORTANT:
-  // - We keep rounded clipping ONLY for artwork.
-  // - For FFT we do NOT round/clip; we also slightly scaleY to avoid the "stretched" look.
   const artworkBoxStyle: React.CSSProperties = {
     width: artPx,
     height: artPx,
@@ -257,6 +234,7 @@ export const Media = ({ forceHydrate = false }: MediaProps = {}) => {
             style={{
               width: '100%',
               height: '100%',
+              // Without it the spectrum looks stretched.
               transform: 'scaleY(0.85)',
               transformOrigin: 'center',
               display: 'flex',
@@ -316,7 +294,6 @@ export const Media = ({ forceHydrate = false }: MediaProps = {}) => {
         overflow: 'hidden'
       }}
     >
-      {/* CONTENT */}
       <div style={{ flex: 1, minHeight: 0 }}>
         {canTwoCol ? (
           <div
@@ -416,7 +393,6 @@ export const Media = ({ forceHydrate = false }: MediaProps = {}) => {
         )}
       </div>
 
-      {/* BOTTOM DOCK */}
       <div
         style={{
           display: 'grid',
@@ -427,7 +403,6 @@ export const Media = ({ forceHydrate = false }: MediaProps = {}) => {
           boxSizing: 'border-box'
         }}
       >
-        {/* Always center controls */}
         <div style={{ display: 'flex', justifyContent: 'center', width: '100%' }}>
           <Controls
             ctrlGap={ctrlGap}
@@ -446,13 +421,13 @@ export const Media = ({ forceHydrate = false }: MediaProps = {}) => {
           />
         </div>
 
-        {/* Always render progress bar */}
         <div style={{ width: '100%', maxWidth: '100%', boxSizing: 'border-box' }}>
           <ProgressBar
             elapsedMs={elapsedMs}
             progressH={progressHScaled}
             totalMs={totalMs}
             pct={pct}
+            onSeek={onSeek}
           />
         </div>
       </div>

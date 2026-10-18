@@ -25,7 +25,3 @@ export function isClusterOnScreen(
 ): boolean {
   return clusterTargetScreens(cfg).includes(role)
 }
-
-export function isClusterDisplayed(cfg: ClusterAwareConfig | null | undefined): boolean {
-  return clusterTargetScreens(cfg).length > 0
-}

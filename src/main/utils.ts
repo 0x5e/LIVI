@@ -1,23 +1,9 @@
-import { NullDeleteKey, runtimeStateProps } from '@main/types'
-import { broadcastToRenderers } from '@main/window/broadcast'
 import type { Config } from '@shared/types'
 import { app } from 'electron'
-import { NULL_DELETES } from './constants'
 
 export const isMacPlatform = () => process.platform === 'darwin'
 
 export const isDev = () => !app.isPackaged
-
-export function applyNullDeletes(merged: Config, next: Partial<Config>) {
-  const nextAny = next as Record<string, unknown>
-  const mergedAny = merged as Record<string, unknown>
-
-  for (const key of NULL_DELETES) {
-    if (nextAny[key] === null) {
-      delete mergedAny[key as NullDeleteKey]
-    }
-  }
-}
 
 export function sizesEqual(a: Config, b: Config) {
   const aw = Number(a.mainScreenWidth) || 0
@@ -37,11 +23,4 @@ export function linuxPresetAngleVulkan() {
 
   setFeatureFlags(['Vulkan', 'VulkanFromANGLE', 'DefaultANGLEVulkan'])
   app.commandLine.appendSwitch('ozone-platform-hint', 'auto')
-}
-
-export function pushSettingsToRenderer(
-  runtimeState: runtimeStateProps,
-  override?: Partial<Config>
-) {
-  broadcastToRenderers('settings', { ...runtimeState.config, ...(override ?? {}) })
 }

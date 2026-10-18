@@ -8,6 +8,12 @@ describe('TempGauge', () => {
     expect(screen.getByText('92°')).toBeInTheDocument()
   })
 
+  test('shows °F when asked, the bar keeps working in °C', () => {
+    render(<TempGauge value={100.2} unit="fahrenheit" />)
+
+    expect(screen.getByText('212°')).toBeInTheDocument()
+  })
+
   test('falls back to 0 for non-finite values', () => {
     render(<TempGauge value={Number.NaN} />)
 

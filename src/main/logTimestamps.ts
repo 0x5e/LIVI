@@ -1,7 +1,3 @@
-// Prefixes every main-process console line with a wall-clock timestamp (HH:MM:SS.mmm)
-// and mirrors it into size-capped, rotating session logs (LIVI.log = current,
-// LIVI.1.log..LIVI.4.log = previous sessions, oldest dies first).
-// Imported first in index.ts so relayed [helper] lines get stamped too.
 import fs from 'node:fs'
 import path from 'node:path'
 import util from 'node:util'
@@ -10,9 +6,26 @@ import { app } from 'electron'
 const MAX_LOG_BYTES = 8 * 1024 * 1024
 const KEEP_SESSIONS = 5
 
+const HELD_MAX = 1000
+
 let stream: fs.WriteStream | null = null
 let written = 0
 let sinkDead = false
+
+// On macOS core is Electron's child and writes LIVI.log, so the lines go to core.
+const coreTakesLog = process.platform === 'darwin'
+const held: string[] = []
+let toCore: ((line: string) => void) | null = null
+
+export function logThroughCore(write: ((line: string) => void) | null): void {
+  toCore = write
+  if (write) for (const line of held.splice(0)) write(line)
+}
+
+function hand(line: string): void {
+  if (toCore) toCore(line)
+  else if (held.length < HELD_MAX) held.push(line)
+}
 
 function rotate(dir: string): void {
   fs.rmSync(path.join(dir, `LIVI.${KEEP_SESSIONS - 1}.log`), { force: true })
@@ -73,11 +86,16 @@ const base = {
 function emit(kind: keyof typeof base, args: unknown[]): void {
   const ts = `[${stamp()}]`
   base[kind](ts, ...args)
-  sink(`${ts} ${util.format(...args)}`)
+  const line = `${ts} ${util.format(...args)}`
+  if (coreTakesLog) hand(line)
+  else sink(line)
 }
 
-console.log = (...a: unknown[]): void => emit('log', a)
-console.info = (...a: unknown[]): void => emit('info', a)
-console.warn = (...a: unknown[]): void => emit('warn', a)
-console.error = (...a: unknown[]): void => emit('error', a)
-console.debug = (...a: unknown[]): void => emit('debug', a)
+// Started by core, which stamps every line it hears and writes LIVI.log itself.
+if (!process.env.LIVI_CORE_SOCKET) {
+  console.log = (...a: unknown[]): void => emit('log', a)
+  console.info = (...a: unknown[]): void => emit('info', a)
+  console.warn = (...a: unknown[]): void => emit('warn', a)
+  console.error = (...a: unknown[]): void => emit('error', a)
+  console.debug = (...a: unknown[]): void => emit('debug', a)
+}

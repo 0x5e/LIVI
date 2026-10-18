@@ -1,3 +1,5 @@
+import type { System } from '@shared/core/contract'
+import type { Config } from '@shared/types'
 import type React from 'react'
 
 type BivariantCallback<T extends (...args: never[]) => unknown> = {
@@ -23,10 +25,10 @@ export type NodeMeta = {
 }
 
 export type BaseFieldNode = NodeMeta & {
-  label: string // TODO deleted in favor of i18n
+  label: string // TODO: goes away once labelKey covers every node
   labelKey?: string
   path: string
-  disabled?: boolean
+  disabled?: boolean | ((system: System | null) => boolean)
 }
 
 export type CheckboxNode = BaseFieldNode & {
@@ -39,7 +41,12 @@ export type NumberNode = BaseFieldNode & {
   max?: number
   step?: number
   default?: number
+  /** Stored as is, shown and edited times `factor`. `min` and `max` are stored values. */
+  unit?: (settings: Config | null) => NumberUnit
 }
+
+/** `step` and `max` are in the unit shown, `step` wins over the node's. */
+export type NumberUnit = { factor: number; suffix: string; step?: number; max?: number }
 
 export type StringNode = BaseFieldNode & {
   type: 'string'
@@ -53,7 +60,7 @@ export type ColorNode = BaseFieldNode & {
 }
 
 export type SelectOption = {
-  label: string // TODO deleted in favor of i18n
+  label: string // TODO: goes away once labelKey covers every node
   labelKey?: string
   value: string | number
   offline?: boolean
@@ -67,6 +74,7 @@ export type SelectNode = BaseFieldNode & {
   labelPath?: string
   // Every tap on an option, also on the one already picked
   onPick?: (value: string | number) => void
+  readOnly?: (system: System | null) => boolean
 }
 
 export type ToggleNode = BaseFieldNode & {
@@ -116,7 +124,7 @@ export type KeyBindingKey =
 
 export type KeyBindingNode = NodeMeta & {
   type: 'keybinding'
-  label: string // TODO deleted in favor of i18n
+  label: string // TODO: goes away once labelKey covers every node
   labelKey?: string
   path: string
   bindingKey: KeyBindingKey
@@ -134,7 +142,7 @@ export type SettingsCustomPageProps<TStore, TValue> = {
 
 export type SettingsCustomNode<TStore, TValue = unknown> = NodeMeta & {
   type: 'custom'
-  label: string // TODO deleted in favor of i18n
+  label: string // TODO: goes away once labelKey covers every node
   labelKey?: string
   path: string
   component: React.ComponentType<SettingsCustomPageProps<TStore, TValue>>
@@ -142,7 +150,7 @@ export type SettingsCustomNode<TStore, TValue = unknown> = NodeMeta & {
 
 export type BtDeviceListNode = NodeMeta & {
   type: 'btDeviceList'
-  label: string // TODO deleted in favor of i18n
+  label: string // TODO: goes away once labelKey covers every node
   labelKey?: string
   path: string
 }
@@ -164,7 +172,7 @@ export type PosListNode = NodeMeta & {
 
 export type RouteNode<TStore> = NodeMeta & {
   type: 'route'
-  label: string // TODO deleted in favor of i18n
+  label: string // TODO: goes away once labelKey covers every node
   labelKey?: string
   route: string
   path: string

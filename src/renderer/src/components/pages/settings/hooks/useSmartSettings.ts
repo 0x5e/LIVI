@@ -1,6 +1,6 @@
-import { useLiviStore, useProjectionActive } from '@store/store'
+import { coreAction, useLiviStore, useSessionsOpen } from '@store/store'
 import { useCallback, useEffect, useMemo, useState } from 'react'
-import { requiresRestartParams, restartWithoutSessionParams } from '../constants'
+import { requiresRestartParams } from '../constants'
 import { getValueByPath, setValueByPath } from '../utils'
 
 type OverrideConfig = {
@@ -24,7 +24,7 @@ export function useSmartSettings<T extends Record<string, unknown>>(
   const [state, setState] = useState<T>(() => ({ ...initial }))
   const [restartRequested, setRestartRequested] = useState(false)
 
-  const projectionActive = useProjectionActive()
+  const sessionsOpen = useSessionsOpen()
 
   const saveSettings = useLiviStore((s) => s.saveSettings)
   const restartBaseline = useLiviStore((s) => s.restartBaseline)
@@ -42,17 +42,18 @@ export function useSmartSettings<T extends Record<string, unknown>>(
     [state, settings]
   )
 
+  // With no phone connected core applies every change itself.
   const needsRestartFromConfig = useMemo(() => {
+    if (!sessionsOpen) return false
     const cfg = (settings ?? {}) as Record<string, unknown>
     const baseline = (restartBaseline ?? settings ?? {}) as Record<string, unknown>
 
     for (const key of requiresRestartParams) {
       if (!isRestartRelevantPath(key)) continue
-      if (!projectionActive && !restartWithoutSessionParams.includes(key)) continue
       if (JSON.stringify(cfg[key]) !== JSON.stringify(baseline[key])) return true
     }
     return false
-  }, [settings, restartBaseline, projectionActive])
+  }, [settings, restartBaseline, sessionsOpen])
 
   const needsRestart = useMemo(() => {
     return Boolean(needsRestartFromConfig || restartRequested)
@@ -88,7 +89,11 @@ export function useSmartSettings<T extends Record<string, unknown>>(
   const restart = async () => {
     if (!needsRestart) return false
 
-    await window.projection.ipc.restart()
+    try {
+      await coreAction({ kind: 'applySettings' })
+    } catch {
+      return false
+    }
 
     markRestartBaseline()
     setRestartRequested(false)

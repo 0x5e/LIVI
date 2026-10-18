@@ -35,9 +35,9 @@ export const DEFAULT_CONFIG: Config = {
   carName: 'LIVI',
   oemName: 'App',
   darkMode: true,
+  overlayMessages: true,
   displayBrightness: 1.0,
   displayBrightnessAuto: true,
-  nightMode: true,
   hand: HandDriveType.LHD,
   samplingFrequency: 1,
   autoConn: true,
@@ -48,6 +48,12 @@ export const DEFAULT_CONFIG: Config = {
   country: 'DE',
   carType: CarType.Gasoline,
   evConnectorTypes: [],
+  maxSpeedKph: 200,
+  speedScaleStep: 40,
+  maxRpm: 5000,
+  redlineRpm: 4500,
+  speedUnit: 'kmh',
+  temperatureUnit: 'celsius',
   wirelessAaEnabled: false,
   wirelessCpEnabled: false,
   wifiPassword: '12345678',
@@ -118,5 +124,7 @@ export const DEFAULT_CONFIG: Config = {
   bindings: DEFAULT_BINDINGS,
   carplayIcon120: '',
   carplayIcon180: '',
-  carplayIcon256: ''
+  carplayIcon256: '',
+  // 0,0 counts as no fix, the entry only lets a saved one through validate()
+  lastKnownGps: { lat: 0, lng: 0, ts: 0 }
 }

@@ -1,6 +1,5 @@
 use std::process::ExitCode;
 
-use iap2_csm::messages::wifi::SecurityType;
 use iap2_link::LinkConfig;
 use iap2_mfi::{I2cCoprocessor, NcmCoprocessor, NoCoprocessor};
 use std::sync::Arc;
@@ -16,6 +15,8 @@ use livi_runtime::livi_sock::{
 use livi_runtime::mfi_async::SharedCoprocessor;
 use livi_runtime::reconnect;
 use livi_runtime::state::HelperState;
+use livi_runtime::vehicle::Fuels;
+use livi_wifi::{Band, Channel};
 
 fn env_or<T: std::str::FromStr>(key: &str, default: T) -> T {
     std::env::var(key).ok().and_then(|v| v.parse().ok()).unwrap_or(default)
@@ -46,7 +47,6 @@ impl DeviceConfig {
         Self { json }
     }
 
-    // config.json wins, then env, then default.
     pub fn string(&self, json_key: &str, env_key: &str, default: &str) -> String {
         if let Some(s) = self.json.get(json_key).and_then(|v| v.as_str())
             && !s.is_empty()
@@ -71,27 +71,30 @@ impl DeviceConfig {
     }
 }
 
-/// The configured Wi-Fi interface.
-fn ap_iface(dc: &DeviceConfig) -> String {
-    let iface = dc.string("wifiInterface", "LIVI_WIFI_IFACE", "wlan0");
-    if iface != livi_dongle::link::CHOICE {
-        return iface;
-    }
-    livi_dongle::link::host_iface().unwrap_or(iface)
+/// The channel number alone is ambiguous once 6 GHz is picked.
+fn configured_channel(dc: &DeviceConfig) -> Channel {
+    let band = Band::of_setting(&dc.string("wifiType", "LIVI_WIFI_TYPE", "5ghz"));
+    Channel::of_setting(band.unwrap_or(Band::Ghz5), dc.int("wifiChannel", "LIVI_CHANNEL", 36u32))
 }
 
-/// The configured Bluetooth adapter. Choosing the dongle attaches its controller to this machine
-/// first, and the adapter the kernel then hands out is the one BlueZ is pointed at. No other
-/// controller stands in while it is missing, as only the chosen one may be made discoverable.
+fn ap_iface(dc: &DeviceConfig) -> String {
+    let iface = dc.string("wifiInterface", "LIVI_WIFI_IFACE", "wlan0");
+    if iface != livi_link_host::link::CHOICE {
+        return iface;
+    }
+    livi_link_host::link::host_iface().unwrap_or(iface)
+}
+
+/// Only the chosen controller may be made discoverable, so the helper waits for the dongle's.
 async fn bt_adapter(dc: &DeviceConfig) -> String {
     let adapter = dc.string("btAdapter", "LIVI_BT_ADAPTER", "hci0");
-    if adapter != livi_dongle::link::CHOICE {
+    if adapter != livi_link_host::link::CHOICE {
         return adapter;
     }
     let (tx, mut rx) = tokio::sync::mpsc::unbounded_channel();
     let ours = Arc::new(std::sync::atomic::AtomicBool::new(false));
     let lost = ours.clone();
-    livi_dongle::bt::attach(
+    livi_link_host::bt::attach(
         move |index| {
             ours.store(true, std::sync::atomic::Ordering::Relaxed);
             if tx.send(index).is_err() {
@@ -106,7 +109,6 @@ async fn bt_adapter(dc: &DeviceConfig) -> String {
             }
         },
     );
-    println!("[bt] waiting for the dongle's controller");
     match rx.recv().await {
         Some(index) => format!("hci{index}"),
         None => {
@@ -116,22 +118,20 @@ async fn bt_adapter(dc: &DeviceConfig) -> String {
     }
 }
 
-/// `--wifi-ap`: dedicated early-boot AP mode (hostapd + dnsmasq ownership).
 pub fn run_wifi_ap() -> ExitCode {
     let dc = DeviceConfig::load();
     let cfg = livi_runtime::wifi_ap::ApConfig {
         iface: ap_iface(&dc),
         ssid: dc.string("carName", "LIVI_CP_NAME", "LIVI"),
         passphrase: dc.string("wifiPassword", "LIVI_PASSPHRASE", "12345678"),
-        channel: dc.int("wifiChannel", "LIVI_CHANNEL", 36u16) as u8,
-        width: dc.int("wifiChannelWidth", "LIVI_CHANNEL_WIDTH", 40u16) as u8,
+        channel: configured_channel(&dc),
+        width: dc.int("wifiChannelWidth", "LIVI_CHANNEL_WIDTH", 40u32),
         country: dc.string("country", "LIVI_COUNTRY", "DE"),
         ap_ip: std::env::var("LIVI_AP_IP").unwrap_or_else(|_| "10.10.0.1".into()),
     };
     livi_runtime::wifi_ap::run(cfg)
 }
 
-/// `--wifi-ap-status`: what the access point ended up running on.
 pub fn run_wifi_ap_status() -> ExitCode {
     let dc = DeviceConfig::load();
     print!("{}", livi_runtime::wifi_ap::status(&ap_iface(&dc)));
@@ -148,7 +148,6 @@ fn installed(what: &str, result: Result<(), String>) -> ExitCode {
     }
 }
 
-/// `--install-wifi-ap <unit> <rule>`
 pub fn run_install_wifi_ap(unit: Option<String>, rule: Option<String>) -> ExitCode {
     let (Some(unit), Some(rule)) = (unit, rule) else {
         eprintln!("[wifi-ap] usage: --install-wifi-ap <unit file> <sudoers file>");
@@ -157,7 +156,6 @@ pub fn run_install_wifi_ap(unit: Option<String>, rule: Option<String>) -> ExitCo
     installed("wifi-ap", livi_runtime::privileged::install_wifi_ap(&unit, &rule))
 }
 
-/// `--install-udev-rule <rule> [<touch filter>]`
 pub fn run_install_udev_rule(rule: Option<String>, filter: Option<String>) -> ExitCode {
     let Some(rule) = rule else {
         eprintln!("[udev] usage: --install-udev-rule <rule file> [<touch filter>]");
@@ -166,7 +164,6 @@ pub fn run_install_udev_rule(rule: Option<String>, filter: Option<String>) -> Ex
     installed("udev", livi_runtime::privileged::install_udev_rule(&rule, filter.as_deref()))
 }
 
-/// `--install-gvfs-guard <script> <rule>`
 pub fn run_install_gvfs_guard(script: Option<String>, rule: Option<String>) -> ExitCode {
     let (Some(script), Some(rule)) = (script, rule) else {
         eprintln!("[gvfs] usage: --install-gvfs-guard <script file> <sudoers file>");
@@ -175,7 +172,6 @@ pub fn run_install_gvfs_guard(script: Option<String>, rule: Option<String>) -> E
     installed("gvfs", livi_runtime::privileged::install_gvfs_guard(&script, &rule))
 }
 
-/// `--wifi-ap-claim`: takes the interface from NetworkManager, before it starts.
 pub fn run_wifi_ap_claim() -> ExitCode {
     let dc = DeviceConfig::load();
     livi_runtime::wifi_ap::release_iface_from_nm(&ap_iface(&dc));
@@ -190,9 +186,8 @@ pub fn run_wifi_ap_teardown() -> ExitCode {
     ExitCode::SUCCESS
 }
 
-/// Attaches the dongle's Bluetooth controller to this machine, until it is unplugged or stopped.
 pub fn run_bt_tunnel() -> ExitCode {
-    match livi_dongle::bt::tunnel(&|_| {}) {
+    match livi_link_host::bt::tunnel(&|_| {}) {
         Ok(_) => ExitCode::SUCCESS,
         Err(e) => {
             eprintln!("[bt] {e}");
@@ -228,14 +223,13 @@ async fn serve() -> Result<(), Box<dyn std::error::Error>> {
     let ssid = name.clone();
     let wifi_iface = ap_iface(&dc);
     let dongle_ap =
-        dc.string("wifiInterface", "LIVI_WIFI_IFACE", "wlan0") == livi_dongle::link::CHOICE;
-    let ap_mac = dongle_ap.then(livi_dongle::ap::mac).flatten();
+        dc.string("wifiInterface", "LIVI_WIFI_IFACE", "wlan0") == livi_link_host::link::CHOICE;
+    let ap_mac = dongle_ap.then(livi_link_host::ap::mac).flatten();
     let cp = CpConfig {
         wifi_iface: wifi_iface.clone(),
         ssid: ssid.clone(),
         passphrase: dc.string("wifiPassword", "LIVI_PASSPHRASE", "12345678"),
-        channel: dc.int("wifiChannel", "LIVI_CHANNEL", 36u16) as u8,
-        security_type: SecurityType::WpaWpa2,
+        channel: configured_channel(&dc),
         airplay_port: env_or("LIVI_CP_AIRPLAY_PORT", 0),
         source_version: dc.string("carPlaySourceVersion", "LIVI_CP_SOURCE_VERSION", "950.7.1"),
         public_key: std::env::var("LIVI_CP_PI").unwrap_or_default(),
@@ -248,15 +242,13 @@ async fn serve() -> Result<(), Box<dyn std::error::Error>> {
             500u16,
         ),
         ap_mac: ap_mac.clone(),
-        ap_on_air: dongle_ap.then_some(livi_dongle::ap::on_air as AskOnAir),
+        ap_on_air: dongle_ap.then_some(livi_link_host::ap::on_air as AskOnAir),
         on_cable: None,
         start_again: None,
     };
     let pk = std::env::var("LIVI_CP_PK").unwrap_or_default();
     let pi = std::env::var("LIVI_CP_PI").unwrap_or_default();
 
-    // MFi backend: the local i2c coprocessor, else the chip of a LIVI Link dongle while it is
-    // on the bus.
     println!("[helperd] opening MFi bus={bus_num} gpio={gpio}");
     let (auth, mfi_link) = match I2cCoprocessor::open(bus_num, gpio) {
         Ok(chip) => {
@@ -272,7 +264,7 @@ async fn serve() -> Result<(), Box<dyn std::error::Error>> {
             let (up_auth, down_auth) = (auth.clone(), auth.clone());
             tokio::spawn(link.clone().resolve(
                 move || {
-                    up_auth.replace(Box::new(NcmCoprocessor::new(&livi_dongle::link::addr(
+                    up_auth.replace(Box::new(NcmCoprocessor::new(&livi_link_host::link::addr(
                         livi_net::port::MFI,
                     ))))
                 },
@@ -289,7 +281,8 @@ async fn serve() -> Result<(), Box<dyn std::error::Error>> {
     let usb_control = livi_aa::usb::Control::default();
     let sco_sink = livi_runtime::sco::ScoSink::default();
 
-    let identity = Identity { name, ssid, bt_mac: [0; 6] };
+    let fuels = Fuels::parse(&std::env::var("LIVI_CP_FUELS").unwrap_or_default());
+    let identity = Identity { name, ssid, bt_mac: [0; 6], fuels };
     let (bluez, bluez_later) = tokio::sync::watch::channel(None);
     let sock_cfg = LiviSockConfig {
         path: livi_sock::SOCK_PATH.into(),
@@ -314,7 +307,7 @@ async fn serve() -> Result<(), Box<dyn std::error::Error>> {
     }
     if std::env::var("LIVI_DONGLE").unwrap_or_else(|_| "1".into()) != "0" {
         let mfi_link_state = mfi_link.clone();
-        tokio::spawn(livi_dongle::run(move |on, _serial| mfi_link_state.set_on_bus(on)));
+        tokio::spawn(livi_link_host::run(move |on, _serial| mfi_link_state.set_on_bus(on)));
         println!("[helperd] dongle watcher started");
     }
     if std::env::var("LIVI_CP_WIRED").unwrap_or_else(|_| "1".into()) != "0" {
@@ -324,7 +317,7 @@ async fn serve() -> Result<(), Box<dyn std::error::Error>> {
             identity.clone(),
             wired_cp,
             crate::wired::Dongle {
-                ap_mac: dongle_ap.then_some(livi_dongle::ap::mac as fn() -> Option<String>),
+                ap_mac: dongle_ap.then_some(livi_link_host::ap::mac as fn() -> Option<String>),
                 bt_mac: None,
             },
             bcast.clone(),
@@ -333,18 +326,50 @@ async fn serve() -> Result<(), Box<dyn std::error::Error>> {
         ));
         println!("[helperd] wired CarPlay watcher started");
     }
+    if std::env::var("LIVI_AA_USB").unwrap_or_else(|_| "1".into()) != "0" {
+        let events = aa_events.clone();
+        let subscribed = aa_events.clone();
+        tokio::spawn(livi_aa::usb::run(
+            usb_control.clone(),
+            move |socket, peer, serial| {
+                events.push_json(format!(
+                    "{{\"event\":\"aa-session\",\"socket\":\"{socket}\",\"peer\":\"{peer}\",\"transport\":\"usb\",\"serial\":\"{serial}\"}}"
+                ));
+            },
+            async move { subscribed.subscribed().await },
+        ));
+        println!("[helperd] Android Auto USB watcher started");
+    }
+    {
+        let wired = wired_phones.clone();
+        let deps = livi_runtime::aa_sock::AaSockDeps {
+            set_wired_phones: Box::new(move |ids| wired.set(ids)),
+            restart_usb: Box::new({
+                let usb = usb_control.clone();
+                move |serial| usb.restart(serial)
+            }),
+            events: aa_events.clone(),
+            set_sco_sink: Box::new({
+                let sink = sco_sink.clone();
+                move |target| sink.set(target)
+            }),
+        };
+        tokio::spawn(async move {
+            if let Err(e) = livi_runtime::aa_sock::serve(deps).await {
+                eprintln!("[aa-sock] ended: {e}");
+            }
+        });
+    }
 
     let bluetooth = async || -> Result<(), Box<dyn std::error::Error>> {
         let adapter = bt_adapter(&dc).await;
         livi_runtime::bluetoothd::setup();
         println!("[helperd] starting BlueZ profile on {adapter}");
-        let (conn, mut incoming) = bt::start(&adapter, &identity.name, true).await?;
-        // The dongle's own Bluetooth, where the accessory lives on the dongle and only the
-        // session comes up here. Off unless asked for, because it and the tunnelled adapter want
-        // the same controller.
+        let (conn, mut incoming, held) = bt::start(&adapter, &identity.name, true).await?;
+        // Off unless asked for, since the tunnelled adapter wants the same controller.
         let mut dongle_iap = std::env::var("LIVI_BT_VIA_DONGLE")
             .is_ok_and(|v| v == "1")
-            .then(|| livi_dongle::iap::sessions(|| true));
+            .then(|| livi_link_host::accessory::sessions(|| true));
         let bt_mac = bt::adapter_address(&conn, &adapter).await?;
         println!("[helperd] adapter {} up (RFCOMM ch {})", format_mac(&bt_mac), bt::IAP_CHANNEL);
         let identity = Identity { bt_mac, ..identity.clone() };
@@ -357,8 +382,16 @@ async fn serve() -> Result<(), Box<dyn std::error::Error>> {
             state.clone(),
         ));
 
+        // Android Auto takes its calls over hands-free on the cable too, the switch below only
+        // adds the Wi-Fi bootstrap.
+        let hfp = livi_runtime::hfp::Hfp::default();
+        hfp.set_events(aa_events.clone());
+        if let Err(e) = bt::start_hfp(&conn, &adapter, hfp).await {
+            eprintln!("[hfp] profile registration failed: {e}");
+        }
+        livi_runtime::sco::serve(aa_events.clone(), sco_sink.clone());
+
         if std::env::var("LIVI_AA_WIRELESS").unwrap_or_else(|_| "1".into()) != "0" {
-            // The projection listener the WPP bootstrap points the phone at.
             let aa_port = env_or("LIVI_PORT", livi_aa::consts::TCP_PORT);
             let events = aa_events.clone();
             tokio::spawn(livi_aa::server::run(aa_port, move |socket, peer| {
@@ -371,17 +404,11 @@ async fn serve() -> Result<(), Box<dyn std::error::Error>> {
                     let aa_cfg = crate::aa::AaConfig {
                         ssid: cp.ssid.clone(),
                         passphrase: cp.passphrase.clone(),
-                        channel: cp.channel as u16,
+                        channel: cp.channel,
                         wifi_iface: wifi_iface.clone(),
                         ap_ip: std::env::var("LIVI_AP_IP").unwrap_or_else(|_| "10.10.0.1".into()),
                         port: aa_port,
                     };
-                    let hfp = livi_runtime::hfp::Hfp::default();
-                    hfp.set_events(aa_events.clone());
-                    if let Err(e) = bt::start_hfp(&conn, &adapter, hfp).await {
-                        eprintln!("[hfp] profile registration failed: {e}");
-                    }
-                    livi_runtime::sco::serve(aa_events.clone(), sco_sink.clone());
                     if let Err(e) = bt::start_ble_ad(&conn, &adapter, &identity.name).await {
                         eprintln!("[aa] BLE advertisement failed: {e}");
                     }
@@ -397,21 +424,6 @@ async fn serve() -> Result<(), Box<dyn std::error::Error>> {
             }
         }
 
-        if std::env::var("LIVI_AA_USB").unwrap_or_else(|_| "1".into()) != "0" {
-            // Phones on USB are switched to accessory mode and served here as well.
-            let events = aa_events.clone();
-            let subscribed = aa_events.clone();
-            tokio::spawn(livi_aa::usb::run(
-                usb_control.clone(),
-                move |socket, peer, serial| {
-                    events.push_json(format!(
-                    "{{\"event\":\"aa-session\",\"socket\":\"{socket}\",\"peer\":\"{peer}\",\"transport\":\"usb\",\"serial\":\"{serial}\"}}"
-                ));
-                },
-                async move { subscribed.subscribed().await },
-            ));
-            println!("[helperd] Android Auto USB watcher started");
-        }
         let shared_events = Broadcaster::default();
         let mpris = match bt::start_media_player(&conn, &adapter, shared_events.clone()).await {
             Ok(handle) => Some(handle),
@@ -437,33 +449,12 @@ async fn serve() -> Result<(), Box<dyn std::error::Error>> {
                     tokio::spawn(async move { h.set_status(status).await });
                 }),
                 deauth_dongle: dongle_ap
-                    .then_some(livi_dongle::ap::deauth as fn() -> Option<usize>),
+                    .then_some(livi_link_host::ap::deauth as fn() -> Option<usize>),
             };
             tokio::spawn(async move {
                 let path = livi_runtime::shared_sock::SOCK_PATH;
                 if let Err(e) = livi_runtime::shared_sock::serve(path, Some(bus), deps).await {
                     eprintln!("[shared-sock] ended: {e}");
-                }
-            });
-        }
-
-        {
-            let wired = wired_phones.clone();
-            let deps = livi_runtime::aa_sock::AaSockDeps {
-                set_wired_phones: Box::new(move |ids| wired.set(ids)),
-                restart_usb: Box::new({
-                    let usb = usb_control.clone();
-                    move |serial| usb.restart(serial)
-                }),
-                events: aa_events.clone(),
-                set_sco_sink: Box::new({
-                    let sink = sco_sink.clone();
-                    move |target| sink.set(target)
-                }),
-            };
-            tokio::spawn(async move {
-                if let Err(e) = livi_runtime::aa_sock::serve(deps).await {
-                    eprintln!("[aa-sock] ended: {e}");
                 }
             });
         }
@@ -499,7 +490,7 @@ async fn serve() -> Result<(), Box<dyn std::error::Error>> {
             tokio::select! {
                 _ = crate::shutdown_signal() => {
                     println!("[helperd] shutting down");
-                    bt::set_discoverable(&conn, &adapter, false).await;
+                    bt::let_go(&conn, &adapter, &held).await;
                     iap2_usbmux::restore_all_default_config();
                     return Ok(());
                 }
@@ -556,7 +547,9 @@ async fn serve() -> Result<(), Box<dyn std::error::Error>> {
     };
 
     if let Err(e) = bluetooth().await {
-        eprintln!("[helperd] no Bluetooth ({e}), wired CarPlay carries on");
+        eprintln!(
+            "[helperd] no Bluetooth ({e}), wireless Android Auto and calls are off, wired Android Auto and CarPlay carry on"
+        );
         crate::shutdown_signal().await;
         println!("[helperd] shutting down");
         iap2_usbmux::restore_all_default_config();
@@ -564,12 +557,12 @@ async fn serve() -> Result<(), Box<dyn std::error::Error>> {
     Ok(())
 }
 
-/// The configuration for one session, and read on every session start.
+/// The dongle's access-point MAC can change, so it is read for every session.
 fn session_cp(cp: &CpConfig, dongle_ap: bool) -> CpConfig {
     if !dongle_ap {
         return cp.clone();
     }
-    CpConfig { ap_mac: livi_dongle::ap::mac().or_else(|| cp.ap_mac.clone()), ..cp.clone() }
+    CpConfig { ap_mac: livi_link_host::ap::mac().or_else(|| cp.ap_mac.clone()), ..cp.clone() }
 }
 
 fn format_mac(mac: &[u8; 6]) -> String {

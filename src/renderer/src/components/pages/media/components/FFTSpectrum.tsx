@@ -1,12 +1,9 @@
 import { Box } from '@mui/material'
 import { alpha, useTheme } from '@mui/material/styles'
-import { useLiviStore } from '@store/store'
+import { onSpectrum, reportSpectrum } from '@store/store'
 import { useEffect, useRef, useState } from 'react'
-import { createFftWorker } from './createFftWorker'
 
-// Configuration
 const POINTS = 24
-const FFT_SIZE = 4096
 const LABEL_FONT_MAX = 16
 const LABEL_FONT_MIN = 9
 const MIN_FREQ = 20
@@ -14,15 +11,10 @@ const MAX_FREQ = 20000
 const SPECTRUM_WIDTH_RATIO = 1.0
 const TARGET_FPS = 60
 
-// Label font scales with spectrum width; below LABEL_FONT_MIN labels are dropped and the margin freed.
 const labelMetrics = (specW: number) => {
   const font = Math.min(LABEL_FONT_MAX, Math.floor(specW / 12))
   const show = font >= LABEL_FONT_MIN
   return { font, show, marginBottom: show ? font + 4 : 0 }
-}
-
-export const normalizePcmBuffer = (pcm: Float32Array | ArrayLike<number>) => {
-  return pcm instanceof Float32Array ? pcm.slice() : new Float32Array(pcm)
 }
 
 export const FFTSpectrum = () => {
@@ -36,57 +28,23 @@ export const FFTSpectrum = () => {
   const canvasRef = useRef<HTMLCanvasElement>(null)
   const bgCanvasRef = useRef<HTMLCanvasElement>(null)
 
-  const sampleRate = useLiviStore((s) => s.audioSampleRate) ?? 48000
-  const visualAudioDelayMs = useLiviStore((s) => s.visualAudioDelayMs) ?? 120
   const [dimensions, setDimensions] = useState({ width: 0, height: 0 })
 
-  const workerRef = useRef<Worker | null>(null)
   const binsRef = useRef<Float32Array>(new Float32Array(POINTS))
-  const timeoutsRef = useRef<number[]>([])
 
+  // Core computes the bands and only sends them while a window draws them
   useEffect(() => {
-    const worker = createFftWorker()
-    workerRef.current = worker
-    worker.postMessage({
-      type: 'init',
-      fftSize: FFT_SIZE,
-      points: POINTS,
-      sampleRate,
-      minFreq: MIN_FREQ,
-      maxFreq: MAX_FREQ
+    const unsubscribe = onSpectrum((bands) => {
+      const bins = new Float32Array(POINTS)
+      bins.set(bands.slice(0, POINTS))
+      binsRef.current = bins
     })
-    worker.onmessage = (e: MessageEvent) => {
-      if (e.data.type === 'bins') {
-        binsRef.current = new Float32Array(e.data.bins)
-      }
-    }
-    return () => worker.terminate()
-  }, [sampleRate])
-
-  useEffect(() => {
-    const unsubscribe = useLiviStore.subscribe((state) => {
-      const pcm = state.audioPcmData
-      const worker = workerRef.current
-      if (!worker || !pcm || pcm.length === 0) return
-
-      const buf = normalizePcmBuffer(pcm)
-
-      if (visualAudioDelayMs > 0) {
-        const id = window.setTimeout(() => {
-          worker.postMessage({ type: 'pcm', buffer: buf.buffer }, [buf.buffer])
-        }, visualAudioDelayMs)
-        timeoutsRef.current.push(id)
-      } else {
-        worker.postMessage({ type: 'pcm', buffer: buf.buffer }, [buf.buffer])
-      }
-    })
-
+    reportSpectrum(true)
     return () => {
+      reportSpectrum(false)
       unsubscribe()
-      timeoutsRef.current.forEach((id) => clearTimeout(id))
-      timeoutsRef.current = []
     }
-  }, [visualAudioDelayMs])
+  }, [])
 
   useEffect(() => {
     const canvas = canvasRef.current as HTMLCanvasElement
@@ -138,7 +96,6 @@ export const FFTSpectrum = () => {
         const left = align === 'left' ? x : align === 'right' ? x - w : x - w / 2
         return { label, x, align, left, right: left + w }
       })
-      // Right-to-left pass: draw a label only if it clears the last drawn one.
       let lastLeft = Infinity
       for (let i = items.length - 1; i >= 0; i--) {
         const it = items[i]
@@ -149,7 +106,7 @@ export const FFTSpectrum = () => {
         }
       }
     }
-  }, [dimensions, sampleRate, labelColor])
+  }, [dimensions, labelColor])
 
   useEffect(() => {
     let rafId = 0

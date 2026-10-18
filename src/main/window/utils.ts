@@ -1,7 +1,6 @@
 import { MIN_HEIGHT, MIN_WIDTH } from '@main/constants'
-import { saveSettings } from '@main/ipc/utils'
+import { saveConfig } from '@main/core'
 import { runtimeStateProps } from '@main/types'
-import { isMacPlatform, pushSettingsToRenderer } from '@main/utils'
 import { getMainWindow } from '@main/window/createWindow'
 import type { Config, WindowBounds } from '@shared/types'
 import { BrowserWindow, screen } from 'electron'
@@ -46,12 +45,11 @@ export function applyWindowedContentSize(win: BrowserWindow, w: number, h: numbe
     return
   }
 
-  // non-Linux
   win.setContentSize(w, h, false)
   applyAspectRatioWindowed(win, w, h)
 }
 
-// Guards against monitors being unplugged/rearranged so a window never opens off-screen.
+// Saved bounds can point at a monitor that is unplugged or moved.
 export function sanitizeBounds(b?: WindowBounds): WindowBounds | undefined {
   if (
     !b ||
@@ -72,7 +70,6 @@ export function sanitizeBounds(b?: WindowBounds): WindowBounds | undefined {
     const overlapH = Math.min(b.y + b.height, wa.y + wa.height) - Math.max(b.y, wa.y)
     if (overlapW >= MIN_VISIBLE && overlapH >= MIN_VISIBLE) return b
   }
-  // No display info available (e.g. headless/test) -> trust the saved rect as-is.
   return displays.length === 0 ? b : undefined
 }
 
@@ -85,25 +82,10 @@ export function withMainKiosk(config: Config, value: boolean): Config['kiosk'] {
   return { ...prev, main: value }
 }
 
-export function currentKiosk(config: Config): boolean {
-  const win: BrowserWindow | null = getMainWindow()
-  // mac and the nested compositor both express kiosk as host-window fullscreen, not setKiosk
-  const viaFullscreen = isMacPlatform() || process.env.LIVI_COMPOSITOR === '1'
-
-  if (win && !win.isDestroyed()) {
-    return viaFullscreen ? win.isFullScreen() : win.isKiosk()
-  }
-  return getMainKiosk(config)
-}
-
-export function persistKioskAndBroadcast(kiosk: boolean, runtimeState: runtimeStateProps) {
-  if (getMainKiosk(runtimeState.config) === kiosk) {
-    pushSettingsToRenderer(runtimeState, { kiosk: withMainKiosk(runtimeState.config, kiosk) })
-    return
-  }
-
+export function persistKiosk(kiosk: boolean, runtimeState: runtimeStateProps) {
+  if (getMainKiosk(runtimeState.config) === kiosk) return
   runtimeState.wmExitedKiosk = false
-  saveSettings(runtimeState, { kiosk: withMainKiosk(runtimeState.config, kiosk) })
+  saveConfig({ kiosk: withMainKiosk(runtimeState.config, kiosk) })
 }
 
 export function restoreKioskAfterWmExit(runtimeState: runtimeStateProps) {
@@ -119,7 +101,7 @@ export function restoreKioskAfterWmExit(runtimeState: runtimeStateProps) {
     mainWindow.setKiosk(true)
   } catch {}
 
-  saveSettings(runtimeState, { kiosk: withMainKiosk(runtimeState.config, true) })
+  saveConfig({ kiosk: withMainKiosk(runtimeState.config, true) })
 }
 
 export function attachKioskStateSync(runtimeState: runtimeStateProps) {
@@ -134,21 +116,14 @@ export function attachKioskStateSync(runtimeState: runtimeStateProps) {
     if (lastSent === effectiveKiosk) return
     lastSent = effectiveKiosk
 
-    // Window fullscreen state already matches config: nothing to persist, just refresh the UI.
-    if (effectiveKiosk === getMainKiosk(runtimeState.config)) {
-      pushSettingsToRenderer(runtimeState, {
-        kiosk: withMainKiosk(runtimeState.config, effectiveKiosk)
-      })
-      return
-    }
+    if (effectiveKiosk === getMainKiosk(runtimeState.config)) return
 
-    // Window fullscreen diverged from config, reconcile it. Leaving kiosk is a WM pull-out
-    // (swipe gesture), flag it so focus restores kiosk. Entering from outside Electron (the
-    // compositor titlebar button) just persists so the settings slider can toggle it back.
+    // Leaving kiosk here is a WM swipe, the next focus restores kiosk. Entering from the
+    // compositor titlebar button is only saved.
     if (!effectiveKiosk) {
       runtimeState.wmExitedKiosk = true
     }
-    saveSettings(runtimeState, { kiosk: withMainKiosk(runtimeState.config, effectiveKiosk) })
+    saveConfig({ kiosk: withMainKiosk(runtimeState.config, effectiveKiosk) })
   }
 
   const syncFromElectron = () => {
@@ -173,7 +148,7 @@ export function attachKioskStateSync(runtimeState: runtimeStateProps) {
   syncFromElectron()
 }
 
-// Nudges Chromium to re-render at the new window size after a resize settles.
+// In the compositor Chromium keeps the old size until it sees one more resize.
 export function attachResizeReflow() {
   if (process.env.LIVI_COMPOSITOR !== '1') return
   const win: BrowserWindow | null = getMainWindow()

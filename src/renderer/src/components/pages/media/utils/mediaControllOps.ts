@@ -1,6 +1,12 @@
+import type { MediaControl } from '@shared/core/contract'
 import { RefObject } from 'react'
+import { coreAction } from '../../../../store/store'
 import { MediaEventType } from '../types'
 import { flash } from './flash'
+
+const press = (control: MediaControl) => {
+  coreAction({ kind: 'media', control }).catch(() => {})
+}
 
 export const mediaControlOps = ({
   uiPlaying,
@@ -24,19 +30,19 @@ export const mediaControlOps = ({
     flash(playBtnRef)
     setOverride(!uiPlaying)
 
-    window.projection.ipc.sendCommand('playPause')
+    press('playPause')
   }
 
   const handlePrev = () => {
     onBump(MediaEventType.PREV)
     flash(prevBtnRef)
     allowBackwardOnceRef.current = true
-    window.projection.ipc.sendCommand(MediaEventType.PREV)
+    press('prev')
   }
   const handleNext = () => {
     onBump(MediaEventType.NEXT)
     flash(nextBtnRef)
-    window.projection.ipc.sendCommand(MediaEventType.NEXT)
+    press('next')
   }
 
   return {

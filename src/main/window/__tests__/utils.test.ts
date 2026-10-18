@@ -1,5 +1,4 @@
-import { saveSettings } from '@main/ipc/utils'
-import { isMacPlatform, pushSettingsToRenderer } from '@main/utils'
+import { saveConfig } from '@main/core'
 import { getMainWindow } from '@main/window/createWindow'
 import {
   applyAspectRatioFullscreen,
@@ -7,8 +6,7 @@ import {
   applyWindowedContentSize,
   attachKioskStateSync,
   attachResizeReflow,
-  currentKiosk,
-  persistKioskAndBroadcast,
+  persistKiosk,
   restoreKioskAfterWmExit,
   sanitizeBounds,
   uiZoomFactor
@@ -20,13 +18,8 @@ vi.mock('@main/window/createWindow', () => ({
   getMainWindow: vi.fn()
 }))
 
-vi.mock('@main/utils', () => ({
-  isMacPlatform: vi.fn(() => false),
-  pushSettingsToRenderer: vi.fn()
-}))
-
-vi.mock('@main/ipc/utils', () => ({
-  saveSettings: vi.fn()
+vi.mock('@main/core', () => ({
+  saveConfig: vi.fn()
 }))
 
 vi.mock('electron', () => ({
@@ -158,77 +151,39 @@ describe('window utils', () => {
     expect(win.setContentSize).toHaveBeenCalledWith(1, 1, false)
   })
 
-  test('currentKiosk returns runtime config when main window is absent', () => {
-    ;(getMainWindow as Mock).mockReturnValue(null)
-
-    expect(currentKiosk({ kiosk: { main: true, dash: false, aux: false } } as any)).toBe(true)
-  })
-
-  test('currentKiosk returns runtime config when window is destroyed', () => {
-    ;(getMainWindow as Mock).mockReturnValue({
-      isDestroyed: vi.fn(() => true)
-    })
-
-    expect(currentKiosk({ kiosk: { main: false, dash: false, aux: false } } as any)).toBe(false)
-  })
-
-  test('currentKiosk reads kiosk state from native window on non-mac', () => {
-    ;(isMacPlatform as Mock).mockReturnValue(false)
-    ;(getMainWindow as Mock).mockReturnValue({
-      isDestroyed: vi.fn(() => false),
-      isKiosk: vi.fn(() => true)
-    })
-
-    expect(currentKiosk({ kiosk: { main: false, dash: false, aux: false } } as any)).toBe(true)
-  })
-
-  test('currentKiosk reads fullscreen state from native window on mac', () => {
-    ;(isMacPlatform as Mock).mockReturnValue(true)
-    ;(getMainWindow as Mock).mockReturnValue({
-      isDestroyed: vi.fn(() => false),
-      isFullScreen: vi.fn(() => true)
-    })
-
-    expect(currentKiosk({ kiosk: { main: false, dash: false, aux: false } } as any)).toBe(true)
-  })
-
-  test('persistKioskAndBroadcast only pushes when kiosk unchanged', () => {
+  test('persistKiosk leaves an unchanged kiosk alone', () => {
     const runtimeState = {
       config: { kiosk: { main: true, dash: false, aux: false } },
       wmExitedKiosk: true
     } as any
 
-    persistKioskAndBroadcast(true, runtimeState)
+    persistKiosk(true, runtimeState)
 
-    expect(pushSettingsToRenderer).toHaveBeenCalledWith(runtimeState, {
-      kiosk: { main: true, dash: false, aux: false }
-    })
-    expect(saveSettings).not.toHaveBeenCalled()
+    expect(saveConfig).not.toHaveBeenCalled()
   })
 
-  test('persistKioskAndBroadcast saves when kiosk changed', () => {
+  test('persistKiosk saves when kiosk changed', () => {
     const runtimeState = {
       config: { kiosk: { main: true, dash: false, aux: false } },
       wmExitedKiosk: true
     } as any
 
-    persistKioskAndBroadcast(false, runtimeState)
+    persistKiosk(false, runtimeState)
 
     expect(runtimeState.wmExitedKiosk).toBe(false)
-    expect(saveSettings).toHaveBeenCalledWith(runtimeState, {
+    expect(saveConfig).toHaveBeenCalledWith({
       kiosk: { main: false, dash: false, aux: false }
     })
   })
 
-  test('persistKioskAndBroadcast defaults kiosk flags when config has none', () => {
+  test('persistKiosk takes a config without kiosk flags as off', () => {
     const runtimeState = { config: {}, wmExitedKiosk: false } as any
 
-    persistKioskAndBroadcast(false, runtimeState)
+    persistKiosk(false, runtimeState)
+    expect(saveConfig).not.toHaveBeenCalled()
 
-    expect(pushSettingsToRenderer).toHaveBeenCalledWith(runtimeState, {
-      kiosk: { main: false, dash: false, aux: false }
-    })
-    expect(saveSettings).not.toHaveBeenCalled()
+    persistKiosk(true, runtimeState)
+    expect(saveConfig).toHaveBeenCalledWith({ kiosk: { main: true, dash: false, aux: false } })
   })
 
   test('restoreKioskAfterWmExit returns early on non-linux', () => {
@@ -241,7 +196,7 @@ describe('window utils', () => {
 
     restoreKioskAfterWmExit(runtimeState)
 
-    expect(saveSettings).not.toHaveBeenCalled()
+    expect(saveConfig).not.toHaveBeenCalled()
   })
 
   test('restoreKioskAfterWmExit returns early when window is absent', () => {
@@ -255,7 +210,7 @@ describe('window utils', () => {
 
     restoreKioskAfterWmExit(runtimeState)
 
-    expect(saveSettings).not.toHaveBeenCalled()
+    expect(saveConfig).not.toHaveBeenCalled()
   })
 
   test('restoreKioskAfterWmExit returns early when window is destroyed', () => {
@@ -271,7 +226,7 @@ describe('window utils', () => {
 
     restoreKioskAfterWmExit(runtimeState)
 
-    expect(saveSettings).not.toHaveBeenCalled()
+    expect(saveConfig).not.toHaveBeenCalled()
   })
 
   test('restoreKioskAfterWmExit returns early when kiosk was not exited by wm', () => {
@@ -288,7 +243,7 @@ describe('window utils', () => {
 
     restoreKioskAfterWmExit(runtimeState)
 
-    expect(saveSettings).not.toHaveBeenCalled()
+    expect(saveConfig).not.toHaveBeenCalled()
   })
 
   test('restoreKioskAfterWmExit swallows setKiosk errors and still persists on linux', () => {
@@ -309,7 +264,7 @@ describe('window utils', () => {
 
     expect(() => restoreKioskAfterWmExit(runtimeState)).not.toThrow()
     expect(runtimeState.wmExitedKiosk).toBe(false)
-    expect(saveSettings).toHaveBeenCalledWith(runtimeState, {
+    expect(saveConfig).toHaveBeenCalledWith({
       kiosk: { main: true, dash: false, aux: false }
     })
   })
@@ -332,7 +287,7 @@ describe('window utils', () => {
 
     expect(runtimeState.wmExitedKiosk).toBe(false)
     expect(win.setKiosk).toHaveBeenCalledWith(true)
-    expect(saveSettings).toHaveBeenCalledWith(runtimeState, {
+    expect(saveConfig).toHaveBeenCalledWith({
       kiosk: { main: true, dash: false, aux: false }
     })
   })
@@ -359,7 +314,7 @@ describe('window utils', () => {
 
     attachKioskStateSync(runtimeState)
 
-    expect(pushSettingsToRenderer).not.toHaveBeenCalled()
+    expect(saveConfig).not.toHaveBeenCalled()
   })
 
   test('attachKioskStateSync registers listeners and sends initial sync in normal mode', () => {
@@ -392,13 +347,11 @@ describe('window utils', () => {
     expect(win.on).toHaveBeenCalledWith('restore', expect.anything())
     expect(win.on).toHaveBeenCalledWith('minimize', expect.anything())
 
-    expect(pushSettingsToRenderer).toHaveBeenCalledWith(runtimeState, {
-      kiosk: { main: false, dash: false, aux: false }
-    })
+    expect(saveConfig).not.toHaveBeenCalled()
     expect(handlers.focus).toBeDefined()
   })
 
-  test('attachKioskStateSync avoids duplicate renderer pushes for unchanged kiosk state', () => {
+  test('attachKioskStateSync saves a kiosk change once', () => {
     Object.defineProperty(process, 'platform', { value: 'linux' })
 
     const handlers: Record<string, WindowHandler> = {}
@@ -412,14 +365,14 @@ describe('window utils', () => {
     ;(getMainWindow as Mock).mockReturnValue(win)
 
     const runtimeState = {
-      config: { kiosk: { main: false, dash: false, aux: false } },
+      config: { kiosk: { main: true, dash: false, aux: false } },
       wmExitedKiosk: false
     } as any
 
     attachKioskStateSync(runtimeState)
     handlers.resize()
 
-    expect(pushSettingsToRenderer).toHaveBeenCalledTimes(1)
+    expect(saveConfig).toHaveBeenCalledTimes(1)
   })
 
   test('attachKioskStateSync persists truthful state when wm forces kiosk off', () => {
@@ -443,10 +396,9 @@ describe('window utils', () => {
     attachKioskStateSync(runtimeState)
 
     expect(runtimeState.wmExitedKiosk).toBe(true)
-    expect(saveSettings).toHaveBeenCalledWith(runtimeState, {
+    expect(saveConfig).toHaveBeenCalledWith({
       kiosk: { main: false, dash: false, aux: false }
     })
-    expect(pushSettingsToRenderer).not.toHaveBeenCalled()
   })
 
   test('attachKioskStateSync ignores syncs when window is destroyed', () => {
@@ -469,9 +421,8 @@ describe('window utils', () => {
 
     attachKioskStateSync(runtimeState)
 
-    expect(pushSettingsToRenderer).not.toHaveBeenCalled()
     handlers.resize?.()
-    expect(pushSettingsToRenderer).not.toHaveBeenCalled()
+    expect(saveConfig).not.toHaveBeenCalled()
   })
 
   test('attachKioskStateSync reads fullscreen state in compositor mode', () => {
@@ -495,9 +446,7 @@ describe('window utils', () => {
 
     expect(win.isFullScreen).toHaveBeenCalled()
     expect(win.isKiosk).not.toHaveBeenCalled()
-    expect(pushSettingsToRenderer).toHaveBeenCalledWith(runtimeState, {
-      kiosk: { main: false, dash: false, aux: false }
-    })
+    expect(saveConfig).not.toHaveBeenCalled()
     delete process.env.LIVI_COMPOSITOR
   })
 
@@ -519,10 +468,9 @@ describe('window utils', () => {
     attachKioskStateSync(runtimeState)
 
     expect(runtimeState.wmExitedKiosk).toBe(false)
-    expect(saveSettings).toHaveBeenCalledWith(runtimeState, {
+    expect(saveConfig).toHaveBeenCalledWith({
       kiosk: { main: true, dash: false, aux: false }
     })
-    expect(pushSettingsToRenderer).not.toHaveBeenCalled()
   })
 
   test('attachKioskStateSync restores kiosk on focus', () => {
@@ -548,7 +496,7 @@ describe('window utils', () => {
     handlers.focus()
 
     expect(win.setKiosk).toHaveBeenCalledWith(true)
-    expect(saveSettings).toHaveBeenCalledWith(runtimeState, {
+    expect(saveConfig).toHaveBeenCalledWith({
       kiosk: { main: true, dash: false, aux: false }
     })
   })
@@ -584,13 +532,11 @@ describe('window utils', () => {
 
     test('drops a rect that lies fully off all displays (monitor unplugged)', () => {
       mockedGetAllDisplays.mockReturnValue([display(0, 0, 1920, 1080)])
-      // saved on a now-missing monitor at x=-1820
       expect(sanitizeBounds({ x: -1820, y: 200, width: 800, height: 480 })).toBeUndefined()
     })
 
     test('drops a rect with only a sliver visible (< 64px)', () => {
       mockedGetAllDisplays.mockReturnValue([display(0, 0, 1920, 1080)])
-      // only 10px peek in from the left edge
       expect(sanitizeBounds({ x: 1910, y: 200, width: 800, height: 480 })).toBeUndefined()
     })
 
@@ -652,13 +598,13 @@ describe('window utils', () => {
       attachResizeReflow()
 
       win.handlers.resize()
-      vi.advanceTimersByTime(200) // debounce window → nudge
+      vi.advanceTimersByTime(200)
       expect(win.setContentSize).toHaveBeenCalledWith(800, 481)
 
-      vi.advanceTimersByTime(60) // restore
+      vi.advanceTimersByTime(60)
       expect(win.setContentSize).toHaveBeenLastCalledWith(800, 480)
 
-      vi.advanceTimersByTime(60) // clears the nudging flag
+      vi.advanceTimersByTime(60)
       vi.useRealTimers()
     })
 
@@ -674,7 +620,6 @@ describe('window utils', () => {
       win.handlers.resize()
       vi.advanceTimersByTime(200)
 
-      // only the single +1 nudge has fired so far
       expect(win.setContentSize).toHaveBeenCalledTimes(1)
       vi.useRealTimers()
     })

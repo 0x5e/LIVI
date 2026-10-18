@@ -13,6 +13,7 @@ vi.mock('../../../components/DashShell', () => ({
 
 vi.mock('../../../widgets', () => ({
   GaugeArc: ({ value }: { value: number }) => <div>Gauge:{value}</div>,
+  labelOverflow: () => 0,
   FuelGauge: ({ level, mode }: { level: number; mode: string }) => (
     <div>
       Fuel:{mode}:{level}

@@ -1,11 +1,12 @@
-import { isDev, isMacPlatform, pushSettingsToRenderer } from '@main/utils'
+import { isDev, isMacPlatform } from '@main/utils'
+import { drawVideoIn } from '@main/video'
 import { createMainWindow, getMainWindow } from '@main/window/createWindow'
 import {
   applyAspectRatioFullscreen,
   applyAspectRatioWindowed,
   applyWindowedContentSize,
   attachKioskStateSync,
-  persistKioskAndBroadcast
+  persistKiosk
 } from '@main/window/utils'
 import { screen, session, shell } from 'electron'
 import type { Mock } from 'vitest'
@@ -72,8 +73,7 @@ vi.mock('electron', async () => {
 
 vi.mock('@main/utils', () => ({
   isDev: vi.fn(() => false),
-  isMacPlatform: vi.fn(() => false),
-  pushSettingsToRenderer: vi.fn()
+  isMacPlatform: vi.fn(() => false)
 }))
 
 vi.mock('@main/window/utils', () => ({
@@ -82,27 +82,34 @@ vi.mock('@main/window/utils', () => ({
   applyWindowedContentSize: vi.fn(),
   attachKioskStateSync: vi.fn(),
   attachResizeReflow: vi.fn(),
-  currentKiosk: vi.fn(() => false),
-  persistKioskAndBroadcast: vi.fn(),
+  persistKiosk: vi.fn(),
   sanitizeBounds: vi.fn((b) => b),
   uiZoomFactor: vi.fn((pct?: number) => (pct ?? 100) / 100)
 }))
 
-vi.mock('@main/ipc/utils', () => ({
-  saveSettings: vi.fn()
+vi.mock('@main/core', () => ({
+  saveConfig: vi.fn()
+}))
+
+vi.mock('@main/video', () => ({
+  drawVideoIn: vi.fn()
 }))
 
 describe('createMainWindow', () => {
   const originalRendererUrl = process.env.ELECTRON_RENDERER_URL
+  const restoreRendererUrl = () => {
+    if (originalRendererUrl === undefined) delete process.env.ELECTRON_RENDERER_URL
+    else process.env.ELECTRON_RENDERER_URL = originalRendererUrl
+  }
 
   beforeEach(async () => {
     browserWindowInstances.length = 0
     vi.clearAllMocks()
-    process.env.ELECTRON_RENDERER_URL = originalRendererUrl
+    restoreRendererUrl()
   })
 
   afterAll(async () => {
-    process.env.ELECTRON_RENDERER_URL = originalRendererUrl
+    restoreRendererUrl()
   })
 
   test('creates main BrowserWindow and loads app protocol url in production mode', async () => {
@@ -115,14 +122,26 @@ describe('createMainWindow', () => {
       },
       isQuitting: false
     } as any
-    const services = { projectionService: { attachRenderer: vi.fn() } } as any
 
-    createMainWindow(runtimeState, services)
+    createMainWindow(runtimeState)
 
     const win = browserWindowInstances[0]
     expect(win).toBeDefined()
     expect(win.loadURL).toHaveBeenCalledWith('app://index.html')
     expect(getMainWindow()).toBe(win)
+  })
+
+  test('the video is drawn in the main window until it closes', async () => {
+    createMainWindow({
+      config: { mainScreenWidth: 800, mainScreenHeight: 480, uiZoomPercent: 100 },
+      isQuitting: false
+    } as any)
+
+    const win = browserWindowInstances[0]
+    expect(drawVideoIn).toHaveBeenCalledWith('main', win)
+    const closed = win.on.mock.calls.find(([e]: any[]) => e === 'closed')?.[1]
+    closed()
+    expect(drawVideoIn).toHaveBeenLastCalledWith('main', null)
   })
 
   test('attaches kiosk state sync on creation', async () => {
@@ -135,9 +154,8 @@ describe('createMainWindow', () => {
       },
       isQuitting: false
     } as any
-    const services = { projectionService: { attachRenderer: vi.fn() } } as any
 
-    createMainWindow(runtimeState, services)
+    createMainWindow(runtimeState)
 
     expect(attachKioskStateSync).toHaveBeenCalledWith(runtimeState)
   })
@@ -152,9 +170,8 @@ describe('createMainWindow', () => {
       },
       isQuitting: false
     } as any
-    const services = { projectionService: { attachRenderer: vi.fn() } } as any
 
-    createMainWindow(runtimeState, services)
+    createMainWindow(runtimeState)
 
     const win = browserWindowInstances[0]
     expect(win.webContents.session.setPermissionCheckHandler).toHaveBeenCalled()
@@ -162,7 +179,7 @@ describe('createMainWindow', () => {
     expect(session.defaultSession.webRequest.onHeadersReceived).toHaveBeenCalled()
   })
 
-  test('ready-to-show applies size, shows window, sets zoom and attaches renderer', async () => {
+  test('ready-to-show applies size, shows window and sets zoom', async () => {
     const runtimeState = {
       config: {
         mainScreenWidth: 900,
@@ -172,9 +189,8 @@ describe('createMainWindow', () => {
       },
       isQuitting: false
     } as any
-    const services = { projectionService: { attachRenderer: vi.fn() } } as any
 
-    createMainWindow(runtimeState, services)
+    createMainWindow(runtimeState)
 
     const win = browserWindowInstances[0]
     const readyHandler = win.once.mock.calls.find(
@@ -187,14 +203,11 @@ describe('createMainWindow', () => {
     expect(applyWindowedContentSize).toHaveBeenCalledWith(win, 900, 500)
     expect(win.show).toHaveBeenCalled()
     expect(win.webContents.setZoomFactor).toHaveBeenCalledWith(1.25)
-    expect(pushSettingsToRenderer).toHaveBeenCalledWith(runtimeState, {
-      kiosk: { main: false, dash: false, aux: false }
-    })
-    expect(services.projectionService.attachRenderer).toHaveBeenCalledWith(win.webContents)
   })
 
   test('ready-to-show opens devtools in dev mode', async () => {
     ;(isDev as Mock).mockReturnValue(true)
+    process.env.ELECTRON_RENDERER_URL = 'http://localhost:5173'
 
     const runtimeState = {
       config: {
@@ -205,9 +218,8 @@ describe('createMainWindow', () => {
       },
       isQuitting: false
     } as any
-    const services = { projectionService: { attachRenderer: vi.fn() } } as any
 
-    createMainWindow(runtimeState, services)
+    createMainWindow(runtimeState)
 
     const mainWin = browserWindowInstances[0]
     const readyHandler = mainWin.once.mock.calls.find(
@@ -232,9 +244,8 @@ describe('createMainWindow', () => {
       },
       isQuitting: false
     } as any
-    const services = { projectionService: { attachRenderer: vi.fn() } } as any
 
-    createMainWindow(runtimeState, services)
+    createMainWindow(runtimeState)
 
     const mainWin = browserWindowInstances[0]
     expect(mainWin.loadURL).toHaveBeenCalledWith('http://localhost:5173')
@@ -254,13 +265,40 @@ describe('createMainWindow', () => {
       },
       isQuitting: false
     } as any
-    const services = { projectionService: { attachRenderer: vi.fn() } } as any
 
-    createMainWindow(runtimeState, services)
+    createMainWindow(runtimeState)
 
     expect(browserWindowInstances).toHaveLength(3)
     expect(browserWindowInstances[1].loadURL).toHaveBeenCalledWith('chrome://gpu')
     expect(browserWindowInstances[2].loadURL).toHaveBeenCalledWith('chrome://media-internals')
+    ;(isDev as Mock).mockReturnValue(false)
+  })
+
+  test('an unpackaged build without the dev server opens no dev tools', async () => {
+    ;(isDev as Mock).mockReturnValue(true)
+    delete process.env.ELECTRON_RENDERER_URL
+
+    const runtimeState = {
+      config: {
+        mainScreenWidth: 800,
+        mainScreenHeight: 480,
+        kiosk: { main: false, dash: false, aux: false },
+        uiZoomPercent: 100
+      },
+      isQuitting: false
+    } as any
+
+    createMainWindow(runtimeState)
+
+    const mainWin = browserWindowInstances[0]
+    const readyHandler = mainWin.once.mock.calls.find(
+      ([event]: any[]) => event === 'ready-to-show'
+    )?.[1]
+    readyHandler()
+
+    expect(browserWindowInstances).toHaveLength(1)
+    expect(mainWin.loadURL).toHaveBeenCalledWith('app://index.html')
+    expect(mainWin.webContents.openDevTools).not.toHaveBeenCalled()
     ;(isDev as Mock).mockReturnValue(false)
   })
 
@@ -274,9 +312,8 @@ describe('createMainWindow', () => {
       },
       isQuitting: false
     } as any
-    const services = { projectionService: { attachRenderer: vi.fn() } } as any
 
-    createMainWindow(runtimeState, services)
+    createMainWindow(runtimeState)
 
     const win = browserWindowInstances[0]
     const handler = win.webContents.setWindowOpenHandler.mock.calls[0][0]
@@ -300,9 +337,8 @@ describe('createMainWindow', () => {
       isQuitting: false,
       suppressNextFsSync: false
     } as any
-    const services = { projectionService: { attachRenderer: vi.fn() } } as any
 
-    createMainWindow(runtimeState, services)
+    createMainWindow(runtimeState)
 
     const win = browserWindowInstances[0]
     const enterHandler = win.on.mock.calls.find(
@@ -314,11 +350,11 @@ describe('createMainWindow', () => {
 
     enterHandler()
     expect(applyAspectRatioFullscreen).toHaveBeenCalledWith(win, 1000, 600)
-    expect(persistKioskAndBroadcast).toHaveBeenCalledWith(true, runtimeState)
+    expect(persistKiosk).toHaveBeenCalledWith(true, runtimeState)
 
     leaveHandler()
     expect(applyAspectRatioWindowed).toHaveBeenCalledWith(win, 1000, 600)
-    expect(persistKioskAndBroadcast).toHaveBeenCalledWith(false, runtimeState)
+    expect(persistKiosk).toHaveBeenCalledWith(false, runtimeState)
     ;(isMacPlatform as Mock).mockReturnValue(false)
   })
 
@@ -335,9 +371,8 @@ describe('createMainWindow', () => {
       isQuitting: false,
       suppressNextFsSync: true
     } as any
-    const services = { projectionService: { attachRenderer: vi.fn() } } as any
 
-    createMainWindow(runtimeState, services)
+    createMainWindow(runtimeState)
 
     const win = browserWindowInstances[0]
     const leaveHandler = win.on.mock.calls.find(
@@ -348,7 +383,7 @@ describe('createMainWindow', () => {
 
     expect(runtimeState.suppressNextFsSync).toBe(false)
     expect(applyAspectRatioWindowed).not.toHaveBeenCalled()
-    expect(persistKioskAndBroadcast).not.toHaveBeenCalled()
+    expect(persistKiosk).not.toHaveBeenCalled()
     ;(isMacPlatform as Mock).mockReturnValue(false)
   })
 
@@ -365,9 +400,8 @@ describe('createMainWindow', () => {
       isQuitting: false,
       suppressNextFsSync: false
     } as any
-    const services = { projectionService: { attachRenderer: vi.fn() } } as any
 
-    createMainWindow(runtimeState, services)
+    createMainWindow(runtimeState)
 
     const win = browserWindowInstances[0]
     const closeHandler = win.on.mock.calls.find(([event]: any[]) => event === 'close')?.[1]
@@ -393,9 +427,8 @@ describe('createMainWindow', () => {
       isQuitting: false,
       suppressNextFsSync: false
     } as any
-    const services = { projectionService: { attachRenderer: vi.fn() } } as any
 
-    createMainWindow(runtimeState, services)
+    createMainWindow(runtimeState)
 
     const win = browserWindowInstances[0]
     win.isFullScreen.mockReturnValue(true)
@@ -426,9 +459,8 @@ describe('createMainWindow', () => {
       },
       isQuitting: false
     } as any
-    const services = { projectionService: { attachRenderer: vi.fn() } } as any
 
-    createMainWindow(runtimeState, services)
+    createMainWindow(runtimeState)
 
     const win = browserWindowInstances[0]
     const readyHandler = win.once.mock.calls.find(
@@ -453,9 +485,8 @@ describe('createMainWindow', () => {
       },
       isQuitting: false
     } as any
-    const services = { projectionService: { attachRenderer: vi.fn() } } as any
 
-    createMainWindow(runtimeState, services)
+    createMainWindow(runtimeState)
 
     const win = browserWindowInstances[0]
     const handler = win.webContents.session.setPermissionRequestHandler.mock.calls[0][0]
@@ -476,9 +507,8 @@ describe('createMainWindow', () => {
       },
       isQuitting: false
     } as any
-    const services = { projectionService: { attachRenderer: vi.fn() } } as any
 
-    createMainWindow(runtimeState, services)
+    createMainWindow(runtimeState)
 
     const win = browserWindowInstances[0]
     const request = win.webContents.session.setPermissionRequestHandler.mock.calls[0][0]
@@ -502,9 +532,8 @@ describe('createMainWindow', () => {
       },
       isQuitting: false
     } as any
-    const services = { projectionService: { attachRenderer: vi.fn() } } as any
 
-    createMainWindow(runtimeState, services)
+    createMainWindow(runtimeState)
 
     const handler = (session.defaultSession.webRequest.onHeadersReceived as Mock).mock.calls[0][1]
     const cb = vi.fn()
@@ -535,9 +564,8 @@ describe('createMainWindow', () => {
       config: { kiosk: { main: false, dash: false, aux: false }, uiZoomPercent: 100 },
       isQuitting: false
     } as any
-    const services = { projectionService: { attachRenderer: vi.fn() } } as any
 
-    createMainWindow(runtimeState, services)
+    createMainWindow(runtimeState)
 
     const handler = (session.defaultSession.webRequest.onHeadersReceived as Mock).mock.calls[0][1]
     const cb = vi.fn()
@@ -557,8 +585,7 @@ describe('createMainWindow', () => {
       },
       isQuitting: false
     } as any
-    const services = { projectionService: { attachRenderer: vi.fn() } } as any
-    createMainWindow(runtimeState, services)
+    createMainWindow(runtimeState)
     const win = browserWindowInstances[browserWindowInstances.length - 1]
     expect(win.__opts.x).toBe(50)
     expect(win.__opts.width).toBe(1024)
@@ -602,10 +629,10 @@ describe('createMainWindow', () => {
 
   test('move event saves geometry after debounce', async () => {
     vi.useFakeTimers()
-    const { saveSettings } = (await vi.importMock('@main/ipc/utils')) as {
-      saveSettings: Mock
+    const { saveConfig } = (await vi.importMock('@main/core')) as {
+      saveConfig: Mock
     }
-    saveSettings.mockClear()
+    saveConfig.mockClear()
     const runtimeState = {
       config: { mainScreenWidth: 800, mainScreenHeight: 480 },
       isQuitting: false
@@ -619,8 +646,7 @@ describe('createMainWindow', () => {
     const moveCb = win.on.mock.calls.find(([e]: any[]) => e === 'move')?.[1]
     moveCb()
     vi.advanceTimersByTime(500)
-    expect(saveSettings).toHaveBeenCalledWith(
-      runtimeState,
+    expect(saveConfig).toHaveBeenCalledWith(
       expect.objectContaining({
         mainScreenBounds: { x: 10, y: 20, width: 800, height: 480 }
       })
@@ -630,8 +656,8 @@ describe('createMainWindow', () => {
 
   test('move event with unchanged bounds skips save', async () => {
     vi.useFakeTimers()
-    const { saveSettings } = (await vi.importMock('@main/ipc/utils')) as {
-      saveSettings: Mock
+    const { saveConfig } = (await vi.importMock('@main/core')) as {
+      saveConfig: Mock
     }
     const runtimeState = {
       config: {
@@ -647,18 +673,18 @@ describe('createMainWindow', () => {
     const win = browserWindowInstances[browserWindowInstances.length - 1]
     win.getPosition = vi.fn(() => [10, 20])
     win.getContentSize = vi.fn(() => [800, 480])
-    saveSettings.mockClear()
+    saveConfig.mockClear()
     const moveCb = win.on.mock.calls.find(([e]: any[]) => e === 'move')?.[1]
     moveCb()
     vi.advanceTimersByTime(500)
-    expect(saveSettings).not.toHaveBeenCalled()
+    expect(saveConfig).not.toHaveBeenCalled()
     vi.useRealTimers()
   })
 
   test('move event skips save when window is in full-screen', async () => {
     vi.useFakeTimers()
-    const { saveSettings } = (await vi.importMock('@main/ipc/utils')) as {
-      saveSettings: Mock
+    const { saveConfig } = (await vi.importMock('@main/core')) as {
+      saveConfig: Mock
     }
     const runtimeState = {
       config: { mainScreenWidth: 800, mainScreenHeight: 480 },
@@ -669,11 +695,11 @@ describe('createMainWindow', () => {
     } as any)
     const win = browserWindowInstances[browserWindowInstances.length - 1]
     win.isFullScreen = vi.fn(() => true)
-    saveSettings.mockClear()
+    saveConfig.mockClear()
     const moveCb = win.on.mock.calls.find(([e]: any[]) => e === 'move')?.[1]
     moveCb()
     vi.advanceTimersByTime(500)
-    expect(saveSettings).not.toHaveBeenCalled()
+    expect(saveConfig).not.toHaveBeenCalled()
     vi.useRealTimers()
   })
 
@@ -740,9 +766,8 @@ describe('createMainWindow', () => {
       },
       isQuitting: false
     } as any
-    const services = { projectionService: { attachRenderer: vi.fn() } } as any
 
-    createMainWindow(runtimeState, services)
+    createMainWindow(runtimeState)
 
     const win = browserWindowInstances[0]
     const readyHandler = win.once.mock.calls.find(
@@ -789,10 +814,10 @@ describe('createMainWindow', () => {
   test('compositor mode skips bounds persistence on move', async () => {
     vi.useFakeTimers()
     process.env.LIVI_COMPOSITOR = '1'
-    const { saveSettings } = (await vi.importMock('@main/ipc/utils')) as {
-      saveSettings: Mock
+    const { saveConfig } = (await vi.importMock('@main/core')) as {
+      saveConfig: Mock
     }
-    saveSettings.mockClear()
+    saveConfig.mockClear()
     const runtimeState = {
       config: { mainScreenWidth: 800, mainScreenHeight: 480 },
       isQuitting: false
@@ -805,17 +830,17 @@ describe('createMainWindow', () => {
     const moveCb = win.on.mock.calls.find(([e]: any[]) => e === 'move')?.[1]
     moveCb()
     vi.advanceTimersByTime(500)
-    expect(saveSettings).not.toHaveBeenCalled()
+    expect(saveConfig).not.toHaveBeenCalled()
     delete process.env.LIVI_COMPOSITOR
     vi.useRealTimers()
   })
 
   test('bounds persistence skips a destroyed window', async () => {
     vi.useFakeTimers()
-    const { saveSettings } = (await vi.importMock('@main/ipc/utils')) as {
-      saveSettings: Mock
+    const { saveConfig } = (await vi.importMock('@main/core')) as {
+      saveConfig: Mock
     }
-    saveSettings.mockClear()
+    saveConfig.mockClear()
     const runtimeState = {
       config: { mainScreenWidth: 800, mainScreenHeight: 480 },
       isQuitting: false
@@ -828,16 +853,16 @@ describe('createMainWindow', () => {
     const moveCb = win.on.mock.calls.find(([e]: any[]) => e === 'move')?.[1]
     moveCb()
     vi.advanceTimersByTime(500)
-    expect(saveSettings).not.toHaveBeenCalled()
+    expect(saveConfig).not.toHaveBeenCalled()
     vi.useRealTimers()
   })
 
   test('bounds persistence skips a kiosk window', async () => {
     vi.useFakeTimers()
-    const { saveSettings } = (await vi.importMock('@main/ipc/utils')) as {
-      saveSettings: Mock
+    const { saveConfig } = (await vi.importMock('@main/core')) as {
+      saveConfig: Mock
     }
-    saveSettings.mockClear()
+    saveConfig.mockClear()
     const runtimeState = {
       config: { mainScreenWidth: 800, mainScreenHeight: 480 },
       isQuitting: false
@@ -850,16 +875,16 @@ describe('createMainWindow', () => {
     const moveCb = win.on.mock.calls.find(([e]: any[]) => e === 'move')?.[1]
     moveCb()
     vi.advanceTimersByTime(500)
-    expect(saveSettings).not.toHaveBeenCalled()
+    expect(saveConfig).not.toHaveBeenCalled()
     vi.useRealTimers()
   })
 
   test('bounds persistence skips when getPosition is unavailable', async () => {
     vi.useFakeTimers()
-    const { saveSettings } = (await vi.importMock('@main/ipc/utils')) as {
-      saveSettings: Mock
+    const { saveConfig } = (await vi.importMock('@main/core')) as {
+      saveConfig: Mock
     }
-    saveSettings.mockClear()
+    saveConfig.mockClear()
     const runtimeState = {
       config: { mainScreenWidth: 800, mainScreenHeight: 480 },
       isQuitting: false
@@ -871,16 +896,16 @@ describe('createMainWindow', () => {
     const moveCb = win.on.mock.calls.find(([e]: any[]) => e === 'move')?.[1]
     moveCb()
     vi.advanceTimersByTime(500)
-    expect(saveSettings).not.toHaveBeenCalled()
+    expect(saveConfig).not.toHaveBeenCalled()
     vi.useRealTimers()
   })
 
   test('bounds persistence skips when getContentSize is unavailable', async () => {
     vi.useFakeTimers()
-    const { saveSettings } = (await vi.importMock('@main/ipc/utils')) as {
-      saveSettings: Mock
+    const { saveConfig } = (await vi.importMock('@main/core')) as {
+      saveConfig: Mock
     }
-    saveSettings.mockClear()
+    saveConfig.mockClear()
     const runtimeState = {
       config: { mainScreenWidth: 800, mainScreenHeight: 480 },
       isQuitting: false
@@ -894,16 +919,16 @@ describe('createMainWindow', () => {
     const moveCb = win.on.mock.calls.find(([e]: any[]) => e === 'move')?.[1]
     moveCb()
     vi.advanceTimersByTime(500)
-    expect(saveSettings).not.toHaveBeenCalled()
+    expect(saveConfig).not.toHaveBeenCalled()
     vi.useRealTimers()
   })
 
   test('rapid move events debounce into a single save', async () => {
     vi.useFakeTimers()
-    const { saveSettings } = (await vi.importMock('@main/ipc/utils')) as {
-      saveSettings: Mock
+    const { saveConfig } = (await vi.importMock('@main/core')) as {
+      saveConfig: Mock
     }
-    saveSettings.mockClear()
+    saveConfig.mockClear()
     const runtimeState = {
       config: { mainScreenWidth: 800, mainScreenHeight: 480 },
       isQuitting: false
@@ -919,7 +944,7 @@ describe('createMainWindow', () => {
     vi.advanceTimersByTime(100)
     moveCb()
     vi.advanceTimersByTime(500)
-    expect(saveSettings).toHaveBeenCalledTimes(1)
+    expect(saveConfig).toHaveBeenCalledTimes(1)
     vi.useRealTimers()
   })
 
@@ -942,8 +967,7 @@ describe('createMainWindow', () => {
       config: { mainScreenWidth: 0, mainScreenHeight: 0 },
       isQuitting: false
     } as any
-    const services = { projectionService: { attachRenderer: vi.fn() } } as any
-    createMainWindow(runtimeState, services)
+    createMainWindow(runtimeState)
     const win = browserWindowInstances[browserWindowInstances.length - 1]
     const readyHandler = win.once.mock.calls.find(([e]: any[]) => e === 'ready-to-show')?.[1]
     readyHandler()
@@ -993,7 +1017,7 @@ describe('createMainWindow', () => {
     )?.[1]
     enterHandler()
     expect(applyAspectRatioFullscreen).not.toHaveBeenCalled()
-    expect(persistKioskAndBroadcast).not.toHaveBeenCalled()
+    expect(persistKiosk).not.toHaveBeenCalled()
     ;(isMacPlatform as Mock).mockReturnValue(false)
   })
 

@@ -51,6 +51,13 @@ export const appearanceSchema: SettingsNode<Config> = {
       path: 'darkMode'
     },
     {
+      type: 'checkbox',
+      label: 'Overlay Messages',
+      labelKey: 'settings.overlayMessages',
+      icon: 'overlayMessages',
+      path: 'overlayMessages'
+    },
+    {
       type: 'select',
       label: 'Phone Appearance',
       labelKey: 'settings.phoneAppearance',

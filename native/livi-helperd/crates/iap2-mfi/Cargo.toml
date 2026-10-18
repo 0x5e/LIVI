@@ -4,8 +4,8 @@ version = "0.1.0"
 edition.workspace = true
 
 [dependencies]
-livi-net = { path = "../livi-net" }
+livi-net.workspace = true
 p256 = { version = "0.13", features = ["ecdsa", "pkcs8"] }
 
 [target.'cfg(target_os = "linux")'.dependencies]
-libc = "0.2"
+libc.workspace = true

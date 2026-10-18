@@ -22,7 +22,3 @@ export const PAGES: readonly Page[] = [
   { path: ROUTES.CUSTOM, label: 'Custom', labelKey: 'settings.startPageCustom' },
   { path: ROUTES.SETTINGS, label: 'Settings', labelKey: 'settings.startPageSettings' }
 ]
-
-export function isPagePath(path: unknown): path is ROUTES {
-  return PAGES.some((p) => p.path === path)
-}

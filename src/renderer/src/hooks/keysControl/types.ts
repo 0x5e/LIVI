@@ -1,4 +1,3 @@
-/** UI-originated key commands */
 export type KeyCommand =
   | 'left'
   | 'right'
@@ -44,6 +43,4 @@ export type useKeyDownProps = {
   moveFocusLinear: (delta: -1 | 1) => boolean
   isFormField: (el: HTMLElement | null) => boolean
   activateControl: (el: HTMLElement | null) => boolean
-  onSetKeyCommand: (mappedAction: KeyCommand) => void
-  onSetCommandCounter: (p: (_p: number) => number) => void
 }

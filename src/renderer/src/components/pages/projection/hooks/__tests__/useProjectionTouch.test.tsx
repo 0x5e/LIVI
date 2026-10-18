@@ -1,12 +1,17 @@
-import { MultiTouchAction, TouchAction } from '@shared/types/ProjectionEnums'
 import { renderHook } from '@testing-library/react'
 import { createRef } from 'react'
 import { useProjectionMultiTouch } from '../useProjectionTouch'
 
-describe('useProjectionMultiTouch', () => {
-  const sendTouch = vi.fn()
-  const sendMultiTouch = vi.fn()
+const sendInput = vi.fn()
 
+vi.mock('../../../../../store/store', () => ({
+  sendInput: (input: unknown) => sendInput(input)
+}))
+
+const pointer = (points: unknown[]) => ({ kind: 'pointer', screen: 'main', points })
+const mouse = (x: number, y: number, phase: string) => pointer([{ id: 0, x, y, phase }])
+
+describe('useProjectionMultiTouch', () => {
   let rafCb: FrameRequestCallback | null = null
   const flushRaf = () => {
     const cb = rafCb
@@ -74,12 +79,6 @@ describe('useProjectionMultiTouch', () => {
     vi.stubGlobal('cancelAnimationFrame', () => {
       rafCb = null
     })
-    ;(window as any).projection = {
-      ipc: {
-        sendTouch,
-        sendMultiTouch
-      }
-    }
   })
 
   test('handles mouse touch sequence', () => {
@@ -90,17 +89,17 @@ describe('useProjectionMultiTouch', () => {
     const { result } = renderHook(() => useProjectionMultiTouch(videoRef))
 
     result.current.onPointerDown(ptrEvent(target, { pointerType: 'mouse' }))
-    expect(sendTouch).toHaveBeenCalledWith(0.5, 0.5, TouchAction.Down)
+    expect(sendInput).toHaveBeenCalledWith(mouse(0.5, 0.5, 'down'))
     expect(target.setPointerCapture).toHaveBeenCalledWith(1)
 
     result.current.onPointerMove(
       ptrEvent(target, { pointerType: 'mouse', clientX: 60, buttons: 1 })
     )
     flushRaf()
-    expect(sendTouch).toHaveBeenCalledWith(0.6, 0.5, TouchAction.Move)
+    expect(sendInput).toHaveBeenCalledWith(mouse(0.6, 0.5, 'move'))
 
     result.current.onPointerUp(ptrEvent(target, { pointerType: 'mouse', clientX: 70 }))
-    expect(sendTouch).toHaveBeenCalledWith(0.7, 0.5, TouchAction.Up)
+    expect(sendInput).toHaveBeenCalledWith(mouse(0.7, 0.5, 'up'))
     expect(target.releasePointerCapture).toHaveBeenCalledWith(1)
   })
 
@@ -120,13 +119,13 @@ describe('useProjectionMultiTouch', () => {
     )
     flushRaf()
 
-    expect(sendTouch).toHaveBeenLastCalledWith(0.6, 0.5, TouchAction.Up)
-    sendTouch.mockClear()
+    expect(sendInput).toHaveBeenLastCalledWith(mouse(0.6, 0.5, 'up'))
+    sendInput.mockClear()
     result.current.onPointerMove(
       ptrEvent(target, { pointerType: 'mouse', clientX: 90, buttons: 0 })
     )
     flushRaf()
-    expect(sendTouch).not.toHaveBeenCalled()
+    expect(sendInput).not.toHaveBeenCalled()
   })
 
   test('ignores mouse move/up when no active mouse down', () => {
@@ -139,7 +138,7 @@ describe('useProjectionMultiTouch', () => {
     result.current.onPointerMove(ptrEvent(target, { pointerType: 'mouse' }))
     result.current.onPointerUp(ptrEvent(target, { pointerType: 'mouse' }))
 
-    expect(sendTouch).not.toHaveBeenCalled()
+    expect(sendInput).not.toHaveBeenCalled()
   })
 
   test('ignores events outside bounds', () => {
@@ -152,8 +151,7 @@ describe('useProjectionMultiTouch', () => {
     result.current.onPointerDown(ptrEvent(target, { clientX: 200, clientY: 200 }))
     result.current.onPointerMove(ptrEvent(target, { clientX: 200, clientY: 200 }))
 
-    expect(sendTouch).not.toHaveBeenCalled()
-    expect(sendMultiTouch).not.toHaveBeenCalled()
+    expect(sendInput).not.toHaveBeenCalled()
   })
 
   test('handles touch down/move/up with slot allocation and release', () => {
@@ -165,24 +163,24 @@ describe('useProjectionMultiTouch', () => {
 
     result.current.onPointerDown(ptrEvent(target, { pointerType: 'touch', pointerId: 11 }))
     expect(target.setPointerCapture).toHaveBeenCalledWith(11)
-    expect(sendMultiTouch).toHaveBeenCalledWith([
-      expect.objectContaining({ id: 0, action: MultiTouchAction.Down, x: 0.5, y: 0.5 })
-    ])
+    expect(sendInput).toHaveBeenCalledWith(
+      pointer([expect.objectContaining({ id: 0, phase: 'down', x: 0.5, y: 0.5 })])
+    )
 
     result.current.onPointerMove(
       ptrEvent(target, { pointerType: 'touch', pointerId: 11, clientX: 60 })
     )
     flushRaf()
-    expect(sendMultiTouch).toHaveBeenCalledWith([
-      expect.objectContaining({ id: 0, action: MultiTouchAction.Move, x: 0.6, y: 0.5 })
-    ])
+    expect(sendInput).toHaveBeenCalledWith(
+      pointer([expect.objectContaining({ id: 0, phase: 'move', x: 0.6, y: 0.5 })])
+    )
 
     result.current.onPointerUp(
       ptrEvent(target, { pointerType: 'touch', pointerId: 11, clientX: 80 })
     )
-    expect(sendMultiTouch).toHaveBeenCalledWith([
-      expect.objectContaining({ id: 0, action: MultiTouchAction.Up, x: 0.8, y: 0.5 })
-    ])
+    expect(sendInput).toHaveBeenCalledWith(
+      pointer([expect.objectContaining({ id: 0, phase: 'up', x: 0.8, y: 0.5 })])
+    )
     expect(target.releasePointerCapture).toHaveBeenCalledWith(11)
   })
 
@@ -199,9 +197,9 @@ describe('useProjectionMultiTouch', () => {
     result.current.onPointerDown(ptrEvent(target, { pointerId: 2 }))
     result.current.onLostPointerCapture(ptrEvent(target, { pointerId: 2, clientX: 65 }))
 
-    const ids = sendMultiTouch.mock.calls
-      .flatMap((c) => c[0] as Array<{ id: number; action: MultiTouchAction }>)
-      .filter((x) => x.action === MultiTouchAction.Down)
+    const ids = sendInput.mock.calls
+      .flatMap((c) => c[0].points as Array<{ id: number; phase: string }>)
+      .filter((x) => x.phase === 'down')
       .map((x) => x.id)
 
     expect(ids).toContain(0)
@@ -218,9 +216,9 @@ describe('useProjectionMultiTouch', () => {
     result.current.onPointerOut(ptrEvent(target, { pointerId: 12 }))
     result.current.onPointerUp(ptrEvent(target, { pointerId: 12, clientX: 120, clientY: 120 }))
 
-    expect(sendMultiTouch).toHaveBeenCalledWith([
-      expect.objectContaining({ action: MultiTouchAction.Up, x: 0.4, y: 0.4 })
-    ])
+    expect(sendInput).toHaveBeenCalledWith(
+      pointer([expect.objectContaining({ phase: 'up', x: 0.4, y: 0.4 })])
+    )
   })
 
   test('prevents context menu', () => {
@@ -235,142 +233,6 @@ describe('useProjectionMultiTouch', () => {
     expect(preventDefault).toHaveBeenCalled()
   })
 
-  test('maps touch through a portrait letterbox transform', () => {
-    const target = createTarget()
-    const videoRef = createRef<HTMLElement>()
-    videoRef.current = target
-
-    const transform = {
-      streamWidth: 200,
-      streamHeight: 400,
-      cropLeft: 0,
-      cropTop: 0,
-      visibleWidth: 100,
-      visibleHeight: 200
-    }
-
-    const { result } = renderHook(() => useProjectionMultiTouch(videoRef, transform))
-
-    result.current.onPointerDown(ptrEvent(target, { pointerId: 1 }))
-
-    expect(sendMultiTouch).toHaveBeenCalledWith([
-      expect.objectContaining({ action: MultiTouchAction.Down, x: 0.25, y: 0.25 })
-    ])
-  })
-
-  test('maps touch through a landscape letterbox transform', () => {
-    const target = createTarget()
-    const videoRef = createRef<HTMLElement>()
-    videoRef.current = target
-
-    const transform = {
-      streamWidth: 400,
-      streamHeight: 200,
-      cropLeft: 0,
-      cropTop: 0,
-      visibleWidth: 200,
-      visibleHeight: 100
-    }
-
-    const { result } = renderHook(() => useProjectionMultiTouch(videoRef, transform))
-
-    result.current.onPointerDown(ptrEvent(target, { pointerId: 1 }))
-
-    expect(sendMultiTouch).toHaveBeenCalledWith([
-      expect.objectContaining({ action: MultiTouchAction.Down, x: 0.25, y: 0.25 })
-    ])
-  })
-
-  test('clamps transformed coordinates above one', () => {
-    const target = createTarget()
-    const videoRef = createRef<HTMLElement>()
-    videoRef.current = target
-
-    const transform = {
-      streamWidth: 100,
-      streamHeight: 100,
-      cropLeft: 90,
-      cropTop: 0,
-      visibleWidth: 100,
-      visibleHeight: 100
-    }
-
-    const { result } = renderHook(() => useProjectionMultiTouch(videoRef, transform))
-
-    result.current.onPointerDown(ptrEvent(target, { pointerId: 1 }))
-
-    expect(sendMultiTouch).toHaveBeenCalledWith([
-      expect.objectContaining({ action: MultiTouchAction.Down, x: 1, y: 0.5 })
-    ])
-  })
-
-  test('clamps transformed coordinates below zero', () => {
-    const target = createTarget()
-    const videoRef = createRef<HTMLElement>()
-    videoRef.current = target
-
-    const transform = {
-      streamWidth: 100,
-      streamHeight: 100,
-      cropLeft: -50,
-      cropTop: 0,
-      visibleWidth: 100,
-      visibleHeight: 100
-    }
-
-    const { result } = renderHook(() => useProjectionMultiTouch(videoRef, transform))
-
-    result.current.onPointerDown(ptrEvent(target, { pointerId: 1, clientX: 0 }))
-
-    expect(sendMultiTouch).toHaveBeenCalledWith([
-      expect.objectContaining({ action: MultiTouchAction.Down, x: 0, y: 0.5 })
-    ])
-  })
-
-  test('falls back to container mapping when transform is unusable', () => {
-    const target = createTarget()
-    const videoRef = createRef<HTMLElement>()
-    videoRef.current = target
-
-    const transform = {
-      streamWidth: 0,
-      streamHeight: 100,
-      cropLeft: 0,
-      cropTop: 0,
-      visibleWidth: 100,
-      visibleHeight: 100
-    }
-
-    const { result } = renderHook(() => useProjectionMultiTouch(videoRef, transform))
-
-    result.current.onPointerDown(ptrEvent(target, { pointerId: 1 }))
-
-    expect(sendMultiTouch).toHaveBeenCalledWith([
-      expect.objectContaining({ action: MultiTouchAction.Down, x: 0.5, y: 0.5 })
-    ])
-  })
-
-  test('ignores transformed points outside the display area', () => {
-    const target = createTarget()
-    const videoRef = createRef<HTMLElement>()
-    videoRef.current = target
-
-    const transform = {
-      streamWidth: 200,
-      streamHeight: 400,
-      cropLeft: 0,
-      cropTop: 0,
-      visibleWidth: 100,
-      visibleHeight: 200
-    }
-
-    const { result } = renderHook(() => useProjectionMultiTouch(videoRef, transform))
-
-    result.current.onPointerDown(ptrEvent(target, { pointerId: 1, clientX: 5 }))
-
-    expect(sendMultiTouch).not.toHaveBeenCalled()
-  })
-
   test('ignores events when the target rect has zero size', () => {
     const target = createTargetWith({ left: 0, top: 0, width: 0, height: 0 })
     const videoRef = createRef<HTMLElement>()
@@ -380,8 +242,7 @@ describe('useProjectionMultiTouch', () => {
 
     result.current.onPointerDown(ptrEvent(target, { pointerId: 1 }))
 
-    expect(sendMultiTouch).not.toHaveBeenCalled()
-    expect(sendTouch).not.toHaveBeenCalled()
+    expect(sendInput).not.toHaveBeenCalled()
   })
 
   test('falls back to the event target when videoRef is empty', () => {
@@ -392,7 +253,7 @@ describe('useProjectionMultiTouch', () => {
 
     result.current.onPointerDown(ptrEvent(target, { pointerType: 'mouse' }))
 
-    expect(sendTouch).toHaveBeenCalledWith(0.5, 0.5, TouchAction.Down)
+    expect(sendInput).toHaveBeenCalledWith(mouse(0.5, 0.5, 'down'))
   })
 
   test('ignores touch move for an unknown pointer', () => {
@@ -404,7 +265,7 @@ describe('useProjectionMultiTouch', () => {
 
     result.current.onPointerMove(ptrEvent(target, { pointerId: 99 }))
 
-    expect(sendMultiTouch).not.toHaveBeenCalled()
+    expect(sendInput).not.toHaveBeenCalled()
   })
 
   test('ignores finish for an unknown touch pointer', () => {
@@ -416,7 +277,7 @@ describe('useProjectionMultiTouch', () => {
 
     result.current.onPointerUp(ptrEvent(target, { pointerId: 99 }))
 
-    expect(sendMultiTouch).not.toHaveBeenCalled()
+    expect(sendInput).not.toHaveBeenCalled()
     expect(target.releasePointerCapture).not.toHaveBeenCalled()
   })
 
@@ -432,14 +293,14 @@ describe('useProjectionMultiTouch', () => {
       ptrEvent(target, { pointerType: 'mouse', clientX: 200, clientY: 200 })
     )
 
-    expect(sendTouch).toHaveBeenCalledTimes(2)
-    expect(sendTouch).toHaveBeenLastCalledWith(0.5, 0.5, TouchAction.Up)
+    expect(sendInput).toHaveBeenCalledTimes(2)
+    expect(sendInput).toHaveBeenLastCalledWith(mouse(0.5, 0.5, 'up'))
 
     result.current.onPointerMove(
       ptrEvent(target, { pointerType: 'mouse', clientX: 60, buttons: 1 })
     )
     flushRaf()
-    expect(sendTouch).toHaveBeenCalledTimes(2)
+    expect(sendInput).toHaveBeenCalledTimes(2)
   })
 
   test('reuses the existing slot for a repeated pointerdown of the same pointer', () => {
@@ -452,10 +313,10 @@ describe('useProjectionMultiTouch', () => {
     result.current.onPointerDown(ptrEvent(target, { pointerId: 7 }))
     result.current.onPointerDown(ptrEvent(target, { pointerId: 7, clientX: 60 }))
 
-    expect(sendMultiTouch).toHaveBeenCalledTimes(2)
-    const downIds = sendMultiTouch.mock.calls
-      .flatMap((c) => c[0] as Array<{ id: number; action: MultiTouchAction }>)
-      .filter((x) => x.action === MultiTouchAction.Down)
+    expect(sendInput).toHaveBeenCalledTimes(2)
+    const downIds = sendInput.mock.calls
+      .flatMap((c) => c[0].points as Array<{ id: number; phase: string }>)
+      .filter((x) => x.phase === 'down')
       .map((x) => x.id)
     expect(downIds).toEqual([0, 0])
   })
@@ -472,9 +333,9 @@ describe('useProjectionMultiTouch', () => {
     result.current.onPointerMove(ptrEvent(target, { pointerId: 3, clientX: 70 }))
     flushRaf()
 
-    const moveCalls = sendMultiTouch.mock.calls
-      .flatMap((c) => c[0] as Array<{ action: MultiTouchAction }>)
-      .filter((x) => x.action === MultiTouchAction.Move)
+    const moveCalls = sendInput.mock.calls
+      .flatMap((c) => c[0].points as Array<{ phase: string }>)
+      .filter((x) => x.phase === 'move')
     expect(moveCalls).toHaveLength(1)
   })
 
@@ -490,13 +351,13 @@ describe('useProjectionMultiTouch', () => {
     result.current.onPointerUp(ptrEvent(target, { pointerId: 4, clientX: 80 }))
     flushRaf()
 
-    const moveCalls = sendMultiTouch.mock.calls
-      .flatMap((c) => c[0] as Array<{ action: MultiTouchAction }>)
-      .filter((x) => x.action === MultiTouchAction.Move)
+    const moveCalls = sendInput.mock.calls
+      .flatMap((c) => c[0].points as Array<{ phase: string }>)
+      .filter((x) => x.phase === 'move')
     expect(moveCalls).toHaveLength(0)
-    expect(sendMultiTouch).toHaveBeenCalledWith([
-      expect.objectContaining({ action: MultiTouchAction.Up, x: 0.8, y: 0.5 })
-    ])
+    expect(sendInput).toHaveBeenCalledWith(
+      pointer([expect.objectContaining({ phase: 'up', x: 0.8, y: 0.5 })])
+    )
   })
 
   test('cancels a pending frame on unmount', () => {

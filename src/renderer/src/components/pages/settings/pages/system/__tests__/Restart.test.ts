@@ -1,37 +1,35 @@
+const coreAction = vi.fn()
+
+vi.mock('@store/store', () => ({
+  coreAction: (action: unknown) => coreAction(action)
+}))
+
 import { __resetRestartGuardForTests, Restart } from '../Restart'
 
 describe('Restart', () => {
   beforeEach(() => {
     __resetRestartGuardForTests()
+    coreAction.mockReset()
   })
 
-  test('calls window.app.restartApp and returns null', () => {
+  test('asks core to restart and returns null', () => {
     const catchMock = vi.fn()
-    const restartAppMock = vi.fn(() => ({ catch: catchMock }))
-
-    ;(window as any).app = {
-      restartApp: restartAppMock
-    }
+    coreAction.mockReturnValue({ catch: catchMock })
 
     const result = Restart()
 
     expect(result).toBeNull()
-    expect(restartAppMock).toHaveBeenCalledTimes(1)
+    expect(coreAction).toHaveBeenCalledWith({ kind: 'restart' })
     expect(catchMock).toHaveBeenCalledWith(console.error)
   })
 
-  test('does not fire restartApp again on subsequent renders', () => {
-    const catchMock = vi.fn()
-    const restartAppMock = vi.fn(() => ({ catch: catchMock }))
-
-    ;(window as any).app = {
-      restartApp: restartAppMock
-    }
+  test('asks only once over several renders', () => {
+    coreAction.mockReturnValue({ catch: vi.fn() })
 
     Restart()
     Restart()
     Restart()
 
-    expect(restartAppMock).toHaveBeenCalledTimes(1)
+    expect(coreAction).toHaveBeenCalledTimes(1)
   })
 })

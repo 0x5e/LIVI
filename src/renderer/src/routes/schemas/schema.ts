@@ -3,6 +3,7 @@ import { generateRoutes } from '../../utils/generateRoutes'
 import { SettingsNode } from '../types'
 import { appearanceSchema } from './appearanceSchema'
 import { audioSchema } from './audioSchema'
+import { carSchema } from './carSchema'
 import { devicesSchema } from './devicesSchema'
 import { generalSchema } from './generalSchema'
 import { systemSchema } from './systemSchema'
@@ -14,7 +15,15 @@ export const settingsSchema: SettingsNode<Config> = {
   label: 'Settings', // TODO deleted in favor of i18n
   labelKey: 'settings.settingsTitle',
   path: 'settings',
-  children: [devicesSchema, generalSchema, audioSchema, videoSchema, appearanceSchema, systemSchema]
+  children: [
+    devicesSchema,
+    generalSchema,
+    carSchema,
+    audioSchema,
+    videoSchema,
+    appearanceSchema,
+    systemSchema
+  ]
 }
 
 export const settingsRoutes = generateRoutes(settingsSchema)

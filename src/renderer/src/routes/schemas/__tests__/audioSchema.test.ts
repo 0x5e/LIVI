@@ -1,3 +1,5 @@
+import type { System } from '@shared/core/contract'
+import { useLiviStore } from '../../../store/store'
 import { audioSchema } from '../audioSchema'
 
 const schema = audioSchema as any
@@ -148,39 +150,41 @@ describe('audioSchema', () => {
 })
 
 describe('audio device loaders', () => {
+  const device = (id: string, name: string, offline = false) => ({
+    id,
+    name,
+    isDefault: false,
+    offline
+  })
+  const lists = (
+    audioSinks: ReturnType<typeof device>[],
+    audioSources: ReturnType<typeof device>[]
+  ) => useLiviStore.setState({ system: { audioSinks, audioSources } as unknown as System })
+
   afterEach(() => {
-    ;(window as any).projection = undefined
+    useLiviStore.setState({ system: null })
   })
 
-  test('output loader returns only the system default without an audio api', async () => {
-    ;(window as any).projection = {}
-    const opts = await schema.children[6].loadOptions()
-    expect(opts).toHaveLength(1)
-    expect(opts[0].value).toBe('')
+  test('both loaders return only the system default before core listed anything', async () => {
+    for (const node of [schema.children[6], schema.children[7]]) {
+      const opts = await node.loadOptions()
+      expect(opts).toHaveLength(1)
+      expect(opts[0].value).toBe('')
+    }
   })
 
   test('output loader prepends the system default to the listed sinks', async () => {
-    ;(window as any).projection = {
-      audio: { listSinks: vi.fn(async () => [{ id: 'sink1', name: 'Speakers', offline: false }]) }
-    }
+    lists([device('sink1', 'Speakers')], [])
     const opts = await schema.children[6].loadOptions()
     expect(opts).toHaveLength(2)
     expect(opts[0].value).toBe('')
-    expect(opts[1]).toMatchObject({ value: 'sink1', label: 'Speakers' })
+    expect(opts[1]).toMatchObject({ value: 'sink1', label: 'Speakers', offline: false })
   })
 
   test('input loader prepends the system default to the listed sources', async () => {
-    ;(window as any).projection = {
-      audio: { listSources: vi.fn(async () => [{ id: 'mic1', name: 'Mic', offline: true }]) }
-    }
+    lists([], [device('mic1', 'Mic', true)])
     const opts = await schema.children[7].loadOptions()
     expect(opts).toHaveLength(2)
     expect(opts[1]).toMatchObject({ value: 'mic1', label: 'Mic', offline: true })
-  })
-
-  test('input loader falls back to the system default without an audio api', async () => {
-    ;(window as any).projection = {}
-    const opts = await schema.children[7].loadOptions()
-    expect(opts).toHaveLength(1)
   })
 })

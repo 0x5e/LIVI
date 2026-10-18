@@ -14,12 +14,13 @@ const state: {
 let clusterDashActive = false
 
 vi.mock('../../../store/store', () => ({
+  sendInput: (input: unknown) => sendInputMock(input),
+  reportShown: (screen: string, front: string) => reportShownMock(screen, front),
   useLiviStore: (selector: (s: { settings: unknown }) => unknown) => selector(state),
   useStatusStore: (selector: (s: { clusterDashActive: boolean }) => unknown) =>
     selector({ clusterDashActive })
 }))
 
-// Stub the page components so the shell logic is what we exercise.
 vi.mock('../../pages/camera', () => ({
   Camera: () => <div data-testid="camera-page" />
 }))
@@ -29,9 +30,7 @@ vi.mock('../../pages/cluster/Cluster', () => ({
   )
 }))
 vi.mock('../../pages/media', () => ({
-  Media: ({ forceHydrate }: { forceHydrate?: boolean }) => (
-    <div data-testid="media-page" data-hydrate={String(!!forceHydrate)} />
-  )
+  Media: () => <div data-testid="media-page" />
 }))
 vi.mock('../../pages/telemetry', () => ({
   Telemetry: ({ windowRole }: { windowRole: string }) => (
@@ -45,25 +44,24 @@ vi.mock('../../layouts/AppLayout', () => ({
   )
 }))
 
-const sendCommandMock = vi.fn()
+const sendInputMock = vi.fn()
+const reportShownMock = vi.fn()
 const onMediaKeyMock = vi.fn()
+const press = (code: string) => ({ kind: 'key', code, down: true })
+const release = (code: string) => ({ kind: 'key', code, down: false })
 
 beforeEach(async () => {
   state.settings = undefined
   clusterDashActive = false
-  sendCommandMock.mockReset()
+  sendInputMock.mockReset()
+  reportShownMock.mockReset()
   onMediaKeyMock.mockReset().mockReturnValue(() => {})
-  ;(window as unknown as { projection: unknown }).projection = {
-    ipc: { sendCommand: sendCommandMock }
-  }
   ;(window as unknown as { app: unknown }).app = { onMediaKey: onMediaKeyMock }
   vi.spyOn(console, 'warn').mockImplementation(() => {})
 })
 afterEach(async () => vi.restoreAllMocks())
 
-// Force a re-import per describe to capture the freshest mock state if needed.
 async function renderShell(role: 'dash' | 'aux' = 'dash', emptyLabel = 'Dash Window') {
-  // Lazy import so vi.mock() above is in effect
   const { SecondaryAppShell } = await import('../SecondaryAppShell')
   return render(<SecondaryAppShell role={role} emptyLabel={emptyLabel} />)
 }
@@ -84,7 +82,6 @@ describe('SecondaryAppShell — empty / loading states', async () => {
 
 describe('SecondaryAppShell — initial route selection', () => {
   test('a cluster dash (dash3/dash4) renders the cluster overlay and routes to telemetry', async () => {
-    // Cluster capability now derives from a cluster dash routed to the role.
     state.settings = { dashboards: { dash3: { dash: true } } }
     await renderShell('dash')
     // Cluster dash is also a dashboard slot, so the initial route is telemetry.
@@ -96,14 +93,13 @@ describe('SecondaryAppShell — initial route selection', () => {
     state.settings = { dashboards: { dash1: { dash: true } } }
     await renderShell('dash')
     expect(screen.getByTestId('telemetry-page')).toHaveAttribute('data-role', 'dash')
-    // No cluster dash → no cluster overlay.
     expect(screen.queryByTestId('cluster-page')).toBeNull()
   })
 
   test('media routes when only media is enabled', async () => {
     state.settings = { media: { dash: true } }
     await renderShell('dash')
-    expect(screen.getByTestId('media-page')).toHaveAttribute('data-hydrate', 'true')
+    expect(screen.getByTestId('media-page')).toBeInTheDocument()
   })
 
   test('camera routes when only camera is enabled', async () => {
@@ -162,67 +158,82 @@ describe('SecondaryAppShell — media-key bridge', () => {
   })
 })
 
-describe('SecondaryAppShell — key bindings dispatch IPC commands', () => {
-  test('transport actions send the command through projection.ipc.sendCommand', async () => {
+describe('SecondaryAppShell — what the screen shows', () => {
+  test('tells core when a cluster dash is in front', async () => {
+    state.settings = { media: { aux: true } }
+    clusterDashActive = true
+    await renderShell('aux', 'Aux Window')
+    expect(reportShownMock).toHaveBeenLastCalledWith('aux', 'cluster')
+  })
+
+  test('tells core LIVI is in front otherwise', async () => {
+    state.settings = { media: { dash: true } }
+    await renderShell()
+    expect(reportShownMock).toHaveBeenLastCalledWith('dash', 'livi')
+  })
+})
+
+describe('SecondaryAppShell — key bindings reach core', () => {
+  test('transport keys go to core', async () => {
     state.settings = {
       media: { dash: true },
       bindings: { playPause: 'Space', next: 'KeyN' }
     }
     await renderShell()
     fireEvent.keyDown(document, { code: 'Space' })
-    expect(sendCommandMock).toHaveBeenCalledWith('playPause')
+    expect(sendInputMock).toHaveBeenCalledWith(press('Space'))
 
     fireEvent.keyDown(document, { code: 'KeyN' })
-    expect(sendCommandMock).toHaveBeenCalledWith('next')
+    expect(sendInputMock).toHaveBeenCalledWith(press('KeyN'))
   })
 
   test('unmapped key codes are ignored', async () => {
     state.settings = { media: { dash: true }, bindings: { playPause: 'Space' } }
     await renderShell()
     fireEvent.keyDown(document, { code: 'KeyZ' })
-    expect(sendCommandMock).not.toHaveBeenCalled()
+    expect(sendInputMock).not.toHaveBeenCalled()
   })
 
   test('voiceAssistant fires on press and release', async () => {
     state.settings = { media: { dash: true }, bindings: { voiceAssistant: 'KeyV' } }
     await renderShell()
     fireEvent.keyDown(document, { code: 'KeyV' })
-    expect(sendCommandMock).toHaveBeenCalledWith('voiceAssistant')
+    expect(sendInputMock).toHaveBeenCalledWith(press('KeyV'))
 
-    sendCommandMock.mockClear()
+    sendInputMock.mockClear()
     fireEvent.keyUp(document, { code: 'KeyV' })
-    expect(sendCommandMock).toHaveBeenCalledWith('voiceAssistantRelease')
+    expect(sendInputMock).toHaveBeenCalledWith(release('KeyV'))
   })
 
   test('repeated voiceAssistant keydown is suppressed', async () => {
     state.settings = { media: { dash: true }, bindings: { voiceAssistant: 'KeyV' } }
     await renderShell()
     fireEvent.keyDown(document, { code: 'KeyV' })
-    sendCommandMock.mockClear()
+    sendInputMock.mockClear()
     fireEvent.keyDown(document, { code: 'KeyV', repeat: true })
-    expect(sendCommandMock).not.toHaveBeenCalled()
+    expect(sendInputMock).not.toHaveBeenCalled()
   })
 
   test('PTT auto-releases on window blur', async () => {
     state.settings = { media: { dash: true }, bindings: { voiceAssistant: 'KeyV' } }
     await renderShell()
     fireEvent.keyDown(document, { code: 'KeyV' })
-    sendCommandMock.mockClear()
+    sendInputMock.mockClear()
     window.dispatchEvent(new Event('blur'))
-    expect(sendCommandMock).toHaveBeenCalledWith('voiceAssistantRelease')
+    expect(sendInputMock).toHaveBeenCalledWith(release('KeyV'))
   })
 
   test('PTT auto-releases on visibility hidden', async () => {
     state.settings = { media: { dash: true }, bindings: { voiceAssistant: 'KeyV' } }
     await renderShell()
     fireEvent.keyDown(document, { code: 'KeyV' })
-    sendCommandMock.mockClear()
+    sendInputMock.mockClear()
     Object.defineProperty(document, 'visibilityState', {
       configurable: true,
       value: 'hidden'
     })
     document.dispatchEvent(new Event('visibilitychange'))
-    expect(sendCommandMock).toHaveBeenCalledWith('voiceAssistantRelease')
+    expect(sendInputMock).toHaveBeenCalledWith(release('KeyV'))
   })
 
   test('ignores empty and non-string binding codes', async () => {
@@ -233,7 +244,7 @@ describe('SecondaryAppShell — key bindings dispatch IPC commands', () => {
     await renderShell()
 
     fireEvent.keyDown(document, { code: 'Space' })
-    expect(sendCommandMock).toHaveBeenCalledWith('playPause')
+    expect(sendInputMock).toHaveBeenCalledWith(press('Space'))
   })
 
   test('ignores non-transport key down and up events', async () => {
@@ -242,14 +253,14 @@ describe('SecondaryAppShell — key bindings dispatch IPC commands', () => {
 
     fireEvent.keyDown(document, { code: 'Backspace' })
     fireEvent.keyUp(document, { code: 'Backspace' })
-    expect(sendCommandMock).not.toHaveBeenCalled()
+    expect(sendInputMock).not.toHaveBeenCalled()
   })
 
   test('keeps PTT engaged while the window stays visible', async () => {
     state.settings = { media: { dash: true }, bindings: { voiceAssistant: 'KeyV' } }
     await renderShell()
     fireEvent.keyDown(document, { code: 'KeyV' })
-    sendCommandMock.mockClear()
+    sendInputMock.mockClear()
 
     Object.defineProperty(document, 'visibilityState', {
       configurable: true,
@@ -257,15 +268,6 @@ describe('SecondaryAppShell — key bindings dispatch IPC commands', () => {
     })
     document.dispatchEvent(new Event('visibilitychange'))
 
-    expect(sendCommandMock).not.toHaveBeenCalledWith('voiceAssistantRelease')
-  })
-
-  test('sendCommand failure is swallowed', async () => {
-    sendCommandMock.mockImplementation(() => {
-      throw new Error('ipc down')
-    })
-    state.settings = { media: { dash: true }, bindings: { next: 'KeyN' } }
-    await renderShell()
-    expect(() => fireEvent.keyDown(document, { code: 'KeyN' })).not.toThrow()
+    expect(sendInputMock).not.toHaveBeenCalledWith(release('KeyV'))
   })
 })

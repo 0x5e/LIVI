@@ -14,8 +14,15 @@ function fakeStream(): { write: ReturnType<typeof vi.fn>; end: ReturnType<typeof
   return { write: vi.fn(), end: vi.fn() }
 }
 
+const realPlatform = process.platform
+const onPlatform = (platform: string) =>
+  Object.defineProperty(process, 'platform', { value: platform })
+
 describe('logTimestamps', () => {
+  afterEach(() => onPlatform(realPlatform))
+
   beforeEach(() => {
+    onPlatform('linux')
     fsMock.mkdirSync.mockReset()
     fsMock.rmSync.mockReset()
     fsMock.renameSync.mockReset()
@@ -50,6 +57,46 @@ describe('logTimestamps', () => {
         if (fn) console[m] = fn
       }
     }
+  })
+
+  test('started by core it leaves the console and the log file to core', async () => {
+    vi.resetModules()
+    vi.stubEnv('LIVI_CORE_SOCKET', '/run/livi/core.sock')
+    const before = new Map(METHODS.map((m) => [m, console[m]]))
+    try {
+      await import('../logTimestamps')
+      for (const m of METHODS) expect(console[m]).toBe(before.get(m))
+      expect(fsMock.createWriteStream).not.toHaveBeenCalled()
+    } finally {
+      vi.unstubAllEnvs()
+    }
+  })
+
+  test('on macOS the lines wait for core and then go to it', async () => {
+    vi.resetModules()
+    onPlatform('darwin')
+    const original = console.log
+    console.log = vi.fn()
+    try {
+      const { logThroughCore } = await import('../logTimestamps')
+      console.log('early')
+      const write = vi.fn()
+      logThroughCore(write)
+      expect(write).toHaveBeenCalledWith(
+        expect.stringMatching(/^\[\d{2}:\d{2}:\d{2}\.\d{3}\] early$/)
+      )
+      console.log('live')
+      expect(write).toHaveBeenLastCalledWith(expect.stringContaining('live'))
+
+      logThroughCore(null)
+      for (let i = 0; i < 1001; i++) console.log(`held ${i}`)
+      const later = vi.fn()
+      logThroughCore(later)
+      expect(later).toHaveBeenCalledTimes(1000)
+    } finally {
+      console.log = original
+    }
+    expect(fsMock.createWriteStream).not.toHaveBeenCalled()
   })
 
   test('rotates the session logs and starts a fresh file over the size cap', async () => {

@@ -5,9 +5,9 @@ import { AppContext } from '../context'
 const navigateMock = vi.fn()
 const useKeyDownHandler = vi.fn()
 const updateCamerasMock = vi.fn()
-const listenForEvents = vi.fn()
-const unlistenForEvents = vi.fn()
 const focusFirstInMainMock = vi.fn()
+const reportPathMock = vi.fn()
+const sendInputMock = vi.fn()
 let capturedKeyDownOpts: any = null
 let mockPathname = '/'
 
@@ -68,6 +68,8 @@ const liviState: any = {
     language: 'en',
     bindings: { back: 'KeyB', selectDown: 'Enter' }
   },
+  sessions: { active: null, position: 0, total: 0 },
+  devices: [],
   saveSettings: vi.fn()
 }
 const statusState: any = {
@@ -79,6 +81,8 @@ const statusState: any = {
 }
 
 vi.mock('../store/store', () => ({
+  reportPath: (path: string) => reportPathMock(path),
+  sendInput: (input: unknown) => sendInputMock(input),
   useLiviStore: (selector: (s: any) => unknown) => selector(liviState),
   useStatusStore: (selector: (s: any) => unknown) => selector(statusState)
 }))
@@ -101,8 +105,6 @@ describe('App', () => {
     navigateMock.mockReset()
     useKeyDownHandler.mockReset()
     updateCamerasMock.mockReset()
-    listenForEvents.mockReset()
-    unlistenForEvents.mockReset()
     focusFirstInMainMock.mockReset()
     mockPathname = '/'
     liviState.settings = {
@@ -114,13 +116,16 @@ describe('App', () => {
     statusState.reverse = false
     statusState.cameraFound = false
     statusState.requestedPath = null
-    ;(window as any).projection = {
-      usb: {
-        listenForEvents,
-        unlistenForEvents
-      }
-    }
+    ;(window as any).projection = {}
     ;(window as any).app = undefined
+  })
+
+  test('tells core the route', async () => {
+    reportPathMock.mockReset()
+    mockPathname = '/media'
+    render(<App />)
+
+    expect(reportPathMock).toHaveBeenCalledWith('/media')
   })
 
   test('does not redirect from configured start page when current route is not home', async () => {
@@ -182,22 +187,6 @@ describe('App', () => {
     expect(focusFirstInMainMock).toHaveBeenCalled()
 
     rafSpy.mockRestore()
-  })
-
-  test('updates cameras again for matching usb event types only', async () => {
-    render(<App />)
-
-    const usbHandler = listenForEvents.mock.calls[0][0]
-
-    updateCamerasMock.mockClear()
-
-    usbHandler(undefined, { type: 'attach' })
-    expect(updateCamerasMock).toHaveBeenCalledTimes(1)
-
-    updateCamerasMock.mockClear()
-
-    usbHandler(undefined, { type: 'something-else' })
-    expect(updateCamerasMock).not.toHaveBeenCalled()
   })
 
   test('removes global input listeners on unmount', async () => {
@@ -338,6 +327,7 @@ describe('App', () => {
       fireEvent.keyUp(document, { code: 'KeyV' })
     })
     expect(broadcastMediaKey).toHaveBeenCalledWith('voiceAssistantRelease')
+    expect(sendInputMock).toHaveBeenCalledWith({ kind: 'key', code: 'KeyV', down: false })
   })
 
   test('PTT repeat keydown does not arm a release on a fresh press', async () => {
@@ -347,7 +337,7 @@ describe('App', () => {
     }
     const { broadcastMediaKey } = await vi.importMock('../utils/broadcastMediaKey')
     render(<App />)
-    // Only repeat keydowns — never armed → keyup is a no-op
+    // Only repeat keydowns, so PTT is never armed and keyup does nothing
     fireEvent.keyDown(document, { code: 'KeyV', repeat: true })
     broadcastMediaKey.mockClear()
     fireEvent.keyUp(document, { code: 'KeyV' })
@@ -447,7 +437,7 @@ describe('App', () => {
     const { rerender } = render(<App />)
     expect(navigateMock).toHaveBeenCalledWith('/camera')
 
-    // Pretend the router has actually moved us to /camera, then reverse drops
+    // The mocked router does not move, so the path is set by hand.
     mockPathname = '/camera'
     statusState.reverse = false
     navigateMock.mockClear()
@@ -602,14 +592,6 @@ describe('App', () => {
       document.dispatchEvent(new Event('visibilitychange'))
     })
     expect(broadcastMediaKey).not.toHaveBeenCalled()
-  })
-
-  test('usb handler tolerates events without a payload', async () => {
-    render(<App />)
-    const usbHandler = listenForEvents.mock.calls[0][0]
-    updateCamerasMock.mockClear()
-    expect(() => usbHandler(undefined)).not.toThrow()
-    expect(updateCamerasMock).not.toHaveBeenCalled()
   })
 
   test('camera enabled state resolves for non-main window roles', async () => {

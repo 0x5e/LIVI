@@ -1,4 +1,4 @@
-import { clusterTargetScreens, isClusterDisplayed, isClusterOnScreen } from '@main/shared/utils'
+import { clusterTargetScreens, isClusterOnScreen } from '@main/shared/utils'
 
 describe('cluster utils', () => {
   test('clusterTargetScreens collects roles enabled on dash3 or dash4', () => {
@@ -20,10 +20,5 @@ describe('cluster utils', () => {
     expect(isClusterOnScreen(cfg, 'main')).toBe(true)
     expect(isClusterOnScreen(cfg, 'dash')).toBe(false)
     expect(isClusterOnScreen(null, 'aux')).toBe(false)
-  })
-
-  test('isClusterDisplayed reflects whether any role is enabled', () => {
-    expect(isClusterDisplayed({ dashboards: { dash4: { dash: true } } })).toBe(true)
-    expect(isClusterDisplayed({ dashboards: { dash3: { main: false } } })).toBe(false)
   })
 })

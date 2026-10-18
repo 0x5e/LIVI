@@ -1,4 +1,3 @@
-import { UsbEvent } from '@renderer/components/pages/media/types'
 import type { SettingsCustomPageProps } from '@settings/type'
 import type { Config } from '@shared/types'
 import { useStatusStore } from '@store/store'
@@ -32,15 +31,6 @@ export const Camera: React.FC<SettingsCustomPageProps<Config, string>> = ({ stat
 
   useEffect(() => {
     detectCameras(setCameraFound, safeCameraPersist, state).then(setCameras)
-
-    const usbHandler = (_evt: unknown, ...args: unknown[]) => {
-      const data = (args[0] ?? {}) as UsbEvent
-      if (data.type && ['attach', 'plugged', 'detach', 'unplugged'].includes(data.type)) {
-        detectCameras(setCameraFound, safeCameraPersist, state).then(setCameras)
-      }
-    }
-    const unsubscribe = window.projection?.usb?.listenForEvents(usbHandler)
-    return unsubscribe
   }, [safeCameraPersist, setCameraFound, state])
 
   const cameraOptions = useMemo<readonly { deviceId: string; label: string }[]>(

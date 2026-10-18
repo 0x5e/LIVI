@@ -1,10 +1,16 @@
 import { SettingsNode } from '@renderer/routes'
+import type { System } from '@shared/core/contract'
 import type { Config } from '@shared/types'
 
 type AnyRecord = Record<string, unknown>
 
 function isRecord(v: unknown): v is AnyRecord {
   return typeof v === 'object' && v !== null
+}
+
+export const isNodeDisabled = (node: SettingsNode<Config>, system: System | null): boolean => {
+  if (!('disabled' in node)) return false
+  return typeof node.disabled === 'function' ? node.disabled(system) : node.disabled === true
 }
 
 export const getValueByPath = (obj: unknown, path: string): unknown => {

@@ -15,7 +15,3 @@ export enum InputCommand {
   HookSwitch = 'hookSwitch',
   VoiceAssistant = 'voiceAssistant'
 }
-
-export function isInputCommand(value: unknown): value is InputCommand {
-  return typeof value === 'string' && (Object.values(InputCommand) as string[]).includes(value)
-}

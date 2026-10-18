@@ -2,138 +2,22 @@ import AccessTimeIcon from '@mui/icons-material/AccessTime'
 import RouteIcon from '@mui/icons-material/Route'
 import SignpostIcon from '@mui/icons-material/Signpost'
 import { Box, Typography, useTheme } from '@mui/material'
-import type { NaviBag } from '@shared/types'
-import { NavLocale, translateNavigation } from '@shared/utils/translateNavigation'
-
 import { useLiviStore } from '@store/store'
-import * as React from 'react'
 import { CENTER_X, NAV_DIVIDER_Y, NAV_Y } from '../dashboards/constants'
 import { Clock } from './Clock'
 import { ManeuverGraphic } from './ManeuverIcon'
-
-type ProjectionEventMsg = { type: string; payload?: unknown }
-
-function navLocaleFromSettings(v: unknown): NavLocale {
-  if (v === 'de' || v === 'ua' || v === 'en') return v
-  return 'en'
-}
-
-function isRecord(v: unknown): v is Record<string, unknown> {
-  return typeof v === 'object' && v !== null
-}
-
-function unwrapNaviPatch(raw: unknown): Partial<NaviBag> | null {
-  if (!isRecord(raw)) return null
-
-  if (isRecord(raw.payload)) {
-    const p = raw.payload as Record<string, unknown>
-    if (isRecord(p.navi)) return p.navi as unknown as Partial<NaviBag>
-
-    if ('NaviStatus' in p || 'NaviManeuverType' in p || 'NaviRemainDistance' in p) {
-      return p as unknown as Partial<NaviBag>
-    }
-  }
-
-  if (isRecord((raw as Record<string, unknown>).navi)) {
-    return (raw as Record<string, unknown>).navi as unknown as Partial<NaviBag>
-  }
-
-  if ('NaviStatus' in raw || 'NaviManeuverType' in raw || 'NaviRemainDistance' in raw) {
-    return raw as unknown as Partial<NaviBag>
-  }
-
-  return null
-}
-
-function mergeNavi(prev: NaviBag | null, patch: Partial<NaviBag> | null): NaviBag | null {
-  if (!patch) return prev
-  if (!prev) return patch as NaviBag
-  return {
-    ...(prev as unknown as Record<string, unknown>),
-    ...(patch as unknown as Record<string, unknown>)
-  } as NaviBag
-}
 
 export type NavMiniProps = {
   className?: string
   iconSize?: number
 }
 
-/**
- * Mini widget layout (divider anchored at NAV_DIVIDER_Y, same line as the full nav):
- * - Maneuver icon + RemainDistanceText, anchored above the divider
- * - divider
- * - bottom row: ETA + remaining distance
- * - if no route data => centered clock only (on NAV_Y)
- */
 export function NavMini({ className, iconSize = 56 }: NavMiniProps) {
   const theme = useTheme()
-  const settings = useLiviStore((s) => s.settings)
-  const locale = navLocaleFromSettings(settings?.language)
+  // Core writes the texts in the UI's language.
+  const nav = useLiviStore((s) => s.navigation)
 
-  const [navi, setNavi] = React.useState<NaviBag | null>(null)
-
-  const hydrate = React.useCallback(async () => {
-    try {
-      const snap = await window.projection.ipc.readNavigation()
-      const patch = unwrapNaviPatch(snap)
-      setNavi((prev) => mergeNavi(prev, patch))
-    } catch {
-      // keep previous state
-    }
-  }, [])
-
-  React.useEffect(() => {
-    void hydrate()
-
-    const handler = (_event: unknown, ...args: unknown[]) => {
-      const msg = (args[0] ?? {}) as ProjectionEventMsg
-      if (msg.type === 'navigation-reset') {
-        setNavi(null)
-        void hydrate()
-        return
-      }
-      if (msg.type !== 'navigation') return
-
-      const patch = unwrapNaviPatch(msg)
-      if (patch) setNavi((prev) => mergeNavi(prev, patch))
-      else void hydrate()
-    }
-
-    const unsubscribe = window.projection.ipc.onEvent(handler)
-    return unsubscribe
-  }, [hydrate])
-
-  const t = React.useMemo(() => translateNavigation(navi, locale), [navi, locale])
-  const isActive = navi?.NaviStatus === 1
-  const maneuverType = t.codes.ManeuverType
-  const turnSide = t.codes.TurnSide
-  const remainDistanceText = t.RemainDistanceText
-  const maneuverText =
-    typeof t.ManeuverTypeText === 'string' && t.ManeuverTypeText !== 'Unknown'
-      ? t.ManeuverTypeText
-      : undefined
-  const etaText = t.TimeRemainingToDestinationText
-  const destinationDistanceText = t.DistanceRemainingDisplayStringText
-  const distanceLineText =
-    remainDistanceText && remainDistanceText !== '—' ? remainDistanceText : (maneuverText ?? '—')
-
-  const maneuverImageBase64 =
-    typeof navi?.NaviImageBase64 === 'string' && navi.NaviImageBase64.length > 0
-      ? navi.NaviImageBase64
-      : undefined
-
-  const hasManeuverImage = Boolean(maneuverImageBase64)
-
-  const bottomLeftText =
-    etaText && etaText !== '—'
-      ? etaText
-      : typeof t.CurrentRoadName === 'string' && t.CurrentRoadName.length > 0
-        ? t.CurrentRoadName
-        : '—'
-
-  if (!isActive) {
-    // No route guidance → just the clock, centred on NAV_Y.
+  if (!nav?.active) {
     return (
       <Box
         sx={{
@@ -152,6 +36,14 @@ export function NavMini({ className, iconSize = 56 }: NavMiniProps) {
     )
   }
 
+  const remainDistanceText = nav.maneuverDistanceText
+  const maneuverText = nav.maneuverText
+  const etaText = nav.timeLeftText
+  const distanceLineText = remainDistanceText || maneuverText || '—'
+  const maneuverImageBase64 = nav.image || undefined
+  const hasManeuverImage = Boolean(maneuverImageBase64)
+  const bottomLeftText = etaText || nav.roadName || '—'
+
   return (
     <Box
       className={className}
@@ -164,7 +56,7 @@ export function NavMini({ className, iconSize = 56 }: NavMiniProps) {
         minWidth: 0
       }}
     >
-      {/* Icon + distance, anchored above the divider so the divider stays fixed at NAV_DIVIDER_Y. */}
+      {/* Grows upward so the divider stays at NAV_DIVIDER_Y. */}
       <Box
         sx={{
           position: 'absolute',
@@ -181,8 +73,8 @@ export function NavMini({ className, iconSize = 56 }: NavMiniProps) {
         <Box sx={{ display: 'grid', placeItems: 'center' }}>
           <ManeuverGraphic
             imageBase64={maneuverImageBase64}
-            type={maneuverType}
-            turnSide={turnSide}
+            type={nav.maneuverType ?? undefined}
+            turnSide={nav.turnSide ?? undefined}
             size={iconSize}
           />
         </Box>
@@ -201,7 +93,6 @@ export function NavMini({ className, iconSize = 56 }: NavMiniProps) {
         </Typography>
       </Box>
 
-      {/* Divider line at NAV_DIVIDER_Y (matches the full nav). */}
       <Box
         sx={{
           width: hasManeuverImage ? '72%' : '100%',
@@ -213,7 +104,6 @@ export function NavMini({ className, iconSize = 56 }: NavMiniProps) {
         }}
       />
 
-      {/* Bottom row: ETA / road + remaining distance. */}
       <Box
         sx={{
           pt: 1.6,
@@ -226,7 +116,7 @@ export function NavMini({ className, iconSize = 56 }: NavMiniProps) {
         }}
       >
         <Box sx={{ display: 'inline-flex', alignItems: 'center', gap: 0.7, minWidth: 0 }}>
-          {etaText && etaText !== '—' ? (
+          {etaText ? (
             <AccessTimeIcon sx={{ fontSize: 22, opacity: 0.9 }} />
           ) : (
             <SignpostIcon sx={{ fontSize: 22, opacity: 0.9 }} />
@@ -260,7 +150,7 @@ export function NavMini({ className, iconSize = 56 }: NavMiniProps) {
                 fontVariantNumeric: 'tabular-nums'
               }}
             >
-              {destinationDistanceText ?? '—'}
+              {nav.destinationDistanceText || '—'}
             </Typography>
           </Box>
         )}

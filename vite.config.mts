@@ -1,8 +1,7 @@
-import { cpSync, existsSync, rmSync } from 'node:fs'
 import { builtinModules } from 'node:module'
 import path, { resolve } from 'node:path'
 import react from '@vitejs/plugin-react'
-import { defineConfig, type Plugin } from 'vite'
+import { defineConfig } from 'vite'
 import electron from 'vite-plugin-electron/simple'
 
 const NODE_BUILTINS = [...builtinModules, ...builtinModules.map((m) => `node:${m}`)]
@@ -10,37 +9,7 @@ const BUILD_SHA = (process.env.GITHUB_SHA || process.env.BUILD_SHA || 'dev').sli
 const BUILD_RUN = process.env.GITHUB_RUN_NUMBER || process.env.BUILD_RUN || ''
 const BUILD_BRANCH = process.env.BUILD_BRANCH || ''
 
-function copyAaResourcesPlugin(): Plugin {
-  const protosSrc = resolve(import.meta.dirname, 'src/main/services/projection/driver/aa/protos')
-  const protosDst = resolve(import.meta.dirname, 'out/main/protos')
-
-  let copied = false
-  const copy = (): void => {
-    if (copied) return
-    copied = true
-    if (!existsSync(protosSrc)) return
-    // Refresh: removing first guarantees deletions in the source propagate.
-    try {
-      rmSync(protosDst, { recursive: true, force: true })
-    } catch {}
-    cpSync(protosSrc, protosDst, { recursive: true })
-  }
-
-  return {
-    name: 'livi:copy-aa-resources',
-    // Run on every main-process build, dev or prod.
-    buildStart() {
-      copied = false
-    },
-    closeBundle() {
-      copy()
-    }
-  }
-}
-
 const mainAlias = {
-  '@projection/messages': resolve(import.meta.dirname, 'src/main/services/projection/messages'),
-  '@projection': resolve(import.meta.dirname, 'src/main/services/projection'),
   '@main': path.resolve(import.meta.dirname, 'src/main'),
   '@shared': path.resolve(import.meta.dirname, 'src/main/shared')
 }
@@ -49,7 +18,6 @@ const rendererAlias = {
   '@pkg': resolve(import.meta.dirname, 'package.json'),
   '@settings': resolve(import.meta.dirname, 'src/renderer/src/components/pages/settings'),
   '@renderer': resolve(import.meta.dirname, 'src/renderer/src'),
-  '@worker': path.resolve(import.meta.dirname, 'src/renderer/src/components/worker'),
   '@store': path.resolve(import.meta.dirname, 'src/renderer/src/store'),
   '@utils': path.resolve(import.meta.dirname, 'src/renderer/src/utils'),
   '@shared': path.resolve(import.meta.dirname, 'src/main/shared')
@@ -68,7 +36,6 @@ export default defineConfig({
           startup(['.', '--no-sandbox'], { cwd: import.meta.dirname })
         },
         vite: {
-          plugins: [copyAaResourcesPlugin()],
           resolve: {
             alias: mainAlias
           },
@@ -78,8 +45,6 @@ export default defineConfig({
             rolldownOptions: {
               external: [
                 'electron',
-                'livi-gst-video',
-                'livi-crypto',
                 ...NODE_BUILTINS
               ],
               input: {
@@ -154,9 +119,5 @@ export default defineConfig({
       'Cross-Origin-Opener-Policy': 'same-origin',
       'Cross-Origin-Resource-Policy': 'same-site'
     }
-  },
-
-  worker: {
-    format: 'es'
   }
 })

@@ -1,4 +1,6 @@
 import { Box } from '@mui/material'
+import { temperatureIn, temperatureSuffix } from '@renderer/utils/units'
+import type { TemperatureUnit } from '@shared/types'
 import { Telltale } from './Telltale'
 import { TurnArrow } from './TurnArrow'
 import { HazardGlyph, HighBeamGlyph, LowBeamGlyph, ParkingBrakeGlyph } from './telltaleIcons'
@@ -19,6 +21,7 @@ export type TelltaleBarProps = {
   hazards?: boolean
   /** Outside / ambient temperature in °C (shown top-right, hidden if absent). */
   ambientC?: number
+  temperatureUnit?: TemperatureUnit
   /** Lamp box size in px (turn arrows scale up from this). */
   size?: number
 }
@@ -37,6 +40,7 @@ export function TelltaleBar({
   turn,
   hazards,
   ambientC,
+  temperatureUnit = 'celsius',
   size = 30
 }: TelltaleBarProps) {
   const arrowSize = Math.round(size * 1.7)
@@ -89,7 +93,8 @@ export function TelltaleBar({
             whiteSpace: 'nowrap'
           }}
         >
-          {Math.round(ambientC as number)}°C
+          {Math.round(temperatureIn(ambientC as number, temperatureUnit))}
+          {temperatureSuffix(temperatureUnit)}
         </Box>
       )}
 

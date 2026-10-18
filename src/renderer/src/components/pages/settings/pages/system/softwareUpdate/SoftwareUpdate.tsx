@@ -10,37 +10,45 @@ import {
 import { EMPTY_STRING } from '@renderer/constants'
 import { SettingsButtonRow, SettingsSwitchRow, SettingsValueRow } from '@settings/components'
 import type { Config } from '@shared/types'
-import { useLiviStore } from '@store/store'
-import { useCallback, useEffect, useState } from 'react'
+import { coreAction, useLiviStore } from '@store/store'
+import { useCallback, useEffect, useRef, useState } from 'react'
 import { useTranslation } from 'react-i18next'
 import { INSTALL_PHASES } from './constants'
 import { phaseMap, UpdatePhases, UpgradeText } from './types'
 import { buildTag, cmpSemver, human, parseSemver, sameNightlyBuild } from './utils'
 
+const ask = (kind: 'checkUpdate' | 'downloadUpdate' | 'installUpdate' | 'abortUpdate') => {
+  coreAction({ kind }).catch((err) => console.warn(`[SoftwareUpdate] ${kind} failed`, err))
+}
+
 export function SoftwareUpdate() {
   const { t } = useTranslation()
   const [installedVersion, setInstalledVersion] = useState<string>(EMPTY_STRING)
-  const [latestVersion, setLatestVersion] = useState<string>(EMPTY_STRING)
-  const [latestUrl, setLatestUrl] = useState<string | undefined>(undefined)
-  const [latestCommit, setLatestCommit] = useState<string>(EMPTY_STRING)
-  const [latestRun, setLatestRun] = useState<string>(EMPTY_STRING)
 
   const settings = useLiviStore((s) => s.settings) as Config | null
   const saveSettings = useLiviStore((s) => s.saveSettings)
+  // Core checks the feed, downloads and installs, the page follows what it publishes.
+  const update = useLiviStore((s) => s.update)
   const isNightly = settings?.updateNightly === true
   const installedSha = typeof __BUILD_SHA__ === 'string' ? __BUILD_SHA__ : EMPTY_STRING
   const installedRun = typeof __BUILD_RUN__ === 'string' ? __BUILD_RUN__ : EMPTY_STRING
 
-  const [message, setMessage] = useState<string>('')
+  const latestVersion = update?.latest?.version ?? EMPTY_STRING
+  const latestUrl = update?.latest?.url ?? undefined
+  const latestCommit = update?.latest?.commit ?? EMPTY_STRING
+  const latestRun = update?.latest?.run ?? EMPTY_STRING
+
+  const phase =
+    !update || update.phase === 'idle' ? UpdatePhases.start : (update.phase as UpdatePhases)
+  const error =
+    phase === UpdatePhases.error ? update?.error || t('softwareUpdate.updateFailed') : ''
+  const total = update?.total ?? 0
+  const received = update?.received ?? 0
+  const inFlight = phase !== UpdatePhases.start && phase !== UpdatePhases.error
+  const couldNotCheck = update?.checked === true && !update.checking && !latestUrl
+  const message = error || (couldNotCheck ? t('softwareUpdate.couldNotCheckLatestRelease') : '')
 
   const [upDialogOpen, setUpDialogOpen] = useState(false)
-  const [phase, setPhase] = useState<UpdatePhases>(UpdatePhases.start)
-  const [percent, setPercent] = useState<number | null>(null)
-  const [received, setReceived] = useState<number>(0)
-  const [total, setTotal] = useState<number>(0)
-  const [error, setError] = useState<string>('')
-
-  const [inFlight, setInFlight] = useState(false)
   const [installStarting, setInstallStarting] = useState(false)
 
   const installedSem = parseSemver(installedVersion)
@@ -55,44 +63,18 @@ export function SoftwareUpdate() {
         : -1
       : cmpSemver(installedSem!, latestSem!)
   const isDowngrade = cmp != null && cmp > 0
-  const pct = percent != null ? Math.round(percent * 100) : null
-  const phaseText = phaseMap[phase] ?? 'Working…'
+  const pct =
+    phase === UpdatePhases.download && total > 0 ? Math.round((received / total) * 100) : null
+  const phaseText = phaseMap[phase]
   const dialogTitle = isDowngrade ? UpgradeText.downgrade : UpgradeText.upgrade
 
-  const resetUpdateState = useCallback(() => {
-    setPercent(null)
-    setReceived(0)
-    setTotal(0)
-    setError('')
-    setPhase(UpdatePhases.start)
-    setInFlight(false)
-    setInstallStarting(false)
-  }, [])
-
-  const handleCloseAndReset = useCallback(() => {
+  const handleClose = useCallback(() => {
     setUpDialogOpen(false)
-    resetUpdateState()
-  }, [resetUpdateState])
+    setInstallStarting(false)
+    if (phase === UpdatePhases.ready) ask('abortUpdate')
+  }, [phase])
 
-  const handleRecheckLatest = useCallback(async () => {
-    try {
-      setMessage('')
-      const r = await window.app?.getLatestRelease?.()
-      if (r?.version) setLatestVersion(r.version)
-      else setLatestVersion(EMPTY_STRING)
-      setLatestUrl(r?.url)
-      setLatestCommit(r?.commit ?? EMPTY_STRING)
-      setLatestRun(r?.run ?? EMPTY_STRING)
-      if (!r?.url) setMessage(t('softwareUpdate.couldNotCheckLatestRelease'))
-    } catch (err) {
-      console.warn('[SoftwareUpdate] getLatestRelease failed', err)
-      setLatestVersion(EMPTY_STRING)
-      setLatestUrl(undefined)
-      setLatestCommit(EMPTY_STRING)
-      setLatestRun(EMPTY_STRING)
-      setMessage(t('softwareUpdate.couldNotCheckLatestRelease'))
-    }
-  }, [t])
+  const handleRecheckLatest = useCallback(() => ask('checkUpdate'), [])
 
   const handleNightlyChange = useCallback(
     (_e: unknown, nightly: boolean) => {
@@ -106,47 +88,24 @@ export function SoftwareUpdate() {
     window.app?.getVersion?.().then((v) => v && setInstalledVersion(v))
   }, [])
 
+  // The channel is part of what core asks the feed, a switch asks again.
   useEffect(() => {
-    handleRecheckLatest()
-  }, [handleRecheckLatest, isNightly])
+    if (settings) handleRecheckLatest()
+  }, [handleRecheckLatest, isNightly, settings === null])
+
+  const lastPhase = useRef(phase)
+  useEffect(() => {
+    if (phase === UpdatePhases.ready && lastPhase.current !== phase) setUpDialogOpen(true)
+    lastPhase.current = phase
+  }, [phase])
 
   useEffect(() => {
-    if (phase === UpdatePhases.ready && !upDialogOpen) setUpDialogOpen(true)
-  }, [phase, upDialogOpen])
-
-  useEffect(() => {
-    if (phase === UpdatePhases.error && /aborted/i.test(error || '')) {
-      const t = setTimeout(handleCloseAndReset, 1200)
-      return () => clearTimeout(t)
+    if (phase === UpdatePhases.error && /aborted/i.test(error)) {
+      const timer = setTimeout(handleClose, 1200)
+      return () => clearTimeout(timer)
     }
     return
-  }, [phase, error, handleCloseAndReset])
-
-  useEffect(() => {
-    const off1 = window.app?.onUpdateEvent?.((e: UpdateEvent) => {
-      setPhase(e.phase as UpdatePhases)
-      setInFlight(e.phase !== UpdatePhases.error && e.phase !== UpdatePhases.start)
-      if (e.phase === UpdatePhases.error) {
-        setError(e.message ?? t('softwareUpdate.updateFailed'))
-        setMessage(e.message ?? t('softwareUpdate.updateFailed'))
-      } else {
-        setError('')
-      }
-    })
-
-    const off2 = window.app?.onUpdateProgress?.((p: UpdateProgress) => {
-      setInFlight(true)
-      setPhase(UpdatePhases.download)
-      setPercent(typeof p.percent === 'number' ? Math.max(0, Math.min(1, p.percent)) : null)
-      setReceived(p.received ?? 0)
-      setTotal(p.total ?? 0)
-    })
-
-    return () => {
-      off1?.()
-      off2?.()
-    }
-  }, [t])
+  }, [phase, error, handleClose])
 
   const canUpdate = cmp != null && cmp !== 0 && !inFlight
   const updateButtonLabel =
@@ -157,11 +116,10 @@ export function SoftwareUpdate() {
         : t('softwareUpdate.update')
 
   const triggerUpdate = useCallback(() => {
-    setMessage('')
     setUpDialogOpen(true)
-    resetUpdateState()
-    window.app?.performUpdate?.(latestUrl)
-  }, [latestUrl, resetUpdateState])
+    setInstallStarting(false)
+    ask('downloadUpdate')
+  }, [])
 
   return (
     <>
@@ -208,9 +166,9 @@ export function SoftwareUpdate() {
         open={upDialogOpen}
         fullWidth
         maxWidth="xs"
-        onClose={(event, reason) => {
+        onClose={(_event, reason) => {
           if (phase !== UpdatePhases.error && reason === 'escapeKeyDown') return
-          handleCloseAndReset()
+          handleClose()
         }}
       >
         <DialogTitle sx={{ py: 1 }}>{dialogTitle}</DialogTitle>
@@ -222,7 +180,7 @@ export function SoftwareUpdate() {
             value={pct != null ? pct : undefined}
           />
 
-          {pct != null && total > 0 && (
+          {pct != null && (
             <Typography variant="body2" sx={{ mt: 0.5 }} color="text.secondary">
               {pct}% • {human(received)} / {human(total)}
             </Typography>
@@ -243,34 +201,29 @@ export function SoftwareUpdate() {
 
         <DialogActions sx={{ px: 2, py: 1 }}>
           <Button
-            onClick={() => {
-              window.app?.abortUpdate?.()
-            }}
-            disabled={!(phase === 'download' ? pct == null || pct < 100 : phase === 'ready')}
+            onClick={() => ask('abortUpdate')}
+            disabled={
+              !(phase === UpdatePhases.download ? pct == null || pct < 100 : phase === 'ready')
+            }
           >
             {t('softwareUpdate.abort')}
           </Button>
 
-          {phase === 'ready' && (
+          {phase === UpdatePhases.ready && (
             <Button
               variant="contained"
               disabled={installStarting}
               onClick={() => {
                 setInstallStarting(true)
-                window.app?.beginInstall?.()
+                ask('installUpdate')
               }}
             >
               {t('softwareUpdate.installNow')}
             </Button>
           )}
 
-          {phase === 'error' && (
-            <Button
-              variant="outlined"
-              onClick={() => {
-                handleCloseAndReset()
-              }}
-            >
+          {phase === UpdatePhases.error && (
+            <Button variant="outlined" onClick={handleClose}>
               {t('softwareUpdate.close')}
             </Button>
           )}

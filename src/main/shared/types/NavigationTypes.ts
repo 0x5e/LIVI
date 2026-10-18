@@ -1,8 +1,4 @@
-/**
- * Turn-by-turn navigation codes.
- */
-
-/** iAP2 ManeuverType . */
+/** iAP2 ManeuverType. */
 export enum ManeuverType {
   NoTurn = 0,
   LeftTurn = 1,
@@ -60,48 +56,23 @@ export enum ManeuverType {
   ChangeHighwayRight = 53
 }
 
-/** iAP2 DrivingSide (Table 15-17). Roundabouts: Right = anti-clockwise. */
+/** iAP2 DrivingSide. With Right, roundabouts run anti-clockwise. */
 export enum DrivingSide {
   Right = 0,
   Left = 1
 }
 
-/** iAP2 JunctionType (Table 15-18). */
+/** iAP2 JunctionType. */
 export enum JunctionType {
   Intersection = 0,
   Roundabout = 1
 }
 
-/** First roundabout-exit code; exit number = code - RoundaboutExit1 + 1. */
 export const ROUNDABOUT_EXIT_BASE = ManeuverType.RoundaboutExit1
 
-/** Exit number (1-19) for roundabout-exit maneuvers, undefined for all others. */
 export function roundaboutExitNumber(type: number): number | undefined {
   if (type >= ManeuverType.RoundaboutExit1 && type <= ManeuverType.RoundaboutExit19) {
     return type - ROUNDABOUT_EXIT_BASE + 1
   }
   return undefined
 }
-
-/**
- * Navigation state as accumulated from the drivers, JSON-compatible.
- */
-export type NaviInfo = {
-  NaviStatus?: number
-  NaviTimeToDestination?: number
-  NaviDestinationName?: string
-  NaviDistanceToDestination?: number
-  NaviAPPName?: string
-  NaviRemainDistance?: number
-
-  NaviRoadName?: string
-  NaviAfterRoadName?: string
-  NaviOrderType?: number
-  NaviManeuverType?: ManeuverType | number
-  NaviJunctionType?: JunctionType | number
-  NaviTurnAngle?: number
-  NaviTurnSide?: DrivingSide | number
-  NaviImageBase64?: string
-} & Record<string, unknown>
-
-export type NaviBag = Record<string, unknown>

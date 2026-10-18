@@ -1,6 +1,6 @@
 import MapOutlinedIcon from '@mui/icons-material/MapOutlined'
 import { Box, useTheme } from '@mui/material'
-import React, { useEffect, useRef, useState } from 'react'
+import React, { useEffect, useRef } from 'react'
 import { useLiviStore, useStatusStore } from '../../../store/store'
 import { ViewAreaMask } from '../projection/ViewAreaMask'
 
@@ -16,55 +16,10 @@ export const Cluster: React.FC<ClusterProps> = ({ visible, showLoadingPlaceholde
   const settings = useLiviStore((s) => s.settings)
   const clusterDashActive = useStatusStore((s) => s.clusterDashActive)
 
-  const [clusterStreamActive, setClusterStreamActive] = useState(false)
+  // Core streams the cluster onto this screen's plane while a phone is there.
+  const clusterStreamActive = useLiviStore((s) => s.sessions.active !== null)
 
   const rootRef = useRef<HTMLDivElement>(null)
-
-  // Request the cluster (stream + plane) ONLY while the cluster view is actually shown.
-  const showClusterRef = useRef(showCluster)
-  useEffect(() => {
-    showClusterRef.current = showCluster
-  }, [showCluster])
-
-  useEffect(() => {
-    void window.projection.ipc.requestCluster(showCluster).catch(() => {})
-  }, [showCluster])
-
-  useEffect(() => {
-    const handler = (_evt: unknown, ...args: unknown[]) => {
-      const msg = (args[0] ?? {}) as { type?: string }
-      if (msg.type !== 'plugged') return
-      void window.projection.ipc.requestCluster(showClusterRef.current).catch(() => {})
-    }
-    const unsubscribe = window.projection.ipc.onEvent(handler)
-    return unsubscribe
-  }, [])
-
-  // Cluster frames negotiated -> the compositor renders the cluster plane
-  useEffect(() => {
-    const ipc = window.projection.ipc as {
-      onClusterResolution?: (cb: (payload: unknown) => void) => (() => void) | void
-    }
-    if (typeof ipc.onClusterResolution !== 'function') return
-    const off = ipc.onClusterResolution((payload: unknown) => {
-      const d = payload as { width?: number; height?: number } | undefined
-      const w = typeof d?.width === 'number' ? d.width : 0
-      const h = typeof d?.height === 'number' ? d.height : 0
-      if (w > 0 && h > 0) setClusterStreamActive(true)
-    })
-    return typeof off === 'function' ? off : undefined
-  }, [])
-
-  useEffect(() => {
-    const handler = (_evt: unknown, ...args: unknown[]) => {
-      const msg = (args[0] ?? {}) as { type?: string }
-      if (msg.type !== 'unplugged') return
-      setClusterStreamActive(false)
-      void window.projection.ipc.requestCluster(false).catch(() => {})
-    }
-    const unsubscribe = window.projection.ipc.onEvent(handler)
-    return unsubscribe
-  }, [])
 
   useEffect(() => {
     if (!clusterStreamActive || !clusterDashActive) return

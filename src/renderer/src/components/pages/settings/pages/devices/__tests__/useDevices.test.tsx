@@ -1,123 +1,46 @@
 import type { DeviceView } from '@shared/types'
-import { act, renderHook, waitFor } from '@testing-library/react'
+import { act, renderHook } from '@testing-library/react'
 import { forgetDevice, selectDevice, useDevices } from '../useDevices'
 
-type Handler = (evt: unknown, ...args: unknown[]) => void
+const coreActionMock = vi.fn((_action: unknown) => Promise.resolve())
 
-function installApi(over: Record<string, unknown> = {}): {
-  getDevices: ReturnType<typeof vi.fn>
-  onEvent: ReturnType<typeof vi.fn>
-  offEvent: ReturnType<typeof vi.fn>
-  selectDevice: ReturnType<typeof vi.fn>
-  forgetDevice: ReturnType<typeof vi.fn>
-  handlers: Handler[]
-} {
-  const handlers: Handler[] = []
-  const ipc = {
-    getDevices: vi.fn(async () => [] as DeviceView[]),
-    onEvent: vi.fn((h: Handler) => handlers.push(h)),
-    offEvent: vi.fn((h: Handler) => {
-      const i = handlers.indexOf(h)
-      if (i >= 0) handlers.splice(i, 1)
-    }),
-    selectDevice: vi.fn(async () => ({ ok: true })),
-    forgetDevice: vi.fn(async () => ({ ok: true })),
-    ...over
-  }
-  ;(window as unknown as { projection: unknown }).projection = { ipc }
-  return { ...ipc, handlers } as never
-}
+vi.mock('@store/store', async (importOriginal) => ({
+  ...(await importOriginal<typeof import('@store/store')>()),
+  coreAction: (action: unknown) => coreActionMock(action)
+}))
 
-const dev = (id: string): DeviceView => ({ id, name: id }) as unknown as DeviceView
+import { useLiviStore } from '@store/store'
+
+const dev = (id: string): DeviceView => ({ id, name: id, status: 'offline' })
 
 afterEach(() => {
-  delete (window as unknown as { projection?: unknown }).projection
+  useLiviStore.setState({ devices: [] })
+  coreActionMock.mockClear()
 })
 
 describe('useDevices', () => {
-  test('seeds the list from getDevices', async () => {
-    const api = installApi({ getDevices: vi.fn(async () => [dev('a'), dev('b')]) })
-    const { result } = renderHook(() => useDevices())
-    await waitFor(() => expect(result.current).toHaveLength(2))
-    expect(api.onEvent).toHaveBeenCalled()
-  })
-
-  test('updates on a devices event and ignores other event types', async () => {
-    const api = installApi()
-    const { result } = renderHook(() => useDevices())
-    await waitFor(() => expect(api.onEvent).toHaveBeenCalled())
-
-    act(() => api.handlers[0](null, { type: 'other', payload: [dev('x')] }))
-    expect(result.current).toHaveLength(0)
-
-    act(() => api.handlers[0](null, { type: 'devices', payload: [dev('x'), dev('y')] }))
-    expect(result.current).toHaveLength(2)
-
-    act(() => api.handlers[0](null, { type: 'devices' }))
-    expect(result.current).toHaveLength(2)
-  })
-
-  test('detaches the listener on unmount', async () => {
-    const api = installApi()
-    const { unmount } = renderHook(() => useDevices())
-    await waitFor(() => expect(api.onEvent).toHaveBeenCalled())
-    unmount()
-    expect(api.offEvent).toHaveBeenCalled()
-  })
-
-  test('does nothing when the ipc bridge is absent', () => {
-    ;(window as unknown as { projection: unknown }).projection = { ipc: {} }
+  test('follows the list core publishes', () => {
     const { result } = renderHook(() => useDevices())
     expect(result.current).toEqual([])
+
+    act(() => useLiviStore.setState({ devices: [dev('a'), dev('b')] }))
+    expect(result.current.map((d) => d.id)).toEqual(['a', 'b'])
   })
 
-  test('bails out when getDevices exists but onEvent is missing', () => {
-    ;(window as unknown as { projection: unknown }).projection = {
-      ipc: { getDevices: vi.fn(async () => [dev('a')]) }
-    }
-    const { result } = renderHook(() => useDevices())
-    expect(result.current).toEqual([])
-  })
-
-  test('swallows a rejected getDevices', async () => {
-    const api = installApi({ getDevices: vi.fn(async () => Promise.reject(new Error('boom'))) })
-    const { result } = renderHook(() => useDevices())
-    await waitFor(() => expect(api.getDevices).toHaveBeenCalled())
-    expect(result.current).toEqual([])
-  })
-
-  test('keeps the empty list when getDevices resolves without a payload', async () => {
-    const api = installApi({ getDevices: vi.fn(async () => undefined as unknown as DeviceView[]) })
-    const { result } = renderHook(() => useDevices())
-    await waitFor(() => expect(api.getDevices).toHaveBeenCalled())
-    expect(result.current).toEqual([])
-  })
-})
-
-describe('selectDevice / forgetDevice', () => {
-  test('selectDevice returns the ipc result', async () => {
-    installApi()
+  test('selectDevice asks core and says whether it took it', async () => {
     await expect(selectDevice('a')).resolves.toEqual({ ok: true })
-  })
+    expect(coreActionMock).toHaveBeenCalledWith({ kind: 'selectDevice', id: 'a' })
 
-  test('selectDevice resolves to not-ok without the bridge', async () => {
-    delete (window as unknown as { projection?: unknown }).projection
+    coreActionMock.mockReturnValueOnce(Promise.reject(new Error('not connected')))
     await expect(selectDevice('a')).resolves.toEqual({ ok: false })
   })
 
-  test('selectDevice maps a rejection to not-ok', async () => {
-    installApi({ selectDevice: vi.fn(async () => Promise.reject(new Error('x'))) })
-    await expect(selectDevice('a')).resolves.toEqual({ ok: false })
-  })
+  test('forgetDevice asks core and swallows a refusal', async () => {
+    forgetDevice('a')
+    expect(coreActionMock).toHaveBeenCalledWith({ kind: 'forgetDevice', id: 'a' })
 
-  test('forgetDevice invokes the bridge and swallows rejections', async () => {
-    const api = installApi({ forgetDevice: vi.fn(async () => Promise.reject(new Error('x'))) })
-    expect(() => forgetDevice('a')).not.toThrow()
-    expect(api.forgetDevice).toHaveBeenCalledWith('a')
-  })
-
-  test('forgetDevice is a no-op without the bridge', () => {
-    delete (window as unknown as { projection?: unknown }).projection
-    expect(() => forgetDevice('a')).not.toThrow()
+    coreActionMock.mockReturnValueOnce(Promise.reject(new Error('not connected')))
+    expect(() => forgetDevice('b')).not.toThrow()
+    await Promise.resolve()
   })
 })

@@ -5,11 +5,11 @@ type Props = {
   label: string
   selected: boolean
   onClick?: () => void
+  disabled?: boolean
 }
 
-// One pickable option as a standard settings row; the selected option carries a dot marker.
-export const SelectOptionRow = ({ label, selected, onClick }: Props) => (
-  <StackItem onClick={onClick}>
+export const SelectOptionRow = ({ label, selected, onClick, disabled }: Props) => (
+  <StackItem onClick={onClick} disabled={disabled}>
     <Typography>{label}</Typography>
     <Box
       sx={{

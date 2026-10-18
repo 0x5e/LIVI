@@ -1,18 +1,5 @@
-import {
-  applyNullDeletes,
-  isMacPlatform,
-  linuxPresetAngleVulkan,
-  pushSettingsToRenderer,
-  setFeatureFlags,
-  sizesEqual
-} from '@main/utils'
-import { getMainWindow } from '@main/window/createWindow'
+import { isMacPlatform, linuxPresetAngleVulkan, setFeatureFlags, sizesEqual } from '@main/utils'
 import { app } from 'electron'
-import type { Mock } from 'vitest'
-
-vi.mock('@main/window/createWindow', () => ({
-  getMainWindow: vi.fn()
-}))
 
 describe('main utils', () => {
   beforeEach(() => {
@@ -37,42 +24,6 @@ describe('main utils', () => {
     } finally {
       Object.defineProperty(process, 'platform', { value: original })
     }
-  })
-
-  test('applyNullDeletes removes explicitly-null reset fields', () => {
-    const merged = {
-      primaryColorDark: '#111',
-      highlightColorDark: '#222',
-      keep: 'yes'
-    } as any
-
-    applyNullDeletes(merged, {
-      primaryColorDark: null,
-      highlightColorDark: null,
-      keep: 'no'
-    } as any)
-
-    expect(merged.primaryColorDark).toBeUndefined()
-    expect(merged.highlightColorDark).toBeUndefined()
-    expect(merged.keep).toBe('yes')
-  })
-
-  test('applyNullDeletes only removes null values for configured reset fields', () => {
-    const merged = {
-      primaryColorDark: '#111',
-      highlightColorDark: '#222',
-      keep: 'yes'
-    } as any
-
-    applyNullDeletes(merged, {
-      primaryColorDark: undefined,
-      highlightColorDark: '#333',
-      keep: null
-    } as any)
-
-    expect(merged.primaryColorDark).toBe('#111')
-    expect(merged.highlightColorDark).toBe('#222')
-    expect(merged.keep).toBe('yes')
   })
 
   test('sizesEqual compares normalized width and height', () => {
@@ -123,50 +74,5 @@ describe('main utils', () => {
       'enable-features',
       expect.stringContaining('Vulkan')
     )
-  })
-
-  test('pushSettingsToRenderer sends settings when main window is alive', () => {
-    const send = vi.fn()
-    ;(getMainWindow as Mock).mockReturnValue({
-      isDestroyed: vi.fn(() => false),
-      webContents: { send }
-    })
-
-    const runtimeState = { config: { kiosk: true, language: 'en' } } as any
-    pushSettingsToRenderer(runtimeState, { kiosk: false })
-
-    expect(send).toHaveBeenCalledWith('settings', { kiosk: false, language: 'en' })
-  })
-
-  test('pushSettingsToRenderer sends runtime config unchanged when no override is given', () => {
-    const send = vi.fn()
-    ;(getMainWindow as Mock).mockReturnValue({
-      isDestroyed: vi.fn(() => false),
-      webContents: { send }
-    })
-
-    pushSettingsToRenderer({ config: { kiosk: true, language: 'de' } } as any)
-
-    expect(send).toHaveBeenCalledWith('settings', { kiosk: true, language: 'de' })
-  })
-
-  test('pushSettingsToRenderer does nothing when no window', () => {
-    ;(getMainWindow as Mock).mockReturnValue(null)
-
-    pushSettingsToRenderer({ config: { kiosk: true } } as any)
-
-    expect(getMainWindow).toHaveBeenCalled()
-  })
-
-  test('pushSettingsToRenderer does nothing when window is destroyed', () => {
-    const send = vi.fn()
-    ;(getMainWindow as Mock).mockReturnValue({
-      isDestroyed: vi.fn(() => true),
-      webContents: { send }
-    })
-
-    pushSettingsToRenderer({ config: { kiosk: true } } as any)
-
-    expect(send).not.toHaveBeenCalled()
   })
 })

@@ -1,4 +1,6 @@
+import type { AudioDevice } from '@shared/core/contract'
 import type { Config } from '@shared/types'
+import { useLiviStore } from '../../store/store'
 import { SelectOption, SettingsNode, ValueTransform } from '../types'
 
 const audioValueTransform: ValueTransform<number | undefined, number> = {
@@ -17,24 +19,19 @@ const systemDefaultOption: SelectOption = {
   labelKey: 'settings.audioDeviceSystemDefault'
 }
 
-async function loadAudioOutputDevices(): Promise<SelectOption[]> {
-  const api = window.projection?.audio
-  if (!api?.listSinks) return [systemDefaultOption]
-  const list = await api.listSinks()
+function deviceOptions(list: AudioDevice[] | undefined): SelectOption[] {
   return [
     systemDefaultOption,
-    ...list.map((d) => ({ value: d.id, label: d.name, offline: d.offline }))
+    ...(list ?? []).map((d) => ({ value: d.id, label: d.name, offline: d.offline }))
   ]
 }
 
+async function loadAudioOutputDevices(): Promise<SelectOption[]> {
+  return deviceOptions(useLiviStore.getState().system?.audioSinks)
+}
+
 async function loadAudioInputDevices(): Promise<SelectOption[]> {
-  const api = window.projection?.audio
-  if (!api?.listSources) return [systemDefaultOption]
-  const list = await api.listSources()
-  return [
-    systemDefaultOption,
-    ...list.map((d) => ({ value: d.id, label: d.name, offline: d.offline }))
-  ]
+  return deviceOptions(useLiviStore.getState().system?.audioSources)
 }
 
 export const audioSchema: SettingsNode<Config> = {

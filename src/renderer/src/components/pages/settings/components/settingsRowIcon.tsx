@@ -37,7 +37,10 @@ import InvertColorsOutlinedIcon from '@mui/icons-material/InvertColorsOutlined'
 import KeyboardOutlinedIcon from '@mui/icons-material/KeyboardOutlined'
 import KeyOutlinedIcon from '@mui/icons-material/KeyOutlined'
 import LanOutlinedIcon from '@mui/icons-material/LanOutlined'
+import LayersOutlinedIcon from '@mui/icons-material/LayersOutlined'
+import LinearScaleOutlinedIcon from '@mui/icons-material/LinearScaleOutlined'
 import LinkOutlinedIcon from '@mui/icons-material/LinkOutlined'
+import LocalGasStationOutlinedIcon from '@mui/icons-material/LocalGasStationOutlined'
 import MemoryOutlinedIcon from '@mui/icons-material/MemoryOutlined'
 import MicNoneOutlinedIcon from '@mui/icons-material/MicNoneOutlined'
 import MonitorOutlinedIcon from '@mui/icons-material/MonitorOutlined'
@@ -61,8 +64,10 @@ import ShutterSpeedOutlinedIcon from '@mui/icons-material/ShutterSpeedOutlined'
 import SmartphoneOutlinedIcon from '@mui/icons-material/SmartphoneOutlined'
 import SpeakerOutlinedIcon from '@mui/icons-material/SpeakerOutlined'
 import SpeedOutlinedIcon from '@mui/icons-material/SpeedOutlined'
+import StraightenOutlinedIcon from '@mui/icons-material/StraightenOutlined'
 import SwapHorizOutlinedIcon from '@mui/icons-material/SwapHorizOutlined'
 import SystemUpdateAltOutlinedIcon from '@mui/icons-material/SystemUpdateAltOutlined'
+import ThermostatOutlinedIcon from '@mui/icons-material/ThermostatOutlined'
 import TonalityOutlinedIcon from '@mui/icons-material/TonalityOutlined'
 import TranslateOutlinedIcon from '@mui/icons-material/TranslateOutlined'
 import TuneOutlinedIcon from '@mui/icons-material/TuneOutlined'
@@ -74,6 +79,7 @@ import VerticalAlignTopOutlinedIcon from '@mui/icons-material/VerticalAlignTopOu
 import VisibilityOutlinedIcon from '@mui/icons-material/VisibilityOutlined'
 import VolumeOffOutlinedIcon from '@mui/icons-material/VolumeOffOutlined'
 import VolumeUpOutlinedIcon from '@mui/icons-material/VolumeUpOutlined'
+import WarningAmberOutlinedIcon from '@mui/icons-material/WarningAmberOutlined'
 import WestOutlinedIcon from '@mui/icons-material/WestOutlined'
 import WidgetsOutlinedIcon from '@mui/icons-material/WidgetsOutlined'
 import WifiOutlinedIcon from '@mui/icons-material/WifiOutlined'
@@ -135,6 +141,7 @@ const ICONS: Record<string, SvgIconComponent> = {
 
   devices: SmartphoneOutlinedIcon,
   general: TuneOutlinedIcon,
+  car: DirectionsCarOutlinedIcon,
   audio: VolumeUpOutlinedIcon,
   video: MonitorOutlinedIcon,
   appearance: ContrastOutlinedIcon,
@@ -146,7 +153,14 @@ const ICONS: Record<string, SvgIconComponent> = {
   keyBindings: KeyboardOutlinedIcon,
   startPage: HomeOutlinedIcon,
   fftDelay: GraphicEqOutlinedIcon,
+  carType: LocalGasStationOutlinedIcon,
   steering: SwapHorizOutlinedIcon,
+  maxSpeed: SpeedOutlinedIcon,
+  speedScaleStep: LinearScaleOutlinedIcon,
+  maxRpm: SpeedOutlinedIcon,
+  redlineRpm: WarningAmberOutlinedIcon,
+  speedUnit: StraightenOutlinedIcon,
+  temperatureUnit: ThermostatOutlinedIcon,
   uiZoom: ZoomInOutlinedIcon,
   language: TranslateOutlinedIcon,
   mfi: DeveloperBoardOutlinedIcon,
@@ -167,6 +181,7 @@ const ICONS: Record<string, SvgIconComponent> = {
   clusterVideo: SpeedOutlinedIcon,
 
   darkMode: DarkModeOutlinedIcon,
+  overlayMessages: LayersOutlinedIcon,
   phoneAppearance: BrightnessAutoOutlinedIcon,
   displayBrightness: Brightness6OutlinedIcon,
   displayBrightnessAuto: BrightnessAutoOutlinedIcon,

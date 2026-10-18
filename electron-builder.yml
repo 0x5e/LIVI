@@ -4,6 +4,8 @@ productName: LIVI
 directories:
   buildResources: assets
 
+afterPack: ./scripts/after-pack.mjs
+
 files:
   - out/**
   - package.json
@@ -16,15 +18,10 @@ files:
   - '!**/*.map'
   - '!{.env,.env.*,.npmrc,pnpm-lock.yaml,CHANGELOG.md,README.md}'
   - '!src/**'
-  - '!out/main/driver/**'
   - '!out/compositor/**'
-  - '!**/node_modules/livi-gst-video/{rust,src}/**'
-  - '!**/node_modules/livi-crypto/{rust,src}/**'
 
 asarUnpack:
   - resources/**
-  - node_modules/livi-gst-video/**
-  - node_modules/livi-crypto/**
 
 linux:
   target:
@@ -52,8 +49,6 @@ linux:
       to: displays
     - from: scripts/install/pi/setup-hdmi-pr-display.sh
       to: setup-hdmi-pr-display.sh
-    - from: scripts/install/packages.txt
-      to: packages.txt
     - from: assets/gstreamer/linux-${arch}
       to: gstreamer/linux-${arch}
       filter:
@@ -64,6 +59,10 @@ linux:
       to: driver/livi-helperd
     - from: assets/authentication
       to: authentication
+    - from: native/livi-gst-video/build/Release/livi-gst-host
+      to: gst-host/livi-gst-host
+    - from: native/livi-helperd/build/Release/livi-core
+      to: core/livi-core
 
 mac:
   identity: '-'
@@ -90,6 +89,12 @@ mac:
       to: driver/livi-helperd
     - from: assets/authentication
       to: authentication
+    - from: native/livi-helperd/build/Release/livi-core
+      to: core/livi-core
+    - from: native/livi-gst-video/build/Release/livi-gst-host
+      to: gst-host/livi-gst-host
+    - from: native/livi-gst-video/build/Release/gst_video.node
+      to: video/gst_video.node
 
 dmg:
   artifactName: ${name}-${version}-macos-${arch}.${ext}

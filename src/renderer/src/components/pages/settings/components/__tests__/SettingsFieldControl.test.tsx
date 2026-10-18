@@ -1,9 +1,17 @@
+import { useLiviStore } from '@renderer/store/store'
 import { themeColors } from '@renderer/theme/themeColors'
+import type { System } from '@shared/core/contract'
 import { act, fireEvent, render, screen, waitFor } from '@testing-library/react'
 import { SettingsFieldControl } from '../SettingsFieldControl'
 
 vi.mock('react-i18next', () => ({
   useTranslation: () => ({ t: (k: string) => `t:${k}` })
+}))
+
+const coreActionMock = vi.hoisted(() => vi.fn(() => Promise.resolve()))
+vi.mock('@renderer/store/store', async (importOriginal) => ({
+  ...(await importOriginal<typeof import('@renderer/store/store')>()),
+  coreAction: coreActionMock
 }))
 
 let capturedSlider: any = null
@@ -64,8 +72,19 @@ vi.mock('../selectOptionsCache', () => ({
 
 vi.mock('../numberSpinner/numberSpinner', () => ({
   __esModule: true,
-  default: ({ onValueCommitted }: { onValueCommitted: (n: number) => void }) => (
+  default: ({
+    onValueCommitted,
+    value,
+    min,
+    max
+  }: {
+    onValueCommitted: (n: number) => void
+    value: number
+    min: number
+    max: number
+  }) => (
     <div>
+      <span data-testid="spinner-range">{`${value}:${min}:${max}`}</span>
       <button data-testid="spinner-ok" onClick={() => onValueCommitted(42.9)} />
       <button data-testid="spinner-bad" onClick={() => onValueCommitted(Number.NaN)} />
     </div>
@@ -94,7 +113,7 @@ describe('SettingsFieldControl', () => {
     const input = screen.getByTestId('textfield-text')
     fireEvent.focus(input)
     fireEvent.change(input, { target: { value: 'new' } })
-    expect(onChange).not.toHaveBeenCalled() //no write while typing
+    expect(onChange).not.toHaveBeenCalled()
     fireEvent.blur(input)
     expect(onChange).toHaveBeenCalledWith('new')
   })
@@ -192,7 +211,7 @@ describe('SettingsFieldControl', () => {
     fireEvent.focus(input)
     fireEvent.change(input, { target: { value: 'notaurl' } })
     fireEvent.blur(input)
-    expect(onChange).not.toHaveBeenCalled() //invalid -> no write
+    expect(onChange).not.toHaveBeenCalled()
     fireEvent.focus(input)
     fireEvent.change(input, { target: { value: 'http://livi.local/dash' } })
     fireEvent.blur(input)
@@ -287,6 +306,59 @@ describe('SettingsFieldControl', () => {
     )
     fireEvent.click(screen.getByTestId('spinner-ok'))
     expect(onChange).toHaveBeenCalledWith(45)
+  })
+
+  test('number node with a unit takes its step and its cap from the unit', () => {
+    const onChange = vi.fn()
+    const unit = () => ({ factor: 1, suffix: 'x', step: 40, max: 120 })
+    render(
+      <SettingsFieldControl
+        node={{ type: 'number', label: 'Top', path: 'top', min: 60, max: 400, unit } as any}
+        value={200}
+        onChange={onChange}
+      />
+    )
+    expect(screen.getByTestId('spinner-range')).toHaveTextContent('120:80:120')
+    fireEvent.click(screen.getByTestId('spinner-ok'))
+    expect(onChange).toHaveBeenCalledWith(80)
+  })
+
+  test('number node with a unit shows, bounds and stores through the factor', () => {
+    const onChange = vi.fn()
+    const unit = () => ({ factor: 0.5, suffix: 'x' })
+    render(
+      <SettingsFieldControl
+        node={
+          { type: 'number', label: 'Top', path: 'top', min: 61, max: 401, step: 10, unit } as any
+        }
+        value={200}
+        onChange={onChange}
+      />
+    )
+    expect(screen.getByTestId('spinner-range')).toHaveTextContent('100:40:200')
+    fireEvent.click(screen.getByTestId('spinner-ok'))
+    expect(onChange).toHaveBeenCalledWith(80)
+  })
+
+  test('number node with a unit hands it the settings', () => {
+    const onChange = vi.fn()
+    const unit = vi.fn(() => ({ factor: 2, suffix: 'x' }))
+    useLiviStore.setState({ settings: { speedUnit: 'mph' } as never })
+    try {
+      render(
+        <SettingsFieldControl
+          node={{ type: 'number', label: 'Top', path: 'top', unit } as any}
+          value={undefined}
+          onChange={onChange}
+        />
+      )
+      expect(unit).toHaveBeenCalledWith({ speedUnit: 'mph' })
+      expect(screen.getByTestId('spinner-range').textContent?.startsWith('0:0:')).toBe(true)
+      fireEvent.click(screen.getByTestId('spinner-ok'))
+      expect(onChange).toHaveBeenCalledWith(22)
+    } finally {
+      useLiviStore.setState({ settings: null })
+    }
   })
 
   test('checkbox node forwards boolean changes and respects disabled', () => {
@@ -501,6 +573,29 @@ describe('SettingsFieldControl', () => {
     fireEvent.click(screen.getByText('LIVI Link'))
     fireEvent.click(screen.getByText('hci0'))
     expect(onPick.mock.calls).toEqual([['livi-link'], ['hci0']])
+  })
+
+  test('a read-only select lists its options but takes no pick', () => {
+    const onChange = vi.fn()
+    const node = {
+      type: 'select',
+      label: 'Display Mode',
+      path: 'displayMode',
+      options: [{ label: '1920x1080', value: '1920x1080' }],
+      readOnly: (system: System | null) => !system?.displayModeSettable
+    } as any
+    const control = () => <SettingsFieldControl node={node} value="" onChange={onChange} />
+
+    useLiviStore.setState({ system: null })
+    const { unmount } = render(control())
+    fireEvent.click(screen.getByText('1920x1080'))
+    expect(onChange).not.toHaveBeenCalled()
+    unmount()
+
+    useLiviStore.setState({ system: { displayModeSettable: true } as System })
+    render(control())
+    fireEvent.click(screen.getByText('1920x1080'))
+    expect(onChange).toHaveBeenCalledWith('1920x1080')
   })
 
   test('select node seeds options from cache when present', () => {
@@ -721,8 +816,7 @@ describe('SettingsFieldControl', () => {
 
   test('select click on offline non-bluez option does not attempt a connect', () => {
     const onChange = vi.fn()
-    const connect = vi.fn()
-    ;(window as any).projection = { ipc: { connectBluetoothPairedDevice: connect } }
+    coreActionMock.mockClear()
     render(
       <SettingsFieldControl
         node={
@@ -739,7 +833,7 @@ describe('SettingsFieldControl', () => {
     )
     fireEvent.click(screen.getByText('t:settings.audioDeviceOffline'))
     expect(onChange).toHaveBeenCalledWith('plainOffline')
-    expect(connect).not.toHaveBeenCalled()
+    expect(coreActionMock).not.toHaveBeenCalled()
   })
 
   test('select loadOptions keeps existing saved label and skips relabel', async () => {
@@ -825,8 +919,7 @@ describe('SettingsFieldControl', () => {
   test('select click connects an offline BT device and calls onDone', async () => {
     const onChange = vi.fn()
     const onDone = vi.fn()
-    const connect = vi.fn().mockRejectedValue(new Error('nope'))
-    ;(window as any).projection = { ipc: { connectBluetoothPairedDevice: connect } }
+    coreActionMock.mockRejectedValueOnce(new Error('nope'))
     render(
       <SettingsFieldControl
         node={
@@ -847,30 +940,12 @@ describe('SettingsFieldControl', () => {
     fireEvent.click(screen.getByText('t:settings.audioDeviceOffline'))
     expect(onChange).toHaveBeenCalledWith('bluez_output.AA_BB_CC_DD_EE_FF.1')
     expect(onDone).toHaveBeenCalled()
-    await waitFor(() => expect(connect).toHaveBeenCalledWith('AA:BB:CC:DD:EE:FF'))
-  })
-
-  test('select click on offline BT device without ipc does not throw', () => {
-    const onChange = vi.fn()
-    ;(window as any).projection = undefined
-    render(
-      <SettingsFieldControl
-        node={
-          {
-            type: 'select',
-            label: 'Out',
-            path: 'audioOut',
-            options: [
-              { value: 'bluez_output.AA_BB_CC_DD_EE_FF.1', label: 'Headset', offline: true }
-            ]
-          } as any
-        }
-        value=""
-        onChange={onChange}
-      />
+    await waitFor(() =>
+      expect(coreActionMock).toHaveBeenCalledWith({
+        kind: 'connectDevice',
+        id: 'AA:BB:CC:DD:EE:FF'
+      })
     )
-    fireEvent.click(screen.getByText('t:settings.audioDeviceOffline'))
-    expect(onChange).toHaveBeenCalledWith('bluez_output.AA_BB_CC_DD_EE_FF.1')
   })
 
   test('select click updates label from a live option', () => {

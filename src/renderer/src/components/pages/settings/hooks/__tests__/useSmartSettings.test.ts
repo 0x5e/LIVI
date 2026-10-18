@@ -3,33 +3,32 @@ import { useSmartSettings } from '../useSmartSettings'
 
 const saveSettings = vi.fn()
 const markRestartBaseline = vi.fn()
+const coreAction = vi.fn()
 let mockRestartBaseline: any = { projectionWidth: 800, bindings: { back: 'KeyB' } }
 
-const { projectionActive } = vi.hoisted(() => ({ projectionActive: { value: true } }))
+const { sessionsOpen } = vi.hoisted(() => ({ sessionsOpen: { value: true } }))
 
 vi.mock('@store/store', () => ({
+  coreAction: (action: unknown) => coreAction(action),
   useLiviStore: (selector: (s: any) => unknown) =>
     selector({
       saveSettings,
       restartBaseline: mockRestartBaseline,
       markRestartBaseline
     }),
-  useProjectionActive: () => projectionActive.value
+  useSessionsOpen: () => sessionsOpen.value
 }))
 
 vi.mock('../../constants', () => ({
-  requiresRestartParams: ['projectionWidth', 'bindings', 'carplayIcon180', 'wifiChannel'],
-  restartWithoutSessionParams: ['wifiChannel']
+  requiresRestartParams: ['projectionWidth', 'bindings', 'carplayIcon180', 'wifiChannel']
 }))
 
 describe('useSmartSettings', () => {
   beforeEach(async () => {
     saveSettings.mockReset()
     markRestartBaseline.mockReset()
+    coreAction.mockReset().mockResolvedValue(undefined)
     mockRestartBaseline = { projectionWidth: 800, bindings: { back: 'KeyB' } }
-    ;(window as any).projection = {
-      ipc: { restart: vi.fn().mockResolvedValue(undefined) }
-    }
   })
 
   test('handleFieldChange updates state and persists settings', async () => {
@@ -58,7 +57,7 @@ describe('useSmartSettings', () => {
     expect(result.current.needsRestart).toBe(true)
   })
 
-  test('restart fires the generic restart when a restart is needed', async () => {
+  test('restart asks core to apply the settings when a restart is needed', async () => {
     const initial = { projectionWidth: 800 } as any
     const settings = { projectionWidth: 800 } as any
     const { result } = renderHook(() => useSmartSettings(initial, settings))
@@ -66,51 +65,55 @@ describe('useSmartSettings', () => {
     await act(async () => {
       await result.current.restart()
     })
-    expect((window as any).projection.ipc.restart).toHaveBeenCalled()
+    expect(coreAction).toHaveBeenCalledWith({ kind: 'applySettings' })
     expect(markRestartBaseline).toHaveBeenCalled()
   })
 
-  test('restart returns false when needsRestart is false', async () => {
-    // line 88: if (!needsRestart) return false
+  test('a refused restart keeps the restart pending', async () => {
+    coreAction.mockRejectedValue(new Error('core is not connected'))
     const initial = { projectionWidth: 800 } as any
     const settings = { projectionWidth: 800 } as any
     const { result } = renderHook(() => useSmartSettings(initial, settings))
-    // needsRestart is false (no requestRestart called, no baseline diff)
+    act(() => result.current.requestRestart('projectionWidth'))
     await act(async () => {
       expect(await result.current.restart()).toBe(false)
     })
-    expect((window as any).projection.ipc.restart).not.toHaveBeenCalled()
+    expect(markRestartBaseline).not.toHaveBeenCalled()
+    expect(result.current.needsRestart).toBe(true)
+  })
+
+  test('restart returns false when needsRestart is false', async () => {
+    const initial = { projectionWidth: 800 } as any
+    const settings = { projectionWidth: 800 } as any
+    const { result } = renderHook(() => useSmartSettings(initial, settings))
+    await act(async () => {
+      expect(await result.current.restart()).toBe(false)
+    })
+    expect(coreAction).not.toHaveBeenCalled()
   })
 
   test('needsRestartFromConfig detects when settings differ from restartBaseline', async () => {
-    // lines 44-53: restartBaseline[key] !== settings[key] for a restart-relevant key
-    // The store mock has restartBaseline.projectionWidth = 800, settings.projectionWidth = 900 would differ
+    // The store mock's restartBaseline has projectionWidth 800.
     const initial = { projectionWidth: 900 } as any
     const settings = { projectionWidth: 900 } as any
-    // restartBaseline from mock has projectionWidth: 800 → needsRestartFromConfig = true
     const { result } = renderHook(() => useSmartSettings(initial, settings))
     expect(result.current.needsRestart).toBe(true)
   })
 
-  test('with nothing projecting only the access point keys still ask for a restart', async () => {
+  test('with no phone connected nothing waits for apply', async () => {
     mockRestartBaseline = { carplayIcon180: '', wifiChannel: 36 }
-    projectionActive.value = false
+    sessionsOpen.value = false
 
-    const icon = { carplayIcon180: 'b64', wifiChannel: 36 } as any
-    const idle = renderHook(() => useSmartSettings(icon, icon))
+    const changed = { carplayIcon180: 'b64', wifiChannel: 149 } as any
+    const idle = renderHook(() => useSmartSettings(changed, changed))
     expect(idle.result.current.needsRestart).toBe(false)
 
-    const wifi = { carplayIcon180: '', wifiChannel: 149 } as any
-    const ap = renderHook(() => useSmartSettings(wifi, wifi))
-    expect(ap.result.current.needsRestart).toBe(true)
-
-    projectionActive.value = true
-    const projecting = renderHook(() => useSmartSettings(icon, icon))
+    sessionsOpen.value = true
+    const projecting = renderHook(() => useSmartSettings(changed, changed))
     expect(projecting.result.current.needsRestart).toBe(true)
   })
 
   test('handleFieldChange with transform override applies transformation', async () => {
-    // lines 68-69: override?.transform is called
     const initial = { volume: 50 } as any
     const settings = { volume: 50 } as any
     const transform = vi.fn((v: unknown) => (v as number) * 2)
@@ -129,10 +132,9 @@ describe('useSmartSettings', () => {
   })
 
   test('handleFieldChange with validate override blocks invalid values', async () => {
-    // line 69: override?.validate returning false → no state update
     const initial = { volume: 50 } as any
     const settings = { volume: 50 } as any
-    const validate = vi.fn(() => false) // always reject
+    const validate = vi.fn(() => false)
     const { result } = renderHook(() =>
       useSmartSettings(initial, settings, {
         overrides: { volume: { validate } }
@@ -144,7 +146,7 @@ describe('useSmartSettings', () => {
     })
 
     expect(validate).toHaveBeenCalled()
-    expect(result.current.state.volume).toBe(50) // unchanged
+    expect(result.current.state.volume).toBe(50)
   })
 
   test('requestRestart with no path treats it as restart-relevant', async () => {

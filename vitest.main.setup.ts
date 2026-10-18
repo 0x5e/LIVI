@@ -71,16 +71,6 @@ vi.mock('electron', () => {
   }
 })
 
-vi.mock('usb', () => ({
-  usb: {
-    on: vi.fn(),
-    removeAllListeners: vi.fn(),
-    unrefHotplugEvents: vi.fn()
-  },
-  getDeviceList: vi.fn(() => []),
-  WebUSBDevice: vi.fn()
-}))
-
 declare global {
   interface Window {
     api: {

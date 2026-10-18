@@ -42,6 +42,11 @@ describe('TelltaleBar', () => {
     expect(screen.getByTestId('ambient-temp')).toHaveTextContent('22°C')
   })
 
+  test('shows the ambient temperature in °F when asked', () => {
+    render(<TelltaleBar ambientC={20} temperatureUnit="fahrenheit" />)
+    expect(screen.getByTestId('ambient-temp')).toHaveTextContent('68°F')
+  })
+
   test('omits the ambient temperature when the value is not finite', () => {
     render(<TelltaleBar ambientC={Number.NaN} />)
     expect(screen.queryByTestId('ambient-temp')).toBeNull()

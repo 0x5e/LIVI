@@ -2,8 +2,7 @@ import { act, render, screen } from '@testing-library/react'
 
 vi.mock('react-i18next', () => ({ useTranslation: () => ({ t: (k: string) => k }) }))
 
-// The real row pulls in the store, the theme and the rest of the settings family; this test is
-// about what WifiLinkInfo formats and subscribes to.
+// The real row pulls in the theme.
 vi.mock('@settings/components', () => ({
   SettingsValueRow: ({ label, value, mono }: { label: string; value: string; mono?: boolean }) => (
     <div data-testid={label} data-mono={mono ? 'yes' : 'no'}>
@@ -12,38 +11,56 @@ vi.mock('@settings/components', () => ({
   )
 }))
 
+const reportLinkSpeedMock = vi.fn((_on: boolean) => {})
+
+vi.mock('@store/store', async (importOriginal) => ({
+  ...(await importOriginal<typeof import('@store/store')>()),
+  reportLinkSpeed: (on: boolean) => reportLinkSpeedMock(on)
+}))
+
+import { useLiviStore } from '@store/store'
 import { WifiLinkInfo } from '../WifiLinkInfo'
 
 const DOWN = 'settings.wifiLinkDown'
 const UP = 'settings.wifiLinkUp'
 const DASH = '—'
 
-type Listener = (event: unknown, speed: unknown) => void
+type Speed = { downMbps: number; upMbps: number; downRate: number; upRate: number }
 
-let listener: Listener | undefined
-const unsubscribe = vi.fn()
-const onLinkSpeed = vi.fn((cb: Listener) => {
-  listener = cb
-  return unsubscribe
-})
-
-beforeEach(() => {
-  listener = undefined
-  unsubscribe.mockClear()
-  onLinkSpeed.mockClear()
-  window.projection = { settings: { onLinkSpeed } } as unknown as typeof window.projection
-})
-
-/** Delivers one reading the way the main-process monitor would. */
-function report(speed: unknown): void {
-  act(() => listener?.({}, speed))
+function report(linkSpeed: Speed | null): void {
+  act(() =>
+    useLiviStore.setState({
+      system: {
+        wifiInterfaces: [],
+        btAdapters: [],
+        dongle: null,
+        linkSpeed,
+        wifiBands: [],
+        wifiChannels: [],
+        wifiCountries: []
+      }
+    })
+  )
 }
 
+beforeEach(() => {
+  useLiviStore.setState({ system: null })
+  reportLinkSpeedMock.mockClear()
+})
+
 describe('WifiLinkInfo', () => {
+  it('asks core for the link speed only while it is shown', () => {
+    const { unmount } = render(<WifiLinkInfo />)
+    expect(reportLinkSpeedMock.mock.calls).toEqual([[true]])
+
+    unmount()
+
+    expect(reportLinkSpeedMock.mock.calls).toEqual([[true], [false]])
+  })
+
   it('shows a dash on both legs until the first reading arrives', () => {
     render(<WifiLinkInfo />)
 
-    expect(onLinkSpeed).toHaveBeenCalledTimes(1)
     expect(screen.getByTestId(DOWN)).toHaveTextContent(DASH)
     expect(screen.getByTestId(UP)).toHaveTextContent(DASH)
   })
@@ -74,29 +91,6 @@ describe('WifiLinkInfo', () => {
     report(null)
 
     expect(screen.getByTestId(DOWN)).toHaveTextContent(DASH)
-    expect(screen.getByTestId(UP)).toHaveTextContent(DASH)
-  })
-
-  it('unsubscribes when it goes away', () => {
-    const view = render(<WifiLinkInfo />)
-    expect(unsubscribe).not.toHaveBeenCalled()
-
-    view.unmount()
-
-    expect(unsubscribe).toHaveBeenCalledTimes(1)
-  })
-
-  it('renders without a projection bridge', () => {
-    window.projection = undefined as unknown as typeof window.projection
-
-    expect(() => render(<WifiLinkInfo />)).not.toThrow()
-    expect(screen.getByTestId(DOWN)).toHaveTextContent(DASH)
-  })
-
-  it('renders when the bridge carries no settings channel', () => {
-    window.projection = {} as unknown as typeof window.projection
-
-    expect(() => render(<WifiLinkInfo />)).not.toThrow()
     expect(screen.getByTestId(UP)).toHaveTextContent(DASH)
   })
 })

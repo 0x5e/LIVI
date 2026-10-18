@@ -1,3 +1,4 @@
+import type { WifiBand } from '@shared/core/contract'
 import type { Config } from '@shared/types'
 import { PAGES } from '@shared/types'
 import { WIFI_PASSWORD_MAX, WIFI_PASSWORD_MIN } from '@shared/types/Config'
@@ -11,6 +12,7 @@ import { Camera } from '../../components/pages/settings/pages/camera'
 import { GpsHwInfo } from '../../components/pages/settings/pages/general/gps/GpsHwInfo'
 import { GpsInfo } from '../../components/pages/settings/pages/general/gps/GpsInfo'
 import { WifiLinkInfo } from '../../components/pages/settings/pages/general/wifi/WifiLinkInfo'
+import { coreAction, useLiviStore } from '../../store/store'
 import { SelectOption, SettingsNode } from '../types'
 
 const panelDefaultOption: SelectOption = {
@@ -20,28 +22,41 @@ const panelDefaultOption: SelectOption = {
 }
 
 async function loadDisplayModes(): Promise<SelectOption[]> {
-  const list = await window.app?.listDisplayModes?.()
-  if (!Array.isArray(list)) return [panelDefaultOption]
+  const list = useLiviStore.getState().system?.displayModes ?? []
   return [panelDefaultOption, ...list.map((m) => ({ value: m, label: m }))]
 }
 
+const BAND_LABELS: Record<WifiBand, string> = {
+  '2.4ghz': '2.4 GHz',
+  '5ghz': '5 GHz',
+  '6ghz': '6 GHz'
+}
+
+/** The bands the chosen radio can run an access point on, 2.4 and 5 GHz until it says. */
+async function loadWifiBands(): Promise<SelectOption[]> {
+  const bands = useLiviStore.getState().system?.wifiBands ?? []
+  const shown: WifiBand[] = bands.length > 0 ? bands : ['2.4ghz', '5ghz']
+  return shown.map((b) => ({ value: b, label: BAND_LABELS[b] }))
+}
+
 async function loadWifiChannels(): Promise<SelectOption[]> {
-  const list = await window.app?.listWifiChannels?.()
-  if (!Array.isArray(list)) return []
+  const list = useLiviStore.getState().system?.wifiChannels ?? []
   return list.map((c) => ({ value: c, label: String(c) }))
 }
 
 async function loadWifiCountryCodes(): Promise<SelectOption[]> {
-  const list = await window.app?.listWifiCountryCodes?.()
-  if (!Array.isArray(list)) return []
+  const list = useLiviStore.getState().system?.wifiCountries ?? []
   return list.map((c) => ({ value: c, label: c }))
 }
 
 const DONGLE_LINK = 'livi-link'
 
-/** The dongle's entry says when that radio is switched off there. */
-function adapterOption(value: string, switchedOn: boolean | null | undefined): SelectOption {
-  if (value !== DONGLE_LINK) return { value, label: value }
+function adapterOption(
+  value: string,
+  switchedOn: boolean | null | undefined,
+  model: string | undefined
+): SelectOption {
+  if (value !== DONGLE_LINK) return { value, label: model ? `${value} (${model})` : value }
   if (switchedOn === false) {
     return { value, label: 'LIVI Link (off)', labelKey: 'settings.dongleSwitchedOff' }
   }
@@ -49,28 +64,24 @@ function adapterOption(value: string, switchedOn: boolean | null | undefined): S
 }
 
 async function loadWifiInterfaces(): Promise<SelectOption[]> {
-  const [list, radios] = await Promise.all([
-    window.app?.listWifiInterfaces?.(),
-    window.app?.dongleRadios?.()
-  ])
-  if (!Array.isArray(list)) return []
-  return list.map((i) => adapterOption(i, radios?.wifi))
+  const system = useLiviStore.getState().system
+  return (system?.wifiInterfaces ?? []).map((i) =>
+    adapterOption(i, system?.dongle?.wifi, system?.interfaceModels?.[i])
+  )
 }
 
 async function loadBtAdapters(): Promise<SelectOption[]> {
-  const [list, radios] = await Promise.all([
-    window.app?.listBtAdapters?.(),
-    window.app?.dongleRadios?.()
-  ])
-  if (!Array.isArray(list)) return []
-  return list.map((i) => adapterOption(i, radios?.bt))
+  const system = useLiviStore.getState().system
+  return (system?.btAdapters ?? []).map((i) =>
+    adapterOption(i, system?.dongle?.bt, system?.interfaceModels?.[i])
+  )
 }
 
-/** Picking the dongle switches that radio on, also when it is the one picked already. */
 const switchDongleOn =
   (radio: 'wifi' | 'bt') =>
   (value: string | number): void => {
-    if (value === DONGLE_LINK) void window.app?.switchDongleRadio?.(radio, true)
+    if (value === DONGLE_LINK)
+      coreAction({ kind: 'setDongleRadio', radio, on: true }).catch(() => {})
   }
 
 export const generalSchema: SettingsNode<Config> = {
@@ -128,16 +139,8 @@ export const generalSchema: SettingsNode<Config> = {
               icon: 'wifiFrequency',
               path: 'wifiType',
               displayValue: true,
-              options: [
-                {
-                  label: '2.4 GHz',
-                  value: '2.4ghz'
-                },
-                {
-                  label: '5 GHz',
-                  value: '5ghz'
-                }
-              ],
+              options: [],
+              loadOptions: loadWifiBands,
               page: {
                 title: 'Wi-Fi Frequency',
                 labelTitle: 'settings.wifiFrequency'
@@ -263,8 +266,7 @@ export const generalSchema: SettingsNode<Config> = {
           label: 'Wireless Android Auto',
           labelKey: 'settings.wirelessAaEnabled',
           icon: 'wirelessAa',
-          path: 'wirelessAaEnabled',
-          disabled: window.app?.platform !== 'linux'
+          path: 'wirelessAaEnabled'
         },
         {
           type: 'checkbox',
@@ -307,6 +309,7 @@ export const generalSchema: SettingsNode<Config> = {
               displayValue: true,
               options: [panelDefaultOption],
               loadOptions: loadDisplayModes,
+              readOnly: (system) => !system?.displayModeSettable,
               page: {
                 title: 'Display Mode',
                 labelTitle: 'settings.displayMode'
@@ -973,22 +976,6 @@ export const generalSchema: SettingsNode<Config> = {
       page: {
         title: 'FFT Visualization Delay',
         labelTitle: 'settings.fftDelay'
-      }
-    },
-    {
-      type: 'select',
-      label: 'Steering wheel position',
-      labelKey: 'settings.steeringWheelPosition',
-      icon: 'steering',
-      path: 'hand',
-      displayValue: true,
-      options: [
-        { label: 'LHD', labelKey: 'settings.lhdr', value: 0 },
-        { label: 'RHD', labelKey: 'settings.rhdr', value: 1 }
-      ],
-      page: {
-        title: 'Steering wheel position',
-        labelTitle: 'settings.steeringWheelPosition'
       }
     },
     {

@@ -1,11 +1,41 @@
+import { useLiviStore } from '../../../store/store'
 import type { SettingsNode } from '../../types'
 import { generalSchema } from '../generalSchema'
 
-vi.mock('../../../components/pages/settings/pages/camera', () => ({ Camera: () => null }))
-vi.mock('../../../components/pages/settings/pages/system/usbDongle/USBDongle', () => ({
-  USBDongle: () => null
-}))
+const coreActionMock = vi.fn((_action: unknown) => Promise.resolve())
 
+vi.mock('../../../store/store', async (importOriginal) => ({
+  ...(await importOriginal<typeof import('../../../store/store')>()),
+  coreAction: (action: unknown) => coreActionMock(action)
+}))
+vi.mock('../../../components/pages/settings/pages/camera', () => ({ Camera: () => null }))
+
+const system = (
+  wifiInterfaces: string[],
+  btAdapters: string[],
+  dongle: { wifi: boolean; bt: boolean } | null = null,
+  wifiChannels: number[] = [36, 40],
+  wifiCountries: string[] = ['DE', 'AT'],
+  displayModes: string[] = ['800x480', '1024x600'],
+  wifiBands: Array<'2.4ghz' | '5ghz' | '6ghz'> = [],
+  interfaceModels: Record<string, string> = {}
+) =>
+  useLiviStore.setState({
+    system: {
+      wifiInterfaces,
+      btAdapters,
+      interfaceModels,
+      dongle,
+      linkSpeed: null,
+      wifiBands,
+      wifiChannels,
+      wifiCountries,
+      displayModes,
+      displayModeSettable: true,
+      audioSinks: [],
+      audioSources: []
+    }
+  })
 type LoadFn = () => Promise<Array<{ value: unknown; label: string }>>
 
 function collectLoaders(node: SettingsNode<unknown>): LoadFn[] {
@@ -19,7 +49,8 @@ function collectLoaders(node: SettingsNode<unknown>): LoadFn[] {
 }
 
 afterEach(() => {
-  delete (window as unknown as { app?: unknown }).app
+  useLiviStore.setState({ system: null })
+  coreActionMock.mockClear()
 })
 
 describe('generalSchema loadOptions', () => {
@@ -29,14 +60,8 @@ describe('generalSchema loadOptions', () => {
     expect(loaders.length).toBeGreaterThanOrEqual(5)
   })
 
-  test('each loader maps the bridge result into value/label options', async () => {
-    ;(window as unknown as { app: unknown }).app = {
-      listDisplayModes: vi.fn(async () => ['800x480', '1024x600']),
-      listWifiChannels: vi.fn(async () => [36, 40]),
-      listWifiCountryCodes: vi.fn(async () => ['DE', 'AT']),
-      listWifiInterfaces: vi.fn(async () => ['wlan0']),
-      listBtAdapters: vi.fn(async () => ['hci0'])
-    }
+  test('each loader maps the system lists into value/label options', async () => {
+    system(['wlan0'], ['hci0'])
     for (const load of loaders) {
       const opts = await load()
       expect(Array.isArray(opts)).toBe(true)
@@ -46,13 +71,7 @@ describe('generalSchema loadOptions', () => {
   })
 
   test('the dongle is labelled LIVI Link while other interfaces keep their name', async () => {
-    ;(window as unknown as { app: unknown }).app = {
-      listDisplayModes: vi.fn(async () => []),
-      listWifiChannels: vi.fn(async () => []),
-      listWifiCountryCodes: vi.fn(async () => []),
-      listWifiInterfaces: vi.fn(async () => ['livi-link', 'wlan0']),
-      listBtAdapters: vi.fn(async () => ['livi-link', 'hci0'])
-    }
+    system(['livi-link', 'wlan0'], ['livi-link', 'hci0'], { wifi: true, bt: true })
     const options = (await Promise.all(loaders.map((load) => load()))).flat() as Array<{
       value: string
       label?: string
@@ -62,6 +81,24 @@ describe('generalSchema loadOptions', () => {
 
     expect(labelFor('livi-link')).toBe('LIVI Link')
     expect(labelFor('wlan0')).toBe('wlan0')
+    expect(labelFor('hci0')).toBe('hci0')
+  })
+
+  test('a local interface names its chip where the system can tell', async () => {
+    system(['wlp104s0', 'wlan0'], ['hci1', 'hci0'], null, [], [], [], [], {
+      wlp104s0: 'MT7925',
+      hci1: 'MT7925'
+    })
+    const options = (await Promise.all(loaders.map((load) => load()))).flat() as Array<{
+      value: string
+      label?: string
+    }>
+    const labelFor = (value: string): string | undefined =>
+      options.find((o) => o.value === value)?.label
+
+    expect(labelFor('wlp104s0')).toBe('wlp104s0 (MT7925)')
+    expect(labelFor('wlan0')).toBe('wlan0')
+    expect(labelFor('hci1')).toBe('hci1 (MT7925)')
     expect(labelFor('hci0')).toBe('hci0')
   })
 
@@ -82,11 +119,7 @@ describe('generalSchema loadOptions', () => {
   }
 
   test('the dongle says so where the radio it would serve is switched off', async () => {
-    ;(window as unknown as { app: unknown }).app = {
-      listWifiInterfaces: vi.fn(async () => ['livi-link']),
-      listBtAdapters: vi.fn(async () => ['livi-link']),
-      dongleRadios: vi.fn(async () => ({ wifi: false, bt: true }))
-    }
+    system(['livi-link'], ['livi-link'], { wifi: false, bt: true })
 
     expect((await adapterSelect('wifiInterface').loadOptions())[0]).toMatchObject({
       label: 'LIVI Link (off)',
@@ -99,33 +132,55 @@ describe('generalSchema loadOptions', () => {
   })
 
   test('picking the dongle switches its radio on, picking anything else leaves it alone', () => {
-    const switchDongleRadio = vi.fn(async () => {})
-    ;(window as unknown as { app: unknown }).app = { switchDongleRadio }
+    coreActionMock.mockReturnValueOnce(Promise.reject(new Error('no dongle')))
 
     adapterSelect('wifiInterface').onPick('livi-link')
     adapterSelect('btAdapter').onPick('livi-link')
     adapterSelect('wifiInterface').onPick('wlan0')
     adapterSelect('btAdapter').onPick('hci0')
 
-    expect(switchDongleRadio.mock.calls).toEqual([
-      ['wifi', true],
-      ['bt', true]
+    expect(coreActionMock.mock.calls).toEqual([
+      [{ kind: 'setDongleRadio', radio: 'wifi', on: true }],
+      [{ kind: 'setDongleRadio', radio: 'bt', on: true }]
     ])
   })
 
-  test('display modes keep the panel-default option ahead of the reported modes', async () => {
-    ;(window as unknown as { app: unknown }).app = {
-      listDisplayModes: vi.fn(async () => ['800x480'])
+  test('the band choice offers what the radio can run an access point on', async () => {
+    let bands: { loadOptions: LoadFn } | undefined
+    const walk = (n: Record<string, unknown>): void => {
+      if (n.path === 'wifiType') bands = n as unknown as { loadOptions: LoadFn }
+      if (Array.isArray(n.children)) for (const c of n.children) walk(c as Record<string, unknown>)
     }
+    walk(generalSchema as unknown as Record<string, unknown>)
+
+    system(['wlan0'], [], null, [37], ['DE'], [], ['2.4ghz', '5ghz', '6ghz'])
+    expect(await bands!.loadOptions()).toEqual([
+      { value: '2.4ghz', label: '2.4 GHz' },
+      { value: '5ghz', label: '5 GHz' },
+      { value: '6ghz', label: '6 GHz' }
+    ])
+
+    system(['wlan0'], [])
+    expect((await bands!.loadOptions()).map((o) => o.value)).toEqual(['2.4ghz', '5ghz'])
+  })
+
+  test('display modes keep the panel-default option ahead of the reported modes', async () => {
+    system([], [], null, [], [], ['1024x600', '800x480'])
     const displayNode = (generalSchema.children as SettingsNode<unknown>[])
       .flatMap((c) => (c.children ?? []) as SettingsNode<unknown>[])
       .flatMap((c) => (c.children ?? []) as SettingsNode<unknown>[])
       .find((n) => (n as { path?: string }).path === 'displayMode') as {
       loadOptions: LoadFn
+      readOnly: (system: { displayModeSettable: boolean } | null) => boolean
     }
     const opts = await displayNode.loadOptions()
     expect(opts[0]).toMatchObject({ value: '', labelKey: 'settings.displayModeDefault' })
     expect(opts[opts.length - 1]).toMatchObject({ value: '800x480', label: '800x480' })
+
+    // Under GNOME the modes are only shown
+    expect(displayNode.readOnly({ displayModeSettable: true })).toBe(false)
+    expect(displayNode.readOnly({ displayModeSettable: false })).toBe(true)
+    expect(displayNode.readOnly(null)).toBe(true)
   })
 
   test('value transforms round-trip and format their values', () => {
@@ -149,20 +204,7 @@ describe('generalSchema loadOptions', () => {
     }
   })
 
-  test('loaders fall back gracefully when the bridge is missing or returns non-arrays', async () => {
-    delete (window as unknown as { app?: unknown }).app
-    for (const load of loaders) {
-      const opts = await load()
-      expect(Array.isArray(opts)).toBe(true)
-    }
-
-    ;(window as unknown as { app: unknown }).app = {
-      listDisplayModes: vi.fn(async () => null),
-      listWifiChannels: vi.fn(async () => undefined),
-      listWifiCountryCodes: vi.fn(async () => 'nope'),
-      listWifiInterfaces: vi.fn(async () => 42),
-      listBtAdapters: vi.fn(async () => ({}))
-    }
+  test('loaders fall back gracefully before core listed anything', async () => {
     for (const load of loaders) {
       const opts = await load()
       expect(Array.isArray(opts)).toBe(true)

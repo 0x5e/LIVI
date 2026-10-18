@@ -1,55 +1,14 @@
-import type { TelemetryPayload as VehicleTelemetry } from '@shared/types'
+import { useLiviStore } from '@store/store'
 import * as React from 'react'
 
-function isRecord(v: unknown): v is Record<string, unknown> {
-  return typeof v === 'object' && v !== null
-}
-
-function asVehicleTelemetry(v: unknown): VehicleTelemetry | null {
-  if (!isRecord(v)) return null
-  return v as VehicleTelemetry
-}
+const STALE_MS = 1500
 
 export function useVehicleTelemetry() {
-  const [telemetry, setTelemetry] = React.useState<VehicleTelemetry | null>(null)
-  const lastTsRef = React.useRef<number>(0)
-
-  React.useEffect(() => {
-    let cancelled = false
-
-    const onMsg = (payload: unknown) => {
-      const msg = asVehicleTelemetry(payload)
-      if (!msg) return
-
-      // keep a monotonic timestamp
-      const ts = typeof msg.ts === 'number' ? msg.ts : Date.now()
-      lastTsRef.current = ts
-
-      setTelemetry((prev) => ({ ...(prev ?? {}), ...msg, ts }))
-    }
-
-    // Hydration
-    const snapPromise = window.projection?.ipc?.getTelemetrySnapshot?.()
-    if (snapPromise) {
-      void snapPromise.then((snap) => {
-        if (cancelled) return
-        const msg = asVehicleTelemetry(snap)
-        if (!msg || Object.keys(msg).length === 0) return
-        onMsg(msg)
-      })
-    }
-
-    window.projection?.ipc?.onTelemetry?.(onMsg)
-
-    return () => {
-      cancelled = true
-      window.projection?.ipc?.offTelemetry?.(onMsg)
-    }
-  }, [])
+  const telemetry = useLiviStore((s) => s.telemetry)
 
   const isStale = React.useMemo(() => {
-    if (!telemetry?.ts) return true
-    return Date.now() - telemetry.ts > 1500
+    if (typeof telemetry?.ts !== 'number') return true
+    return Date.now() - telemetry.ts > STALE_MS
   }, [telemetry?.ts])
 
   return { telemetry, isStale }

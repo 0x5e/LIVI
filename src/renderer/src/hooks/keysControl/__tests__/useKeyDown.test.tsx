@@ -1,11 +1,15 @@
 import { ROUTES } from '@shared/types'
 import { renderHook } from '@testing-library/react'
 import { ReactNode } from 'react'
+import { CYCLE_SESSION_EVENT } from '../../../constants'
 import { AppContext, AppContextProps } from '../../../context'
 import { useKeyDownProps } from '../types'
 import { useKeyDown } from '../useKeyDown'
 
 const mockBroadcastMediaKey = vi.fn()
+const mockSendInput = vi.fn()
+const mockCoreAction = vi.fn()
+const key = (code: string) => ({ kind: 'key', code, down: true })
 
 let mockPathname: string = ROUTES.HOME
 let mockHash = ''
@@ -20,6 +24,8 @@ vi.mock('react-router', () => ({
 }))
 
 vi.mock('@store/store', () => ({
+  sendInput: (...args: unknown[]) => mockSendInput(...args),
+  coreAction: (...args: unknown[]) => mockCoreAction(...args),
   useLiviStore: (selector: (s: { settings: unknown }) => unknown) =>
     selector({ settings: mockSettings })
 }))
@@ -56,9 +62,7 @@ const baseProps = (): useKeyDownProps => ({
   focusFirstInMain: vi.fn(() => false),
   moveFocusLinear: vi.fn(() => false),
   isFormField: vi.fn(() => false),
-  activateControl: vi.fn(() => false),
-  onSetKeyCommand: vi.fn(),
-  onSetCommandCounter: vi.fn()
+  activateControl: vi.fn(() => false)
 })
 
 const renderKeyDown = (props: useKeyDownProps, context: AppContextProps) =>
@@ -78,7 +82,7 @@ describe('useKeyDown', () => {
     document.body.innerHTML = ''
   })
 
-  test('sends mapped commands in CarPlay mode and auto-emits selectUp', () => {
+  test('hands mapped keys to core in CarPlay mode', () => {
     vi.useFakeTimers({ shouldAdvanceTime: true })
     const { navRoot, contentRoot } = setupRoots()
     const mainBtn = document.createElement('button')
@@ -90,9 +94,6 @@ describe('useKeyDown', () => {
         selectDown: 'Enter'
       }
     }
-
-    const onSetKeyCommand = vi.fn()
-    const onSetCommandCounter = vi.fn()
 
     const context: AppContextProps = {
       isTouchDevice: false,
@@ -115,9 +116,7 @@ describe('useKeyDown', () => {
           focusFirstInMain: vi.fn(() => true),
           moveFocusLinear: vi.fn(() => true),
           isFormField: vi.fn(() => false),
-          activateControl: vi.fn(() => true),
-          onSetKeyCommand,
-          onSetCommandCounter
+          activateControl: vi.fn(() => true)
         }),
       { wrapper }
     )
@@ -125,14 +124,14 @@ describe('useKeyDown', () => {
     const event = makeEvent('Enter')
     result.current(event)
 
-    expect(onSetKeyCommand).toHaveBeenCalledWith('selectDown')
-    expect(onSetCommandCounter).toHaveBeenCalled()
+    expect(mockSendInput).toHaveBeenCalledWith(key('Enter'))
     expect(mockBroadcastMediaKey).toHaveBeenCalledWith('selectDown')
 
+    // Core releases the select on its own.
     vi.advanceTimersByTime(220)
 
-    expect(onSetKeyCommand).toHaveBeenCalledWith('selectUp')
-    expect(mockBroadcastMediaKey).toHaveBeenCalledWith('selectUp')
+    expect(mockSendInput).toHaveBeenCalledTimes(1)
+    expect(mockBroadcastMediaKey).not.toHaveBeenCalledWith('selectUp')
     expect(event.preventDefault).toHaveBeenCalled()
     expect(event.stopPropagation).toHaveBeenCalled()
   })
@@ -168,9 +167,7 @@ describe('useKeyDown', () => {
           focusFirstInMain: vi.fn(() => true),
           moveFocusLinear: vi.fn(() => true),
           isFormField: vi.fn(() => false),
-          activateControl: vi.fn(() => true),
-          onSetKeyCommand: vi.fn(),
-          onSetCommandCounter: vi.fn()
+          activateControl: vi.fn(() => true)
         }),
       { wrapper }
     )
@@ -224,9 +221,7 @@ describe('useKeyDown', () => {
           focusFirstInMain,
           moveFocusLinear: vi.fn(() => true),
           isFormField: vi.fn(() => false),
-          activateControl,
-          onSetKeyCommand: vi.fn(),
-          onSetCommandCounter: vi.fn()
+          activateControl
         }),
       { wrapper }
     )
@@ -275,9 +270,7 @@ describe('useKeyDown', () => {
           focusFirstInMain: vi.fn(() => true),
           moveFocusLinear: vi.fn(() => true),
           isFormField: vi.fn(() => false),
-          activateControl: vi.fn(() => false),
-          onSetKeyCommand: vi.fn(),
-          onSetCommandCounter: vi.fn()
+          activateControl: vi.fn(() => false)
         }),
       { wrapper }
     )
@@ -321,9 +314,7 @@ describe('useKeyDown', () => {
           focusFirstInMain: vi.fn(() => true),
           moveFocusLinear,
           isFormField: (el) => !!el && el.tagName === 'INPUT',
-          activateControl,
-          onSetKeyCommand: vi.fn(),
-          onSetCommandCounter: vi.fn()
+          activateControl
         }),
       { wrapper }
     )
@@ -352,9 +343,6 @@ describe('useKeyDown', () => {
       }
     }
 
-    const onSetKeyCommand = vi.fn()
-    const onSetCommandCounter = vi.fn()
-
     const wrapper = ({ children }: { children: ReactNode }) => (
       <AppContext.Provider value={{ isTouchDevice: false }}>{children}</AppContext.Provider>
     )
@@ -368,17 +356,14 @@ describe('useKeyDown', () => {
           focusFirstInMain: vi.fn(() => true),
           moveFocusLinear: vi.fn(() => true),
           isFormField: vi.fn(() => false),
-          activateControl: vi.fn(() => false),
-          onSetKeyCommand,
-          onSetCommandCounter
+          activateControl: vi.fn(() => false)
         }),
       { wrapper }
     )
 
     result.current(makeEvent('MediaNext'))
 
-    expect(onSetKeyCommand).toHaveBeenCalledWith('next')
-    expect(onSetCommandCounter).toHaveBeenCalled()
+    expect(mockSendInput).toHaveBeenCalledWith(key('MediaNext'))
     expect(mockBroadcastMediaKey).toHaveBeenCalledWith('next')
   })
 
@@ -399,9 +384,7 @@ describe('useKeyDown', () => {
           focusFirstInMain: vi.fn(() => true),
           moveFocusLinear: vi.fn(() => false),
           isFormField: vi.fn(() => false),
-          activateControl: vi.fn(() => false),
-          onSetKeyCommand: vi.fn(),
-          onSetCommandCounter: vi.fn()
+          activateControl: vi.fn(() => false)
         }),
       { wrapper }
     )
@@ -414,8 +397,7 @@ describe('useKeyDown', () => {
   })
 
   test('hash without leading slash is normalised to /media route', () => {
-    // covers line 38: raw.startsWith('/') false branch -> `/${raw}`
-    mockHash = '#media' // no leading slash after stripping '#'
+    mockHash = '#media'
     mockPathname = ''
     setupRoots()
 
@@ -433,21 +415,16 @@ describe('useKeyDown', () => {
           focusFirstInMain: vi.fn(() => false),
           moveFocusLinear: vi.fn(() => false),
           isFormField: vi.fn(() => false),
-          activateControl: vi.fn(() => false),
-          onSetKeyCommand: vi.fn(),
-          onSetCommandCounter: vi.fn()
+          activateControl: vi.fn(() => false)
         }),
       { wrapper }
     )
 
-    // Just need the hook to mount with the normalised route - no error means it worked
     result.current(makeEvent('ArrowUp'))
-    // focusSelectedNav is called meaning the route resolved (not HOME, not blocking)
     expect(focusSelectedNav).toHaveBeenCalled()
   })
 
   test('Backspace in a form field without editingField returns early', () => {
-    // covers lines 149-151: formFocused && !editingField && code === 'Backspace' -> return
     const { contentRoot } = setupRoots()
     const input = document.createElement('input')
     input.type = 'text'
@@ -474,22 +451,18 @@ describe('useKeyDown', () => {
           focusFirstInMain: vi.fn(() => false),
           moveFocusLinear: vi.fn(() => false),
           isFormField: () => true,
-          activateControl,
-          onSetKeyCommand: vi.fn(),
-          onSetCommandCounter: vi.fn()
+          activateControl
         }),
       { wrapper }
     )
 
     const event = makeEvent('Backspace')
     result.current(event)
-    // Early return - activateControl should NOT have been called
     expect(activateControl).not.toHaveBeenCalled()
     expect(event.preventDefault).not.toHaveBeenCalled()
   })
 
   test('dialog root counts as inMain for focus routing', () => {
-    // covers lines 107-117: !inMain && dialogRoot && active && ... -> inMain = true
     const { contentRoot } = setupRoots()
     mockPathname = ROUTES.SETTINGS
 
@@ -520,14 +493,11 @@ describe('useKeyDown', () => {
           focusFirstInMain: vi.fn(() => false),
           moveFocusLinear: vi.fn(() => false),
           isFormField: vi.fn(() => false),
-          activateControl,
-          onSetKeyCommand: vi.fn(),
-          onSetCommandCounter: vi.fn()
+          activateControl
         }),
       { wrapper }
     )
 
-    // Enter should activate the button inside the dialog (inMain=true path)
     result.current(makeEvent('Enter'))
     expect(activateControl).toHaveBeenCalled()
 
@@ -535,7 +505,6 @@ describe('useKeyDown', () => {
   })
 
   test('Escape when editingField is set and on telemetry route clears it and focuses nav', () => {
-    // covers lines 311-319: editingField set, isTelemetryRoute, not range input
     const { contentRoot } = setupRoots()
     mockPathname = ROUTES.TELEMETRY
 
@@ -565,9 +534,7 @@ describe('useKeyDown', () => {
           focusFirstInMain: vi.fn(() => false),
           moveFocusLinear: vi.fn(() => false),
           isFormField: vi.fn(() => false),
-          activateControl: vi.fn(() => false),
-          onSetKeyCommand: vi.fn(),
-          onSetCommandCounter: vi.fn()
+          activateControl: vi.fn(() => false)
         }),
       { wrapper }
     )
@@ -578,12 +545,10 @@ describe('useKeyDown', () => {
   })
 
   test('handleSetFocusedElId with element having no id or aria-label sets focusedElId to null', () => {
-    // covers lines 55-63: elementId === null branch
     const { contentRoot } = setupRoots()
     mockPathname = ROUTES.SETTINGS
 
     const btn = document.createElement('button')
-    // no id, no aria-label
     contentRoot.appendChild(btn)
     btn.focus()
 
@@ -607,15 +572,11 @@ describe('useKeyDown', () => {
           focusFirstInMain: vi.fn(() => false),
           moveFocusLinear: vi.fn(() => false),
           isFormField: () => true,
-          activateControl: vi.fn(() => false),
-          onSetKeyCommand: vi.fn(),
-          onSetCommandCounter: vi.fn()
+          activateControl: vi.fn(() => false)
         }),
       { wrapper }
     )
 
-    // Enter on a form field with editingField='previous-id' → handleSetFocusedElId(null)
-    // but active element has no id → sets focusedElId to null
     result.current(makeEvent('Enter'))
     expect(onSetAppContext).toHaveBeenCalledWith(
       expect.objectContaining({
@@ -625,7 +586,6 @@ describe('useKeyDown', () => {
   })
 
   test('transport keys: prev, playPause, play, pause, acceptPhone, rejectPhone, voiceAssistant', () => {
-    // covers lines 487-501: full transport action chain
     setupRoots()
     mockPathname = ROUTES.MEDIA
     mockSettings = {
@@ -639,8 +599,6 @@ describe('useKeyDown', () => {
         voiceAssistant: 'KeyV'
       }
     }
-
-    const onSetKeyCommand = vi.fn()
     const wrapper = ({ children }: { children: ReactNode }) => (
       <AppContext.Provider value={{ isTouchDevice: false }}>{children}</AppContext.Provider>
     )
@@ -654,9 +612,7 @@ describe('useKeyDown', () => {
           focusFirstInMain: vi.fn(() => false),
           moveFocusLinear: vi.fn(() => false),
           isFormField: vi.fn(() => false),
-          activateControl: vi.fn(() => false),
-          onSetKeyCommand,
-          onSetCommandCounter: vi.fn()
+          activateControl: vi.fn(() => false)
         }),
       { wrapper }
     )
@@ -670,14 +626,14 @@ describe('useKeyDown', () => {
       ['KeyR', 'rejectPhone'],
       ['KeyV', 'voiceAssistant']
     ] as const) {
-      onSetKeyCommand.mockClear()
+      mockSendInput.mockClear()
       result.current(makeEvent(code))
-      expect(onSetKeyCommand).toHaveBeenCalledWith(expected)
+      expect(mockSendInput).toHaveBeenCalledWith(key(code))
+      expect(mockBroadcastMediaKey).toHaveBeenCalledWith(expected)
     }
   })
 
   test('combobox with aria-expanded remaps rotary left/right to arrow up/down', () => {
-    // covers lines 249-268: focusOnExpandedCombobox branch
     const { contentRoot } = setupRoots()
     const listbox = document.createElement('ul')
     listbox.setAttribute('role', 'listbox')
@@ -711,9 +667,7 @@ describe('useKeyDown', () => {
           focusFirstInMain: vi.fn(() => false),
           moveFocusLinear: vi.fn(() => false),
           isFormField: vi.fn(() => false),
-          activateControl: vi.fn(() => false),
-          onSetKeyCommand: vi.fn(),
-          onSetCommandCounter: vi.fn()
+          activateControl: vi.fn(() => false)
         }),
       { wrapper }
     )
@@ -723,7 +677,6 @@ describe('useKeyDown', () => {
   })
 
   test('nothing focused + arrow key on non-home route triggers focusFirstInMain', () => {
-    // lines 276-287: wantEnterMainFromNothing path
     setupRoots()
     mockPathname = ROUTES.MEDIA
 
@@ -747,9 +700,7 @@ describe('useKeyDown', () => {
           focusFirstInMain,
           moveFocusLinear: vi.fn(() => false),
           isFormField: vi.fn(() => false),
-          activateControl: vi.fn(() => false),
-          onSetKeyCommand: vi.fn(),
-          onSetCommandCounter: vi.fn()
+          activateControl: vi.fn(() => false)
         }),
       { wrapper }
     )
@@ -762,7 +713,6 @@ describe('useKeyDown', () => {
   })
 
   test('back key in non-settings route without editingField calls focusSelectedNav', () => {
-    // lines 338-343: focusSelectedNav() fallback after back key
     const { contentRoot } = setupRoots()
     mockPathname = ROUTES.MEDIA
 
@@ -791,9 +741,7 @@ describe('useKeyDown', () => {
           focusFirstInMain: vi.fn(() => false),
           moveFocusLinear: vi.fn(() => false),
           isFormField: vi.fn(() => false),
-          activateControl: vi.fn(() => false),
-          onSetKeyCommand: vi.fn(),
-          onSetCommandCounter: vi.fn()
+          activateControl: vi.fn(() => false)
         }),
       { wrapper }
     )
@@ -806,7 +754,6 @@ describe('useKeyDown', () => {
   })
 
   test('Enter on switch in main area calls activateControl', () => {
-    // lines 374-386: switch/button role → activateControl
     const { contentRoot } = setupRoots()
     mockPathname = ROUTES.SETTINGS
 
@@ -837,9 +784,7 @@ describe('useKeyDown', () => {
           focusFirstInMain: vi.fn(() => false),
           moveFocusLinear: vi.fn(() => false),
           isFormField: vi.fn(() => false),
-          activateControl,
-          onSetKeyCommand: vi.fn(),
-          onSetCommandCounter: vi.fn()
+          activateControl
         }),
       { wrapper }
     )
@@ -849,7 +794,6 @@ describe('useKeyDown', () => {
   })
 
   test('Enter on dropdown in main area activates and tracks focusedElId', () => {
-    // lines 374-386: isDropdown → handleSetFocusedElId(active)
     const { contentRoot } = setupRoots()
     mockPathname = ROUTES.SETTINGS
 
@@ -883,16 +827,13 @@ describe('useKeyDown', () => {
           focusFirstInMain: vi.fn(() => false),
           moveFocusLinear: vi.fn(() => false),
           isFormField: vi.fn(() => false),
-          activateControl,
-          onSetKeyCommand: vi.fn(),
-          onSetCommandCounter: vi.fn()
+          activateControl
         }),
       { wrapper }
     )
 
     result.current(makeEvent('Enter'))
     expect(activateControl).toHaveBeenCalled()
-    // dropdown path → handleSetFocusedElId records the combo id
     expect(onSetAppContext).toHaveBeenCalledWith(
       expect.objectContaining({
         keyboardNavigation: expect.objectContaining({ focusedElId: 'my-combo' })
@@ -901,7 +842,6 @@ describe('useKeyDown', () => {
   })
 
   test('Enter on form field with editingField set clears the editing state', () => {
-    // lines 390-396: inMain + enter + formFocused + editingField → handleSetFocusedElId(null)
     const { contentRoot } = setupRoots()
     mockPathname = ROUTES.SETTINGS
 
@@ -931,9 +871,7 @@ describe('useKeyDown', () => {
           focusFirstInMain: vi.fn(() => false),
           moveFocusLinear: vi.fn(() => false),
           isFormField: () => true,
-          activateControl: vi.fn(() => false),
-          onSetKeyCommand: vi.fn(),
-          onSetCommandCounter: vi.fn()
+          activateControl: vi.fn(() => false)
         }),
       { wrapper }
     )
@@ -945,7 +883,6 @@ describe('useKeyDown', () => {
   })
 
   test('Enter on generic element in main calls activateControl fallback', () => {
-    // lines 411-415: inMain + enter + not switch/form → activateControl
     const { contentRoot } = setupRoots()
     mockPathname = ROUTES.SETTINGS
 
@@ -974,9 +911,7 @@ describe('useKeyDown', () => {
           focusFirstInMain: vi.fn(() => false),
           moveFocusLinear: vi.fn(() => false),
           isFormField: vi.fn(() => false),
-          activateControl,
-          onSetKeyCommand: vi.fn(),
-          onSetCommandCounter: vi.fn()
+          activateControl
         }),
       { wrapper }
     )
@@ -986,7 +921,6 @@ describe('useKeyDown', () => {
   })
 
   test('Left on range slider in main returns early without moveFocusLinear', () => {
-    // line 421: isRangeSlider && isLeft → return
     const { contentRoot } = setupRoots()
     mockPathname = ROUTES.SETTINGS
 
@@ -1015,9 +949,7 @@ describe('useKeyDown', () => {
           focusFirstInMain: vi.fn(() => false),
           moveFocusLinear,
           isFormField: vi.fn(() => false),
-          activateControl: vi.fn(() => false),
-          onSetKeyCommand: vi.fn(),
-          onSetCommandCounter: vi.fn()
+          activateControl: vi.fn(() => false)
         }),
       { wrapper }
     )
@@ -1029,7 +961,6 @@ describe('useKeyDown', () => {
   })
 
   test('Up on range slider in main calls preventDefault without moveFocusLinear navigation', () => {
-    // lines 434-437: isRangeSlider && isUp → preventDefault after moveFocusLinear
     const { contentRoot } = setupRoots()
     mockPathname = ROUTES.SETTINGS
 
@@ -1058,9 +989,7 @@ describe('useKeyDown', () => {
           focusFirstInMain: vi.fn(() => false),
           moveFocusLinear,
           isFormField: vi.fn(() => false),
-          activateControl: vi.fn(() => false),
-          onSetKeyCommand: vi.fn(),
-          onSetCommandCounter: vi.fn()
+          activateControl: vi.fn(() => false)
         }),
       { wrapper }
     )
@@ -1071,7 +1000,6 @@ describe('useKeyDown', () => {
   })
 
   test('Left in main with editingField on input returns early (skips moveFocusLinear)', () => {
-    // lines 424-430: !isRangeSlider && editingField && isInputOrEditable → return
     const { contentRoot } = setupRoots()
     mockPathname = ROUTES.SETTINGS
 
@@ -1101,9 +1029,7 @@ describe('useKeyDown', () => {
           focusFirstInMain: vi.fn(() => false),
           moveFocusLinear,
           isFormField: vi.fn(() => false),
-          activateControl: vi.fn(() => false),
-          onSetKeyCommand: vi.fn(),
-          onSetCommandCounter: vi.fn()
+          activateControl: vi.fn(() => false)
         }),
       { wrapper }
     )
@@ -1113,7 +1039,6 @@ describe('useKeyDown', () => {
   })
 
   test('Right in main with editingField on input returns early (skips moveFocusLinear)', () => {
-    // line 457: !isRangeSlider && editingField && isInputOrEditable → return
     const { contentRoot } = setupRoots()
     mockPathname = ROUTES.SETTINGS
 
@@ -1143,9 +1068,7 @@ describe('useKeyDown', () => {
           focusFirstInMain: vi.fn(() => false),
           moveFocusLinear,
           isFormField: vi.fn(() => false),
-          activateControl: vi.fn(() => false),
-          onSetKeyCommand: vi.fn(),
-          onSetCommandCounter: vi.fn()
+          activateControl: vi.fn(() => false)
         }),
       { wrapper }
     )
@@ -1154,14 +1077,13 @@ describe('useKeyDown', () => {
     expect(moveFocusLinear).not.toHaveBeenCalled()
   })
 
-  test('cycleSession key triggers ipc and swallows rejection', async () => {
+  test('cycleSession key asks core for the next phone and swallows a rejection', async () => {
     const { contentRoot } = setupRoots()
     const btn = document.createElement('button')
     contentRoot.appendChild(btn)
     btn.focus()
 
-    const cycleSession = vi.fn(() => Promise.reject(new Error('boom')))
-    ;(window as any).projection = { ipc: { cycleSession } }
+    mockCoreAction.mockReturnValueOnce(Promise.reject(new Error('boom')))
 
     const context: AppContextProps = {
       isTouchDevice: false,
@@ -1182,23 +1104,24 @@ describe('useKeyDown', () => {
           focusFirstInMain: vi.fn(() => false),
           moveFocusLinear: vi.fn(() => false),
           isFormField: vi.fn(() => false),
-          activateControl: vi.fn(() => false),
-          onSetKeyCommand: vi.fn(),
-          onSetCommandCounter: vi.fn()
+          activateControl: vi.fn(() => false)
         }),
       { wrapper }
     )
 
+    const heard = vi.fn()
+    window.addEventListener(CYCLE_SESSION_EVENT, heard)
     const event = makeEvent('KeyS')
     result.current(event)
+    window.removeEventListener(CYCLE_SESSION_EVENT, heard)
 
-    expect(cycleSession).toHaveBeenCalled()
+    expect(mockCoreAction).toHaveBeenCalledWith({ kind: 'nextDevice' })
+    expect(heard).toHaveBeenCalledTimes(1)
     expect(event.preventDefault).toHaveBeenCalled()
     expect(event.stopPropagation).toHaveBeenCalled()
 
     await Promise.resolve()
     await Promise.resolve()
-    ;(window as any).projection = undefined
   })
 
   test('voiceAssistant repeat in CarPlay mode is suppressed', () => {
@@ -1209,8 +1132,6 @@ describe('useKeyDown', () => {
 
     mockPathname = ROUTES.HOME
     mockSettings = { bindings: { voiceAssistant: 'KeyV' } }
-
-    const onSetKeyCommand = vi.fn()
     const context: AppContextProps = {
       isTouchDevice: false,
       keyboardNavigation: { focusedElId: null },
@@ -1230,9 +1151,7 @@ describe('useKeyDown', () => {
           focusFirstInMain: vi.fn(() => false),
           moveFocusLinear: vi.fn(() => false),
           isFormField: vi.fn(() => false),
-          activateControl: vi.fn(() => false),
-          onSetKeyCommand,
-          onSetCommandCounter: vi.fn()
+          activateControl: vi.fn(() => false)
         }),
       { wrapper }
     )
@@ -1241,57 +1160,9 @@ describe('useKeyDown', () => {
     ;(event as any).repeat = true
     result.current(event)
 
-    expect(onSetKeyCommand).not.toHaveBeenCalled()
+    expect(mockSendInput).not.toHaveBeenCalled()
     expect(event.preventDefault).toHaveBeenCalled()
     expect(event.stopPropagation).toHaveBeenCalled()
-  })
-
-  test('CarPlay selectDown invokes the command counter updater twice', () => {
-    vi.useFakeTimers({ shouldAdvanceTime: true })
-    const { contentRoot } = setupRoots()
-    const btn = document.createElement('button')
-    contentRoot.appendChild(btn)
-    btn.focus()
-
-    mockPathname = ROUTES.HOME
-    mockSettings = { bindings: { selectDown: 'KeyG' } }
-
-    const counted: number[] = []
-    const onSetCommandCounter = vi.fn((p: (_p: number) => number) => {
-      counted.push(p(0))
-    })
-
-    const context: AppContextProps = {
-      isTouchDevice: false,
-      keyboardNavigation: { focusedElId: null },
-      contentEl: { current: contentRoot },
-      onSetAppContext: vi.fn()
-    }
-    const wrapper = ({ children }: { children: ReactNode }) => (
-      <AppContext.Provider value={context}>{children}</AppContext.Provider>
-    )
-
-    const { result } = renderHook(
-      () =>
-        useKeyDown({
-          receivingVideo: true,
-          inContainer: (root, el) => !!root && !!el && root.contains(el),
-          focusSelectedNav: vi.fn(() => false),
-          focusFirstInMain: vi.fn(() => false),
-          moveFocusLinear: vi.fn(() => false),
-          isFormField: vi.fn(() => false),
-          activateControl: vi.fn(() => false),
-          onSetKeyCommand: vi.fn(),
-          onSetCommandCounter
-        }),
-      { wrapper }
-    )
-
-    result.current(makeEvent('KeyG'))
-    vi.advanceTimersByTime(220)
-
-    expect(counted).toEqual([1, 1])
-    vi.useRealTimers()
   })
 
   test('Enter in nav with a different selectDown binding activates and clicks', () => {
@@ -1325,9 +1196,7 @@ describe('useKeyDown', () => {
           focusFirstInMain: vi.fn(() => false),
           moveFocusLinear: vi.fn(() => false),
           isFormField: vi.fn(() => false),
-          activateControl,
-          onSetKeyCommand: vi.fn(),
-          onSetCommandCounter: vi.fn()
+          activateControl
         }),
       { wrapper }
     )
@@ -1370,9 +1239,7 @@ describe('useKeyDown', () => {
           focusFirstInMain: vi.fn(() => false),
           moveFocusLinear: vi.fn(() => false),
           isFormField: vi.fn(() => false),
-          activateControl: vi.fn(() => false),
-          onSetKeyCommand: vi.fn(),
-          onSetCommandCounter: vi.fn()
+          activateControl: vi.fn(() => false)
         }),
       { wrapper }
     )
@@ -1417,9 +1284,7 @@ describe('useKeyDown', () => {
           focusFirstInMain: vi.fn(() => false),
           moveFocusLinear: vi.fn(() => false),
           isFormField: vi.fn(() => false),
-          activateControl: vi.fn(() => false),
-          onSetKeyCommand: vi.fn(),
-          onSetCommandCounter: vi.fn()
+          activateControl: vi.fn(() => false)
         }),
       { wrapper }
     )
@@ -1460,9 +1325,7 @@ describe('useKeyDown', () => {
           focusFirstInMain: vi.fn(() => false),
           moveFocusLinear,
           isFormField: vi.fn(() => false),
-          activateControl: vi.fn(() => false),
-          onSetKeyCommand: vi.fn(),
-          onSetCommandCounter: vi.fn()
+          activateControl: vi.fn(() => false)
         }),
       { wrapper }
     )
@@ -1480,12 +1343,6 @@ describe('useKeyDown', () => {
     mockPathname = ROUTES.MEDIA
     mockSettings = { bindings: { voiceAssistant: 'KeyV', next: 'MediaNext' } }
 
-    const onSetKeyCommand = vi.fn()
-    const counted: number[] = []
-    const onSetCommandCounter = vi.fn((p: (_p: number) => number) => {
-      counted.push(p(0))
-    })
-
     const wrapper = ({ children }: { children: ReactNode }) => (
       <AppContext.Provider value={{ isTouchDevice: false }}>{children}</AppContext.Provider>
     )
@@ -1499,9 +1356,7 @@ describe('useKeyDown', () => {
           focusFirstInMain: vi.fn(() => false),
           moveFocusLinear: vi.fn(() => false),
           isFormField: vi.fn(() => false),
-          activateControl: vi.fn(() => false),
-          onSetKeyCommand,
-          onSetCommandCounter
+          activateControl: vi.fn(() => false)
         }),
       { wrapper }
     )
@@ -1509,11 +1364,11 @@ describe('useKeyDown', () => {
     const repeated = makeEvent('KeyV')
     ;(repeated as any).repeat = true
     result.current(repeated)
-    expect(onSetKeyCommand).not.toHaveBeenCalled()
+    expect(mockSendInput).not.toHaveBeenCalled()
 
     result.current(makeEvent('MediaNext'))
-    expect(onSetKeyCommand).toHaveBeenCalledWith('next')
-    expect(counted).toEqual([1])
+    expect(mockSendInput).toHaveBeenCalledTimes(1)
+    expect(mockSendInput).toHaveBeenCalledWith(key('MediaNext'))
   })
 
   test('hash with leading slash resolves route directly', () => {
@@ -1650,18 +1505,16 @@ describe('useKeyDown', () => {
     expect(focusSelectedNav).toHaveBeenCalled()
   })
 
-  test('CarPlay mapped action other than selectDown does not schedule selectUp', () => {
+  test('a mapped key in CarPlay mode goes to core, not to the menus', () => {
     const { contentRoot } = setupRoots()
     mockPathname = ROUTES.HOME
     mockSettings = { bindings: { next: 'MediaNext' } }
-
-    const onSetKeyCommand = vi.fn()
     const btn = document.createElement('button')
     contentRoot.appendChild(btn)
     btn.focus()
 
     const { result } = renderKeyDown(
-      { ...baseProps(), receivingVideo: true, onSetKeyCommand },
+      { ...baseProps(), receivingVideo: true },
       {
         isTouchDevice: false,
         keyboardNavigation: { focusedElId: null },
@@ -1672,8 +1525,7 @@ describe('useKeyDown', () => {
 
     const event = makeEvent('MediaNext')
     result.current(event)
-    expect(onSetKeyCommand).toHaveBeenCalledWith('next')
-    expect(onSetKeyCommand).not.toHaveBeenCalledWith('selectUp')
+    expect(mockSendInput).toHaveBeenCalledWith(key('MediaNext'))
     expect(event.preventDefault).toHaveBeenCalled()
   })
 

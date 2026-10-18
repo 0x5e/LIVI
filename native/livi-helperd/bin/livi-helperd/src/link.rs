@@ -1,12 +1,11 @@
-//! The LIVI Link as the helper sees it: on the bus or not, and once its name resolves,
-//! present. What needs the dongle waits on it.
-
 use std::sync::Arc;
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::time::Duration;
 
+#[cfg(target_os = "linux")]
 use livi_runtime::bringup::OnCable;
 use livi_runtime::livi_sock::Broadcaster;
+#[cfg(target_os = "linux")]
 use livi_runtime::state::HelperState;
 use tokio::sync::Notify;
 
@@ -14,16 +13,16 @@ const RESOLVE_INTERVAL: Duration = Duration::from_millis(500);
 const WATCH_RETRY: Duration = Duration::from_secs(2);
 
 /// CarPlay over the cable keeps the phone's Bluetooth to the accessory disconnected.
+#[cfg(target_os = "linux")]
 pub fn drop_dongle_link(mac: String) {
     tokio::task::spawn_blocking(move || {
-        if let Err(e) = livi_dongle::iap::drop_link(&mac) {
+        if let Err(e) = livi_link_host::accessory::drop_link(&mac) {
             eprintln!("[helperd] {mac} stays on the dongle's bluetooth: {e}");
         }
     });
 }
 
-/// For a session over the dongle's Bluetooth: a phone whose iAP2 runs over the cable by now
-/// gets no start there.
+#[cfg(target_os = "linux")]
 pub fn dongle_on_cable(state: Arc<HelperState>) -> OnCable {
     OnCable(Arc::new(move |mac: &str| {
         let cabled = state.carkit_claims(mac);
@@ -34,13 +33,12 @@ pub fn dongle_on_cable(state: Arc<HelperState>) -> OnCable {
     }))
 }
 
-/// Hands the phones joining and leaving the dongle's access point to LIVI, which ends a CarPlay
-/// session as soon as its phone leaves.
+/// LIVI ends a CarPlay session as soon as its phone leaves the access point.
 pub async fn relay_stations(bcast: Broadcaster) {
     loop {
         let events = bcast.clone();
         let _ = tokio::task::spawn_blocking(move || {
-            livi_dongle::ap::watch_stations(|joined, mac| {
+            livi_link_host::ap::watch_stations(|joined, mac| {
                 let event = if joined { "joined" } else { "left" };
                 println!("[helperd] {mac} {event} the dongle's access point");
                 events.push_json(format!(
@@ -93,7 +91,6 @@ impl LinkPresence {
         &self.changed
     }
 
-    /// Returns once the link is in the wanted state.
     pub async fn wait_until(&self, present: bool) {
         self.wait_for(|l| l.is_present() == present).await;
     }
@@ -110,8 +107,6 @@ impl LinkPresence {
         }
     }
 
-    /// While the dongle is on the bus, waits for its name to resolve; reports the link up
-    /// then and down when the dongle leaves.
     pub async fn resolve(
         self: Arc<Self>,
         on_up: impl Fn() + Send + 'static,
@@ -123,7 +118,10 @@ impl LinkPresence {
                 if !self.on_bus.load(Ordering::SeqCst) {
                     break false;
                 }
-                if tokio::task::spawn_blocking(livi_dongle::link::resolves).await.unwrap_or(false) {
+                if tokio::task::spawn_blocking(livi_link_host::link::resolves)
+                    .await
+                    .unwrap_or(false)
+                {
                     break true;
                 }
                 tokio::time::sleep(RESOLVE_INTERVAL).await;
@@ -131,7 +129,7 @@ impl LinkPresence {
             if !up {
                 continue;
             }
-            println!("[helperd] LIVI Link up: {} resolves", livi_dongle::link::LINK_NAME);
+            println!("[helperd] LIVI Link up: {} resolves", livi_link_host::link::LINK_NAME);
             on_up();
             self.set_present(true);
             self.wait_for(|l| !l.on_bus.load(Ordering::SeqCst)).await;

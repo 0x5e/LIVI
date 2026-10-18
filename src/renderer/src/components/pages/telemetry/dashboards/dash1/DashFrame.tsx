@@ -1,12 +1,14 @@
 import { Box, useTheme } from '@mui/material'
-import { CarType } from '@shared/types'
+import { speedIn } from '@renderer/utils/units'
+import { CarType, DEFAULT_CONFIG } from '@shared/types'
 import { useLiviStore, useStatusStore } from '@store/store'
-import { type ReactNode, useEffect, useState } from 'react'
+import { type ReactNode, useEffect, useMemo, useState } from 'react'
 import { DashShell } from '../../components/DashShell'
 import { useVehicleTelemetry } from '../../hooks/useVehicleTelemetry'
 import {
   FuelGauge,
   GaugeArc,
+  labelOverflow,
   normalizeGear,
   SoftReadout,
   TelltaleBar,
@@ -21,21 +23,15 @@ import {
   GAUGE_BAR_TOP,
   GAUGE_BAR_W,
   GAUGE_GAP_DEG,
-  GAUGE_MAJOR_COUNT,
   GAUGE_RADIUS,
-  GAUGE_TICKS,
   LEFT_RING_LEFT,
   READOUT_DX,
   RIGHT_RING_LEFT,
   RING_H,
   RING_TOP,
-  RING_W,
-  RPM_LABELS,
-  RPM_REDLINE,
-  RPM_SCALE_MAX,
-  SPEED_LABELS,
-  SPEED_SCALE_MAX
+  RING_W
 } from '../constants'
+import { gaugeScale, RPM_MAX_SECTIONS, RPM_STEP, SPEED_MAX_SECTIONS } from '../gaugeScale'
 
 const clamp = (v: number, lo: number, hi: number): number => Math.max(lo, Math.min(hi, v))
 
@@ -94,6 +90,37 @@ export function DashFrame({ children, clusterFull }: DashFrameProps) {
   // Battery vs fuel icon, driven by the configured car type (controllable in settings).
   const carType = useLiviStore((s) => s.settings?.carType)
   const fuelMode: 'fuel' | 'battery' = carType === CarType.Electric ? 'battery' : 'fuel'
+  const speedUnit = useLiviStore((s) => s.settings?.speedUnit ?? DEFAULT_CONFIG.speedUnit)
+  const temperatureUnit = useLiviStore(
+    (s) => s.settings?.temperatureUnit ?? DEFAULT_CONFIG.temperatureUnit
+  )
+  const maxSpeedKph = useLiviStore((s) => s.settings?.maxSpeedKph ?? DEFAULT_CONFIG.maxSpeedKph)
+  const speedStep = useLiviStore((s) => s.settings?.speedScaleStep ?? DEFAULT_CONFIG.speedScaleStep)
+  const maxRpm = useLiviStore((s) => s.settings?.maxRpm ?? DEFAULT_CONFIG.maxRpm)
+  const redlineRpm = useLiviStore((s) => s.settings?.redlineRpm ?? DEFAULT_CONFIG.redlineRpm)
+  const speedScale = useMemo(
+    () => gaugeScale(speedIn(maxSpeedKph, speedUnit), speedStep, SPEED_MAX_SECTIONS, String),
+    [maxSpeedKph, speedUnit, speedStep]
+  )
+  const rpmScale = useMemo(
+    () => gaugeScale(maxRpm, RPM_STEP, RPM_MAX_SECTIONS, (v) => String(v / 1000)),
+    [maxRpm]
+  )
+  // Both rings move in together, as far as the number nearest the screen edge needs.
+  const ringShift = useMemo(() => {
+    const gauge = { radius: GAUGE_RADIUS, gapDeg: GAUGE_GAP_DEG, armTicks: GAUGE_ARM_TICKS }
+    return Math.max(
+      labelOverflow(
+        { ...gauge, ...speedScale },
+        { boxW: RING_W, boxH: RING_H, px: -LEFT_RING_LEFT }
+      ),
+      labelOverflow(
+        { ...gauge, ...rpmScale },
+        { boxW: RING_W, boxH: RING_H, px: RIGHT_RING_LEFT + RING_W - BASE_W }
+      )
+    )
+  }, [speedScale, rpmScale])
+  const speed = speedIn(speedKph, speedUnit)
 
   const [scale, setScale] = useState(() => stageScale(window.innerWidth, window.innerHeight))
   const [sidePush, setSidePush] = useState(() =>
@@ -168,19 +195,19 @@ export function DashFrame({ children, clusterFull }: DashFrameProps) {
               top: RING_TOP,
               width: RING_W,
               height: RING_H,
-              transform: `translateX(${-sidePush}px)`
+              transform: `translateX(${ringShift - sidePush}px)`
             }}
           >
             <Box sx={{ position: 'absolute', inset: 0, pointerEvents: 'none' }}>
               <GaugeArc
-                value={speedKph}
-                scaleMax={SPEED_SCALE_MAX}
-                ticks={GAUGE_TICKS}
+                value={speed}
+                scaleMax={speedScale.scaleMax}
+                ticks={speedScale.ticks}
                 radius={GAUGE_RADIUS}
                 gapDeg={GAUGE_GAP_DEG}
                 armTicks={GAUGE_ARM_TICKS}
-                majorCount={GAUGE_MAJOR_COUNT}
-                labels={SPEED_LABELS}
+                majorCount={speedScale.majorCount}
+                labels={speedScale.labels}
                 colorScale={theme.palette.text.disabled}
                 colorMajor={theme.palette.text.secondary}
                 colorPointer={theme.palette.text.primary}
@@ -200,8 +227,8 @@ export function DashFrame({ children, clusterFull }: DashFrameProps) {
               }}
             >
               <SoftReadout
-                value={clamp(Math.round(speedKph), 0, 999)}
-                label="KPH"
+                value={clamp(Math.round(speed), 0, 999)}
+                label={speedUnit === 'mph' ? 'MPH' : 'KPH'}
                 align="end"
                 maxChars={3}
                 backdropColor={clusterFull ? calRectColor : undefined}
@@ -217,20 +244,20 @@ export function DashFrame({ children, clusterFull }: DashFrameProps) {
               top: RING_TOP,
               width: RING_W,
               height: RING_H,
-              transform: `translateX(${sidePush}px)`
+              transform: `translateX(${sidePush - ringShift}px)`
             }}
           >
             <Box sx={{ position: 'absolute', inset: 0, pointerEvents: 'none' }}>
               <GaugeArc
                 value={rpm}
-                scaleMax={RPM_SCALE_MAX}
-                redline={RPM_REDLINE}
-                ticks={GAUGE_TICKS}
+                scaleMax={rpmScale.scaleMax}
+                redline={redlineRpm}
+                ticks={rpmScale.ticks}
                 radius={GAUGE_RADIUS}
                 gapDeg={GAUGE_GAP_DEG}
                 armTicks={GAUGE_ARM_TICKS}
-                majorCount={GAUGE_MAJOR_COUNT}
-                labels={RPM_LABELS}
+                majorCount={rpmScale.majorCount}
+                labels={rpmScale.labels}
                 mirror
                 colorScale={theme.palette.text.disabled}
                 colorMajor={theme.palette.text.secondary}
@@ -277,6 +304,7 @@ export function DashFrame({ children, clusterFull }: DashFrameProps) {
               turn={turn}
               hazards={hazards}
               ambientC={ambientC}
+              temperatureUnit={temperatureUnit}
               size={30}
             />
           </Box>
@@ -297,7 +325,7 @@ export function DashFrame({ children, clusterFull }: DashFrameProps) {
               alignItems: 'center'
             }}
           >
-            <TempGauge value={oilC} segments={FUEL_SEGMENTS} />
+            <TempGauge value={oilC} unit={temperatureUnit} segments={FUEL_SEGMENTS} />
             <FuelGauge level={fuelPct} mode={fuelMode} segments={FUEL_SEGMENTS} />
           </Box>
         </Box>

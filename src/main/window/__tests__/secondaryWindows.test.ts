@@ -46,26 +46,17 @@ vi.mock('electron', () => ({
   screen: { getAllDisplays: vi.fn(() => []) }
 }))
 
-const { setCompositorScreenMock, setMacBackdropMock } = vi.hoisted(() => ({
-  setCompositorScreenMock: vi.fn(),
-  setMacBackdropMock: vi.fn()
-}))
-vi.mock('@main/services/video/GstVideo', () => ({
-  backdropHex: vi.fn(() => '#000000'),
-  setMacBackdrop: setMacBackdropMock,
-  setCompositorScreen: setCompositorScreenMock
-}))
-
 const { configEvents } = vi.hoisted(() => ({
   configEvents: { on: vi.fn(), off: vi.fn(), emit: vi.fn() }
 }))
-const saveSettingsMock = vi.fn()
-vi.mock('@main/ipc/utils', () => ({
-  configEvents,
-  saveSettings: (...a: unknown[]) => saveSettingsMock(...a)
+const saveConfigMock = vi.fn()
+vi.mock('@main/window/applyConfig', () => ({ configEvents }))
+const drawVideoIn = vi.fn()
+vi.mock('@main/video', () => ({ drawVideoIn: (...a: unknown[]) => drawVideoIn(...a) }))
+vi.mock('@main/core', () => ({
+  saveConfig: (...a: unknown[]) => saveConfigMock(...a)
 }))
 
-import { COMPOSITOR_TITLEBAR_H } from '@main/app/compositorLayout'
 import type { runtimeStateProps } from '@main/types'
 import { app, shell } from 'electron'
 import {
@@ -93,10 +84,8 @@ function baseState(over: Partial<runtimeStateProps['config']> = {}): runtimeStat
 
 beforeEach(() => {
   lastWindows.length = 0
-  saveSettingsMock.mockReset()
+  saveConfigMock.mockReset()
   configEvents.on.mockReset()
-  setCompositorScreenMock.mockClear()
-  setMacBackdropMock.mockClear()
   vi.useFakeTimers()
   closeAllSecondaryWindows()
 })
@@ -182,15 +171,17 @@ describe('window lifecycle', () => {
     win.emit('move')
     win.emit('resize')
     vi.advanceTimersByTime(500)
-    expect(saveSettingsMock).toHaveBeenCalled()
+    expect(saveConfigMock).toHaveBeenCalled()
   })
 
   test('window "closed" event clears the active flag', () => {
     const rt = baseState({ dashScreenActive: true })
     syncSecondaryWindows(rt)
     const win = lastWindows[0]
+    expect(drawVideoIn).toHaveBeenCalledWith('dash', win)
     win.emit('closed')
-    expect(saveSettingsMock).toHaveBeenCalledWith(rt, { dashScreenActive: false })
+    expect(drawVideoIn).toHaveBeenLastCalledWith('dash', null)
+    expect(saveConfigMock).toHaveBeenCalledWith({ dashScreenActive: false })
   })
 
   test('"closed" while quitting does not save', () => {
@@ -199,7 +190,7 @@ describe('window lifecycle', () => {
     const win = lastWindows[0]
     rt.isQuitting = true
     win.emit('closed')
-    expect(saveSettingsMock).not.toHaveBeenCalled()
+    expect(saveConfigMock).not.toHaveBeenCalled()
   })
 })
 
@@ -252,7 +243,7 @@ describe('secondaryWindows — bounds + ready-to-show', () => {
     syncSecondaryWindows(rt)
     const win = lastWindows[0]
     win.emit('ready-to-show')
-    // width/height restored as content size, position separately (no titlebar drift)
+    // Separate calls keep the titlebar from shifting the window.
     expect(win.setContentSize).toHaveBeenCalledWith(1024, 768)
     expect(win.setPosition).toHaveBeenCalledWith(10, 20)
   })
@@ -282,7 +273,7 @@ describe('secondaryWindows — bounds + ready-to-show', () => {
     win.isFullScreen.mockReturnValue(true)
     win.emit('move')
     vi.advanceTimersByTime(500)
-    expect(saveSettingsMock).not.toHaveBeenCalled()
+    expect(saveConfigMock).not.toHaveBeenCalled()
   })
 
   test('persistBounds skips when destroyed', () => {
@@ -292,7 +283,7 @@ describe('secondaryWindows — bounds + ready-to-show', () => {
     win.isDestroyed.mockReturnValue(true)
     win.emit('move')
     vi.advanceTimersByTime(500)
-    expect(saveSettingsMock).not.toHaveBeenCalled()
+    expect(saveConfigMock).not.toHaveBeenCalled()
   })
 
   test('persistBounds skips when bounds unchanged', () => {
@@ -304,7 +295,7 @@ describe('secondaryWindows — bounds + ready-to-show', () => {
     const win = lastWindows[0]
     win.emit('move')
     vi.advanceTimersByTime(500)
-    expect(saveSettingsMock).not.toHaveBeenCalled()
+    expect(saveConfigMock).not.toHaveBeenCalled()
   })
 
   test('resize is a no-op when fullScreen / kiosk', () => {
@@ -407,15 +398,6 @@ describe('secondaryWindows — bounds + ready-to-show', () => {
     expect(win.setPosition).not.toHaveBeenCalled()
     expect(win.setFullScreen).not.toHaveBeenCalled()
     expect(win.setKiosk).not.toHaveBeenCalled()
-    expect(setMacBackdropMock).not.toHaveBeenCalled()
-  })
-
-  test('ready-to-show paints the mac backdrop', () => {
-    const rt = baseState({ dashScreenActive: true })
-    syncSecondaryWindows(rt)
-    const win = lastWindows[0]
-    win.emit('ready-to-show')
-    expect(setMacBackdropMock).toHaveBeenCalledWith(win, '#000000')
   })
 
   test('closed clears a pending bounds timer and skips save when flag already false', () => {
@@ -426,7 +408,7 @@ describe('secondaryWindows — bounds + ready-to-show', () => {
     rt.config.dashScreenActive = false
     win.emit('closed')
     vi.advanceTimersByTime(500)
-    expect(saveSettingsMock).not.toHaveBeenCalled()
+    expect(saveConfigMock).not.toHaveBeenCalled()
   })
 
   test('resize is a no-op when the window is destroyed', () => {
@@ -520,16 +502,15 @@ describe('secondaryWindows — compositor mode', () => {
     expect(win.__opts.transparent).toBe(true)
     win.emit('move')
     vi.advanceTimersByTime(500)
-    expect(saveSettingsMock).not.toHaveBeenCalled()
+    expect(saveConfigMock).not.toHaveBeenCalled()
     mod.closeAllSecondaryWindows()
   })
 
-  test('size change reopens the compositor output', async () => {
+  test('a size change resizes the window', async () => {
     const mod = await loadCompositor()
     const rt = baseState({ dashScreenActive: true })
     mod.syncSecondaryWindows(rt)
     const win = lastWindows[0]
-    setCompositorScreenMock.mockClear()
     rt.config.dashScreenWidth = 1024
     mod.syncSecondaryWindows(rt, {
       dashScreenActive: true,
@@ -537,13 +518,6 @@ describe('secondaryWindows — compositor mode', () => {
       dashScreenHeight: 480
     } as never)
     expect(win.setContentSize).toHaveBeenCalledWith(1024, 480)
-    expect(setCompositorScreenMock).toHaveBeenCalledWith('dash', false)
-    expect(setCompositorScreenMock).toHaveBeenCalledWith(
-      'dash',
-      true,
-      1024,
-      480 + COMPOSITOR_TITLEBAR_H
-    )
     mod.closeAllSecondaryWindows()
   })
 })

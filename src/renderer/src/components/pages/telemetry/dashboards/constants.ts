@@ -10,24 +10,12 @@ export const CENTER_X = Math.round(BASE_W / 2)
 export const GAUGE_RADIUS = 110
 export const GAUGE_GAP_DEG = 180
 export const GAUGE_ARM_TICKS = 3
-export const GAUGE_TICKS = 41
-export const GAUGE_MAJOR_COUNT = 6
-
-// Speed scale (left): 0…200 km/h, labelled every 40.
-export const SPEED_SCALE_MAX = 200
-export const SPEED_LABELS = ['0', '40', '80', '120', '160', '200']
-
-// RPM scale (right): 0…5000 rpm in thousands, redline at 4500.
-export const RPM_SCALE_MAX = 5000
-export const RPM_REDLINE = 4500
-export const RPM_LABELS = ['0', '1', '2', '3', '4', '5']
 
 export const RING_W = 470
 export const RING_H = 600
 export const RING_TOP = 60
 export const LEFT_RING_LEFT = -32
 export const RIGHT_RING_LEFT = BASE_W - RING_W + 40
-export const MAX_SPEED_KPH = 220
 
 // Nudge each readout off the gauge centre toward the screen centre (speed right, gear left).
 export const READOUT_DX = 34

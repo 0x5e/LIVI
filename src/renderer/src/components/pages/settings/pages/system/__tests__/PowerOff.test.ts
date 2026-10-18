@@ -1,37 +1,35 @@
+const coreAction = vi.fn()
+
+vi.mock('@store/store', () => ({
+  coreAction: (action: unknown) => coreAction(action)
+}))
+
 import { __resetPowerOffGuardForTests, PowerOff } from '../PowerOff'
 
 describe('PowerOff', () => {
   beforeEach(() => {
     __resetPowerOffGuardForTests()
+    coreAction.mockReset()
   })
 
-  test('calls window.app.quitApp and returns null', () => {
+  test('asks core to quit and returns null', () => {
     const catchMock = vi.fn()
-    const quitAppMock = vi.fn(() => ({ catch: catchMock }))
-
-    ;(window as any).app = {
-      quitApp: quitAppMock
-    }
+    coreAction.mockReturnValue({ catch: catchMock })
 
     const result = PowerOff()
 
     expect(result).toBeNull()
-    expect(quitAppMock).toHaveBeenCalledTimes(1)
+    expect(coreAction).toHaveBeenCalledWith({ kind: 'quit' })
     expect(catchMock).toHaveBeenCalledWith(console.error)
   })
 
-  test('does not fire quitApp again on subsequent renders', () => {
-    const catchMock = vi.fn()
-    const quitAppMock = vi.fn(() => ({ catch: catchMock }))
-
-    ;(window as any).app = {
-      quitApp: quitAppMock
-    }
+  test('asks only once over several renders', () => {
+    coreAction.mockReturnValue({ catch: vi.fn() })
 
     PowerOff()
     PowerOff()
     PowerOff()
 
-    expect(quitAppMock).toHaveBeenCalledTimes(1)
+    expect(coreAction).toHaveBeenCalledTimes(1)
   })
 })

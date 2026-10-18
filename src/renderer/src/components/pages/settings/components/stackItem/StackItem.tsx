@@ -143,6 +143,18 @@ export const StackItem = ({
     ? node.valueTransform.format(viewValue)
     : `${viewValue}${node?.displayValueUnit ?? ''}`
 
+  const settings = useLiviStore((s) => s.settings)
+  const numberNode = node?.type === 'number' ? node : undefined
+  const unit = numberNode?.unit?.(settings)
+  if (numberNode && unit) {
+    const step = unit.step ?? numberNode.step ?? 1
+    const shown = Math.min(
+      Math.round((Number(value) * unit.factor) / step) * step,
+      unit.max ?? Number.POSITIVE_INFINITY
+    )
+    displayValue = `${shown} ${unit.suffix}`
+  }
+
   // gst-device-monitor follow mode bumps this on every device add/remove
   const audioDevicesRevision = useLiviStore((s) => s.audioDevicesRevision)
   const [dynamicOpts, setDynamicOpts] = useState(() =>

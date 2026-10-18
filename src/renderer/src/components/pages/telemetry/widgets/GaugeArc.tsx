@@ -37,8 +37,22 @@ export type GaugeArcProps = {
   className?: string
 }
 
+const DEFAULTS = {
+  ticks: 41,
+  radius: 110,
+  gapDeg: 180,
+  armTicks: 3,
+  majorCount: 6,
+  majorH: 26,
+  labelSize: 15
+}
+
 const clamp = (v: number, min: number, max: number) => Math.max(min, Math.min(max, v))
 const rad = (d: number) => (d * Math.PI) / 180
+
+// Roboto digits run 0.56 em, a little more leaves room for rounding.
+const DIGIT_EM = 0.58
+const LABEL_CLEARANCE = 1
 
 // Pointer start position for the boot sweep: just below the 0 mark, on the same circle.
 const START_T = -0.08
@@ -77,6 +91,67 @@ function arcAt(R: number, gapDeg: number, t: number) {
   return { x: R * Math.cos(rad(a)), y: R * Math.sin(rad(a)), ang: a }
 }
 
+/** viewBox centred on the tick content (so the readout sits on the gauge centre), padded for the
+    outer labels. */
+function frame(R: number, gapDeg: number, arcTicks: number, caps: number, labelSize: number) {
+  const armPitch = (((360 - gapDeg) / 360) * 2 * Math.PI * R) / (arcTicks - 1)
+  const contentRight = R * Math.cos(rad(gapDeg / 2)) + caps * armPitch
+  const labelReach = labelSize + 26
+  return {
+    cx: (contentRight - R) / 2,
+    hw: (contentRight + R) / 2 + labelReach,
+    hh: R + labelReach,
+    labelReach
+  }
+}
+
+/** A label's centre outside its major, before mirroring. */
+function labelAt(R: number, gapDeg: number, t: number, majorH: number, labelSize: number) {
+  const lp = arcAt(R, gapDeg, t)
+  const off = majorH / 2 + labelSize * 0.9
+  return { x: lp.x + Math.cos(rad(lp.ang)) * off, y: lp.y + Math.sin(rad(lp.ang)) * off }
+}
+
+export type GaugeLabels = Pick<
+  GaugeArcProps,
+  'ticks' | 'radius' | 'gapDeg' | 'armTicks' | 'majorCount' | 'labels' | 'majorH' | 'labelSize'
+>
+
+/**
+ * How many px the gauge has to move in so its outermost number stays on screen, laid into a
+ * `boxW` × `boxH` box whose outer side hangs `px` off the screen. 0 when every number fits.
+ */
+export function labelOverflow(
+  gauge: GaugeLabels,
+  box: { boxW: number; boxH: number; px: number }
+): number {
+  const { ticks, radius, gapDeg, armTicks, majorCount, majorH, labelSize } = {
+    ...DEFAULTS,
+    ...gauge
+  }
+  if (majorCount < 2) return 0
+  const labels = gauge.labels ?? []
+  const caps = Math.max(0, Math.floor(armTicks))
+  const { hw, hh, labelReach } = frame(
+    radius,
+    gapDeg,
+    Math.max(2, Math.floor(ticks)),
+    caps,
+    labelSize
+  )
+  const fit = Math.min(box.boxW / (hw * 2), box.boxH / (hh * 2))
+  const margin = (box.boxW - hw * 2 * fit) / 2
+  const screenEdge = radius + labelReach - (box.px - margin) / fit
+  let reach = 0
+  for (let m = 0; m < majorCount; m++) {
+    const { x } = labelAt(radius, gapDeg, m / (majorCount - 1), majorH, labelSize)
+    const half = ((labels[m] ?? '').length * DIGIT_EM * labelSize) / 2
+    // The outer side is negative x before mirroring.
+    reach = Math.max(reach, half - x)
+  }
+  return Math.max(0, (reach + LABEL_CLEARANCE - screenEdge) * fit)
+}
+
 /**
  * Round gauge: a minimalist tick scale with labelled majors and a pointer that runs
  * along the arc. The passed-over scale (0 → pointer) is overlaid by a translucent gradient so the
@@ -87,18 +162,18 @@ export function GaugeArc({
   value,
   scaleMax,
   redline = 0,
-  ticks = 41,
-  radius = 110,
-  gapDeg = 180,
-  armTicks = 3,
-  majorCount = 6,
+  ticks = DEFAULTS.ticks,
+  radius = DEFAULTS.radius,
+  gapDeg = DEFAULTS.gapDeg,
+  armTicks = DEFAULTS.armTicks,
+  majorCount = DEFAULTS.majorCount,
   labels = [],
   mirror = false,
   trailMax = 0.5,
   tickW = 3,
   tickH = 14,
-  majorH = 26,
-  labelSize = 15,
+  majorH = DEFAULTS.majorH,
+  labelSize = DEFAULTS.labelSize,
   colorScale,
   colorMajor,
   colorPointer,
@@ -162,15 +237,7 @@ export function GaugeArc({
   })
   const capFade = (k: number) => (caps <= 1 ? 1 : 0.18 + 0.72 * ((caps - k) / (caps - 1)))
 
-  // viewBox centred on the tick content (so the readout sits on the gauge centre), padded for
-  // the outer labels.
-  const armPitch = (((360 - gapDeg) / 360) * 2 * Math.PI * radius) / (arcTicks - 1)
-  const contentLeft = -radius
-  const contentRight = radius * Math.cos(rad(gapDeg / 2)) + caps * armPitch
-  const cx = (contentLeft + contentRight) / 2
-  const labelReach = labelSize + 26
-  const hw = (contentRight - contentLeft) / 2 + labelReach
-  const hh = radius + labelReach
+  const { cx, hw, hh } = frame(radius, gapDeg, arcTicks, caps, labelSize)
 
   let scaleArc = -1
   let trailArc = -1
@@ -276,17 +343,12 @@ export function GaugeArc({
       {/* labels outside the majors */}
       {majorCount >= 2 &&
         Array.from({ length: majorCount }, (_, m) => {
-          const t = m / (majorCount - 1)
-          const lp = arcAt(radius, gapDeg, t)
-          const off = majorH / 2 + labelSize * 0.9
-          const { px, py, pang } = place(lp.x, lp.y, lp.ang)
-          const lx = px + Math.cos(rad(pang)) * off
-          const ly = py + Math.sin(rad(pang)) * off
+          const { x, y } = labelAt(radius, gapDeg, m / (majorCount - 1), majorH, labelSize)
           return (
             <text
               key={`l${m}`}
-              x={lx}
-              y={ly}
+              x={x * sx}
+              y={y}
               fill={colorMajor}
               fontSize={labelSize}
               textAnchor="middle"

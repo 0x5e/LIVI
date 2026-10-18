@@ -1,5 +1,5 @@
 import { act, render } from '@testing-library/react'
-import { GaugeArc } from '../GaugeArc'
+import { GaugeArc, labelOverflow } from '../GaugeArc'
 
 const colors = {
   colorScale: '#111',
@@ -35,6 +35,34 @@ describe('GaugeArc', () => {
     const texts = Array.from(container.querySelectorAll('text')).map((t) => t.textContent)
     expect(texts).toHaveLength(4)
     expect(texts).toEqual(['0', '30', '60', '90'])
+  })
+
+  test('shows a number on every mark, the outermost one too', () => {
+    const labels = ['0', '40', '80', '120', '160', '200', '240', '280', '320']
+    const { container } = render(
+      <GaugeArc value={0} scaleMax={320} majorCount={9} labels={labels} mirror {...colors} />
+    )
+
+    const texts = Array.from(container.querySelectorAll('text'))
+    expect(texts.map((t) => t.textContent)).toEqual(labels)
+    expect(Number(texts[4].getAttribute('x'))).toBeCloseTo(136.5, 1)
+  })
+
+  test('tells how far the gauge has to move in so every number stays on screen', () => {
+    const left = { boxW: 470, boxH: 600, px: 32 }
+    const twenties = Array.from({ length: 14 }, (_, i) => String(i * 20))
+
+    expect(
+      labelOverflow({ majorCount: 6, labels: ['0', '40', '80', '120', '160', '200'] }, left)
+    ).toBe(0)
+    expect(labelOverflow({ ticks: 40, majorCount: 14, labels: twenties }, left)).toBeCloseTo(
+      11.25,
+      0
+    )
+    const rpm = Array.from({ length: 9 }, (_, i) => String(i))
+    expect(labelOverflow({ majorCount: 9, labels: rpm }, { ...left, px: 40 })).toBeCloseTo(3.3, 0)
+    expect(labelOverflow({ majorCount: 3 }, left)).toBe(0)
+    expect(labelOverflow({ majorCount: 1, labels: ['0'] }, left)).toBe(0)
   })
 
   test('colors ticks at/above the redline red', () => {

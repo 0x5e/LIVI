@@ -9,12 +9,7 @@ vi.mock('@main/window/secondaryWindows', () => ({
   getSecondaryWindow: (role: string) => getSecondaryWindowMock(role)
 }))
 
-import {
-  broadcastToRenderers,
-  broadcastToSecondaryRenderers,
-  getAllRendererWebContents,
-  getSecondaryRendererWebContents
-} from '../broadcast'
+import { broadcastToRenderers, getAllRendererWebContents } from '../broadcast'
 
 function fakeWin(over: { destroyed?: boolean; sendThrows?: boolean } = {}) {
   return {
@@ -75,21 +70,6 @@ describe('getAllRendererWebContents', () => {
   })
 })
 
-describe('getSecondaryRendererWebContents', () => {
-  test('returns only the secondary webContents (no main)', () => {
-    const main = fakeWin()
-    const dash = fakeWin()
-    getMainWindowMock.mockReturnValue(main)
-    getSecondaryWindowMock.mockImplementation((role: string) => (role === 'dash' ? dash : null))
-    expect(getSecondaryRendererWebContents()).toEqual([dash.webContents])
-  })
-
-  test('empty list when neither secondary is open', () => {
-    getSecondaryWindowMock.mockReturnValue(null)
-    expect(getSecondaryRendererWebContents()).toEqual([])
-  })
-})
-
 describe('broadcastToRenderers', () => {
   test('forwards channel + args to every alive renderer', () => {
     const main = fakeWin()
@@ -110,30 +90,5 @@ describe('broadcastToRenderers', () => {
 
     expect(() => broadcastToRenderers('x')).not.toThrow()
     expect(ok.webContents.send).toHaveBeenCalled()
-  })
-})
-
-describe('broadcastToSecondaryRenderers', () => {
-  test('skips the main window', () => {
-    const main = fakeWin()
-    const aux = fakeWin()
-    getMainWindowMock.mockReturnValue(main)
-    getSecondaryWindowMock.mockImplementation((role: string) => (role === 'aux' ? aux : null))
-
-    broadcastToSecondaryRenderers('foo:bar', 1, 2)
-    expect(main.webContents.send).not.toHaveBeenCalled()
-    expect(aux.webContents.send).toHaveBeenCalledWith('foo:bar', 1, 2)
-  })
-
-  test('thrown send is swallowed and warned', () => {
-    const broken = fakeWin({ sendThrows: true })
-    getMainWindowMock.mockReturnValue(null)
-    getSecondaryWindowMock.mockImplementation((role: string) => (role === 'dash' ? broken : null))
-    expect(() => broadcastToSecondaryRenderers('x')).not.toThrow()
-  })
-
-  test('no-op when no secondary windows are open', () => {
-    getSecondaryWindowMock.mockReturnValue(null)
-    expect(() => broadcastToSecondaryRenderers('x')).not.toThrow()
   })
 })

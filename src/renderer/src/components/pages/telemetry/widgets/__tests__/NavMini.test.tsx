@@ -1,21 +1,13 @@
-import { act, render, screen, waitFor } from '@testing-library/react'
-import type { Mock } from 'vitest'
+import type { Navigation } from '@shared/core/contract'
+import { render, screen, waitFor } from '@testing-library/react'
 import { NavMini } from '../NavMini'
+import { guidance } from './navState'
 
-let onEventCb: ((event: unknown, ...args: unknown[]) => void) | undefined
-let unsubscribeMock: Mock
-
-const useLiviStoreMock = vi.fn()
-const translateNavigationMock = vi.fn()
 const useBlinkingTimeMock = vi.fn()
+const state: { navigation: Navigation | null } = { navigation: null }
 
 vi.mock('@store/store', () => ({
-  useLiviStore: (selector: (state: { settings: { language: string } }) => unknown) =>
-    useLiviStoreMock(selector)
-}))
-
-vi.mock('@shared/utils/translateNavigation', () => ({
-  translateNavigation: (...args: unknown[]) => translateNavigationMock(...args)
+  useLiviStore: (selector: (s: typeof state) => unknown) => selector(state)
 }))
 
 vi.mock('../../../../../hooks/useBlinkingTime', () => ({
@@ -23,660 +15,102 @@ vi.mock('../../../../../hooks/useBlinkingTime', () => ({
 }))
 
 describe('NavMini', () => {
-  beforeEach(async () => {
+  beforeEach(() => {
     vi.clearAllMocks()
-    onEventCb = undefined
-    unsubscribeMock = vi.fn()
-
-    useLiviStoreMock.mockImplementation((selector: (state: any) => unknown) =>
-      selector({
-        settings: {
-          language: 'de'
-        }
-      })
-    )
-
+    state.navigation = null
     useBlinkingTimeMock.mockReturnValue('12:34')
-
-    translateNavigationMock.mockImplementation((navi, locale) => ({
-      RemainDistanceText: '200 m',
-      TimeRemainingToDestinationText: '12 min',
-      DistanceRemainingDisplayStringText: '5 km',
-      CurrentRoadName: 'Main Street',
-      codes: {
-        ManeuverType: 2,
-        TurnSide: 2
-      },
-      __navi: navi,
-      __locale: locale
-    }))
-    ;(window as any).projection = {
-      ipc: {
-        readNavigation: vi.fn().mockResolvedValue({
-          payload: {
-            navi: {
-              NaviStatus: 0
-            }
-          }
-        }),
-        onEvent: vi.fn((cb: (event: unknown, ...args: unknown[]) => void) => {
-          onEventCb = cb
-          return unsubscribeMock
-        })
-      }
-    }
   })
 
-  test('shows blinking time when navigation is inactive', async () => {
+  test('shows the clock without a route', () => {
     render(<NavMini />)
-
-    await waitFor(() => {
-      expect((window as any).projection.ipc.readNavigation).toHaveBeenCalled()
-    })
-
     expect(
       screen.getAllByText((_, element) => element?.textContent === '12:34').length
     ).toBeGreaterThan(0)
+
+    state.navigation = guidance({ active: false })
+    render(<NavMini />)
     expect(screen.queryByText('200 m')).not.toBeInTheDocument()
   })
 
-  test('renders active navigation content after hydrate', async () => {
-    ;(window as any).projection.ipc.readNavigation = vi.fn().mockResolvedValue({
-      payload: {
-        navi: {
-          NaviStatus: 1,
-          NaviManeuverType: 2,
-          NaviTurnSide: 2
-        }
-      }
-    })
-
+  test('renders the guidance core wrote out', () => {
+    state.navigation = guidance()
     render(<NavMini iconSize={84} />)
-
-    await waitFor(() => {
-      expect(screen.getByText('200 m')).toBeInTheDocument()
-    })
-
+    expect(screen.getByText('200 m')).toBeInTheDocument()
     expect(screen.getByText('12 min')).toBeInTheDocument()
     expect(screen.getByText('5 km')).toBeInTheDocument()
+    expect(screen.getByTestId('AccessTimeIcon')).toBeInTheDocument()
   })
 
-  test('passes normalized locale from settings into translateNavigation', async () => {
-    ;(window as any).projection.ipc.readNavigation = vi.fn().mockResolvedValue({
-      payload: {
-        navi: {
-          NaviStatus: 1
-        }
-      }
-    })
-
+  test('shows the phone picture and leaves the destination distance out', async () => {
+    state.navigation = guidance({ image: 'abc123' })
     render(<NavMini />)
-
-    await waitFor(() => {
-      expect(translateNavigationMock).toHaveBeenCalled()
-    })
-
-    const lastCall = translateNavigationMock.mock.calls.at(-1)
-    expect(lastCall?.[1]).toBe('de')
-  })
-
-  test('falls back to en locale for unsupported language', async () => {
-    useLiviStoreMock.mockImplementation((selector: (state: any) => unknown) =>
-      selector({
-        settings: {
-          language: 'fr'
-        }
-      })
-    )
-    ;(window as any).projection.ipc.readNavigation = vi.fn().mockResolvedValue({
-      payload: {
-        navi: {
-          NaviStatus: 1
-        }
-      }
-    })
-
-    render(<NavMini />)
-
-    await waitFor(() => {
-      expect(translateNavigationMock).toHaveBeenCalled()
-    })
-
-    const lastCall = translateNavigationMock.mock.calls.at(-1)
-    expect(lastCall?.[1]).toBe('en')
-  })
-
-  test('subscribes to projection events and unsubscribes on unmount', async () => {
-    const { unmount } = render(<NavMini />)
-
-    expect((window as any).projection.ipc.onEvent).toHaveBeenCalledTimes(1)
-    expect(onEventCb).toBeDefined()
-
-    unmount()
-
-    expect(unsubscribeMock).toHaveBeenCalledTimes(1)
-  })
-
-  test('ignores non-navigation events', async () => {
-    render(<NavMini />)
-
-    await waitFor(() => {
-      expect((window as any).projection.ipc.readNavigation).toHaveBeenCalled()
-    })
-
-    act(() => {
-      onEventCb?.(null, { type: 'other', payload: { NaviStatus: 1 } })
-    })
-
-    expect(screen.queryByText('200 m')).not.toBeInTheDocument()
-  })
-
-  test('updates state from navigation event payload wrapper', async () => {
-    render(<NavMini />)
-
-    act(() => {
-      onEventCb?.(null, {
-        type: 'navigation',
-        payload: {
-          NaviStatus: 1,
-          NaviManeuverType: 2,
-          NaviTurnSide: 2
-        }
-      })
-    })
-
-    await waitFor(() => {
-      expect(screen.getByText('200 m')).toBeInTheDocument()
-    })
-  })
-
-  test('updates state from navigation event with nested navi payload', async () => {
-    render(<NavMini />)
-
-    act(() => {
-      onEventCb?.(null, {
-        type: 'navigation',
-        payload: {
-          navi: {
-            NaviStatus: 1,
-            NaviManeuverType: 2,
-            NaviTurnSide: 2
-          }
-        }
-      })
-    })
-
-    await waitFor(() => {
-      expect(screen.getByText('200 m')).toBeInTheDocument()
-    })
-  })
-
-  test('falls back to hydrate when navigation event patch cannot be unwrapped', async () => {
-    ;(window as any).projection.ipc.readNavigation = vi
-      .fn()
-      .mockResolvedValueOnce({
-        payload: {
-          navi: {
-            NaviStatus: 0
-          }
-        }
-      })
-      .mockResolvedValueOnce({
-        payload: {
-          navi: {
-            NaviStatus: 1
-          }
-        }
-      })
-
-    render(<NavMini />)
-
-    await waitFor(() => {
-      expect((window as any).projection.ipc.readNavigation).toHaveBeenCalledTimes(1)
-    })
-
-    act(() => {
-      onEventCb?.(null, {
-        type: 'navigation',
-        payload: {
-          foo: 'bar'
-        }
-      })
-    })
-
-    await waitFor(() => {
-      expect((window as any).projection.ipc.readNavigation).toHaveBeenCalledTimes(2)
-    })
-
-    await waitFor(() => {
-      expect(screen.getByText('200 m')).toBeInTheDocument()
-    })
-  })
-
-  test('renders maneuver image when NaviImageBase64 is present', async () => {
-    ;(window as any).projection.ipc.readNavigation = vi.fn().mockResolvedValue({
-      payload: {
-        navi: {
-          NaviStatus: 1,
-          NaviImageBase64: 'abc123'
-        }
-      }
-    })
-
-    render(<NavMini />)
-
-    expect(await screen.findByAltText('Navigation maneuver')).toBeInTheDocument()
-  })
-
-  test('uses current road name when eta text is missing', async () => {
-    translateNavigationMock.mockImplementation(() => ({
-      RemainDistanceText: '200 m',
-      TimeRemainingToDestinationText: '—',
-      DistanceRemainingDisplayStringText: '5 km',
-      CurrentRoadName: 'Main Street',
-      codes: {
-        ManeuverType: 2,
-        TurnSide: 2
-      }
-    }))
-    ;(window as any).projection.ipc.readNavigation = vi.fn().mockResolvedValue({
-      payload: {
-        navi: {
-          NaviStatus: 1
-        }
-      }
-    })
-
-    render(<NavMini />)
-
-    expect(await screen.findByText('Main Street')).toBeInTheDocument()
-  })
-
-  test('shows dash fallback when eta and road name are missing', async () => {
-    translateNavigationMock.mockImplementation(() => ({
-      RemainDistanceText: '200 m',
-      TimeRemainingToDestinationText: '—',
-      DistanceRemainingDisplayStringText: '5 km',
-      CurrentRoadName: '',
-      codes: {
-        ManeuverType: 2,
-        TurnSide: 2
-      }
-    }))
-    ;(window as any).projection.ipc.readNavigation = vi.fn().mockResolvedValue({
-      payload: {
-        navi: {
-          NaviStatus: 1
-        }
-      }
-    })
-
-    render(<NavMini />)
-
-    expect(await screen.findAllByText('—')).not.toHaveLength(0)
-  })
-
-  test('hides destination distance in bottom row when maneuver image is present', async () => {
-    ;(window as any).projection.ipc.readNavigation = vi.fn().mockResolvedValue({
-      payload: {
-        navi: {
-          NaviStatus: 1,
-          NaviImageBase64: 'abc123'
-        }
-      }
-    })
-
-    render(<NavMini />)
-
     expect(await screen.findByAltText('Navigation maneuver')).toBeInTheDocument()
     expect(screen.queryByText('5 km')).not.toBeInTheDocument()
   })
 
-  test('keeps previous navigation state when hydrate throws', async () => {
-    ;(window as any).projection.ipc.readNavigation = vi
-      .fn()
-      .mockResolvedValueOnce({
-        payload: {
-          navi: {
-            NaviStatus: 1
-          }
-        }
-      })
-      .mockRejectedValueOnce(new Error('read failed'))
+  test('shows the road without a time left, a dash without either', () => {
+    state.navigation = guidance({ timeLeftText: null })
+    const { unmount } = render(<NavMini />)
+    expect(screen.getByText('Main Street')).toBeInTheDocument()
+    expect(screen.getByTestId('SignpostIcon')).toBeInTheDocument()
+    unmount()
 
+    state.navigation = guidance({ timeLeftText: null, roadName: null })
     render(<NavMini />)
-
-    await waitFor(() => {
-      expect(screen.getByText('200 m')).toBeInTheDocument()
-    })
-
-    act(() => {
-      onEventCb?.(null, {
-        type: 'navigation',
-        payload: {
-          foo: 'bar'
-        }
-      })
-    })
-
-    await waitFor(() => {
-      expect((window as any).projection.ipc.readNavigation).toHaveBeenCalledTimes(2)
-    })
-
-    expect(screen.getByText('200 m')).toBeInTheDocument()
-  })
-
-  test('renders a neutral navigation icon when maneuver type is missing', async () => {
-    translateNavigationMock.mockImplementation(() => ({
-      RemainDistanceText: '200 m',
-      TimeRemainingToDestinationText: '12 min',
-      DistanceRemainingDisplayStringText: '5 km',
-      CurrentRoadName: 'Main Street',
-      codes: {
-        ManeuverType: undefined,
-        TurnSide: undefined
-      }
-    }))
-    ;(window as any).projection.ipc.readNavigation = vi.fn().mockResolvedValue({
-      payload: {
-        navi: {
-          NaviStatus: 1
-        }
-      }
-    })
-
-    render(<NavMini />)
-
-    await waitFor(() => {
-      expect(screen.getByTestId('NavigationOutlinedIcon')).toBeInTheDocument()
-    })
-  })
-
-  test('renders roundabout icon for roundabout maneuver types', async () => {
-    translateNavigationMock.mockImplementation(() => ({
-      RemainDistanceText: '120 m',
-      TimeRemainingToDestinationText: '9 min',
-      DistanceRemainingDisplayStringText: '3 km',
-      CurrentRoadName: 'Ring',
-      codes: {
-        ManeuverType: 28,
-        TurnSide: 2
-      }
-    }))
-    ;(window as any).projection.ipc.readNavigation = vi.fn().mockResolvedValue({
-      payload: {
-        navi: {
-          NaviStatus: 1
-        }
-      }
-    })
-
-    render(<NavMini />)
-
-    await waitFor(() => {
-      expect(screen.getByTestId('RoundaboutRightIcon')).toBeInTheDocument()
-    })
-  })
-
-  test('renders right u-turn icon when turn side is right', async () => {
-    translateNavigationMock.mockImplementation(() => ({
-      RemainDistanceText: '80 m',
-      TimeRemainingToDestinationText: '4 min',
-      DistanceRemainingDisplayStringText: '1 km',
-      CurrentRoadName: 'Main Street',
-      codes: {
-        ManeuverType: 4,
-        TurnSide: 0
-      }
-    }))
-    ;(window as any).projection.ipc.readNavigation = vi.fn().mockResolvedValue({
-      payload: {
-        navi: {
-          NaviStatus: 1
-        }
-      }
-    })
-
-    render(<NavMini />)
-
-    await waitFor(() => {
-      expect(screen.getByTestId('UTurnRightIcon')).toBeInTheDocument()
-    })
-  })
-
-  test('renders a neutral navigation icon for unknown maneuver type', async () => {
-    translateNavigationMock.mockImplementation(() => ({
-      RemainDistanceText: '300 m',
-      TimeRemainingToDestinationText: '6 min',
-      DistanceRemainingDisplayStringText: '3 km',
-      CurrentRoadName: 'Mystery Road',
-      codes: {
-        ManeuverType: 999,
-        TurnSide: 1
-      }
-    }))
-    ;(window as any).projection.ipc.readNavigation = vi.fn().mockResolvedValue({
-      payload: {
-        navi: {
-          NaviStatus: 1
-        }
-      }
-    })
-
-    render(<NavMini />)
-
-    await waitFor(() => {
-      expect(screen.getByTestId('NavigationOutlinedIcon')).toBeInTheDocument()
-    })
-  })
-
-  test('renders exit icon for exit maneuver type', async () => {
-    translateNavigationMock.mockImplementation(() => ({
-      RemainDistanceText: '500 m',
-      TimeRemainingToDestinationText: '15 min',
-      DistanceRemainingDisplayStringText: '8 km',
-      CurrentRoadName: 'Highway',
-      codes: {
-        ManeuverType: 8,
-        TurnSide: 1
-      }
-    }))
-    ;(window as any).projection.ipc.readNavigation = vi.fn().mockResolvedValue({
-      payload: {
-        navi: {
-          NaviStatus: 1
-        }
-      }
-    })
-
-    render(<NavMini />)
-
-    await waitFor(() => {
-      expect(screen.getByTestId('ExitToAppIcon')).toBeInTheDocument()
-    })
-  })
-
-  test('renders sharp right icon for maneuver type 48', async () => {
-    translateNavigationMock.mockImplementation(() => ({
-      RemainDistanceText: '60 m',
-      TimeRemainingToDestinationText: '2 min',
-      DistanceRemainingDisplayStringText: '600 m',
-      CurrentRoadName: 'Sharp Turn Rd',
-      codes: {
-        ManeuverType: 48,
-        TurnSide: 2
-      }
-    }))
-    ;(window as any).projection.ipc.readNavigation = vi.fn().mockResolvedValue({
-      payload: {
-        navi: {
-          NaviStatus: 1
-        }
-      }
-    })
-
-    render(<NavMini />)
-
-    await waitFor(() => {
-      expect(screen.getByTestId('TurnSharpRightIcon')).toBeInTheDocument()
-    })
-  })
-
-  test('ignores a non-object navigation snapshot', async () => {
-    ;(window as any).projection.ipc.readNavigation = vi.fn().mockResolvedValue(null)
-
-    render(<NavMini />)
-
-    await waitFor(() => {
-      expect((window as any).projection.ipc.readNavigation).toHaveBeenCalled()
-    })
-
-    expect(screen.queryByText('200 m')).not.toBeInTheDocument()
-  })
-
-  test('ignores an event dispatched without a message', async () => {
-    render(<NavMini />)
-
-    await waitFor(() => {
-      expect((window as any).projection.ipc.readNavigation).toHaveBeenCalled()
-    })
-
-    act(() => {
-      onEventCb?.(null)
-    })
-
-    expect(screen.queryByText('200 m')).not.toBeInTheDocument()
-  })
-
-  test('uses the maneuver text as the distance line when remain distance is a dash', async () => {
-    translateNavigationMock.mockImplementation(() => ({
-      RemainDistanceText: '—',
-      ManeuverTypeText: 'Turn right',
-      TimeRemainingToDestinationText: '12 min',
-      DistanceRemainingDisplayStringText: '5 km',
-      CurrentRoadName: 'Main Street',
-      codes: { ManeuverType: 2, TurnSide: 2 }
-    }))
-    ;(window as any).projection.ipc.readNavigation = vi.fn().mockResolvedValue({
-      payload: { navi: { NaviStatus: 1 } }
-    })
-
-    render(<NavMini />)
-
-    expect(await screen.findByText('Turn right')).toBeInTheDocument()
-  })
-
-  test('drops an Unknown maneuver text from the distance line', async () => {
-    translateNavigationMock.mockImplementation(() => ({
-      RemainDistanceText: '—',
-      ManeuverTypeText: 'Unknown',
-      TimeRemainingToDestinationText: '12 min',
-      DistanceRemainingDisplayStringText: '5 km',
-      CurrentRoadName: 'Main Street',
-      codes: { ManeuverType: 2, TurnSide: 2 }
-    }))
-    ;(window as any).projection.ipc.readNavigation = vi.fn().mockResolvedValue({
-      payload: { navi: { NaviStatus: 1 } }
-    })
-
-    render(<NavMini />)
-
-    expect(await screen.findAllByText('—')).not.toHaveLength(0)
-  })
-
-  test('shows a dash when the destination distance is missing', async () => {
-    translateNavigationMock.mockImplementation(() => ({
-      RemainDistanceText: '200 m',
-      ManeuverTypeText: 'Turn right',
-      TimeRemainingToDestinationText: '12 min',
-      DistanceRemainingDisplayStringText: undefined,
-      CurrentRoadName: 'Main Street',
-      codes: { ManeuverType: 2, TurnSide: 2 }
-    }))
-    ;(window as any).projection.ipc.readNavigation = vi.fn().mockResolvedValue({
-      payload: { navi: { NaviStatus: 1 } }
-    })
-
-    render(<NavMini />)
-
-    expect(await screen.findByText('200 m')).toBeInTheDocument()
     expect(screen.getAllByText('—')).not.toHaveLength(0)
   })
 
-  test('extracts navi from a top-level navi wrapper (no payload)', async () => {
-    ;(window as any).projection.ipc.readNavigation = vi
-      .fn()
-      .mockResolvedValue({ navi: { NaviStatus: 1, NaviManeuverType: 2, NaviTurnSide: 2 } })
+  test('the maneuver stands in for a missing distance, a dash for both', () => {
+    state.navigation = guidance({ maneuverDistanceText: null })
+    const { unmount } = render(<NavMini />)
+    expect(screen.getByText('Turn right')).toBeInTheDocument()
+    unmount()
 
+    state.navigation = guidance({ maneuverDistanceText: null, maneuverText: null })
     render(<NavMini />)
-
-    expect(await screen.findByText('200 m')).toBeInTheDocument()
+    expect(screen.getAllByText('—')).not.toHaveLength(0)
   })
 
-  test('extracts navi from a top-level NaviStatus payload (no wrappers)', async () => {
-    ;(window as any).projection.ipc.readNavigation = vi
-      .fn()
-      .mockResolvedValue({ NaviStatus: 1, NaviManeuverType: 2, NaviTurnSide: 2 })
-
+  test('shows a dash when the destination distance is missing', () => {
+    state.navigation = guidance({ destinationDistanceText: null })
     render(<NavMini />)
-
-    expect(await screen.findByText('200 m')).toBeInTheDocument()
+    expect(screen.getByText('200 m')).toBeInTheDocument()
+    expect(screen.getAllByText('—')).not.toHaveLength(0)
   })
 
-  test('clears navigation and re-hydrates on a navigation-reset event', async () => {
-    ;(window as any).projection.ipc.readNavigation = vi.fn().mockResolvedValue({
-      payload: { navi: { NaviStatus: 1 } }
-    })
-
-    render(<NavMini />)
-    expect(await screen.findByText('200 m')).toBeInTheDocument()
-
-    act(() => {
-      onEventCb?.(null, { type: 'navigation-reset' })
-    })
-
-    await waitFor(() => {
-      expect((window as any).projection.ipc.readNavigation).toHaveBeenCalledTimes(2)
-    })
-  })
-
-  // Compact coverage for the remaining ManeuverIcon switch cases.
-  // turnSide=1 (left side); turnSide=2 paths are covered separately above.
   test.each([
-    [1, 'TurnLeftIcon'],
-    [3, 'StraightIcon'],
-    [5, 'StraightIcon'],
-    [18, 'UTurnLeftIcon'],
-    [26, 'UTurnLeftIcon'],
-    [7, 'RoundaboutRightIcon'],
-    [19, 'RoundaboutRightIcon'],
-    [22, 'ExitToAppIcon'],
-    [23, 'ExitToAppIcon'],
-    [9, 'MergeIcon'],
-    [10, 'FlagIcon'],
-    [12, 'FlagIcon'],
-    [24, 'FlagIcon'],
-    [25, 'FlagIcon'],
-    [27, 'FlagIcon'],
-    [13, 'ForkLeftIcon'],
-    [14, 'ForkRightIcon'],
-    [20, 'SubdirectoryArrowLeftIcon'],
-    [21, 'SubdirectoryArrowRightIcon'],
-    [47, 'TurnSharpLeftIcon'],
-    [49, 'TurnSlightLeftIcon'],
-    [50, 'TurnSlightRightIcon'],
-    [52, 'ForkLeftIcon'],
-    [53, 'ForkRightIcon']
-  ])('NavMini maneuver code %i renders %s', async (code, iconTestId) => {
-    translateNavigationMock.mockImplementation(() => ({
-      RemainDistanceText: '',
-      TimeRemainingToDestinationText: '',
-      DistanceRemainingDisplayStringText: '',
-      CurrentRoadName: '',
-      codes: { ManeuverType: code, TurnSide: 1 }
-    }))
-    ;(window as { projection: { ipc: { readNavigation: Mock } } }).projection.ipc.readNavigation =
-      vi.fn().mockResolvedValue({ payload: { navi: { NaviStatus: 1 } } })
+    [null, null, 'NavigationOutlinedIcon'],
+    [28, 2, 'RoundaboutRightIcon'],
+    [4, 0, 'UTurnRightIcon'],
+    [999, 1, 'NavigationOutlinedIcon'],
+    [8, 1, 'ExitToAppIcon'],
+    [48, 2, 'TurnSharpRightIcon'],
+    [1, 1, 'TurnLeftIcon'],
+    [3, 1, 'StraightIcon'],
+    [5, 1, 'StraightIcon'],
+    [18, 1, 'UTurnLeftIcon'],
+    [26, 1, 'UTurnLeftIcon'],
+    [7, 1, 'RoundaboutRightIcon'],
+    [19, 1, 'RoundaboutRightIcon'],
+    [22, 1, 'ExitToAppIcon'],
+    [23, 1, 'ExitToAppIcon'],
+    [9, 1, 'MergeIcon'],
+    [10, 1, 'FlagIcon'],
+    [12, 1, 'FlagIcon'],
+    [24, 1, 'FlagIcon'],
+    [25, 1, 'FlagIcon'],
+    [27, 1, 'FlagIcon'],
+    [13, 1, 'ForkLeftIcon'],
+    [14, 1, 'ForkRightIcon'],
+    [20, 1, 'SubdirectoryArrowLeftIcon'],
+    [21, 1, 'SubdirectoryArrowRightIcon'],
+    [47, 1, 'TurnSharpLeftIcon'],
+    [49, 1, 'TurnSlightLeftIcon'],
+    [50, 1, 'TurnSlightRightIcon'],
+    [52, 1, 'ForkLeftIcon'],
+    [53, 1, 'ForkRightIcon']
+  ])('maneuver %s on side %s renders %s', async (maneuverType, turnSide, iconTestId) => {
+    state.navigation = guidance({ maneuverType, turnSide })
     render(<NavMini />)
     await waitFor(() => {
       expect(screen.getByTestId(iconTestId)).toBeInTheDocument()

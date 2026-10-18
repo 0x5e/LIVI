@@ -222,6 +222,58 @@ describe('StackItem', () => {
     expect(screen.getByText('50 km/h')).toBeInTheDocument()
   })
 
+  test('shows a number in the unit the node picks from the settings', () => {
+    const unit = vi.fn(() => ({ factor: 0.5, suffix: 'mph' }))
+    const node = { type: 'number', label: 'Top', path: 'top', unit } as SettingsNode<Config>
+
+    render(
+      <StackItem node={node} showValue value={201}>
+        <span>Top</span>
+      </StackItem>
+    )
+
+    expect(unit).toHaveBeenCalledWith(null)
+    expect(screen.getByText('101 mph')).toBeInTheDocument()
+  })
+
+  test('a number in a unit lands on the whole step it is edited in', () => {
+    const unit = () => ({ factor: 1 / 1.609344, suffix: 'mph' })
+    const node = {
+      type: 'number',
+      label: 'Max',
+      path: 'max',
+      step: 20,
+      unit
+    } as SettingsNode<Config>
+
+    render(
+      <StackItem node={node} showValue value={200}>
+        <span>Max</span>
+      </StackItem>
+    )
+
+    expect(screen.getByText('120 mph')).toBeInTheDocument()
+  })
+
+  test('a number in a unit uses the unit step and stops at its cap', () => {
+    const unit = () => ({ factor: 1, suffix: 'km/h', step: 40, max: 120 })
+    const node = {
+      type: 'number',
+      label: 'Max',
+      path: 'max',
+      step: 7,
+      unit
+    } as SettingsNode<Config>
+
+    render(
+      <StackItem node={node} showValue value={300}>
+        <span>Max</span>
+      </StackItem>
+    )
+
+    expect(screen.getByText('120 km/h')).toBeInTheDocument()
+  })
+
   test('renders plain option label when select option has no labelKey', () => {
     const node = {
       type: 'select',

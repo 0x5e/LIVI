@@ -1,36 +1,29 @@
 export enum CommandMapping {
-  requestHostUI = 3, // 'Projection interface My Car button clicked'
-  disableBluetooth = 4,
-  voiceAssistant = 5, // PTT press (VOICE_ASSIST keycode)
-  voiceAssistantRelease = 6, // PTT release
+  requestHostUI = 3, // the My Car button in the projection
+  voiceAssistant = 5,
+  voiceAssistantRelease = 6,
   frame = 12,
-  enableNightMode = 16,
-  disableNightMode = 17,
 
-  // D-PAD
-  left = 100, // 'Button Left'
-  right = 101, // 'Button Right'
-  up = 102, // 'Button Up'
-  down = 103, // 'Button Down'
-  selectDown = 104, // 'Button Select Down'
-  selectUp = 105, // 'Button Select Up'
-  back = 106, // 'Button Back'
+  left = 100,
+  right = 101,
+  up = 102,
+  down = 103,
+  selectDown = 104,
+  selectUp = 105,
+  back = 106,
 
-  // Rotary Knob
   knobLeft = 111,
   knobRight = 112,
   knobUp = 113,
   knobDown = 114,
 
-  // Media Control
-  home = 200, // 'Button Home'
-  play = 201, // 'Button Play'
-  pause = 202, // 'Button Pause'
-  playPause = 203, // 'Button Toggle Play/Pause'
-  next = 204, // 'Button Next Track'
-  prev = 205, // 'Button Prev Track'
+  home = 200,
+  play = 201,
+  pause = 202,
+  playPause = 203,
+  next = 204,
+  prev = 205,
 
-  // Phone
   acceptPhone = 300,
   rejectPhone = 301,
   phoneKey0 = 302,
@@ -47,9 +40,9 @@ export enum CommandMapping {
   phoneKeyHash = 313,
   phoneKeyHookSwitch = 314,
 
-  // Internal projection UI (main -> renderer): CarPlay Siri speech-mode attention.
-  voiceAssistantUiActive = 600, // speech mode recognizing/speaking
-  voiceAssistantUiIdle = 601, // speech mode none (Siri fully done, incl. response)
+  // CarPlay Siri speech mode, for the projection UI only
+  voiceAssistantUiActive = 600, // recognizing or speaking
+  voiceAssistantUiIdle = 601, // Siri is done, its answer included
 
   // Android Auto
   requestVideoFocus = 500,
@@ -57,8 +50,6 @@ export enum CommandMapping {
   requestClusterFocus = 506,
   requestClusterStreamFocus = 508
 }
-
-export type CommandValue = keyof typeof CommandMapping
 
 export enum AudioCommand {
   AudioOutputStart = 1,
@@ -77,16 +68,4 @@ export enum AudioCommand {
   AudioAttentionRinging = 14,
   AudioTurnByTurnStart = 15,
   AudioTurnByTurnStop = 16
-}
-
-export enum TouchAction {
-  Down = 14,
-  Move = 15,
-  Up = 16
-}
-
-export enum MultiTouchAction {
-  Down = 1,
-  Move = 2,
-  Up = 0
 }

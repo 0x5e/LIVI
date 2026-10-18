@@ -1,5 +1,7 @@
 import DeviceThermostatIcon from '@mui/icons-material/DeviceThermostat'
 import { Box, useTheme } from '@mui/material'
+import { temperatureIn } from '@renderer/utils/units'
+import type { TemperatureUnit } from '@shared/types'
 import { SegmentBar } from './SegmentBar'
 
 export type TempGaugeProps = {
@@ -10,6 +12,8 @@ export type TempGaugeProps = {
   max?: number
   /** Warn (red) at/above this temperature. */
   warnAbove?: number
+  /** Only the number shown, the bar and the warning stay in °C. */
+  unit?: TemperatureUnit
   segments?: number
   size?: number
   valueSize?: number
@@ -28,13 +32,15 @@ export function TempGauge({
   min = 40,
   max = 150,
   warnAbove = 125,
+  unit = 'celsius',
   segments = 8,
   size = 22,
   valueSize = 22,
   className
 }: TempGaugeProps) {
   const theme = useTheme()
-  const v = Number.isFinite(value) ? Math.round(value) : 0
+  const celsius = Number.isFinite(value) ? value : 0
+  const v = Math.round(celsius)
   const ratio = (clamp(v, min, max) - min) / Math.max(1, max - min)
   const hot = v >= warnAbove
   const on = hot ? theme.palette.error.main : theme.palette.text.primary
@@ -62,7 +68,7 @@ export function TempGauge({
           textAlign: 'right'
         }}
       >
-        {v}°
+        {Math.round(temperatureIn(celsius, unit))}°
       </Box>
     </Box>
   )

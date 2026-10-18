@@ -1,3 +1,5 @@
+import { useLiviStore } from '@renderer/store/store'
+import type { System } from '@shared/core/contract'
 import { fireEvent, render, screen } from '@testing-library/react'
 import { SettingsFieldRow } from '../SettingsFieldRow'
 
@@ -125,6 +127,31 @@ describe('SettingsFieldRow', () => {
     )
     fireEvent.click(screen.getByTestId('stack-item'))
     expect(onClick).not.toHaveBeenCalled()
+  })
+
+  test('core decides whether a node with a disabled check can be picked', () => {
+    const onClick = vi.fn()
+    const node = {
+      type: 'select',
+      path: 'displayMode',
+      label: 'Display Mode',
+      options: [],
+      disabled: (system: System | null) => !system?.displayModeSettable
+    } as any
+    const row = () => (
+      <SettingsFieldRow node={node} value="" state={{}} onChange={vi.fn()} onClick={onClick} />
+    )
+
+    useLiviStore.setState({ system: { displayModeSettable: true } as System })
+    const { unmount } = render(row())
+    fireEvent.click(screen.getByTestId('stack-item'))
+    expect(onClick).toHaveBeenCalledTimes(1)
+    unmount()
+
+    useLiviStore.setState({ system: null })
+    render(row())
+    fireEvent.click(screen.getByTestId('stack-item'))
+    expect(onClick).toHaveBeenCalledTimes(1)
   })
 
   test('renders SettingsItemRow + SettingsFieldControl by default', () => {

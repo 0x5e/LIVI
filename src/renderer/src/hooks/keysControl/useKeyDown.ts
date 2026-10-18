@@ -1,7 +1,8 @@
 import { ROUTES } from '@shared/types'
-import { useLiviStore } from '@store/store'
+import { coreAction, sendInput, useLiviStore } from '@store/store'
 import { useCallback, useContext, useMemo } from 'react'
 import { useLocation } from 'react-router'
+import { CYCLE_SESSION_EVENT } from '../../constants'
 import { AppContext } from '../../context'
 import { broadcastMediaKey } from '../../utils/broadcastMediaKey'
 import type { BindKey, KeyCommand, useKeyDownProps } from './types'
@@ -23,18 +24,14 @@ export const useKeyDown = ({
   focusFirstInMain,
   moveFocusLinear,
   isFormField,
-  activateControl,
-  onSetKeyCommand,
-  onSetCommandCounter
+  activateControl
 }: useKeyDownProps) => {
   const location = useLocation()
 
   const currentRoute = useMemo(() => {
-    // HashRouter: "#/media" -> "/media", "#media" -> "/media"
     const raw = location.hash ? location.hash.replace(/^#/, '') : ''
     if (raw) return raw.startsWith('/') ? raw : `/${raw}`
 
-    // BrowserRouter fallback
     return location.pathname || '/'
   }, [location.hash, location.pathname])
 
@@ -95,7 +92,8 @@ export const useKeyDown = ({
       const isSelectDown = code === (b?.selectDown || '')
 
       if (code === (b?.cycleSession || 'KeyS') && !event.repeat && !isFormField(active)) {
-        void window.projection?.ipc?.cycleSession?.()?.catch(() => {})
+        coreAction({ kind: 'nextDevice' }).catch(() => {})
+        window.dispatchEvent(new Event(CYCLE_SESSION_EVENT))
         event.preventDefault()
         event.stopPropagation()
         return
@@ -158,22 +156,14 @@ export const useKeyDown = ({
       }
 
       if (settings && isCarPlayActive && mappedAction && !inNav && !formFocused) {
-        // PTT: suppress auto-repeat, release is dispatched on keyup elsewhere.
+        // PTT release is sent on keyup in App.
         if (mappedAction === 'voiceAssistant' && event.repeat) {
           event.preventDefault()
           event.stopPropagation()
           return
         }
-        onSetKeyCommand(mappedAction as KeyCommand)
-        onSetCommandCounter((p) => p + 1)
+        sendInput({ kind: 'key', code, down: true })
         broadcastMediaKey(mappedAction)
-        if (mappedAction === 'selectDown') {
-          setTimeout(() => {
-            onSetKeyCommand('selectUp' as KeyCommand)
-            onSetCommandCounter((p) => p + 1)
-            broadcastMediaKey('selectUp')
-          }, 200)
-        }
         event.preventDefault()
         event.stopPropagation()
         return
@@ -249,7 +239,6 @@ export const useKeyDown = ({
         }
       }
 
-      // If a listbox/menu is open, map rotary Left/Right to ArrowUp/ArrowDown.
       if (!inNav && (isLeft || isRight)) {
         const menuRoot = document.querySelector<HTMLElement>('[role="listbox"], [role="menu"]')
         const activeEl = document.activeElement as HTMLElement | null
@@ -511,8 +500,7 @@ export const useKeyDown = ({
           return
         }
 
-        onSetKeyCommand(action)
-        onSetCommandCounter((p) => p + 1)
+        sendInput({ kind: 'key', code, down: true })
         broadcastMediaKey(action)
       }
 
@@ -535,8 +523,6 @@ export const useKeyDown = ({
       mainRef,
       isFormField,
       editingField,
-      onSetKeyCommand,
-      onSetCommandCounter,
       focusFirstInMain,
       focusSelectedNav,
       handleSetFocusedElId,

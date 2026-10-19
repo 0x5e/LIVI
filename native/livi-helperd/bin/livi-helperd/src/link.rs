@@ -49,6 +49,31 @@ pub async fn relay_stations(bcast: Broadcaster) {
     }
 }
 
+#[cfg(target_os = "linux")]
+async fn ask_for_address(asked: &mut bool) {
+    if *asked {
+        return;
+    }
+    let Some(iface) = livi_link_host::link::host_iface() else {
+        return;
+    };
+    *asked = true;
+    let name = iface.clone();
+    let taken = tokio::task::spawn_blocking(move || livi_link_host::link::take_address(&iface))
+        .await
+        .unwrap_or(false);
+    if taken {
+        println!(
+            "[helperd] LIVI Link on {name}: NetworkManager profile livi-link asks it for an address"
+        );
+    } else {
+        println!("[helperd] LIVI Link on {name}: no NetworkManager, the host has to address it");
+    }
+}
+
+#[cfg(not(target_os = "linux"))]
+async fn ask_for_address(_asked: &mut bool) {}
+
 pub struct LinkPresence {
     on_bus: AtomicBool,
     present: AtomicBool,
@@ -112,10 +137,12 @@ impl LinkPresence {
     ) {
         loop {
             self.wait_for(|l| l.on_bus.load(Ordering::SeqCst)).await;
+            let mut asked = false;
             let up = loop {
                 if !self.on_bus.load(Ordering::SeqCst) {
                     break false;
                 }
+                ask_for_address(&mut asked).await;
                 if tokio::task::spawn_blocking(livi_link_host::link::resolves)
                     .await
                     .unwrap_or(false)

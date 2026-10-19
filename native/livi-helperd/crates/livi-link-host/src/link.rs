@@ -59,6 +59,45 @@ fn own_ipv4() -> Vec<std::net::Ipv4Addr> {
 }
 
 #[cfg(target_os = "linux")]
+const PROFILE: &str = "livi-link";
+
+#[cfg(target_os = "linux")]
+fn profile_args(exists: bool, iface: &str) -> Vec<&str> {
+    let head: &[&str] = if exists {
+        &["connection", "modify", PROFILE]
+    } else {
+        &["connection", "add", "type", "ethernet", "con-name", PROFILE]
+    };
+    let settings = [
+        "connection.interface-name",
+        iface,
+        "ipv4.method",
+        "auto",
+        "ipv6.method",
+        "link-local",
+        "connection.autoconnect",
+        "yes",
+        "connection.autoconnect-priority",
+        "999",
+    ];
+    head.iter().copied().chain(settings).collect()
+}
+
+#[cfg(target_os = "linux")]
+pub fn take_address(iface: &str) -> bool {
+    let nmcli = |args: &[&str]| {
+        std::process::Command::new("nmcli")
+            .args(args)
+            .stdout(std::process::Stdio::null())
+            .stderr(std::process::Stdio::null())
+            .status()
+            .is_ok_and(|s| s.success())
+    };
+    let exists = nmcli(&["-g", "connection.id", "connection", "show", PROFILE]);
+    nmcli(&profile_args(exists, iface)) && nmcli(&["connection", "up", PROFILE, "ifname", iface])
+}
+
+#[cfg(target_os = "linux")]
 fn host_iface_in(net: &std::path::Path) -> Option<String> {
     std::fs::read_dir(net).ok()?.flatten().find_map(|entry| {
         let product = std::fs::read_to_string(entry.path().join("device/../product")).ok()?;
@@ -93,6 +132,34 @@ mod tests {
 
         assert_eq!(host_iface_in(&net).as_deref(), Some("usb0"));
         std::fs::remove_dir_all(&root).unwrap();
+    }
+
+    #[test]
+    fn the_profile_follows_the_links_interface_and_asks_for_an_address() {
+        let added = profile_args(false, "usb0");
+        assert_eq!(
+            &added[..6],
+            [
+                "connection",
+                "add",
+                "type",
+                "ethernet",
+                "con-name",
+                "livi-link"
+            ]
+        );
+        let modified = profile_args(true, "usb1");
+        assert_eq!(&modified[..3], ["connection", "modify", "livi-link"]);
+        for args in [&added, &modified] {
+            let pairs: Vec<_> = args.windows(2).collect();
+            assert!(pairs.contains(&["ipv4.method", "auto"].as_slice()));
+            assert!(pairs.contains(&["ipv6.method", "link-local"].as_slice()));
+        }
+        assert!(
+            modified
+                .windows(2)
+                .any(|w| w == ["connection.interface-name", "usb1"])
+        );
     }
 }
 

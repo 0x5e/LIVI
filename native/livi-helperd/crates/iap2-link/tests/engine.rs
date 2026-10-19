@@ -47,7 +47,7 @@ fn header_pack_matches_reference() {
 #[test]
 fn lsp_pack_matches_reference() {
     let e = LinkEngine::new(LinkConfig::default());
-    assert_eq!(e.lsp.pack(), hex("011effff0fa001f404030a00010b02010c0102"));
+    assert_eq!(e.lsp.pack(), hex("011e10000fa001f404030a00010b02010c0102"));
     assert_eq!(LinkSynchronizationPayload::parse(&e.lsp.pack()), Some(e.lsp.clone()));
 }
 
@@ -56,7 +56,7 @@ fn initiator_start_emits_marker_and_syn() {
     let mut e = LinkEngine::new(LinkConfig::default());
     e.start(true, 0);
     let mut expected = IAP2_MARKER.to_vec();
-    expected.extend_from_slice(&hex("ff5a001d80630000a7011effff0fa001f404030a00010b02010c010210"));
+    expected.extend_from_slice(&hex("ff5a001d80630000a7011e10000fa001f404030a00010b02010c0102fe"));
     assert_eq!(e.take_output(), expected);
     assert_eq!(e.state(), LinkState::Negotiate);
 }
@@ -195,4 +195,37 @@ fn resync_skips_garbage() {
 
 fn hex(s: &str) -> Vec<u8> {
     (0..s.len()).step_by(2).map(|i| u8::from_str_radix(&s[i..i + 2], 16).unwrap()).collect()
+}
+
+/// An abandoned packet reports the message it carried, how long it waited, and
+/// when the peer last spoke: a peer that stopped answering and one that kept
+/// talking without taking the packet need different fixes.
+#[test]
+fn abandoned_packet_reports_its_message_name() {
+    let mut e = handshaken();
+    e.send(CONTROL_SESSION_ID, hex("404000064301"), 0);
+
+    let mut now = 0;
+    while e.state() != LinkState::Dead && now < 60_000 {
+        now += 1000;
+        // The peer answers up to 2 s without taking this packet, then goes quiet.
+        if now <= 2000 {
+            e.feed(&frame(0x40, 0, 99, 0, None), now);
+        }
+        e.advance_time(now);
+    }
+
+    let mut reason = None;
+    while let Some(ev) = e.poll_event() {
+        if let Event::Dead { reason: r } = ev {
+            reason = r;
+        }
+    }
+    assert_eq!(
+        reason.as_deref(),
+        Some(
+            "unacknowledged psn=100 (control session 10, CarPlayStartSession 0x4301, 6 bytes) \
+             after 3 resends over 3.0 s; last frame from the peer 1.0 s ago"
+        )
+    );
 }

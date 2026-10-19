@@ -1882,6 +1882,9 @@ version = "0.1.0"
 [[package]]
 name = "iap2-link"
 version = "0.1.0"
+dependencies = [
+ "iap2-csm",
+]
 
 [[package]]
 name = "iap2-mfi"

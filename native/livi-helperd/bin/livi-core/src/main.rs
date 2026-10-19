@@ -151,6 +151,7 @@ async fn run() -> Result<Exit, String> {
     };
     let config_file = ConfigFile::new(paths.config.clone(), paths.config_backup.clone());
     let config = config_file.load(&host);
+    let wants = projection::first_wants(&config);
     let livi = PerScreen {
         main: Front::Livi,
         cluster: Front::Livi,
@@ -177,7 +178,7 @@ async fn run() -> Result<Exit, String> {
         dab: Default::default(),
         config,
     });
-    let (asks_tx, asks, dongle_asks, update_asks) = projection::ui_channels(livi);
+    let (asks_tx, asks, dongle_asks, update_asks) = projection::ui_channels(wants);
     let core = Arc::new(Core::new(hub, config_file, uid, quit.clone(), asks_tx));
 
     let socket = paths.socket();

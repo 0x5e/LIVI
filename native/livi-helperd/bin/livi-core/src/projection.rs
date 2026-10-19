@@ -337,6 +337,18 @@ fn reversing(telemetry: &Map<String, Value>) -> Option<bool> {
     }
 }
 
+pub fn first_wants(cfg: &Config) -> PerScreen<Front> {
+    PerScreen {
+        main: if cfg.start_page == "/" {
+            Front::Projection
+        } else {
+            Front::Livi
+        },
+        cluster: Front::Livi,
+        aux: Front::Livi,
+    }
+}
+
 fn shows_cluster(wants: &PerScreen<Front>) -> bool {
     [wants.main, wants.cluster, wants.aux].contains(&Front::Cluster)
 }
@@ -2345,6 +2357,24 @@ mod tests {
             cluster: Front::Livi,
             aux: Front::Livi,
         }
+    }
+
+    #[test]
+    fn the_projection_start_page_shows_a_phone_before_the_ui_reports() {
+        let mut cfg = defaults();
+        assert_eq!(
+            first_wants(&cfg),
+            PerScreen {
+                main: Front::Projection,
+                ..livi()
+            }
+        );
+        cfg.start_page = "/media".into();
+        assert_eq!(
+            first_wants(&cfg),
+            livi(),
+            "another start page waits for the UI"
+        );
     }
 
     impl Rig {

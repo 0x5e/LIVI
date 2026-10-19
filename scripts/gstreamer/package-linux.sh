@@ -45,7 +45,7 @@ is_system_excluded() {
     */libgcc_s.so.*|*/libstdc++.so.*|\
     */libpulse.so.*|*/libpulsecommon-*.so|*/libasound.so.*|\
     */libdbus-1.so.*|*/libsystemd.so.*|\
-    */libX*.so.*|*/libxcb*.so.*|*/libwayland-*.so.*|\
+    */libX*.so.*|*/libxcb*.so.*|*/libwayland-server.so.*|*/libwayland-egl.so.*|*/libwayland-cursor.so.*|\
     */libdrm.so.*|*/libgbm.so.*|*/libGL.so.*|*/libEGL.so.*|*/libGLESv2.so.*|\
     */libGLdispatch.so.*|*/libOpenGL.so.*|*/libglapi.so.*|*/libgallium*.so.*|\
     */libva.so.*|*/libva-drm.so.*|*/libva-x11.so.*|*/libv4l2.so.*|*/libv4lconvert.so.*|\

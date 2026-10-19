@@ -314,6 +314,16 @@ fn handle_line(state: &mut LiviState, line: &str) {
                 crate::host::refit(state, idx);
             }
         }
+        Some("mode") => {
+            let (Some(idx), Some(mode)) = (
+                parts.next().and_then(|role| state.screen_idx_by_role(role)),
+                parts.next(),
+            ) else {
+                return;
+            };
+            log::info!("ctrl < {line}");
+            crate::drm::set_mode(state, idx, (mode != "-").then(|| mode.to_string()));
+        }
         Some("backdrop") => {
             let nums: Vec<i32> = parts.filter_map(|v| v.parse().ok()).collect();
             if nums.len() != 3 {

@@ -184,6 +184,7 @@ impl Services {
             state.clone(),
         ));
         tokio::spawn(crate::blinker::run(hub.clone(), gst.clone()));
+        tokio::spawn(follow_display_mode(hub.applied(), ctrl.clone()));
         if let Some(dab_asks) = asks.dab.take() {
             tokio::spawn(crate::dab::run(
                 hub.clone(),
@@ -450,6 +451,22 @@ async fn follow_state(
         }
         last = Some(now);
         if state.changed().await.is_err() {
+            return;
+        }
+    }
+}
+
+async fn follow_display_mode(mut applied: watch::Receiver<Config>, ctrl: CompositorControl) {
+    let mut last = None;
+    loop {
+        let now = applied.borrow_and_update().display_mode.clone();
+        if last.as_ref() != Some(&now) {
+            ctrl.mode("main", &now.main);
+            ctrl.mode("cluster", &now.cluster);
+            ctrl.mode("aux", &now.aux);
+            last = Some(now);
+        }
+        if applied.changed().await.is_err() {
             return;
         }
     }

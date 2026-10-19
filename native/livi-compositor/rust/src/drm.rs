@@ -50,6 +50,7 @@ pub struct DrmState {
     connectors: Vec<Connector>,
     outputs: Vec<Output>,
     wanted: BTreeSet<usize>,
+    mode_settings: HashMap<usize, Option<String>>,
     touch_outputs: HashMap<String, String>,
     active: bool,
     mouse_active: bool,
@@ -188,6 +189,7 @@ fn start(
         connectors,
         outputs: Vec::new(),
         wanted: BTreeSet::from([0]),
+        mode_settings: HashMap::new(),
         touch_outputs: HashMap::new(),
         active: true,
         mouse_active: false,
@@ -327,6 +329,35 @@ fn role_env(state: &LiviState, screen_idx: usize, what: &str) -> Option<String> 
     std::env::var(key).ok().filter(|v| !v.is_empty())
 }
 
+fn mode_setting(state: &LiviState, screen_idx: usize) -> Option<String> {
+    state
+        .drm
+        .as_ref()
+        .and_then(|d| d.mode_settings.get(&screen_idx).cloned())
+        .unwrap_or_else(|| role_env(state, screen_idx, "DISPLAY_MODE"))
+}
+
+pub fn set_mode(state: &mut LiviState, screen_idx: usize, setting: Option<String>) {
+    let Some(drm) = state.drm.as_mut() else {
+        return;
+    };
+    let picked = drm
+        .outputs
+        .iter()
+        .position(|o| o.screen_idx == screen_idx)
+        .and_then(|pos| {
+            let output = &drm.outputs[pos];
+            let connector = drm.connectors.iter().find(|c| c.name == output.connector)?;
+            let mode = pick_mode(&connector.modes, setting.as_deref())?;
+            (mode != output.mode).then_some(pos)
+        });
+    drm.mode_settings.insert(screen_idx, setting);
+    if let Some(pos) = picked {
+        drm.outputs.remove(pos);
+        arrange(state);
+    }
+}
+
 fn assign(wanted: &[(usize, Option<String>)], connected: &[String]) -> Vec<(usize, String)> {
     let is_free = |taken: &[(usize, String)], name: &str| !taken.iter().any(|(_, t)| t == name);
     let mut taken: Vec<(usize, String)> = Vec::new();
@@ -417,7 +448,7 @@ fn arrange(state: &mut LiviState) {
         if present {
             continue;
         }
-        let mode_setting = role_env(state, screen_idx, "DISPLAY_MODE");
+        let mode_setting = mode_setting(state, screen_idx);
         match light(state, screen_idx, &name, mode_setting.as_deref()) {
             Ok(()) => changed = true,
             Err(e) => log::error!("{name} for screen {screen_idx} did not light up: {e}"),
@@ -513,7 +544,7 @@ impl Offered {
     }
 
     fn fits_hd(&self) -> bool {
-        self.size.0 <= 1280 && self.size.1 <= 720
+        self.area() <= 1280 * 720
     }
 }
 
@@ -1036,6 +1067,12 @@ mod tests {
     fn without_a_setting_the_panel_stays_at_most_hd() {
         let small_panel = [mode(800, 480, 60, true), mode(640, 480, 60, false)];
         assert_eq!(choose(&small_panel, None), Some(0));
+        let xga = [mode(1024, 768, 60, true), mode(800, 600, 60, false)];
+        assert_eq!(
+            choose(&xga, None),
+            Some(0),
+            "a 4:3 panel keeps its native mode below the HD pixel count"
+        );
         let tv = [
             mode(3840, 2160, 60, true),
             mode(1920, 1080, 60, false),

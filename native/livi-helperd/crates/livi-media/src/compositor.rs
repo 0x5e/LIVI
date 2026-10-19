@@ -235,6 +235,14 @@ impl CompositorControl {
         ));
     }
 
+    pub fn mode(&self, role: &str, mode: &str) {
+        let mode = if mode.is_empty() { "-" } else { mode };
+        let _ = self.tx.send(Cmd::State(
+            format!("mode:{role}"),
+            format!("mode {role} {mode}\n"),
+        ));
+    }
+
     pub fn backdrop(&self, hex: &str) {
         let (r, g, b) = rgb(hex);
         let _ = self.tx.send(Cmd::State(
@@ -605,6 +613,18 @@ mod tests {
         );
         ctrl.aspect("main", Some((0, 480)));
         assert_eq!(line(&mut rd).await, "aspect main 0 0\n");
+    }
+
+    #[tokio::test]
+    async fn the_latest_display_mode_is_kept_and_an_empty_one_is_the_panel_default() {
+        let dir = TempDir::new();
+        let (comp, ctrl) = setup(&dir);
+        ctrl.mode("main", "800x600");
+        ctrl.mode("main", "1024x768");
+        let (mut rd, _wr) = comp.accept().await;
+        assert_eq!(line(&mut rd).await, "mode main 1024x768\n");
+        ctrl.mode("main", "");
+        assert_eq!(line(&mut rd).await, "mode main -\n");
     }
 
     #[tokio::test]

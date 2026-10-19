@@ -4,14 +4,16 @@ use std::process::Stdio;
 use std::time::Duration;
 
 use livi_core_proto::config::Config;
+use livi_core_proto::input::{Input, Phase, Point};
 use livi_core_proto::state::{Display, Screen};
 use tokio::io::{AsyncBufReadExt, AsyncWriteExt, BufReader};
 use tokio::net::UnixStream;
-use tokio::sync::{mpsc, oneshot, watch};
+use tokio::sync::{broadcast, mpsc, oneshot, watch};
 
 const TITLEBAR_H: u32 = 32;
 const CLAIM_TIMEOUT: Duration = Duration::from_secs(3);
 const RECONNECT_EVERY: Duration = Duration::from_millis(500);
+const TOUCH_BACKLOG: usize = 64;
 
 pub fn env(cfg: &Config, ctrl: &Path) -> Vec<(String, String)> {
     let mut env = vec![
@@ -92,6 +94,40 @@ fn display_of(line: &str) -> Option<Display> {
     })
 }
 
+fn phase_of(word: &str) -> Option<Phase> {
+    match word {
+        "down" => Some(Phase::Down),
+        "move" => Some(Phase::Move),
+        "up" => Some(Phase::Up),
+        "cancel" => Some(Phase::Cancel),
+        _ => None,
+    }
+}
+
+fn touch_of(line: &str) -> Option<Input> {
+    let mut words = line.split_whitespace();
+    let (Some("touch"), Some(screen)) = (words.next(), words.next().and_then(screen_of)) else {
+        return None;
+    };
+    let words: Vec<&str> = words.collect();
+    let (fingers, rest) = words.as_chunks::<4>();
+    if fingers.is_empty() || !rest.is_empty() {
+        return None;
+    }
+    let points = fingers
+        .iter()
+        .map(|[id, phase, x, y]| {
+            Some(Point {
+                id: id.parse().ok()?,
+                phase: phase_of(phase)?,
+                x: x.parse().ok()?,
+                y: y.parse().ok()?,
+            })
+        })
+        .collect::<Option<Vec<_>>>()?;
+    Some(Input::Pointer { screen, points })
+}
+
 pub fn start(bin: &Path, cfg: &Config, ctrl: &Path, log: &Path) -> Option<tokio::process::Child> {
     if std::env::var("LIVI_NO_COMPOSITOR").is_ok_and(|v| v == "1") || !bin.exists() {
         return None;
@@ -158,6 +194,7 @@ pub struct CompositorControl {
     panels: watch::Receiver<HashMap<String, Panel>>,
     ui: watch::Receiver<Option<Ui>>,
     displays: watch::Receiver<Option<Vec<Display>>>,
+    touches: broadcast::Sender<Input>,
 }
 
 impl CompositorControl {
@@ -166,17 +203,23 @@ impl CompositorControl {
         let (panels_tx, panels) = watch::channel(HashMap::new());
         let (ui_tx, ui) = watch::channel(None);
         let (displays_tx, displays) = watch::channel(None);
-        tokio::spawn(Actor::new(path, panels_tx, ui_tx, displays_tx).run(rx));
+        let (touches, _) = broadcast::channel(TOUCH_BACKLOG);
+        tokio::spawn(Actor::new(path, panels_tx, ui_tx, displays_tx, touches.clone()).run(rx));
         Self {
             tx,
             panels,
             ui,
             displays,
+            touches,
         }
     }
 
     pub fn displays(&self) -> watch::Receiver<Option<Vec<Display>>> {
         self.displays.clone()
+    }
+
+    pub fn touches(&self) -> broadcast::Receiver<Input> {
+        self.touches.subscribe()
     }
 
     pub async fn claim(&self, tag: &str) {
@@ -299,6 +342,7 @@ struct Actor {
     ui: watch::Sender<Option<Ui>>,
     displays: watch::Sender<Option<Vec<Display>>>,
     incoming: Option<(usize, Vec<Display>)>,
+    touches: broadcast::Sender<Input>,
 }
 
 impl Actor {
@@ -307,6 +351,7 @@ impl Actor {
         panels: watch::Sender<HashMap<String, Panel>>,
         ui: watch::Sender<Option<Ui>>,
         displays: watch::Sender<Option<Vec<Display>>>,
+        touches: broadcast::Sender<Input>,
     ) -> Self {
         Self {
             path,
@@ -320,6 +365,7 @@ impl Actor {
             ui,
             displays,
             incoming: None,
+            touches,
         }
     }
 
@@ -415,6 +461,11 @@ impl Actor {
     async fn on_line(&mut self, line: &str) {
         let mut words = line.split(' ');
         match words.next() {
+            Some("touch") => {
+                if let Some(input) = touch_of(line) {
+                    let _ = self.touches.send(input);
+                }
+            }
             Some("bound") => {
                 let tag = &line["bound ".len()..];
                 if self.in_flight.as_deref() == Some(tag) {
@@ -625,6 +676,58 @@ mod tests {
         assert_eq!(line(&mut rd).await, "mode main 1024x768\n");
         ctrl.mode("main", "");
         assert_eq!(line(&mut rd).await, "mode main -\n");
+    }
+
+    #[tokio::test]
+    async fn touch_on_the_stream_arrives_as_pointer_input() {
+        let dir = TempDir::new();
+        let (comp, ctrl) = setup(&dir);
+        let mut touches = ctrl.touches();
+        ctrl.backdrop("#000000");
+        let (_rd, mut wr) = comp.accept().await;
+        wr.write_all(b"touch main 0 down 0.25000 0.50000 1 move 0.75000 0.10000\ntouch main 0 jump 0.1 0.1\ntouch dash 0 up 0.1 0.1\ntouch main 0 up 0.25000 0.50000\n")
+            .await
+            .unwrap();
+        assert_eq!(
+            next_touch(&mut touches).await,
+            Input::Pointer {
+                screen: Screen::Main,
+                points: vec![
+                    Point {
+                        id: 0,
+                        x: 0.25,
+                        y: 0.5,
+                        phase: Phase::Down
+                    },
+                    Point {
+                        id: 1,
+                        x: 0.75,
+                        y: 0.1,
+                        phase: Phase::Move
+                    },
+                ],
+            }
+        );
+        assert_eq!(
+            next_touch(&mut touches).await,
+            Input::Pointer {
+                screen: Screen::Main,
+                points: vec![Point {
+                    id: 0,
+                    x: 0.25,
+                    y: 0.5,
+                    phase: Phase::Up
+                }],
+            },
+            "an unknown phase or screen is dropped"
+        );
+    }
+
+    async fn next_touch(touches: &mut broadcast::Receiver<Input>) -> Input {
+        tokio::time::timeout(Duration::from_secs(5), touches.recv())
+            .await
+            .unwrap()
+            .unwrap()
     }
 
     #[tokio::test]

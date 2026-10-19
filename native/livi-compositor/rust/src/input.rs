@@ -233,6 +233,10 @@ pub fn pointer_axis(state: &mut LiviState, time: u32, horizontal: f64, vertical:
 }
 
 pub fn touch_down(state: &mut LiviState, time: u32, id: i32, lx: f64, ly: f64, _screen_idx: usize) {
+    if crate::projection::claim(state, id, lx, ly) {
+        state.host.touch_positions.push((id, lx, ly));
+        return;
+    }
     let under = surface_at(state, lx, ly);
     log::debug!(
         "touch down id={id} at {lx:.0},{ly:.0} surface={}",
@@ -288,6 +292,9 @@ pub fn touch_motion(state: &mut LiviState, time: u32, id: i32, wx: f64, wy: f64)
         p.1 = lx;
         p.2 = ly;
     }
+    if crate::projection::moved(state, id, lx, ly) {
+        return;
+    }
     if let Some(touch) = state.seat.get_touch() {
         let under = surface_at(state, lx, ly);
         touch.motion(
@@ -306,6 +313,9 @@ pub fn touch_motion(state: &mut LiviState, time: u32, id: i32, wx: f64, wy: f64)
 pub fn touch_up(state: &mut LiviState, time: u32, id: i32) {
     log::debug!("touch up   id={id}");
     state.host.touch_positions.retain(|(tid, _, _)| *tid != id);
+    if crate::projection::lifted(state, id) {
+        return;
+    }
     if let Some(touch) = state.seat.get_touch() {
         touch.up(
             state,
@@ -321,6 +331,7 @@ pub fn touch_up(state: &mut LiviState, time: u32, id: i32) {
 
 pub fn touch_cancel(state: &mut LiviState) {
     state.host.touch_positions.clear();
+    crate::projection::cancel(state);
     if let Some(touch) = state.seat.get_touch() {
         touch.cancel(state);
     }

@@ -212,7 +212,7 @@ fn collect_elements(state: &mut LiviState, screen_idx: usize) -> Vec<LiviElement
     for t in state
         .toplevels
         .iter()
-        .filter(|t| t.kind == Kind::Ui && t.screen_idx == screen_idx)
+        .filter(|t| t.kind == Kind::Ui && t.screen_idx == screen_idx && !t.clear)
     {
         elements.extend(
             render_elements_from_surface_tree::<_, WaylandSurfaceRenderElement<GlesRenderer>>(

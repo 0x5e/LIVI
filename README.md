@@ -15,8 +15,7 @@ It is a standalone cross-platform head unit with a native, zero-copy GStreamer v
 ![Main Version](https://img.shields.io/endpoint?url=https://raw.githubusercontent.com/f-io/LIVI/version/.github/badges/main-version.json)
 ![TS Main](https://img.shields.io/github/actions/workflow/status/f-io/LIVI/typecheck.yml?branch=main&label=TS%20main)
 ![Build Main](https://img.shields.io/github/actions/workflow/status/f-io/LIVI/build.yml?branch=main&label=build%20main)
-![Coverage Main](https://img.shields.io/endpoint?url=https://raw.githubusercontent.com/f-io/LIVI/version/.github/badges/main-coverage-main.json)
-![Coverage Renderer](https://img.shields.io/endpoint?url=https://raw.githubusercontent.com/f-io/LIVI/version/.github/badges/main-coverage-renderer.json)
+<a href="https://discord.gg/cv6Gd8wDKB"><img alt="Discord" src="https://img.shields.io/badge/Discord-join-5865F2?logo=discord&logoColor=white" /></a>
 
 
 ## Native Connectivity
@@ -285,9 +284,6 @@ Video: 1920x1080 - View Area: 0/0/0/0 (T/B/L/R) - Safe Area: 120/20/500/500 (T/B
 
 ## Installation
 
-> [!IMPORTANT]
-> LIVI requires **OpenGL ES 3.x**.
-
 One script installs LIVI on both desktop and headless hosts, auto-detecting which (override with `--desktop` / `--headless`). It uses apt or dnf, so beyond Raspberry Pi OS it also runs on Debian/Ubuntu, Fedora and likely other distros, on arm64 and x86_64.
 
 ```bash
@@ -299,11 +295,7 @@ chmod +x install.sh
 _Tested on Raspberry Pi OS, Ubuntu 26.04 and Fedora 44._
 
 > [!NOTE]
-> The Pi 4, CM 4, Pi 5 and CM 5 require Trixie (Debian 13) for OpenGL ES 3.x. Pi 3 and earlier use the VideoCore IV GPU (OpenGL ES 2.0 only) and are unsupported.
-
-> [!NOTE]
-> The headless flow sets the boot target to `multi-user.target`, disabling a graphical login. Undo with `sudo systemctl set-default graphical.target`.
-
+> The Pi 3, Pi 4, CM 4, Pi 5 and CM 5 require Trixie (Debian 13).
 
 ## Linux (x86_64)
 
@@ -335,6 +327,8 @@ After this, the app will launch normally and future updates will work without ad
 
 ![Node](https://img.shields.io/endpoint?url=https://raw.githubusercontent.com/f-io/LIVI/version/.github/badges/main-node.json)
 ![pnpm](https://img.shields.io/endpoint?url=https://raw.githubusercontent.com/f-io/LIVI/version/.github/badges/main-pnpm.json)
+![Coverage Main](https://img.shields.io/endpoint?url=https://raw.githubusercontent.com/f-io/LIVI/version/.github/badges/main-coverage-main.json)
+![Coverage Renderer](https://img.shields.io/endpoint?url=https://raw.githubusercontent.com/f-io/LIVI/version/.github/badges/main-coverage-renderer.json)
 ![electron](https://img.shields.io/endpoint?url=https://raw.githubusercontent.com/f-io/LIVI/version/.github/badges/main-electron.json)
 ![chrome](https://img.shields.io/endpoint?url=https://raw.githubusercontent.com/f-io/LIVI/version/.github/badges/main-electron-date.json)
 ![release](https://img.shields.io/endpoint?url=https://raw.githubusercontent.com/f-io/LIVI/version/.github/badges/main-electron-chromium.json)

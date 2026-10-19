@@ -25,6 +25,8 @@ core|libnss3|file:/usr/lib/*/libnss3.so|NSS runtime the app itself links|nss
 lite|libseat1|file:/usr/lib/*/libseat.so.1|Seat access for driving the display directly|libseat
 lite|libinput10|file:/usr/lib/*/libinput.so.10|Touch, keyboard and mouse input without a desktop|libinput
 lite|libgbm1|file:/usr/lib/*/libgbm.so.1|Display buffers without a desktop|mesa-libgbm
+lite|libegl1|file:/usr/lib/*/libEGL.so.1|EGL for rendering without a desktop|mesa-libEGL
+lite|libgles2|file:/usr/lib/*/libGLESv2.so.2|OpenGL ES for rendering without a desktop|mesa-libGLES
 lite|seatd|cmd:seatd|Seat and session management|seatd
 lite|pipewire|cmd:pipewire|Audio|pipewire
 lite|pipewire-pulse|cmd:pipewire-pulse|Audio|pipewire-pulseaudio

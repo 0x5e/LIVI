@@ -83,6 +83,9 @@ impl CompositorHandler for LiviState {
             .position(|t| t.toplevel.wl_surface() == &root)
         {
             classify_on_initial_commit(self, idx);
+            if self.toplevels[idx].kind == Kind::Ui {
+                self.toplevels[idx].clear = crate::projection::ui_clear(&root);
+            }
             self.center_dialog_by_surface(&root);
             crate::host::damage_all(self);
         }
@@ -285,6 +288,7 @@ impl XdgShellHandler for LiviState {
             tier_w: 0.0,
             tier_h: 0.0,
             position: Point::from((0, 0)),
+            clear: false,
         });
     }
 

@@ -66,6 +66,7 @@ pub struct TopLevel {
     pub tier_w: f64,
     pub tier_h: f64,
     pub position: Point<i32, Logical>,
+    pub clear: bool,
 }
 
 pub struct Screen {
@@ -129,6 +130,7 @@ pub struct LiviState {
     pub cal_program: Option<smithay::backend::renderer::gles::GlesTexProgram>,
     pub host: HostState,
     pub drm: Option<crate::drm::DrmState>,
+    pub fingers: crate::projection::Fingers,
 
     pub ctrl_client: Option<std::os::unix::net::UnixStream>,
     pub ctrl_buf: String,
@@ -258,6 +260,7 @@ impl LiviState {
             cal_program: None,
             host: HostState::new(),
             drm: None,
+            fingers: Default::default(),
             ctrl_client: None,
             ctrl_buf: String::new(),
             ctrl_out: Vec::new(),
@@ -299,6 +302,7 @@ impl LiviState {
         {
             crate::spawn::force_restart(self);
         }
+        crate::projection::flush(self);
         crate::host::apply_settled_resizes(self);
         crate::host::pump(self);
         self.display_handle.flush_clients().ok();

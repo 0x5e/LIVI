@@ -4,6 +4,7 @@ mod drm;
 mod host;
 mod input;
 mod layout;
+mod projection;
 mod render;
 mod shell;
 mod spawn;

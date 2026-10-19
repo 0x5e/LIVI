@@ -457,6 +457,7 @@ pub struct UiAsks {
     pub activity: watch::Sender<Activity>,
     pub dab: Option<crate::dab::DabAsks>,
     pub dab_from_phone: mpsc::UnboundedSender<crate::dab::DabAsk>,
+    pub input_from_compositor: mpsc::UnboundedSender<Input>,
 }
 
 pub struct UiSenders {
@@ -494,7 +495,7 @@ pub fn ui_channels(wants: PerScreen<Front>) -> (UiSenders, UiAsks, DongleAsks, U
         UiSenders {
             wants: wants_tx,
             commands: commands_tx,
-            input: input_tx,
+            input: input_tx.clone(),
             dongle: dongle_tx,
             link_speed_viewers: viewers_tx,
             spectrum: feed.clone(),
@@ -512,6 +513,7 @@ pub fn ui_channels(wants: PerScreen<Front>) -> (UiSenders, UiAsks, DongleAsks, U
             activity: activity_tx,
             dab: Some(dab_rx),
             dab_from_phone: dab_tx,
+            input_from_compositor: input_tx,
         },
         DongleAsks {
             radios: dongle_rx,

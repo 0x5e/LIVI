@@ -185,6 +185,10 @@ impl Services {
         ));
         tokio::spawn(crate::blinker::run(hub.clone(), gst.clone()));
         tokio::spawn(follow_display_mode(hub.applied(), ctrl.clone()));
+        tokio::spawn(forward_touches(
+            ctrl.touches(),
+            asks.input_from_compositor.clone(),
+        ));
         if let Some(dab_asks) = asks.dab.take() {
             tokio::spawn(crate::dab::run(
                 hub.clone(),
@@ -452,6 +456,23 @@ async fn follow_state(
         last = Some(now);
         if state.changed().await.is_err() {
             return;
+        }
+    }
+}
+
+async fn forward_touches(
+    mut touches: tokio::sync::broadcast::Receiver<livi_core_proto::input::Input>,
+    input: mpsc::UnboundedSender<livi_core_proto::input::Input>,
+) {
+    loop {
+        match touches.recv().await {
+            Ok(touch) => {
+                if input.send(touch).is_err() {
+                    return;
+                }
+            }
+            Err(tokio::sync::broadcast::error::RecvError::Lagged(_)) => {}
+            Err(tokio::sync::broadcast::error::RecvError::Closed) => return,
         }
     }
 }

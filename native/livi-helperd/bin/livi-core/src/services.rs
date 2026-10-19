@@ -109,11 +109,12 @@ impl Services {
         let helper_restart = Arc::new(Notify::new());
         let applied = hub.applied();
         let env_identity = identity.clone();
+        let auth = helper::auth_dir(user_data, &res.auth);
         let helper = HelperSupervisor::start(Spec {
             bin: helper::resolve_bin(&res.helper, user_data),
             env: Box::new(move || {
                 let cfg = applied.borrow().clone();
-                helper::helper_env(&cfg, &env_identity, airplay_port)
+                helper::helper_env(&cfg, &env_identity, airplay_port, &auth)
             }),
             restart: helper_restart.clone(),
             use_sudo: cfg!(target_os = "linux"),
@@ -411,6 +412,7 @@ mod tests {
             compositor: PathBuf::from("/c"),
             gstreamer: None,
             templates: PathBuf::from("/t"),
+            auth: PathBuf::from("/a"),
             ui: None,
         };
         let ui = Ui {

@@ -57,6 +57,8 @@ linux:
         - '!share/**'
     - from: native/livi-helperd/build/Release/livi-helperd
       to: driver/livi-helperd
+    - from: assets/authentication
+      to: authentication
     - from: native/livi-gst-video/build/Release/livi-gst-host
       to: gst-host/livi-gst-host
     - from: native/livi-helperd/build/Release/livi-core
@@ -85,6 +87,8 @@ mac:
         - '!share/**'
     - from: native/livi-helperd/build/Release/livi-helperd
       to: driver/livi-helperd
+    - from: assets/authentication
+      to: authentication
     - from: native/livi-helperd/build/Release/livi-core
       to: core/livi-core
     - from: native/livi-gst-video/build/Release/livi-gst-host

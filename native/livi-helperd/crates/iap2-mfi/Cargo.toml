@@ -5,6 +5,7 @@ edition.workspace = true
 
 [dependencies]
 livi-net.workspace = true
+p256 = { version = "0.13", features = ["ecdsa", "pkcs8"] }
 
 [target.'cfg(target_os = "linux")'.dependencies]
 libc.workspace = true

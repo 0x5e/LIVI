@@ -7,6 +7,8 @@ pub struct Resources {
     pub gstreamer: Option<PathBuf>,
     /// Templates of the files LIVI installs as root.
     pub templates: PathBuf,
+    /// MFi credentials the helper signs with when no dongle chip is around.
+    pub auth: PathBuf,
     pub ui: Option<UiCmd>,
 }
 
@@ -63,6 +65,7 @@ impl Resources {
             compositor: env_path("LIVI_COMPOSITOR_BIN").unwrap_or(layout.compositor),
             gstreamer: layout.gstreamer,
             templates: layout.templates,
+            auth: layout.auth,
             ui: ui.map(|ui| with_launcher_args(ui, env_str("LIVI_UI_ARGS").as_deref())),
         }
     }
@@ -74,6 +77,7 @@ impl Resources {
             compositor: res.join("compositor/livi-compositor"),
             gstreamer: platform_dir().map(|d| res.join("gstreamer").join(d)).filter(|p| p.is_dir()),
             templates: res.to_path_buf(),
+            auth: res.join("authentication"),
             ui: res.parent().map(|app| UiCmd::Exec { bin: app.join("livi-ui"), args: Vec::new() }),
         }
     }
@@ -87,6 +91,7 @@ impl Resources {
                 .map(|d| root.join("assets/gstreamer").join(d))
                 .filter(|p| p.is_dir()),
             templates: root.join("assets/linux"),
+            auth: root.join("assets/authentication"),
             ui: Some(UiCmd::Exec {
                 bin: root.join("node_modules/electron/dist/electron"),
                 args: vec![root.display().to_string(), "--no-sandbox".into()],

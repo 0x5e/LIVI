@@ -20,14 +20,36 @@ pub fn debug(cfg: &Config) -> bool {
     cfg.debug_logging || std::env::var("DEBUG").is_ok_and(|v| v == "1")
 }
 
+/// The MFi credentials (`identity.pk8` + `certificate.p7b`) the helper's software coprocessor
+/// signs with while no dongle chip is around. An explicit `LIVI_AUTH_DIR` wins, then the copy in
+/// the user's data folder, then the one shipped beside the app. The data folder is handed on even
+/// when it holds nothing, so the helper says what it could not read rather than staying silent.
+pub fn auth_dir(user_data: &Path, bundled: &Path) -> PathBuf {
+    let usable =
+        |dir: &Path| dir.join("identity.pk8").is_file() && dir.join("certificate.p7b").is_file();
+    if let Some(dir) = std::env::var_os("LIVI_AUTH_DIR").filter(|v| !v.is_empty()) {
+        let dir = PathBuf::from(dir);
+        if usable(&dir) {
+            return dir;
+        }
+    }
+    let user = user_data.join("authentication");
+    if usable(&user) {
+        return user;
+    }
+    if usable(bundled) { bundled.to_path_buf() } else { user }
+}
+
 pub fn helper_env(
     cfg: &Config,
     identity: &Identity,
     airplay_port: Option<u16>,
+    auth: &Path,
 ) -> Vec<(String, String)> {
     let mut env = settings_env(cfg);
     env.push(("LIVI_CP_PK".to_string(), identity.pk_hex()));
     env.push(("LIVI_CP_PI".to_string(), identity.pairing_id.clone()));
+    env.push(("LIVI_AUTH_DIR".to_string(), auth.display().to_string()));
     if let Some(port) = airplay_port.filter(|p| *p > 0) {
         env.push(("LIVI_CP_AIRPLAY_PORT".to_string(), port.to_string()));
     }
@@ -290,7 +312,7 @@ mod tests {
         let mut cfg = defaults();
         cfg.wireless_aa_enabled = true;
         cfg.wifi_type = WifiBand::Ghz24;
-        let env = helper_env(&cfg, &identity(), Some(7000));
+        let env = helper_env(&cfg, &identity(), Some(7000), Path::new("/u/authentication"));
         assert_eq!(get(&env, "LIVI_AA_WIRELESS"), Some("1"));
         assert_eq!(get(&env, "LIVI_CP_WIRELESS"), Some(""));
         assert_eq!(get(&env, "LIVI_CP_PK"), Some("ab".repeat(32).as_str()));
@@ -300,10 +322,33 @@ mod tests {
         assert_eq!(get(&env, "LIVI_CHANNEL"), Some("36"));
         assert_eq!(get(&env, "LIVI_WIFI_TYPE"), Some("2.4ghz"));
         assert_eq!(get(&env, "LIVI_CP_AIRPLAY_PORT"), Some("7000"));
+        assert_eq!(get(&env, "LIVI_AUTH_DIR"), Some("/u/authentication"));
         cfg.debug_logging = true;
-        let env = helper_env(&cfg, &identity(), None);
+        let env = helper_env(&cfg, &identity(), None, Path::new("/u/authentication"));
         assert_eq!(get(&env, "LIVI_CP_AIRPLAY_PORT"), None);
         assert_eq!(get(&env, "DEBUG"), Some("1"));
+    }
+
+    #[test]
+    fn credentials_come_from_the_user_data_folder_or_the_bundle() {
+        let dir = TempDir::new();
+        let user = dir.0.join("authentication");
+        let bundled = dir.0.join("assets/authentication");
+        std::fs::create_dir_all(&bundled).unwrap();
+        std::fs::write(bundled.join("identity.pk8"), b"key").unwrap();
+        std::fs::write(bundled.join("certificate.p7b"), b"cert").unwrap();
+        // Nothing in the user's folder yet, so the shipped copy answers.
+        assert_eq!(auth_dir(&dir.0, &bundled), bundled);
+        std::fs::create_dir_all(&user).unwrap();
+        std::fs::write(user.join("identity.pk8"), b"key").unwrap();
+        std::fs::write(user.join("certificate.p7b"), b"cert").unwrap();
+        assert_eq!(auth_dir(&dir.0, &bundled), user);
+        // Half a pair is no pair.
+        std::fs::remove_file(user.join("certificate.p7b")).unwrap();
+        assert_eq!(auth_dir(&dir.0, &bundled), bundled);
+        // With neither, the user's folder is named so the helper says what it could not read.
+        std::fs::remove_dir_all(&bundled).unwrap();
+        assert_eq!(auth_dir(&dir.0, &bundled), user);
     }
 
     #[test]

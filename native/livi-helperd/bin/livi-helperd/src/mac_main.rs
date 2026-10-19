@@ -6,7 +6,7 @@ use std::sync::Arc;
 use std::time::Duration;
 
 use iap2_link::LinkConfig;
-use iap2_mfi::{NcmCoprocessor, NoCoprocessor};
+use iap2_mfi::{AuthCoprocessor, LocalCoprocessor, NcmCoprocessor, NoCoprocessor};
 use livi_bt_host::sdp::Service;
 use livi_runtime::bonjour::Bonjour;
 use livi_runtime::bringup::{AskOnAir, CpConfig, run_accessory};
@@ -34,6 +34,45 @@ fn env_s(key: &str, default: &str) -> String {
     std::env::var(key).unwrap_or_else(|_| default.to_string())
 }
 
+/// Software MFi identity from `LIVI_AUTH_DIR` (identity.pk8 + certificate.p7b), loaded the
+/// same way MacPlay does. `None` when there is nothing usable there. Serves every session while
+/// the dongle is absent; the dongle's own chip takes over (and gives this back) as it comes and
+/// goes.
+fn local_auth() -> Option<LocalCoprocessor> {
+    let dir = env_s("LIVI_AUTH_DIR", "");
+    if dir.is_empty() {
+        return None;
+    }
+    let dir = std::path::Path::new(&dir);
+    match read_credentials(dir) {
+        Ok(chip) => {
+            println!("[helperd] local MFi credentials loaded from {}", dir.display());
+            Some(chip)
+        }
+        Err(e) => {
+            eprintln!("[helperd] local authentication from {}: {e}", dir.display());
+            None
+        }
+    }
+}
+
+/// Reads the two credential files and hands their bytes to the coprocessor.
+fn read_credentials(dir: &std::path::Path) -> Result<LocalCoprocessor, String> {
+    let key = std::fs::read(dir.join("identity.pk8")).map_err(|e| format!("identity.pk8: {e}"))?;
+    let cert =
+        std::fs::read(dir.join("certificate.p7b")).map_err(|e| format!("certificate.p7b: {e}"))?;
+    LocalCoprocessor::load(&key, &cert).map_err(|e| e.to_string())
+}
+
+/// The local identity when there is one, the stand-in that refuses everything when there is not.
+fn local_chip(local: Option<LocalCoprocessor>) -> Box<dyn AuthCoprocessor + Send> {
+    match local {
+        Some(chip) => Box::new(chip),
+        None => Box::new(NoCoprocessor),
+    }
+}
+
+/// 6-byte accessory id: LIVI_CP_BT_MAC if set, else derived from the host pairing id.
 fn accessory_mac(pi: &str) -> [u8; 6] {
     if let Ok(s) = std::env::var("LIVI_CP_BT_MAC") {
         let bytes: Vec<u8> = s.split(':').filter_map(|h| u8::from_str_radix(h, 16).ok()).collect();
@@ -184,7 +223,10 @@ fn start_carplay_seam(
     arrivals: Option<UnboundedReceiver<Arrival>>,
 ) {
     let (cp, identity) = cp_config();
-    let auth = SharedCoprocessor::new(Box::new(NoCoprocessor));
+    let local = local_auth();
+    // A local identity answers for the chip, so a wired phone need not wait for the dongle.
+    let has_local = local.is_some();
+    let auth = SharedCoprocessor::new(local_chip(local));
     let bcast = Broadcaster::default();
 
     // A phone that came in over the dongle's Bluetooth carries on wirelessly, so the session on
@@ -202,7 +244,8 @@ fn start_carplay_seam(
             arrived.push_json("{\"type\":\"link\",\"up\":true}".into());
         },
         move || {
-            down_auth.replace(Box::new(NoCoprocessor));
+            // The dongle's chip is gone, the local identity answers again if there is one.
+            down_auth.replace(local_chip(local_auth()));
             // Its links are gone with it, a blocking read would notice only much later.
             gone.end();
             println!("[helperd] the dongle went");
@@ -248,9 +291,13 @@ fn start_carplay_seam(
         },
         bcast.clone(),
         state.clone(),
-        link.clone(),
+        // With a local identity a wired phone needs no dongle; without one it waits for the Link.
+        if has_local { LinkPresence::always() } else { link.clone() },
     ));
-    println!("[helperd] wired CarPlay watcher started (system usbmuxd), waiting for the LIVI Link");
+    println!(
+        "[helperd] wired CarPlay watcher started (system usbmuxd), MFi from {}",
+        if has_local { "local credentials" } else { "the LIVI Link" }
+    );
     if dongle_ap {
         tokio::spawn(crate::link::relay_stations(bcast.clone()));
     }

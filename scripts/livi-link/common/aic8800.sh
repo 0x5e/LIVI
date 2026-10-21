@@ -88,8 +88,10 @@ aic8800_rootfs() {
   [[ -f $OUT/modules/aic8800_bsp.ko && -f $OUT/modules/aic8800_fdrv.ko ]] || { log "no AIC8800 modules in $OUT/modules, run the kernel build first"; exit 1; }
   [[ -d $AIC_FW ]] || { log "no AIC8800 firmware at $AIC_FW, run the kernel build first"; exit 1; }
   log "AIC8800 modules and firmware"
-  mkdir -p "$work/lib/modules/$KVER" "$work/lib/firmware/aic8800d80"
-  cp "$OUT/modules"/aic8800_bsp.ko "$OUT/modules"/aic8800_fdrv.ko "$work/lib/modules/$KVER/"
+  local modules
+  modules=$work/lib/modules/$(krelease)
+  mkdir -p "$modules" "$work/lib/firmware/aic8800d80"
+  cp "$OUT/modules"/aic8800_bsp.ko "$OUT/modules"/aic8800_fdrv.ko "$modules/"
   for f in $AIC_FW_FILES; do
     [[ -f $AIC_FW/$f ]] || { log "firmware $f not in $AIC_FW"; exit 2; }
     cp "$AIC_FW/$f" "$work/lib/firmware/aic8800d80/$f"

@@ -14,13 +14,13 @@ LIVI turns its access point temporarily off to keep interference low.
 
 The provisioning tool probes for the required firmware.
 
-| Firmware | SoC | Wi-Fi / Bluetooth | Wi-Fi | PHY rate | Kernel |
-| --- | --- | --- | --- | --- | --- |
-| `imx6ul_iw416` | NXP i.MX6UL | NXP IW416 | Wi-Fi 4, 1x1, 5 GHz, 40 MHz | 150 Mbit/s | 7.2.10 |
-| `imx6ul_rtl8822cs` | NXP i.MX6UL | RTL8822CS | Wi-Fi 5, 2x2, 5 GHz, 80 MHz | 867 Mbit/s | 7.2.10 |
-| `imx6ul_rtl8822bs`[^nobt] | NXP i.MX6UL | RTL8822BS | Wi-Fi 5, 2x2, 5 GHz, 80 MHz | 867 Mbit/s | 7.2.10 |
-| `v821b_aic8800d80` | Allwinner V821B | AIC8800D80 | Wi-Fi 6, 1x1, 5 GHz, 80 MHz | 600 Mbit/s | 7.2.10 |
-| `ax520_aic8800d80` | Axera AX520CE | AIC8800D80 | Wi-Fi 6, 1x1, 5 GHz, 80 MHz | 600 Mbit/s | 7.2.10 |
+| Firmware                  | SoC             | Wi-Fi / Bluetooth | Wi-Fi                       | PHY rate   | Kernel |
+| ------------------------- | --------------- | ----------------- | --------------------------- | ---------- | ------ |
+| `imx6ul_iw416`            | NXP i.MX6UL     | NXP IW416         | Wi-Fi 4, 1x1, 5 GHz, 40 MHz | 150 Mbit/s | 7.3.0  |
+| `imx6ul_rtl8822cs`        | NXP i.MX6UL     | RTL8822CS         | Wi-Fi 5, 2x2, 5 GHz, 80 MHz | 867 Mbit/s | 7.3.0  |
+| `imx6ul_rtl8822bs`[^nobt] | NXP i.MX6UL     | RTL8822BS         | Wi-Fi 5, 2x2, 5 GHz, 80 MHz | 867 Mbit/s | 7.3.0  |
+| `v821b_aic8800d80`        | Allwinner V821B | AIC8800D80        | Wi-Fi 6, 1x1, 5 GHz, 80 MHz | 600 Mbit/s | 7.3.0  |
+| `ax520_aic8800d80`        | Axera AX520CE   | AIC8800D80        | Wi-Fi 6, 1x1, 5 GHz, 80 MHz | 600 Mbit/s | 7.3.0  |
 
 [^nobt]: Wi-Fi only, the module's Bluetooth is not supported yet.
 
@@ -65,13 +65,13 @@ Every release has the firmware files attached, so you can also upload one by han
 
 If the dongle has an LED, Wi-Fi uses the status LED and Bluetooth is blue.
 
-| State | LED |
-| --- | --- |
-| Waiting for a Wi-Fi client | status LED blinks |
-| Wi-Fi client connected | status LED on |
-| Bluetooth paging | blue blinks |
-| Bluetooth connected | blue on |
-| Writing firmware | red and blue alternate |
+| State                      | LED                    |
+| -------------------------- | ---------------------- |
+| Waiting for a Wi-Fi client | status LED blinks      |
+| Wi-Fi client connected     | status LED on          |
+| Bluetooth paging           | blue blinks            |
+| Bluetooth connected        | blue on                |
+| Writing firmware           | red and blue alternate |
 
 ## Getting back to stock
 
@@ -86,4 +86,4 @@ that did the install and pick **back to the vendor firmware**. It takes the back
 
 If the dongle does not come up on USB or Wi-Fi, give it 30 seconds, then replug it. A dongle whose system does not come up on first boot stays in a rescue system after the next restart.
 
- It is reachable over USB at `telnet 10.10.10.1` or `nc 10.10.10.1 23`. The logs are under `/tmp` on the dongle. The rescue system can take up to 15 s until the dongle is reachable via USB NCM.
+It is reachable over USB at `telnet 10.10.10.1` or `nc 10.10.10.1 23`. The logs are under `/tmp` on the dongle. The rescue system can take up to 15 s until the dongle is reachable via USB NCM.

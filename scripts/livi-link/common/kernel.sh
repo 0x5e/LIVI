@@ -1,6 +1,6 @@
 # Sourced by arm/common.sh and riscv/common.sh: the pinned kernel.org tree and the helpers every board's
 # kernel build uses. Needs BOARD, TOP and COMMON.
-KVER=7.2.10
+KVER=7.3
 KMAJOR=${KVER%%.*}
 KURL="https://cdn.kernel.org/pub/linux/kernel/v${KMAJOR}.x/linux-${KVER}.tar.xz"
 KDIR=$TOP/linux-$KVER
@@ -12,6 +12,8 @@ mkdir -p "$TOP" "$OUT"
 export LOCALVERSION=
 
 log(){ printf '\033[1;36m[%s-%s]\033[0m %s\n' "$BOARD" "${LOG_TAG:-build}" "$*"; }
+
+krelease() { cat "$KDIR/include/config/kernel.release"; }
 
 # Vanilla kernel.org tarball, checked against kernel.org's own published
 # sha256sums rather than a hash we would have to keep in sync by hand.

@@ -124,6 +124,6 @@ rootfs_payload() {
   cp "$REGDB" "$work/lib/firmware/regulatory.db"
 
   log "kernel modules (Bluetooth and the crypto it selects)"
-  mkdir -p "$work/lib/modules/$KVER"
-  cp "$OUT/modules"/* "$work/lib/modules/$KVER/"
+  mkdir -p "$work/lib/modules/$(krelease)"
+  cp "$OUT/modules"/* "$work/lib/modules/$(krelease)/"
 }

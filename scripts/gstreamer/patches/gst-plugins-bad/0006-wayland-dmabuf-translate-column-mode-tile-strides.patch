@@ -1,9 +1,6 @@
 Description: wayland: dmabuf: Translate column mode tile strides
 Author: Dave Stevenson <dave.stevenson@raspberrypi.com>
-Origin: <upstream|backport|vendor|other>, <URL, required except if Author is present>
-Last-Update: 2026-02-27 <YYYY-MM-DD, last update of the meta-information, optional>
 ---
-This patch header follows DEP-3: http://dep.debian.net/deps/dep3/
 --- a/gst-libs/gst/wayland/gstwllinuxdmabuf.c
 +++ b/gst-libs/gst/wayland/gstwllinuxdmabuf.c
 @@ -90,8 +90,18 @@ get_drm_stride (const GstVideoFormatInfo

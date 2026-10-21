@@ -1,6 +1,7 @@
 mod bundle;
 mod clock;
 mod core_process;
+mod cursor_ui;
 mod dashboard_ui;
 mod files_ui;
 mod follow;
@@ -450,6 +451,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
             if !attach_video(ui.window(), "main") {
                 eprintln!("[ui] the window has no native handle for the video");
             }
+            cursor_ui::start(&ui);
             if BASE_SCALE.get().is_none() {
                 BASE_SCALE.set(Some(ui.window().scale_factor()));
                 let weak = weak.clone();

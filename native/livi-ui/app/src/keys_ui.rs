@@ -503,8 +503,12 @@ pub fn wire(ui: &AppWindow, client: &Client) {
                 }
                 EventResult::Propagate
             }
-            winit::event::WindowEvent::CursorMoved { .. }
-            | winit::event::WindowEvent::MouseWheel { .. } => {
+            winit::event::WindowEvent::CursorMoved { position, .. } => {
+                crate::cursor_ui::moved(&ui, *position);
+                ui.invoke_wake_nav();
+                EventResult::Propagate
+            }
+            winit::event::WindowEvent::MouseWheel { .. } => {
                 ui.invoke_wake_nav();
                 EventResult::Propagate
             }

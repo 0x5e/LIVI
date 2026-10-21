@@ -4,7 +4,9 @@ use gstreamer_app as gst_app;
 use gstreamer_base as gst_base;
 use std::sync::{Arc, Once};
 
+mod camera;
 mod url_player;
+pub use camera::{CameraPlayer, direction, watch_cameras};
 pub use url_player::UrlPlayer;
 
 pub type Say = Arc<dyn Fn(&str) + Send + Sync>;
@@ -102,7 +104,7 @@ fn colorimetry(caps: &gst::CapsRef) -> Option<String> {
     s.get::<String>("colorimetry").ok()
 }
 
-fn decoded_caps(caps: &gst::CapsRef) -> Option<String> {
+pub(crate) fn decoded_caps(caps: &gst::CapsRef) -> Option<String> {
     let s = caps.structure(0)?;
     let fmt = s.get::<String>("format").unwrap_or_else(|_| "?".to_owned());
     let drm = s
@@ -219,6 +221,7 @@ unsafe extern "C" {
 
 const RANK_FRAMES: i32 = 0;
 const RANK_URL: i32 = 1;
+const RANK_CAMERA: i32 = 2;
 
 #[derive(Default)]
 struct WindowView {

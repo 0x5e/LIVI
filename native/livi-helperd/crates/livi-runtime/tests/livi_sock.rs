@@ -39,6 +39,7 @@ fn config(path: &str) -> LiviSockConfig {
             theme: None,
         },
         cp: CpConfig {
+            device_id: None,
             ap_mac: None,
             ap_on_air: None,
             wifi_iface: "none0".into(),

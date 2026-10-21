@@ -93,6 +93,7 @@ impl Screen {
 }
 
 pub struct CalState {
+    pub in_lut: bool,
     pub active: bool,
     pub gamma: f32,
     pub contrast: f32,
@@ -251,6 +252,7 @@ impl LiviState {
             pending_video_tags: VecDeque::new(),
             video_cfgs: Vec::new(),
             cal: CalState {
+                in_lut: false,
                 active: false,
                 gamma: 1.0,
                 contrast: 1.0,

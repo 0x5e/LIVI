@@ -29,7 +29,7 @@ struct Kind {
 const QUICK: Duration = Duration::from_millis(50);
 const STATUS: Kind = Kind {
     name: "status.json",
-    version: 1,
+    version: 2,
     pace: QUICK,
 };
 const CLIMATE_FILE: Kind = Kind {
@@ -245,10 +245,15 @@ async fn status(core: Arc<Core>, mut activity: watch::Receiver<Activity>, mut wr
     let mut state = core.hub.watch();
     let mut path = core.ui_path.subscribe();
     loop {
+        let (active, dab) = {
+            let s = state.borrow_and_update();
+            (s.sessions.active, s.dab.active)
+        };
         let payload = status_file::payload(
             &path.borrow_and_update(),
-            state.borrow_and_update().sessions.active,
+            active,
             *activity.borrow_and_update(),
+            dab,
         );
         writer.offer(Some(payload)).await;
         tokio::select! {
@@ -296,6 +301,8 @@ pub struct Saved {
     pub climate: Option<Map<String, Value>>,
     pub gps: Option<Map<String, Value>>,
     pub vehicle: Option<Map<String, Value>>,
+    pub ui_path: Option<String>,
+    pub dab: bool,
 }
 
 fn payload_of(user_data: &Path, kind: &Kind) -> Option<Value> {
@@ -316,10 +323,16 @@ pub fn saved(user_data: &Path) -> Saved {
     let vehicle = object(payload_of(user_data, &VEHICLE))
         .map(|v| kept_of(&v))
         .filter(|v| !v.is_empty());
+    let status = payload_of(user_data, &STATUS).unwrap_or(Value::Null);
     Saved {
         climate: object(payload_of(user_data, &CLIMATE_FILE)),
         gps: object(gps),
         vehicle,
+        ui_path: status["ui"]["path"]
+            .as_str()
+            .filter(|p| !p.is_empty())
+            .map(str::to_string),
+        dab: status["media"]["source"].as_str() == Some("dabplus"),
     }
 }
 
@@ -347,6 +360,8 @@ mod tests {
             update: Default::default(),
             cluster: Default::default(),
             dab: Default::default(),
+            cameras: Vec::new(),
+            mfi: Default::default(),
             config: defaults(),
         }
     }
@@ -451,6 +466,26 @@ mod tests {
             &render(1, &json!([1]), at),
         );
         assert_eq!(saved(&dir.0).climate, None);
+    }
+
+    #[test]
+    fn the_next_start_reads_the_last_page_and_source_back() {
+        let dir = TempDir::new();
+        let payload =
+            json!({ "ui": { "path": "/media/dabplus" }, "media": { "source": "dabplus" } });
+        write(
+            &dir.0.join(DIR).join("status.json"),
+            &render(STATUS.version, &payload, UNIX_EPOCH),
+        );
+        let back = saved(&dir.0);
+        assert_eq!(back.ui_path.as_deref(), Some("/media/dabplus"));
+        assert!(back.dab);
+        let old = json!({ "ui": { "path": "/media" } });
+        write(
+            &dir.0.join(DIR).join("status.json"),
+            &render(1, &old, UNIX_EPOCH),
+        );
+        assert_eq!(saved(&dir.0), Saved::default(), "the old shape is ignored");
     }
 
     #[test]

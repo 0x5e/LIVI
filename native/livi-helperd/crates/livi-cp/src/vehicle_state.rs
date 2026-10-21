@@ -569,11 +569,21 @@ const HISTORY: i64 = 3584;
 const HISTORY_SLOTS: usize = 10;
 const VERSION_LINE: i64 = 1281;
 
+const VEHICLE_RESOURCES: i64 = 768;
+
+fn initial_values(accessories: &[Accessory]) -> impl Iterator<Item = (i64, Value)> + '_ {
+    accessories
+        .iter()
+        .flat_map(|a| &a.services)
+        .flat_map(|s| &s.characteristics)
+        .filter_map(|c| Some((c.iid, c.initial.clone()?)))
+}
+
 fn vehicle_resources() -> Accessory {
     use Format::*;
     Accessory {
         name: "vehicle resources",
-        iid: 768,
+        iid: VEHICLE_RESOURCES,
         kind: 0x0120_0002,
         services: vec![Service {
             iid: 769,
@@ -1552,6 +1562,7 @@ const VENTS_AUTO: &str = "ventsAuto";
 
 pub fn default_climate() -> Climate {
     VehicleState::new(false, "", "")
+        .with_climate(true)
         .climate()
         .unwrap_or_default()
 }
@@ -1586,8 +1597,6 @@ impl VehicleState {
         let accessories = vec![
             navigation(),
             automaker_settings(app_version, build_date),
-            climate(),
-            seats(),
             vehicle_resources(),
             fuel(),
             trip_computer(),
@@ -1597,15 +1606,9 @@ impl VehicleState {
             now_playing(),
             notification_history(),
         ];
-        let values = accessories
-            .iter()
-            .flat_map(|a| &a.services)
-            .flat_map(|s| &s.characteristics)
-            .filter_map(|c| Some((c.iid, c.initial.clone()?)))
-            .collect();
         Self {
+            values: initial_values(&accessories).collect(),
             accessories,
-            values,
             followed: BTreeSet::new(),
             resume: BTreeMap::new(),
             before_max_ac: None,
@@ -1620,6 +1623,21 @@ impl VehicleState {
         }
     }
 
+    pub fn with_climate(mut self, controls: bool) -> Self {
+        if !controls {
+            return self;
+        }
+        let before = self
+            .accessories
+            .iter()
+            .position(|a| a.iid == VEHICLE_RESOURCES)
+            .unwrap_or(self.accessories.len());
+        let climate = vec![climate(), seats()];
+        self.values.extend(initial_values(&climate));
+        self.accessories.splice(before..before, climate);
+        self
+    }
+
     pub fn with_images(mut self, images: &[(String, Vec<u8>)]) -> Self {
         if images.is_empty() {
             return self;
@@ -1631,7 +1649,11 @@ impl VehicleState {
             archive_started()
         ));
         let version_iid = IMAGE_ARCHIVE_SERVICE + 1;
-        if let Some(resources) = self.accessories.iter_mut().find(|a| a.iid == 768) {
+        if let Some(resources) = self
+            .accessories
+            .iter_mut()
+            .find(|a| a.iid == VEHICLE_RESOURCES)
+        {
             let identifier = car(
                 version_iid,
                 0x3000_0019,
@@ -1829,15 +1851,7 @@ impl VehicleState {
     pub fn with_cluster_content(mut self, content: Option<&ClusterContent>) -> Self {
         let Some(content) = content else { return self };
         let added = cluster_content(content);
-        for c in added
-            .iter()
-            .flat_map(|a| &a.services)
-            .flat_map(|s| &s.characteristics)
-        {
-            if let Some(v) = &c.initial {
-                self.values.insert(c.iid, v.clone());
-            }
-        }
+        self.values.extend(initial_values(&added));
         self.accessories.extend(added);
         self
     }
@@ -1860,15 +1874,7 @@ impl VehicleState {
             .into_iter()
             .chain(engines.electric.then(electric_engine))
             .collect();
-        for c in added
-            .iter()
-            .flat_map(|a| &a.services)
-            .flat_map(|s| &s.characteristics)
-        {
-            if let Some(v) = &c.initial {
-                self.values.insert(c.iid, v.clone());
-            }
-        }
+        self.values.extend(initial_values(&added));
         self.accessories.extend(added);
         self
     }
@@ -2757,6 +2763,26 @@ mod tests {
     }
 
     #[test]
+    fn climate_and_seats_come_only_with_the_climate_controls() {
+        let iids = |state: &VehicleState| -> Vec<i64> {
+            state.accessories.iter().map(|a| a.iid).collect()
+        };
+        let mut without = VehicleState::new(false, "9.5.0", "").with_climate(false);
+        assert!(without.set_climate(&default_climate()).is_empty());
+        assert!(!iids(&without).contains(&512));
+        assert!(!iids(&without).contains(&1024));
+        assert!(without.climate().is_none());
+        let with = VehicleState::new(false, "9.5.0", "").with_climate(true);
+        let order = iids(&with);
+        let at = |iid| order.iter().position(|i| *i == iid).unwrap();
+        assert_eq!(
+            (at(512) + 1, at(1024) + 1),
+            (at(1024), at(VEHICLE_RESOURCES))
+        );
+        assert_eq!(with.climate(), Some(default_climate()));
+    }
+
+    #[test]
     fn the_vehicle_app_shows_the_livi_version_and_build_date() {
         let lines = |version: &str, built: &str| {
             let (_, info) = VehicleState::new(false, version, built).info_entry();
@@ -2852,7 +2878,9 @@ mod tests {
 
     #[test]
     fn both_front_seats_heat_in_two_steps() {
-        let (_, info) = VehicleState::new(false, "9.5.0", "2026-10-15 14:30").info_entry();
+        let (_, info) = VehicleState::new(false, "9.5.0", "2026-10-15 14:30")
+            .with_climate(true)
+            .info_entry();
         let plugin = &info
             .get("pluginConfigs")
             .and_then(bplist::Value::as_array)
@@ -2899,7 +2927,7 @@ mod tests {
 
     #[test]
     fn a_seat_heats_while_its_level_is_above_zero() {
-        let mut state = VehicleState::new(false, "9.5.0", "2026-10-15 14:30");
+        let mut state = VehicleState::new(false, "9.5.0", "2026-10-15 14:30").with_climate(true);
         let [(level, on), _] = SEAT_HEATING;
         state.handle(
             Lane::High,
@@ -2931,7 +2959,9 @@ mod tests {
 
     #[test]
     fn front_and_rear_windows_heat_through_their_wires() {
-        let (_, info) = VehicleState::new(false, "9.5.0", "2026-10-15 14:30").info_entry();
+        let (_, info) = VehicleState::new(false, "9.5.0", "2026-10-15 14:30")
+            .with_climate(true)
+            .info_entry();
         let plugin = &info
             .get("pluginConfigs")
             .and_then(bplist::Value::as_array)
@@ -2978,7 +3008,7 @@ mod tests {
 
     #[test]
     fn each_vent_has_its_button_and_auto_takes_them_all() {
-        let mut state = VehicleState::new(false, "9.5.0", "2026-10-15 14:30");
+        let mut state = VehicleState::new(false, "9.5.0", "2026-10-15 14:30").with_climate(true);
         let directions: Vec<_> = VENTS
             .iter()
             .map(|vent| state.values.get(&(vent + 3)).cloned())
@@ -3019,7 +3049,7 @@ mod tests {
 
     #[test]
     fn max_ac_cools_with_everything_and_gives_the_settings_back() {
-        let mut state = VehicleState::new(false, "9.5.0", "2026-10-15 14:30");
+        let mut state = VehicleState::new(false, "9.5.0", "2026-10-15 14:30").with_climate(true);
         let (level, _) = FAN;
         let iids = [
             MAX_AC,
@@ -3077,7 +3107,7 @@ mod tests {
 
     #[test]
     fn auto_runs_the_fan_until_it_is_set_by_hand() {
-        let mut state = VehicleState::new(false, "9.5.0", "2026-10-15 14:30");
+        let mut state = VehicleState::new(false, "9.5.0", "2026-10-15 14:30").with_climate(true);
         let (level, _) = FAN;
         let iids = [AUTO_CLIMATE, FAN_AUTO, level].map(Value::Int).to_vec();
         state.handle(Lane::High, &command("registerRequest", Value::Array(iids)));
@@ -3109,7 +3139,7 @@ mod tests {
 
     #[test]
     fn the_fan_stops_at_level_zero_and_comes_back_at_its_last_level() {
-        let mut state = VehicleState::new(false, "9.5.0", "2026-10-15 14:30");
+        let mut state = VehicleState::new(false, "9.5.0", "2026-10-15 14:30").with_climate(true);
         let (level, on) = FAN;
         let iids = vec![Value::Int(level), Value::Int(on)];
         state.handle(Lane::High, &command("registerRequest", Value::Array(iids)));
@@ -3137,7 +3167,7 @@ mod tests {
 
     #[test]
     fn synced_zones_follow_the_driver_until_the_passenger_is_set() {
-        let mut state = VehicleState::new(false, "9.5.0", "2026-10-15 14:30");
+        let mut state = VehicleState::new(false, "9.5.0", "2026-10-15 14:30").with_climate(true);
         let iids = [
             DRIVER_TARGET_TEMPERATURE,
             PASSENGER_TARGET_TEMPERATURE,
@@ -3198,7 +3228,9 @@ mod tests {
 
     #[test]
     fn both_front_seats_have_their_own_temperature() {
-        let (_, info) = VehicleState::new(false, "9.5.0", "2026-10-15 14:30").info_entry();
+        let (_, info) = VehicleState::new(false, "9.5.0", "2026-10-15 14:30")
+            .with_climate(true)
+            .info_entry();
         let plugin = &info
             .get("pluginConfigs")
             .and_then(bplist::Value::as_array)
@@ -3230,7 +3262,7 @@ mod tests {
 
     #[test]
     fn climate_is_described_and_set_from_the_phone() {
-        let mut state = VehicleState::new(false, "9.5.0", "2026-10-15 14:30");
+        let mut state = VehicleState::new(false, "9.5.0", "2026-10-15 14:30").with_climate(true);
         let (_, info) = state.info_entry();
         let plugin = &info
             .get("pluginConfigs")
@@ -3403,7 +3435,7 @@ mod tests {
 
     #[test]
     fn livi_sets_climate_and_the_phone_hears_what_changed() {
-        let mut state = VehicleState::new(false, "9.5.0", "2026-10-15 14:30");
+        let mut state = VehicleState::new(false, "9.5.0", "2026-10-15 14:30").with_climate(true);
         let (level, on) = FAN;
         let iids = [AUTO_CLIMATE, FAN_AUTO, level, on, DRIVER_TARGET_TEMPERATURE];
         state.handle(
@@ -3668,7 +3700,7 @@ mod tests {
 
     #[test]
     fn the_volume_goes_both_ways_in_percent() {
-        let mut state = VehicleState::new(false, "9.5.0", "2026-10-15 14:30");
+        let mut state = VehicleState::new(false, "9.5.0", "2026-10-15 14:30").with_climate(true);
         let volume = state.characteristic(VOLUME).unwrap().describe();
         assert_eq!(
             volume.get("writable"),

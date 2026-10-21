@@ -81,6 +81,7 @@ fn identity() -> Identity {
 
 fn cp_config() -> CpConfig {
     CpConfig {
+        device_id: None,
         ap_mac: None,
         ap_on_air: None,
         wifi_iface: "nonexistent0".into(),

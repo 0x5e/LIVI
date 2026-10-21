@@ -1,3 +1,4 @@
+mod cal;
 mod ctrl;
 mod deco;
 mod drm;

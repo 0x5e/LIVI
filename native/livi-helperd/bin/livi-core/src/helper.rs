@@ -22,9 +22,11 @@ pub fn debug(cfg: &Config) -> bool {
 pub fn helper_env(
     cfg: &Config,
     identity: &Identity,
+    accessory: &str,
     airplay_port: Option<u16>,
 ) -> Vec<(String, String)> {
     let mut env = settings_env(cfg);
+    env.push(("LIVI_CP_DEVICE_ID".to_string(), accessory.to_string()));
     env.push(("LIVI_CP_PK".to_string(), identity.pk_hex()));
     env.push(("LIVI_CP_PI".to_string(), identity.pairing_id.clone()));
     if let Some(port) = airplay_port.filter(|p| *p > 0) {
@@ -103,6 +105,7 @@ fn settings_env(cfg: &Config) -> Vec<(String, String)> {
         ("LIVI_CP_CONNECTORS".to_string(), cp_connectors(cfg)),
         ("LIVI_CP_THEME".to_string(), cfg.car_play_theme.clone()),
         ("LIVI_BT_ADAPTER".to_string(), cfg.bt_adapter.clone()),
+        ("LIVI_MFI_FILES".to_string(), cfg.car_play_mfi_files.clone()),
         ("LIVI_WIFI_IFACE".to_string(), cfg.wifi_interface.clone()),
         ("LIVI_PASSPHRASE".to_string(), cfg.wifi_password.clone()),
         (
@@ -330,7 +333,7 @@ mod tests {
         let mut cfg = defaults();
         cfg.wireless_aa_enabled = true;
         cfg.wifi_type = WifiBand::Ghz24;
-        let env = helper_env(&cfg, &identity(), Some(7000));
+        let env = helper_env(&cfg, &identity(), "88:00:33:77:8C:26", Some(7000));
         assert_eq!(get(&env, "LIVI_AA_WIRELESS"), Some("1"));
         assert_eq!(get(&env, "LIVI_CP_WIRELESS"), Some(""));
         assert_eq!(get(&env, "LIVI_CP_PK"), Some("ab".repeat(32).as_str()));
@@ -350,22 +353,22 @@ mod tests {
         ]);
         cfg.ev_max_dc_power_kw = Some(150.0);
         cfg.ev_max_ac_power_kw = Some(11.0);
-        let env = helper_env(&cfg, &identity(), None);
+        let env = helper_env(&cfg, &identity(), "88:00:33:77:8C:26", None);
         assert_eq!(
             get(&env, "LIVI_CP_CONNECTORS"),
             Some("Combo2:150000,Mennekes:11000,Chademo:150000")
         );
         cfg.ev_max_dc_power_kw = None;
-        let env = helper_env(&cfg, &identity(), None);
+        let env = helper_env(&cfg, &identity(), "88:00:33:77:8C:26", None);
         assert_eq!(
             get(&env, "LIVI_CP_CONNECTORS"),
             Some("Combo2,Mennekes:11000,Chademo")
         );
         cfg.car_play_theme = "44C9FA31EC:985:19.0".into();
-        let env = helper_env(&cfg, &identity(), None);
+        let env = helper_env(&cfg, &identity(), "88:00:33:77:8C:26", None);
         assert_eq!(get(&env, "LIVI_CP_THEME"), Some("44C9FA31EC:985:19.0"));
         cfg.debug_logging = true;
-        let env = helper_env(&cfg, &identity(), None);
+        let env = helper_env(&cfg, &identity(), "88:00:33:77:8C:26", None);
         assert_eq!(get(&env, "LIVI_CP_AIRPLAY_PORT"), None);
         assert_eq!(get(&env, "DEBUG"), Some("1"));
     }

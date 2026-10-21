@@ -39,8 +39,6 @@ livi_require_regular_user() {
   fi
 }
 
-# Release assets are named LIVI-<version>-linux-<arch>.AppImage, where <arch> is
-# electron-builder's spelling: x86_64 or arm64.
 livi_asset_arch() {
   case "$(uname -m)" in
     x86_64|amd64)  printf 'x86_64\n' ;;

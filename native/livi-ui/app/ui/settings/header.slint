@@ -1,0 +1,73 @@
+import { Theme } from "../theme.slint";
+import { Metrics } from "metrics.slint";
+
+export component SettingsHeader inherits Rectangle {
+    in property <string> title;
+    in property <bool> can-back;
+    in property <bool> show-apply;
+    in property <string> apply-text: "Apply";
+    in property <bool> back-focused;
+    in property <bool> apply-focused;
+    callback back();
+    callback apply();
+
+    height: Metrics.header-h;
+
+    property <length> side: max(Metrics.slot-left, Metrics.slot-right);
+
+    if root.can-back: Rectangle {
+        x: 0.5rem;
+        width: Metrics.slot-left;
+        Image {
+            width: Metrics.icon-px;
+            height: Metrics.icon-px;
+            source: @image-url("../icons/ArrowBackIosOutlined.svg");
+            colorize: back-touch.has-hover || back-touch.pressed || root.back-focused ? Theme.primary : Theme.text;
+        }
+        back-touch := TouchArea {
+            clicked => { root.back(); }
+        }
+    }
+
+    Text {
+        x: root.side;
+        width: root.width - 2 * root.side;
+        text: root.title;
+        color: Theme.text;
+        font-size: Metrics.title-px;
+        font-weight: 800;
+        horizontal-alignment: center;
+        vertical-alignment: center;
+        overflow: elide;
+    }
+
+    if root.show-apply: Rectangle {
+        x: root.width - 0.5rem - Metrics.slot-right;
+        width: Metrics.slot-right;
+        Rectangle {
+            border-radius: 6px;
+            border-width: root.apply-focused ? 2px : 0;
+            border-color: Theme.primary;
+        }
+        HorizontalLayout {
+            alignment: center;
+            spacing: 0.5rem;
+            Text {
+                text: root.apply-text;
+                color: Theme.primary;
+                font-size: Metrics.apply-px;
+                vertical-alignment: center;
+            }
+            Image {
+                y: (parent.height - self.height) / 2;
+                width: Metrics.icon-px;
+                height: Metrics.icon-px;
+                source: @image-url("../icons/RestartAltOutlined.svg");
+                colorize: Theme.primary;
+            }
+        }
+        TouchArea {
+            clicked => { root.apply(); }
+        }
+    }
+}

@@ -1,0 +1,119 @@
+import { Theme } from "../theme.slint";
+import { Metrics } from "metrics.slint";
+
+export component Switch inherits Rectangle {
+    in property <bool> checked;
+    in property <bool> enabled: true;
+    callback toggled();
+
+    width: 58px;
+    height: 38px;
+
+    Rectangle {
+        x: 12px;
+        y: 12px;
+        width: 34px;
+        height: 14px;
+        border-radius: 7px;
+        background: root.checked ? Theme.primary : (Theme.dark ? #ffffff4d : #00000061);
+    }
+    Rectangle {
+        x: root.checked ? 29px : 9px;
+        y: 9px;
+        width: 20px;
+        height: 20px;
+        border-radius: 10px;
+        background: root.checked ? Theme.primary : (Theme.dark ? #e0e0e0 : #fafafa);
+        animate x { duration: 150ms; easing: ease-out; }
+    }
+    TouchArea {
+        enabled: root.enabled;
+        clicked => { root.toggled(); }
+    }
+}
+
+export global SliderGrab {
+    in-out property <bool> held;
+}
+
+export component Slider inherits Rectangle {
+    in property <float> level;
+    in property <bool> enabled: true;
+    in property <bool> focused;
+    in property <color> tint: Theme.primary;
+    in property <string> text;
+    in property <image> icon;
+    in property <bool> has-icon;
+    in property <bool> small;
+    callback moved(float);
+    callback released(float);
+
+    property <bool> dragging;
+    property <float> drag-level;
+    property <float> shown: dragging ? drag-level : level;
+    property <length> pill: root.small ? Metrics.pill-h-small : Metrics.pill-h;
+    property <length> fill: self.width * clamp(root.shown, 0, 1);
+    property <length> gap: root.pill * 0.36;
+    property <bool> inside: root.fill >= label.preferred-width + 2 * root.gap;
+    property <bool> lit: root.focused || root.dragging || touch.has-hover;
+
+    min-height: root.pill;
+    horizontal-stretch: 1;
+
+    Rectangle {
+        y: (parent.height - root.pill) / 2;
+        height: root.pill;
+        border-radius: root.pill / 2;
+        background: root.tint.with-alpha(Theme.dark ? 0.26 : 0.18);
+        drop-shadow-blur: root.lit ? 8px : 4px;
+        drop-shadow-color: root.tint.with-alpha(root.lit ? 0.35 : 0.18);
+    }
+    Rectangle {
+        x: 0;
+        y: (parent.height - root.pill) / 2;
+        width: root.fill;
+        height: root.pill;
+        border-radius: root.pill / 2;
+        background: root.tint;
+    }
+    if root.has-icon: Image {
+        x: root.pill * 0.4;
+        y: (parent.height - self.height) / 2;
+        width: root.pill * 0.5;
+        height: root.pill * 0.5;
+        source: root.icon;
+        colorize: #ffffff;
+    }
+    label := Text {
+        x: root.inside ? root.fill - self.width - root.gap : root.fill + root.gap;
+        y: (parent.height - self.height) / 2;
+        text: root.text;
+        font-size: root.small ? Metrics.pill-font-small : Metrics.pill-font;
+        font-weight: 900;
+        color: root.inside ? #ffffff : Theme.text;
+    }
+    touch := TouchArea {
+        enabled: root.enabled;
+        pointer-event(e) => {
+            if (e.kind == PointerEventKind.down) {
+                root.dragging = true;
+                SliderGrab.held = true;
+                root.drag-level = clamp(self.mouse-x / self.width, 0, 1);
+                root.moved(root.drag-level);
+            } else if (e.kind == PointerEventKind.up && root.dragging) {
+                root.dragging = false;
+                SliderGrab.held = false;
+                root.released(clamp(self.mouse-x / self.width, 0, 1));
+            } else if (e.kind == PointerEventKind.cancel) {
+                root.dragging = false;
+                SliderGrab.held = false;
+            }
+        }
+        moved => {
+            if (root.dragging) {
+                root.drag-level = clamp(self.mouse-x / self.width, 0, 1);
+                root.moved(root.drag-level);
+            }
+        }
+    }
+}

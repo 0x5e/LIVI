@@ -1,3 +1,4 @@
+pub mod display;
 pub mod feed;
 pub mod ui_planes;
 
@@ -61,6 +62,7 @@ pub fn encode_reply(op: u8, id: u32, rest: &[u8]) -> Vec<u8> {
 
 pub const PLANE_MAIN: u32 = 0x7a00_0001;
 pub const PLANE_VIDEO: u32 = 0x7a00_0002;
+pub const PLANE_CAMERA: u32 = 0x7a00_0003;
 pub const PLANE_CLUSTER_RECV: u32 = 0x7a00_0010;
 pub const CLUSTER_RECV_ID: u32 = 0x7a00_0010;
 pub const CLUSTER_PLANE_MIN: u32 = 0x7a00_0011;
@@ -81,6 +83,7 @@ pub fn feeder_of(plane_id: u32) -> u32 {
 pub const SCREENS: [&str; 3] = ["main", "cluster", "aux"];
 pub const MAIN_TAG: &str = "main";
 pub const VIDEO_TAG: &str = "video";
+pub const CAMERA_TAG: &str = "camera";
 
 pub fn cluster_tag(screen: &str) -> String {
     format!("cluster-{screen}")
@@ -92,6 +95,9 @@ pub fn plane_place(id: u32) -> Option<(String, &'static str)> {
     }
     if id == PLANE_VIDEO {
         return Some((VIDEO_TAG.into(), SCREENS[0]));
+    }
+    if id == PLANE_CAMERA {
+        return Some((CAMERA_TAG.into(), SCREENS[0]));
     }
     let screen = SCREENS.get(id.checked_sub(CLUSTER_PLANE_MIN)? as usize)?;
     Some((cluster_tag(screen), screen))
@@ -133,6 +139,60 @@ pub fn parse_url_body(rest: &[u8]) -> Option<(String, String)> {
         .ok()
         .filter(|u| !u.is_empty())?;
     Some((url.to_owned(), device.to_owned()))
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct CameraOrder {
+    pub device: String,
+    pub rotation: u16,
+    pub mirror: bool,
+}
+
+pub fn camera_body(order: &CameraOrder) -> Vec<u8> {
+    let mut rest = Vec::with_capacity(3 + order.device.len());
+    rest.extend_from_slice(&order.rotation.to_le_bytes());
+    rest.push(u8::from(order.mirror));
+    rest.extend_from_slice(order.device.as_bytes());
+    rest
+}
+
+pub fn parse_camera_body(rest: &[u8]) -> Option<CameraOrder> {
+    let rotation = u16::from_le_bytes([*rest.first()?, *rest.get(1)?]);
+    let mirror = *rest.get(2)? != 0;
+    let device = core::str::from_utf8(&rest[3..]).ok()?.to_owned();
+    Some(CameraOrder {
+        device,
+        rotation,
+        mirror,
+    })
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct CameraSeen {
+    pub id: String,
+    pub name: String,
+}
+
+pub fn cameras_body(cameras: &[CameraSeen]) -> Vec<u8> {
+    let clean = |s: &str| s.replace(['\t', '\n'], " ");
+    cameras
+        .iter()
+        .map(|c| format!("{}\t{}\n", clean(&c.id), clean(&c.name)))
+        .collect::<String>()
+        .into_bytes()
+}
+
+pub fn parse_cameras_body(rest: &[u8]) -> Vec<CameraSeen> {
+    String::from_utf8_lossy(rest)
+        .lines()
+        .filter_map(|line| {
+            let (id, name) = line.split_once('\t')?;
+            Some(CameraSeen {
+                id: id.to_owned(),
+                name: name.to_owned(),
+            })
+        })
+        .collect()
 }
 
 #[derive(Debug, Clone, Copy, Default, PartialEq)]
@@ -274,6 +334,7 @@ mod tests {
     fn every_plane_has_its_tag_and_screen() {
         assert_eq!(plane_place(PLANE_MAIN), Some(("main".into(), "main")));
         assert_eq!(plane_place(PLANE_VIDEO), Some(("video".into(), "main")));
+        assert_eq!(plane_place(PLANE_CAMERA), Some(("camera".into(), "main")));
         assert_eq!(
             plane_place(CLUSTER_PLANE_MIN + 1),
             Some(("cluster-cluster".into(), "cluster"))
@@ -284,6 +345,32 @@ mod tests {
         );
         assert_eq!(plane_place(PLANE_CLUSTER_RECV), None);
         assert_eq!(plane_place(CLUSTER_PLANE_MAX + 1), None);
+    }
+
+    #[test]
+    fn a_camera_order_and_the_camera_list_come_back_apart() {
+        let order = CameraOrder {
+            device: "/dev/video0".into(),
+            rotation: 270,
+            mirror: true,
+        };
+        assert_eq!(parse_camera_body(&camera_body(&order)), Some(order));
+        assert_eq!(parse_camera_body(&[1]), None);
+        let seen = vec![
+            CameraSeen {
+                id: "/dev/video0".into(),
+                name: "USB\tCam".into(),
+            },
+            CameraSeen {
+                id: "0x1420000".into(),
+                name: "FaceTime HD".into(),
+            },
+        ];
+        let back = parse_cameras_body(&cameras_body(&seen));
+        assert_eq!(back.len(), 2);
+        assert_eq!(back[0].name, "USB Cam");
+        assert_eq!(back[1], seen[1]);
+        assert!(parse_cameras_body(&[]).is_empty());
     }
 
     #[test]

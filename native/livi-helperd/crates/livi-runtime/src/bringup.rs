@@ -35,6 +35,7 @@ pub struct CpConfig {
     pub av_iface: Option<String>,
     pub av_iface_late: Option<watch::Receiver<Option<String>>>,
     pub available_current_ma: u16,
+    pub device_id: Option<String>,
     pub ap_mac: Option<String>,
     pub ap_on_air: Option<AskOnAir>,
     pub on_cable: Option<OnCable>,
@@ -54,7 +55,10 @@ impl core::fmt::Debug for OnCable {
 }
 
 pub fn accessory_id(cp: &CpConfig) -> Option<String> {
-    cp.ap_mac.clone().or_else(|| net::wlan_mac(&cp.wifi_iface))
+    cp.device_id
+        .clone()
+        .or_else(|| cp.ap_mac.clone())
+        .or_else(|| net::wlan_mac(&cp.wifi_iface))
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -786,6 +790,7 @@ mod tests {
             av_iface: None,
             av_iface_late: None,
             available_current_ma: 500,
+            device_id: None,
             ap_mac: None,
             ap_on_air: Some(ask),
             on_cable: None,

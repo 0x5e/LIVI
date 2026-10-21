@@ -1,37 +1,32 @@
 use std::collections::BTreeMap;
 
 use serde::{Deserialize, Serialize};
-use ts_rs::TS;
 
-#[derive(Debug, Clone, PartialEq, Default, Serialize, Deserialize, TS)]
+#[derive(Debug, Clone, PartialEq, Default, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
-#[ts(export_to = "contract.ts")]
 pub struct Theme {
     pub id: String,
     pub displays: Vec<ThemeDisplay>,
     pub palettes: Vec<Palette>,
 }
 
-#[derive(Debug, Clone, PartialEq, Serialize, Deserialize, TS)]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
-#[ts(export_to = "contract.ts")]
 pub struct ThemeDisplay {
     pub id: String,
     pub kind: DisplayKind,
     pub layouts: Vec<ThemeLayout>,
 }
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, TS)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
-#[ts(export_to = "contract.ts")]
 pub enum DisplayKind {
     Cluster,
     Center,
 }
 
-#[derive(Debug, Clone, PartialEq, Serialize, Deserialize, TS)]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
-#[ts(export_to = "contract.ts")]
 pub struct ThemeLayout {
     pub id: String,
     pub name: String,
@@ -39,26 +34,23 @@ pub struct ThemeLayout {
     pub zones: Vec<Zone>,
 }
 
-#[derive(Debug, Clone, PartialEq, Serialize, Deserialize, TS)]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
-#[ts(export_to = "contract.ts")]
 pub struct Zone {
     pub id: String,
     pub component: String,
 }
 
-#[derive(Debug, Clone, PartialEq, Serialize, Deserialize, TS)]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
-#[ts(export_to = "contract.ts")]
 pub struct Palette {
     pub id: String,
     pub accent_dark: String,
     pub accent_light: String,
 }
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Default, Serialize, Deserialize, TS)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
-#[ts(export_to = "contract.ts")]
 pub enum AppearancePreference {
     #[default]
     Automatic,
@@ -66,9 +58,8 @@ pub enum AppearancePreference {
     Dark,
 }
 
-#[derive(Debug, Clone, PartialEq, Default, Serialize, Deserialize, TS)]
+#[derive(Debug, Clone, PartialEq, Default, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
-#[ts(export_to = "contract.ts")]
 pub struct Cluster {
     pub theme: Theme,
     pub layout: String,
@@ -79,17 +70,15 @@ pub struct Cluster {
     pub appearance: AppearancePreference,
 }
 
-#[derive(Debug, Clone, PartialEq, Serialize, Deserialize, TS)]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
-#[ts(export_to = "contract.ts")]
 pub struct ArrangedLayout {
     pub id: String,
     pub on: bool,
 }
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, TS)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
-#[ts(export_to = "contract.ts")]
 pub struct LayoutSlot {
     pub on: bool,
     pub pos: u32,

@@ -8,6 +8,9 @@ use livi_aa_stack::config::{AaConfig, Addresses as AaAddresses, Codecs};
 use livi_core_proto::config::{
     AppearanceMode, CarType, ClusterContent, Config, DockPosition, HandDriveType,
 };
+use livi_core_proto::icon::{
+    DEFAULT_120 as ICON_120, DEFAULT_180 as ICON_180, DEFAULT_256 as ICON_256,
+};
 use livi_core_proto::state::State;
 use livi_core_proto::theme::{DisplayKind, Theme};
 use livi_cp::info::{DisplayConfig, Icon, InfoConfig, Insets, ThemeDisplays, mm_at_dpi};
@@ -22,10 +25,7 @@ use tokio::sync::{broadcast, watch};
 
 use crate::{host, hwaddr};
 
-const ICON_120: &str = include_str!("../../../../../src/main/shared/assets/icon-120.b64");
-const ICON_180: &str = include_str!("../../../../../src/main/shared/assets/icon-180.b64");
-const ICON_256: &str = include_str!("../../../../../src/main/shared/assets/icon-256.b64");
-const LOGO: &[u8] = include_bytes!("../../../../../src/main/shared/assets/livi-logo.png");
+const LOGO: &[u8] = include_bytes!("../res/livi-logo.png");
 
 pub struct GstMedia {
     gst: GstHost,
@@ -319,7 +319,8 @@ fn icons(cfg: &Config) -> Vec<Icon> {
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct Addresses {
-    pub device_id: String,
+    pub accessory: String,
+    pub wifi_bssid: String,
     pub bt_mac: String,
     pub access_point: Option<livi_wifi::OnAir>,
 }
@@ -381,7 +382,7 @@ pub fn stack_config(
             icons: icons(cfg),
             right_hand_drive: cfg.hand == HandDriveType::Rhd,
             theme_displays: theme_displays(cfg, theme),
-            device_id: addresses.device_id.clone(),
+            device_id: addresses.accessory.clone(),
             bt_mac: addresses.bt_mac.clone(),
             source_version: if source.is_empty() {
                 livi_core_proto::config::defaults().car_play_source_version
@@ -423,6 +424,7 @@ pub fn stack_config(
         audio_device: cfg.audio_output_device.clone().unwrap_or_default(),
         audio_input_device: cfg.audio_input_device.clone().unwrap_or_default(),
         hls_video: cfg.car_play_hls_video,
+        vehicle_climate: cfg.car_play_vehicle_climate,
         app_version: option_env!("LIVI_VERSION").unwrap_or_default().into(),
         app_build_date: option_env!("LIVI_BUILD_DATE").unwrap_or_default().into(),
         cluster_url: cluster_url(cfg),
@@ -513,7 +515,7 @@ fn aa_config(cfg: &Config, codecs: Codecs, addresses: &Addresses) -> AaConfig {
     let known = |a: &str| (a != hwaddr::FALLBACK).then(|| a.to_string());
     let addresses = AaAddresses {
         bt_mac: known(&addresses.bt_mac),
-        wifi_bssid: known(&addresses.device_id),
+        wifi_bssid: known(&addresses.wifi_bssid),
         access_point: addresses.access_point.clone(),
     };
     livi_aa_stack::config::from_livi(cfg, codecs, night_mode(cfg.appearance_mode), &addresses)
@@ -536,6 +538,7 @@ pub struct ConfigSource {
     codecs: Mutex<Codecs>,
     addresses: Mutex<Addresses>,
     told: Mutex<HashMap<String, String>>,
+    accessory: String,
 }
 
 fn images_dir() -> PathBuf {
@@ -590,13 +593,16 @@ impl ConfigSource {
     pub fn new(
         state: watch::Receiver<State>,
         panels: watch::Receiver<HashMap<String, Panel>>,
+        accessory: String,
     ) -> (
         Arc<Self>,
         watch::Receiver<StackConfig>,
         watch::Receiver<AaConfig>,
     ) {
+        println!("[core] CarPlay accessory {accessory}");
         let addresses = Addresses {
-            device_id: hwaddr::FALLBACK.into(),
+            accessory: accessory.clone(),
+            wifi_bssid: hwaddr::FALLBACK.into(),
             bt_mac: hwaddr::FALLBACK.into(),
             access_point: None,
         };
@@ -624,38 +630,51 @@ impl ConfigSource {
             codecs: Mutex::new(Codecs::default()),
             addresses: Mutex::new(addresses),
             told: Mutex::new(HashMap::new()),
+            accessory,
         });
         (source, rx, aa_rx)
     }
 
     pub fn refresh(&self) {
-        let (cfg, cluster) = {
+        let (cfg, cluster, dongle_up) = {
             let s = self.state.borrow();
-            (s.config.clone(), s.cluster.theme.clone())
+            (
+                s.config.clone(),
+                s.cluster.theme.clone(),
+                s.system.dongle.is_some(),
+            )
         };
+        let reachable = |name: &str| dongle_up || name != livi_link_host::link::CHOICE;
+        let wifi = reachable(&cfg.wifi_interface);
         let found = {
             let mut told = self.told.lock().unwrap_or_else(|e| e.into_inner());
             Addresses {
-                device_id: remembered(
+                accessory: self.accessory.clone(),
+                wifi_bssid: remembered(
                     &mut told,
                     format!("wifi {}", cfg.wifi_interface),
-                    hwaddr::accessory_id(&cfg.wifi_interface),
+                    wifi.then(|| hwaddr::accessory_id(&cfg.wifi_interface))
+                        .flatten(),
                 ),
                 bt_mac: remembered(
                     &mut told,
                     format!("bt {}", cfg.bt_adapter),
-                    hwaddr::bt_mac(&cfg.bt_adapter),
+                    reachable(&cfg.bt_adapter)
+                        .then(|| hwaddr::bt_mac(&cfg.bt_adapter))
+                        .flatten(),
                 ),
-                access_point: livi_link_host::on_air(&cfg.wifi_interface),
+                access_point: wifi
+                    .then(|| livi_link_host::on_air(&cfg.wifi_interface))
+                    .flatten(),
             }
         };
         let addresses = {
             let mut known = self.addresses.lock().unwrap_or_else(|e| e.into_inner());
             if *known != found {
-                if (&known.device_id, &known.bt_mac) != (&found.device_id, &found.bt_mac) {
+                if (&known.wifi_bssid, &known.bt_mac) != (&found.wifi_bssid, &found.bt_mac) {
                     println!(
-                        "[core] CarPlay accessory {} (bt {})",
-                        found.device_id, found.bt_mac
+                        "[core] Wi-Fi {} and bt {} for Android Auto",
+                        found.wifi_bssid, found.bt_mac
                     );
                 }
                 *known = found;
@@ -677,7 +696,6 @@ impl ConfigSource {
             changed
         });
         livi_aa_stack::log::set_debug(cfg.debug_logging);
-        crate::log_file::set_debug(cfg.debug_logging);
         let aa = aa_config(&cfg, codecs, &addresses);
         self.aa.send_if_modified(|cur| {
             let changed = *cur != aa;
@@ -754,7 +772,8 @@ mod tests {
 
     fn addresses() -> Addresses {
         Addresses {
-            device_id: "11:11:11:11:11:11".into(),
+            accessory: "11:11:11:11:11:11".into(),
+            wifi_bssid: "33:33:33:33:33:33".into(),
             bt_mac: "22:22:22:22:22:22".into(),
             access_point: None,
         }
@@ -806,6 +825,47 @@ mod tests {
             remembered(&mut told, "wifi wlan0".into(), None),
             hwaddr::FALLBACK
         );
+    }
+
+    #[test]
+    fn an_absent_dongle_is_not_asked_and_its_address_stays() {
+        use livi_core_proto::state::{Front, PerScreen, State};
+        let mut config = defaults();
+        config.wifi_interface = livi_link_host::link::CHOICE.into();
+        config.bt_adapter = livi_link_host::link::CHOICE.into();
+        let state = State {
+            front: PerScreen {
+                main: Front::Livi,
+                cluster: Front::Livi,
+                aux: Front::Livi,
+            },
+            sessions: Default::default(),
+            now_playing: Default::default(),
+            telemetry: Default::default(),
+            navigation: Default::default(),
+            system: Default::default(),
+            devices: Default::default(),
+            update: Default::default(),
+            cluster: Default::default(),
+            dab: Default::default(),
+            cameras: Vec::new(),
+            mfi: Default::default(),
+            config,
+        };
+        let (_state_tx, state_rx) = watch::channel(state);
+        let (_panels_tx, panels_rx) = watch::channel(panels());
+        let (source, config, aa) =
+            ConfigSource::new(state_rx, panels_rx, "02:5A:11:22:33:44".into());
+        source
+            .told
+            .lock()
+            .unwrap()
+            .insert("wifi livi-link".into(), "88:00:33:77:8C:26".into());
+        let started = std::time::Instant::now();
+        source.refresh();
+        assert!(started.elapsed() < std::time::Duration::from_secs(1));
+        assert_eq!(config.borrow().info.device_id, "02:5A:11:22:33:44");
+        assert_eq!(aa.borrow().wifi_bssid.as_deref(), Some("88:00:33:77:8C:26"));
     }
 
     #[test]

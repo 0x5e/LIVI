@@ -67,13 +67,11 @@
 
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
-use ts_rs::TS;
 
 use crate::gnss::{GnssInfo, GpsFix};
 
-#[derive(Debug, Clone, Default, PartialEq, Serialize, TS)]
+#[derive(Debug, Clone, Default, PartialEq, Serialize)]
 #[serde(rename_all = "camelCase")]
-#[ts(export_to = "contract.ts", optional_fields)]
 pub struct TelemetrySnapshot {
     /// Unix milliseconds, LIVI fills it in when a push has none.
     pub ts: Option<u64>,
@@ -81,7 +79,6 @@ pub struct TelemetrySnapshot {
     pub rpm: Option<f64>,
     /// A number for a manual gearbox, -1 reverse, 0 neutral, 1 to 10. A string for an automatic,
     /// P, R, N, D, S or M1 to M10.
-    #[ts(type = "number | string")]
     pub gear: Option<Value>,
     /// Negative is left.
     pub steering_deg: Option<f64>,
@@ -174,9 +171,8 @@ pub struct TelemetrySnapshot {
     pub notification: Option<Notification>,
 }
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, TS)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize)]
 #[serde(rename_all = "lowercase")]
-#[ts(export_to = "contract.ts")]
 pub enum TurnSignal {
     None,
     Left,
@@ -184,9 +180,8 @@ pub enum TurnSignal {
 }
 
 /// A sensor may push one wheel at a time.
-#[derive(Debug, Clone, Default, PartialEq, Serialize, TS)]
+#[derive(Debug, Clone, Default, PartialEq, Serialize)]
 #[serde(rename_all = "camelCase")]
-#[ts(export_to = "contract.ts", optional_fields)]
 pub struct TirePressure {
     pub front_left_kpa: Option<f64>,
     pub front_right_kpa: Option<f64>,
@@ -194,8 +189,7 @@ pub struct TirePressure {
     pub rear_right_kpa: Option<f64>,
 }
 
-#[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, TS)]
-#[ts(export_to = "contract.ts", optional_fields)]
+#[derive(Debug, Clone, Default, PartialEq, Eq, Serialize)]
 pub struct CanFrame {
     pub id: u32,
     pub data: Vec<u8>,
@@ -204,9 +198,8 @@ pub struct CanFrame {
 
 /// The car's climate as CarPlay shows it. Without a running session an outside source keeps it
 /// current, a new session starts from it.
-#[derive(Debug, Clone, Default, PartialEq, Serialize, Deserialize, TS)]
+#[derive(Debug, Clone, Default, PartialEq, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
-#[ts(export_to = "contract.ts", optional_fields)]
 pub struct Climate {
     /// Who set it last: `carplay` the phone, `external` a push that names no source, `saved` the
     /// last run, `default` LIVI's start values. Anything but `carplay` reaches the phone.
@@ -244,9 +237,8 @@ pub struct Climate {
 /// A notification in the CarPlay cluster, for warnings such as range, temperature or frost. It
 /// stays until Enter or the phone closes it, either sets `open` back to false. Each one also lands
 /// in the Vehicle app's notification list, the last ten until the user clears them.
-#[derive(Debug, Clone, Default, PartialEq, Serialize, Deserialize, TS)]
+#[derive(Debug, Clone, Default, PartialEq, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
-#[ts(export_to = "contract.ts", optional_fields)]
 pub struct Notification {
     pub title: Option<String>,
     pub text: Option<String>,

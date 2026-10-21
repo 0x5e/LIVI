@@ -126,6 +126,36 @@ impl Outside for Gst {
     }
 
     #[cfg(not(target_os = "macos"))]
+    type Camera = livi_video_player::CameraPlayer;
+    #[cfg(target_os = "macos")]
+    type Camera = crate::ui_plane::UiCamera;
+
+    #[cfg(not(target_os = "macos"))]
+    fn open_camera(
+        &self,
+        _id: u32,
+        order: &crate::CameraOrder,
+    ) -> Option<livi_video_player::CameraPlayer> {
+        let camera =
+            livi_video_player::CameraPlayer::new(order, 0, livi_video_player::to_stderr())?;
+        camera.start();
+        Some(camera)
+    }
+
+    #[cfg(target_os = "macos")]
+    fn open_camera(
+        &self,
+        id: u32,
+        order: &crate::CameraOrder,
+    ) -> Option<crate::ui_plane::UiCamera> {
+        crate::ui_plane::UiCamera::open(&ui_planes_path(id)?, id, order)
+    }
+
+    fn watch_cameras(&self, report: Box<dyn Fn(Vec<crate::CameraSeen>) + Send>) {
+        livi_video_player::watch_cameras(report);
+    }
+
+    #[cfg(not(target_os = "macos"))]
     fn play_url(&self, _id: u32, url: &str, audio_device: &str) -> Option<UrlPlayer> {
         UrlPlayer::new(url, audio_device, 0, livi_video_player::to_stderr())
     }

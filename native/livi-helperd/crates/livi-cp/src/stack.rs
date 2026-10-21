@@ -121,6 +121,7 @@ pub struct StackConfig {
     pub audio_device: String,
     pub audio_input_device: String,
     pub hls_video: bool,
+    pub vehicle_climate: bool,
     pub app_version: String,
     pub app_build_date: String,
     pub cluster_url: String,
@@ -512,6 +513,7 @@ pub async fn run<M: Media>(
     let vehicle_state = {
         let cfg = ctx.config.borrow();
         VehicleState::new(ctx.debug, &cfg.app_version, &cfg.app_build_date)
+            .with_climate(cfg.vehicle_climate)
             .with_variant(&cfg.vehicle_variant)
             .with_engines(cfg.engines)
             .with_cluster_content(cfg.cluster_content.as_ref())
@@ -2674,6 +2676,7 @@ pub(crate) mod tests {
                 audio_device: "out".into(),
                 audio_input_device: "in".into(),
                 hls_video: video,
+                vehicle_climate: true,
                 app_version: "9.5.0".into(),
                 app_build_date: String::new(),
                 cluster_url: String::new(),

@@ -2,20 +2,12 @@ use std::fmt;
 
 use serde::{Deserialize, Serialize};
 use serde_json::{Map, Value};
-use ts_rs::TS;
 
-#[derive(Debug, Clone, PartialEq, Serialize, Deserialize, TS)]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 #[serde(tag = "op", rename_all = "camelCase")]
-#[ts(export_to = "contract.ts")]
 pub enum PatchOp {
-    Set {
-        path: Vec<String>,
-        #[ts(type = "unknown")]
-        value: Value,
-    },
-    Remove {
-        path: Vec<String>,
-    },
+    Set { path: Vec<String>, value: Value },
+    Remove { path: Vec<String> },
 }
 
 #[derive(Debug, PartialEq, Eq)]

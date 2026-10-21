@@ -25,7 +25,7 @@ fn env_or<T: std::str::FromStr>(key: &str, default: T) -> T {
         .unwrap_or(default)
 }
 
-fn config_path() -> std::path::PathBuf {
+pub(crate) fn config_path() -> std::path::PathBuf {
     let user = std::env::var("SUDO_USER")
         .ok()
         .filter(|u| !u.is_empty() && u != "root")
@@ -268,6 +268,9 @@ async fn serve() -> Result<(), Box<dyn std::error::Error>> {
             "LIVI_CP_AVAILABLE_CURRENT_MA",
             500u16,
         ),
+        device_id: std::env::var("LIVI_CP_DEVICE_ID")
+            .ok()
+            .filter(|s| !s.is_empty()),
         ap_mac: ap_mac.clone(),
         ap_on_air: dongle_ap.then_some(livi_link_host::ap::on_air as AskOnAir),
         on_cable: None,
@@ -277,15 +280,22 @@ async fn serve() -> Result<(), Box<dyn std::error::Error>> {
     let pk = std::env::var("LIVI_CP_PK").unwrap_or_default();
     let pi = std::env::var("LIVI_CP_PI").unwrap_or_default();
 
-    println!("[helperd] opening MFi bus={bus_num} gpio={gpio}");
-    let (auth, mfi_link) = match I2cCoprocessor::open(bus_num, gpio) {
-        Ok(chip) => {
-            println!("[helperd] MFi addr=0x{:02X}", chip.address());
-            (
-                SharedCoprocessor::new(Box::new(chip)),
-                crate::link::LinkPresence::always(),
-            )
+    let local: Result<Box<dyn iap2_mfi::AuthCoprocessor + Send>, _> = match crate::mfi_files::open()
+    {
+        Some(files) => Ok(Box::new(files)),
+        None => {
+            println!("[helperd] opening MFi bus={bus_num} gpio={gpio}");
+            I2cCoprocessor::open(bus_num, gpio).map(|chip| {
+                println!("[helperd] MFi addr=0x{:02X}", chip.address());
+                Box::new(chip) as Box<dyn iap2_mfi::AuthCoprocessor + Send>
+            })
         }
+    };
+    let (auth, mfi_link) = match local {
+        Ok(chip) => (
+            SharedCoprocessor::new(chip),
+            crate::link::LinkPresence::always(),
+        ),
         Err(e) => {
             println!(
                 "[helperd] no local MFi ({e}); a LIVI Link dongle's chip serves once on the bus"

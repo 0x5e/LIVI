@@ -369,6 +369,8 @@ mod tests {
             update: Default::default(),
             cluster: Default::default(),
             dab: Default::default(),
+            cameras: Vec::new(),
+            mfi: Default::default(),
             config,
         }
     }
@@ -477,6 +479,7 @@ mod tests {
             )
             .into(),
             vehicle: obj(json!({ "fuelPct": 42, "odometerKm": 123456 })).into(),
+            ..Saved::default()
         };
         let mut t = Telemetry::new(core.clone(), io, &saved);
         assert_eq!(t.snap["nightMode"], true);
@@ -598,6 +601,7 @@ mod tests {
             gps: obj(json!({ "lat": 0.0, "lng": 0.0 })).into(),
             climate: None,
             vehicle: None,
+            ..Saved::default()
         };
         let mut t = Telemetry::new(core, io, &saved);
         let keys: Vec<&str> = t.snap.keys().map(String::as_str).collect();

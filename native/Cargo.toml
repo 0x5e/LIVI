@@ -24,9 +24,13 @@ members = [
     "livi-helperd/crates/livi-runtime",
     "livi-helperd/crates/livi-session-io",
     "livi-helperd/crates/livi-wifi",
+    "livi-ui/app",
+    "livi-ui/client",
+    "livi-ui/model",
+    "xtask",
     "livi-host-proto/rust",
     "livi-crypto/rust",
-    "livi-gst-video/rust/addon",
+    "livi-gst-video/rust/view",
     "livi-gst-video/rust/audio",
     "livi-gst-video/rust/audioplayer",
     "livi-gst-video/rust/codec",
@@ -48,9 +52,18 @@ members = [
     "livi-link/crates/livi-web",
     "livi-link/crates/livi-wifid",
 ]
+exclude = ["vendor"]
+
+[patch.crates-io]
+femtovg = { path = "vendor/femtovg" }
 
 [workspace.package]
+version = "10.0.0"
 edition = "2024"
+description = "LIVI - Linux In-Vehicle Infotainment"
+homepage = "https://f-io.dev"
+authors = ["Lasse Heitgres"]
+license = "GPL-3.0-or-later"
 
 [workspace.dependencies]
 # Every crate takes libc from here, so all of them follow the 1.0 API.

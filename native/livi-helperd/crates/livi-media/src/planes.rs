@@ -1,7 +1,10 @@
 use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
 use std::sync::{Arc, Mutex, MutexGuard};
 
-use livi_host_proto::{CLUSTER_PLANE_MIN, MAIN_TAG, PLANE_MAIN, PLANE_VIDEO, SCREENS, VIDEO_TAG};
+use livi_host_proto::{
+    CAMERA_TAG, CLUSTER_PLANE_MIN, CameraOrder, MAIN_TAG, PLANE_CAMERA, PLANE_MAIN, PLANE_VIDEO,
+    SCREENS, VIDEO_TAG,
+};
 use tokio::sync::broadcast;
 
 use crate::compositor::CompositorControl;
@@ -210,6 +213,48 @@ impl VideoPlane {
         self.comp.release(VIDEO_TAG);
         self.comp.videoshow(VIDEO_TAG, false);
         self.gst.stop(PLANE_VIDEO);
+    }
+}
+
+pub struct CameraPlane {
+    gst: GstHost,
+    comp: CompositorControl,
+    stops: AtomicU64,
+}
+
+impl CameraPlane {
+    pub fn new(gst: GstHost, comp: CompositorControl) -> Arc<Self> {
+        Arc::new(Self {
+            gst,
+            comp,
+            stops: AtomicU64::new(0),
+        })
+    }
+
+    pub fn turn(&self) -> u64 {
+        self.stops.load(Ordering::SeqCst)
+    }
+
+    pub async fn open(&self, turn: u64, order: &CameraOrder) -> bool {
+        if self.turn() != turn {
+            return false;
+        }
+        self.comp
+            .videocfg(CAMERA_TAG, SCREEN, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0);
+        self.comp.videoshow(CAMERA_TAG, true);
+        self.comp.claim(CAMERA_TAG).await;
+        if self.turn() != turn {
+            return false;
+        }
+        self.gst.open_camera(PLANE_CAMERA, order);
+        true
+    }
+
+    pub fn close(&self) {
+        self.stops.fetch_add(1, Ordering::SeqCst);
+        self.comp.release(CAMERA_TAG);
+        self.comp.videoshow(CAMERA_TAG, false);
+        self.gst.stop(PLANE_CAMERA);
     }
 }
 

@@ -34,6 +34,7 @@ pub struct Core {
     pub relaunch: std::sync::Mutex<Option<PathBuf>>,
     asks: UiSenders,
     uid: u32,
+    mfi_dir: PathBuf,
 }
 
 impl Core {
@@ -56,7 +57,24 @@ impl Core {
             open_page: broadcast::channel(8).0,
             asks,
             uid,
+            mfi_dir: PathBuf::new(),
         }
+    }
+
+    pub fn with_mfi(mut self, dir: PathBuf) -> Self {
+        self.mfi_dir = dir;
+        self
+    }
+
+    pub async fn refresh_mfi(&self) -> Result<(), String> {
+        let view = crate::mfi::read(&self.mfi_dir);
+        let files = crate::mfi::digest(&self.mfi_dir);
+        self.hub.update(|s| s.mfi = view);
+        if self.hub.config().car_play_mfi_files == files {
+            return Ok(());
+        }
+        self.set_config(&serde_json::json!({ "carPlayMfiFiles": files }))
+            .await
     }
 
     pub async fn set_config(&self, patch: &Value) -> Result<(), String> {
@@ -134,6 +152,19 @@ impl Core {
             Action::Media { control } => {
                 self.media(control);
                 Ok(())
+            }
+            Action::ImportMfi { file, path } => {
+                match crate::mfi::import(&self.mfi_dir, file, std::path::Path::new(&path)) {
+                    Ok(()) => self.refresh_mfi().await,
+                    Err(e) => {
+                        self.hub.update(|s| s.mfi.error = Some(e.clone()));
+                        Err(e)
+                    }
+                }
+            }
+            Action::RemoveMfi { file } => {
+                crate::mfi::remove(&self.mfi_dir, file)?;
+                self.refresh_mfi().await
             }
             Action::DabScan => self.ask_dab(DabAsk::Scan),
             Action::DabStopScan => self.ask_dab(DabAsk::StopScan),
@@ -319,9 +350,6 @@ async fn client(core: Arc<Core>, stream: UnixStream) -> io::Result<()> {
                         Ok(ToCore::Path { path }) => {
                             core.ui_path.send_replace(path);
                         }
-                        Ok(ToCore::Camera { found }) => {
-                            let _ = core.asks.commands.send(UiCommand::CameraFound(found));
-                        }
                         Ok(ToCore::Hello { .. }) => {}
                         Err(FrameError::Json(e)) => println!("[core] {client} sent a broken frame: {e}"),
                         Err(e @ FrameError::TooLarge(_)) => return Err(io::Error::other(e)),
@@ -436,6 +464,8 @@ mod tests {
             update: Default::default(),
             cluster: Default::default(),
             dab: Default::default(),
+            cameras: Vec::new(),
+            mfi: Default::default(),
             config: defaults(),
         });
         let file = ConfigFile::new(dir.0.join("config.json"), dir.0.join("backup.json"));
@@ -577,11 +607,6 @@ mod tests {
         })
         .await;
         assert_eq!(asks.input.recv().await, Some(key));
-        ui.send(&ToCore::Camera { found: true }).await;
-        assert_eq!(
-            asks.commands.recv().await,
-            Some(UiCommand::CameraFound(true))
-        );
     }
 
     #[tokio::test]

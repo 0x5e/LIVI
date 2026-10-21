@@ -1,8 +1,6 @@
 use serde::{Serialize, Serializer};
-use ts_rs::TS;
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Serialize, TS)]
-#[ts(export_to = "contract.ts", rename = "GnssConstellation")]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Serialize)]
 #[serde(rename_all = "lowercase")]
 pub enum Constellation {
     Beidou,
@@ -13,8 +11,7 @@ pub enum Constellation {
     Unknown,
 }
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Default, Serialize, TS)]
-#[ts(export_to = "contract.ts", rename = "GnssFixQuality")]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default, Serialize)]
 #[serde(rename_all = "camelCase")]
 pub enum FixQuality {
     #[default]
@@ -29,8 +26,7 @@ pub enum FixQuality {
     Simulated,
 }
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Default, Serialize, TS)]
-#[ts(export_to = "contract.ts", rename = "GnssFixMode")]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default, Serialize)]
 pub enum FixMode {
     #[default]
     #[serde(rename = "none")]
@@ -41,8 +37,7 @@ pub enum FixMode {
     ThreeD,
 }
 
-#[derive(Debug, Clone, PartialEq, Serialize, TS)]
-#[ts(export_to = "contract.ts", rename = "GnssSatellite", optional_fields)]
+#[derive(Debug, Clone, PartialEq, Serialize)]
 pub struct Satellite {
     #[serde(serialize_with = "number")]
     pub id: f64,
@@ -65,8 +60,7 @@ pub struct Satellite {
     pub snr: Option<f64>,
 }
 
-#[derive(Debug, Clone, Default, PartialEq, Serialize, TS)]
-#[ts(export_to = "contract.ts", rename = "GnssVersion", optional_fields)]
+#[derive(Debug, Clone, Default, PartialEq, Serialize)]
 pub struct Version {
     pub software: String,
     pub hardware: String,
@@ -80,8 +74,7 @@ pub struct Version {
     pub supported: Option<Vec<String>>,
 }
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, TS)]
-#[ts(export_to = "contract.ts", rename = "GnssAntennaStatus")]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize)]
 #[serde(rename_all = "lowercase")]
 pub enum AntennaStatus {
     Init,
@@ -91,8 +84,7 @@ pub enum AntennaStatus {
     Open,
 }
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, TS)]
-#[ts(export_to = "contract.ts", rename = "GnssAntennaPower")]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize)]
 #[serde(rename_all = "lowercase")]
 pub enum AntennaPower {
     Off,
@@ -100,8 +92,7 @@ pub enum AntennaPower {
     Unknown,
 }
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, TS)]
-#[ts(export_to = "contract.ts", rename = "GnssJamming")]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize)]
 #[serde(rename_all = "lowercase")]
 pub enum Jamming {
     Unknown,
@@ -110,8 +101,7 @@ pub enum Jamming {
     Critical,
 }
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, TS)]
-#[ts(export_to = "contract.ts", rename = "GnssRf")]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize)]
 #[serde(rename_all = "camelCase")]
 pub struct Rf {
     pub jamming: Jamming,
@@ -122,8 +112,7 @@ pub struct Rf {
     pub jamming_indicator: u8,
 }
 
-#[derive(Debug, Clone, Default, PartialEq, Serialize, TS)]
-#[ts(export_to = "contract.ts", optional_fields)]
+#[derive(Debug, Clone, Default, PartialEq, Serialize)]
 #[serde(rename_all = "camelCase")]
 pub struct GnssInfo {
     pub connected: bool,
@@ -170,8 +159,7 @@ pub struct GnssInfo {
     pub timezone: Option<String>,
 }
 
-#[derive(Debug, Clone, Default, PartialEq, Serialize, TS)]
-#[ts(export_to = "contract.ts", optional_fields)]
+#[derive(Debug, Clone, Default, PartialEq, Serialize)]
 #[serde(rename_all = "camelCase")]
 pub struct GpsFix {
     #[serde(

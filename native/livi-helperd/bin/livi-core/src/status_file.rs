@@ -57,6 +57,11 @@ struct Nav {
 }
 
 #[derive(Serialize)]
+struct Media {
+    source: &'static str,
+}
+
+#[derive(Serialize)]
 struct Ui {
     path: String,
 }
@@ -70,9 +75,10 @@ pub struct Payload {
     phone: Active,
     voice_assistant: Active,
     nav: Nav,
+    media: Media,
 }
 
-pub fn payload(path: &str, active: Option<Protocol>, a: Activity) -> Payload {
+pub fn payload(path: &str, active: Option<Protocol>, a: Activity, dab: bool) -> Payload {
     let (protocol, phone_type) = match active {
         Some(Protocol::Carplay) => (Some("cp"), Some("CarPlay")),
         Some(Protocol::Androidauto) => (Some("aa"), Some("AndroidAuto")),
@@ -99,6 +105,9 @@ pub fn payload(path: &str, active: Option<Protocol>, a: Activity) -> Payload {
         nav: Nav {
             announcing: a.nav_announcing,
         },
+        media: Media {
+            source: if dab { "dabplus" } else { "phone" },
+        },
     }
 }
 
@@ -114,7 +123,8 @@ mod tests {
         a.stream(AudioKind::Alert, true);
         a.stream(AudioKind::Call, true);
         let text =
-            serde_json::to_string_pretty(&payload("/media", Some(Protocol::Carplay), a)).unwrap();
+            serde_json::to_string_pretty(&payload("/media", Some(Protocol::Carplay), a, true))
+                .unwrap();
         let v: Value = serde_json::from_str(&text).unwrap();
         assert_eq!(
             v,
@@ -128,7 +138,8 @@ mod tests {
                 },
                 "phone": { "active": true },
                 "voiceAssistant": { "active": false },
-                "nav": { "announcing": true }
+                "nav": { "announcing": true },
+                "media": { "source": "dabplus" }
             })
         );
         let keys: Vec<&str> = text
@@ -144,14 +155,15 @@ mod tests {
                 "audio",
                 "phone",
                 "voiceAssistant",
-                "nav"
+                "nav",
+                "media"
             ]
         );
     }
 
     #[test]
     fn android_auto_reads_as_aa() {
-        let aa = payload("", Some(Protocol::Androidauto), Activity::default());
+        let aa = payload("", Some(Protocol::Androidauto), Activity::default(), false);
         assert_eq!(
             (aa.projection.active, aa.projection.phone_type),
             (Some("aa"), Some("AndroidAuto"))

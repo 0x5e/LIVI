@@ -178,7 +178,13 @@ enum Radio {
     Error(String),
 }
 
-pub async fn run(hub: Arc<Hub>, gst: GstHost, mut asks: DabAsks, user_data: PathBuf) {
+pub async fn run(
+    hub: Arc<Hub>,
+    gst: GstHost,
+    mut asks: DabAsks,
+    user_data: PathBuf,
+    mut resume: bool,
+) {
     let (cmd_tx, cmd_rx) = std_mpsc::channel();
     let (ev_tx, mut events) = mpsc::unbounded_channel();
     let mut out = Out {
@@ -242,17 +248,7 @@ pub async fn run(hub: Arc<Hub>, gst: GstHost, mut asks: DabAsks, user_data: Path
                         hub.update(|s| s.dab.playing = false);
                     }
                     DabAsk::Play(service) => out.play(&mut audio, &s, service, tune),
-                    DabAsk::Resume => {
-                        if s.dab.playing {
-                            continue;
-                        }
-                        let list = &s.dab.stations;
-                        let wanted = s.dab.station.or(s.dab.last_station);
-                        let pick = list.iter().find(|st| Some(st.service_id) == wanted);
-                        if let Some(st) = pick.or(list.iter().find(|st| !st.hidden)) {
-                            out.play(&mut audio, &s, st.service_id, tune);
-                        }
-                    }
+                    DabAsk::Resume => out.resume(&mut audio, &s, tune),
                     DabAsk::Favorite { service, favorite } => {
                         if star(&mut out.own.stations, service, favorite) {
                             out.keep();
@@ -285,7 +281,13 @@ pub async fn run(hub: Arc<Hub>, gst: GstHost, mut asks: DabAsks, user_data: Path
                         let _ = cmd_tx.send(Cmd::Stop);
                         hub.update(|s| stick_gone(&mut s.dab));
                     }
-                    Radio::Receiver(name) => hub.update(|s| s.dab.receiver = name),
+                    Radio::Receiver(name) => {
+                        hub.update(|s| s.dab.receiver = name);
+                        if std::mem::take(&mut resume) {
+                            let s = state.borrow().clone();
+                            out.resume(&mut audio, &s, tune);
+                        }
+                    }
                     Radio::Progress(p) => {
                         let found = found.len() as u32;
                         hub.update(|s| s.dab.scan = Some(DabScan { found, ..p }));
@@ -371,6 +373,18 @@ impl Out {
         hidden_last(&mut self.own.stations);
         save_sdr(&self.user_data, &self.own);
         self.publish();
+    }
+
+    fn resume(&mut self, audio: &mut Audio, s: &State, tuning: Tuning) {
+        if s.dab.playing {
+            return;
+        }
+        let list = &s.dab.stations;
+        let wanted = s.dab.station.or(s.dab.last_station);
+        let pick = list.iter().find(|st| Some(st.service_id) == wanted);
+        if let Some(st) = pick.or(list.iter().find(|st| !st.hidden)) {
+            self.play(audio, s, st.service_id, tuning);
+        }
     }
 
     fn play(&mut self, audio: &mut Audio, s: &State, service: u32, tuning: Tuning) {

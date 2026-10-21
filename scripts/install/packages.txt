@@ -20,8 +20,8 @@ core|libva2|file:/usr/lib/*/libva.so.2|Host VA-API runtime, the bundled H.264 so
 core|libva-drm2|file:/usr/lib/*/libva-drm.so.2|Host VA-API DRM runtime for the bundled decoder|libva
 core|libva-x11-2|file:/usr/lib/*/libva-x11.so.2|Host VA-API X11 runtime for the bundled decoder|libva
 core|libssh-4|file:/usr/lib/*/libssh.so.4|Host libssh, the bundled FFmpeg protocol layer links it|libssh
-core|libgtk-3-0|file:/usr/lib/*/libgtk-3.so.0|GTK runtime the app itself links, with ATK, Pango and Cairo behind it; a host with no desktop has none|gtk3
-core|libnss3|file:/usr/lib/*/libnss3.so|NSS runtime the app itself links|nss
+core|libfontconfig1|file:/usr/lib/*/libfontconfig.so.1|Font lookup for the UI|fontconfig
+core|libxkbcommon0|file:/usr/lib/*/libxkbcommon.so.0|Keyboard layouts for the UI|libxkbcommon
 lite|libseat1|file:/usr/lib/*/libseat.so.1|Seat access for driving the display directly|libseat
 lite|libinput10|file:/usr/lib/*/libinput.so.10|Touch, keyboard and mouse input without a desktop|libinput
 lite|libgbm1|file:/usr/lib/*/libgbm.so.1|Display buffers without a desktop|mesa-libgbm

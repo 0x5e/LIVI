@@ -8,9 +8,10 @@ use livi_audio_stream::{AudioSink, Codec as AudioCodec};
 use livi_audio_uplink::UplinkCodec;
 pub use livi_host_proto::UrlStatus;
 use livi_host_proto::{
-    CLUSTER_PLANE_MAX, CLUSTER_PLANE_MIN, CLUSTER_RECV_ID, Framer, feed as feedproto, feeder_of,
-    parse_plane_body, parse_url_body, url_status_body,
+    CLUSTER_PLANE_MAX, CLUSTER_PLANE_MIN, CLUSTER_RECV_ID, Framer, cameras_body, feed as feedproto,
+    feeder_of, parse_camera_body, parse_plane_body, parse_url_body, url_status_body,
 };
+pub use livi_host_proto::{CameraOrder, CameraSeen};
 use livi_screen_stream::ScreenSink;
 use livi_video_fanout::Fanout;
 use livi_video_nal::CpCodec;
@@ -48,6 +49,8 @@ const OP_PLAY_URL: u8 = 22;
 const OP_PLAY_RATE: u8 = 23;
 const OP_PLAY_SEEK: u8 = 24;
 const OP_PLAY_MUTE: u8 = 25;
+const OP_CAMERA_OPEN: u8 = 26;
+const OP_CAMERAS_WATCH: u8 = 27;
 
 const REPLY_PORT: u8 = 1;
 const REPLY_CONFIG: u8 = 2;
@@ -58,6 +61,7 @@ const REPLY_VISUALIZER: u8 = 6;
 const REPLY_FEED: u8 = 7;
 const REPLY_URL_STATUS: u8 = 8;
 const REPLY_AUDIO_DELAY: u8 = 9;
+const REPLY_CAMERAS: u8 = 10;
 const DELAY_STEP_MS: u32 = 10;
 const DELAY_WEIGHT: f64 = 0.2;
 
@@ -128,6 +132,12 @@ pub trait Outside: 'static {
     fn create_plane(&self, id: u32, codec: &str, codec_data: &[u8]) -> Option<Self::Plane>;
 
     fn play_url(&self, id: u32, url: &str, audio_device: &str) -> Option<Self::UrlPlayer>;
+
+    type Camera;
+
+    fn open_camera(&self, id: u32, order: &CameraOrder) -> Option<Self::Camera>;
+
+    fn watch_cameras(&self, report: Box<dyn Fn(Vec<CameraSeen>) + Send>);
 
     fn listen(&self, key: [u8; 32], sink: Box<dyn ScreenSink>) -> Option<(Self::Ears, u16)>;
 
@@ -380,6 +390,8 @@ pub struct Host<O: Outside> {
     uplinks: HashMap<u32, O::Uplink>,
     taps: HashMap<u32, O::Tap>,
     url_players: HashMap<u32, O::UrlPlayer>,
+    cameras: HashMap<u32, O::Camera>,
+    cameras_watched: bool,
     feed_fans: FeedFans,
     feed_wanted: FeedWanted,
     feed_routes: FeedRoutes,
@@ -400,6 +412,8 @@ impl<O: Outside> Host<O> {
             uplinks: HashMap::new(),
             taps: HashMap::new(),
             url_players: HashMap::new(),
+            cameras: HashMap::new(),
+            cameras_watched: false,
             feed_fans: Rc::new(RefCell::new(HashMap::new())),
             feed_wanted: Rc::new(RefCell::new(HashMap::new())),
             feed_routes: Rc::new(RefCell::new(HashMap::new())),
@@ -427,6 +441,7 @@ impl<O: Outside> Host<O> {
             }
             OP_STOP => {
                 self.planes.borrow_mut().remove(&id);
+                self.cameras.remove(&id);
                 if self.url_players.remove(&id).is_some() {
                     eprintln!(
                         "{}",
@@ -435,6 +450,8 @@ impl<O: Outside> Host<O> {
                 }
             }
             OP_PLAY_URL => self.play_url(id, rest),
+            OP_CAMERA_OPEN => self.open_camera(id, rest),
+            OP_CAMERAS_WATCH => self.watch_cameras(),
             OP_PLAY_RATE => {
                 if let (Some(p), Some(rate)) = (self.url_players.get(&id), f64_le(rest)) {
                     p.set_rate(rate);
@@ -557,6 +574,29 @@ impl<O: Outside> Host<O> {
         };
         player.start();
         self.url_players.insert(id, player);
+    }
+
+    fn open_camera(&mut self, id: u32, rest: &[u8]) {
+        let Some(order) = parse_camera_body(rest) else {
+            return;
+        };
+        self.cameras.remove(&id);
+        match self.outside.open_camera(id, &order) {
+            Some(camera) => {
+                self.cameras.insert(id, camera);
+            }
+            None => eprintln!("livi: camera {} for 0x{id:x} FAILED", order.device),
+        }
+    }
+
+    fn watch_cameras(&mut self) {
+        if std::mem::replace(&mut self.cameras_watched, true) {
+            return;
+        }
+        let wire = self.wire.clone();
+        self.outside.watch_cameras(Box::new(move |list| {
+            wire.reply(REPLY_CAMERAS, 0, &cameras_body(&list));
+        }));
     }
 
     fn open_feed(&mut self, id: u32, rest: &[u8]) {
@@ -1206,6 +1246,8 @@ mod tests {
         urls: Vec<(u32, String, String)>,
         url_logs: Vec<Rc<RefCell<UrlLog>>>,
         refuse_url: bool,
+        cameras: Vec<(u32, CameraOrder)>,
+        camera_watches: usize,
     }
 
     type SharedMediaSink = Rc<RefCell<Box<dyn MediaSink>>>;
@@ -1241,6 +1283,21 @@ mod tests {
             w.codecs.push((id, codec.to_owned(), codec_data.to_vec()));
             w.planes.push(plane.clone());
             Some(plane)
+        }
+
+        type Camera = ();
+
+        fn open_camera(&self, id: u32, order: &CameraOrder) -> Option<()> {
+            self.0.borrow_mut().cameras.push((id, order.clone()));
+            Some(())
+        }
+
+        fn watch_cameras(&self, report: Box<dyn Fn(Vec<CameraSeen>) + Send>) {
+            self.0.borrow_mut().camera_watches += 1;
+            report(vec![CameraSeen {
+                id: "/dev/video0".into(),
+                name: "USB Cam".into(),
+            }]);
         }
 
         fn play_url(&self, id: u32, url: &str, audio_device: &str) -> Option<FakeUrlPlayer> {
@@ -1802,6 +1859,46 @@ mod tests {
 
     fn url_log(f: &Fixture, i: usize) -> Rc<RefCell<UrlLog>> {
         f.world.0.borrow().url_logs[i].clone()
+    }
+
+    #[test]
+    fn a_camera_order_opens_the_camera_and_stop_ends_it() {
+        let mut f = Fixture::new();
+        let order = CameraOrder {
+            device: "/dev/video0".into(),
+            rotation: 90,
+            mirror: true,
+        };
+        f.send(
+            OP_CAMERA_OPEN,
+            livi_host_proto::PLANE_CAMERA,
+            &livi_host_proto::camera_body(&order),
+        );
+        assert_eq!(
+            f.world.0.borrow().cameras,
+            vec![(livi_host_proto::PLANE_CAMERA, order)]
+        );
+        assert_eq!(f.host.cameras.len(), 1);
+        f.send(OP_STOP, livi_host_proto::PLANE_CAMERA, &[]);
+        assert!(f.host.cameras.is_empty());
+    }
+
+    #[test]
+    fn the_camera_list_is_watched_once_and_reported() {
+        let mut f = Fixture::new();
+        f.send(OP_CAMERAS_WATCH, 0, &[]);
+        f.send(OP_CAMERAS_WATCH, 0, &[]);
+        assert_eq!(f.world.0.borrow().camera_watches, 1);
+        let sent = f.sent.0.lock().unwrap();
+        let reports: Vec<_> = sent
+            .iter()
+            .filter(|(op, ..)| *op == REPLY_CAMERAS)
+            .collect();
+        assert_eq!(reports.len(), 1);
+        assert_eq!(
+            livi_host_proto::parse_cameras_body(&reports[0].2)[0].name,
+            "USB Cam"
+        );
     }
 
     #[test]

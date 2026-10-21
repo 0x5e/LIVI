@@ -16,7 +16,6 @@ TTYVHangup=yes
 StandardInput=tty-fail
 StandardOutput=journal
 StandardError=inherit
-Environment=ELECTRON_OZONE_PLATFORM_HINT=wayland
 Environment=LIVI_KIOSK=1
 ExecStart=__APPIMAGE__
 ExecStopPost=+__SYSTEMCTL__ --no-block start getty@tty1.service

@@ -1,6 +1,7 @@
 #include <gst/gst.h>
 #import <Cocoa/Cocoa.h>
 #import <QuartzCore/QuartzCore.h>
+#import <CoreImage/CoreImage.h>
 #include <math.h>
 
 @interface LIVIClipView : NSView {
@@ -73,7 +74,37 @@
 }
 @end
 
-// Above the clips of the same or a lower rank, always under the web content.
+@interface LIVIVideoHost : NSView
+@end
+
+@implementation LIVIVideoHost
+- (NSView*)hitTest:(NSPoint)point {
+  return nil;
+}
+@end
+
+static NSView* video_host(NSView* ui) {
+  NSView* frame = [ui superview];
+  if (!frame) return ui;
+  for (NSView* v in [frame subviews]) {
+    if ([v isKindOfClass:[LIVIVideoHost class]]) return v;
+  }
+  LIVIVideoHost* host = [[LIVIVideoHost alloc] initWithFrame:[ui frame]];
+  [host setAutoresizingMask:NSViewWidthSizable | NSViewHeightSizable];
+  [host setWantsLayer:YES];
+  host.layer.backgroundColor = CGColorGetConstantColor(kCGColorBlack);
+  [frame addSubview:host positioned:NSWindowBelow relativeTo:ui];
+  NSWindow* win = [ui window];
+  [win setOpaque:YES];
+  [win setBackgroundColor:[NSColor blackColor]];
+  return host;
+}
+
+extern "C" void livi_prepare_window(guintptr ui) {
+  if (!ui) return;
+  video_host((NSView*)(void*)ui);
+}
+
 static void insert_clip(NSView* p, LIVIClipView* clip) {
   NSView* above = nil;
   for (NSView* v in [p subviews]) {
@@ -90,8 +121,8 @@ static void insert_clip(NSView* p, LIVIClipView* clip) {
 
 extern "C" guintptr livi_attach_view(guintptr parent, int rank, void** outView) {
   *outView = nullptr;
-  NSView* p = (NSView*)(void*)parent;
-  if (!p) return parent;
+  if (!parent) return parent;
+  NSView* p = video_host((NSView*)(void*)parent);
 
   LIVIClipView* clip = [[LIVIClipView alloc] initWithFrame:[p bounds]];
   clip->_gl = nullptr;
@@ -162,8 +193,8 @@ extern "C" void livi_set_view_hidden(void* view, bool hidden) {
 }
 
 extern "C" void livi_set_backdrop(guintptr parent, double r, double g, double b) {
-  NSView* p = (NSView*)(void*)parent;
-  if (!p) return;
+  if (!parent) return;
+  NSView* p = video_host((NSView*)(void*)parent);
   [p setWantsLayer:YES];
   if (!p.layer) return;
   NSColor* col = [NSColor colorWithSRGBRed:r green:g blue:b alpha:1.0];
@@ -177,4 +208,24 @@ extern "C" void livi_run_on_main(void (*work)(void*), void* context) {
     return;
   }
   dispatch_sync_f(dispatch_get_main_queue(), context, work);
+}
+
+extern "C" void livi_set_window_curves(guintptr ui, const float* rgb, int count) {
+  if (!ui) return;
+  NSView* frame = [(NSView*)(void*)ui superview];
+  if (!frame) return;
+  [frame setWantsLayer:YES];
+  if (!rgb || count < 2) {
+    frame.layer.filters = nil;
+    return;
+  }
+  NSData* data = [NSData dataWithBytes:rgb length:(NSUInteger)count * 3 * sizeof(float)];
+  CIFilter* curves = [CIFilter filterWithName:@"CIColorCurves"];
+  CGColorSpaceRef srgb = CGColorSpaceCreateWithName(kCGColorSpaceSRGB);
+  [curves setValue:data forKey:@"inputCurvesData"];
+  [curves setValue:[CIVector vectorWithX:0 Y:1] forKey:@"inputCurvesDomain"];
+  [curves setValue:(id)srgb forKey:@"inputColorSpace"];
+  CGColorSpaceRelease(srgb);
+  frame.layerUsesCoreImageFilters = YES;
+  frame.layer.filters = @[ curves ];
 }

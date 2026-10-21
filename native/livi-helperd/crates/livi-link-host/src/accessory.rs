@@ -53,12 +53,10 @@ fn sessions_on(
 }
 
 async fn waiting(port: u16, tag: &str) -> Result<Session, String> {
-    let blocking = tokio::task::spawn_blocking(move || {
-        livi_net::connect((link::LINK_NAME, port), CONNECT_TIMEOUT)
-    })
-    .await
-    .map_err(|e| format!("dongle: {e}"))?
-    .map_err(|e| format!("dongle: {e}"))?;
+    let blocking = tokio::task::spawn_blocking(move || link::connect(port, CONNECT_TIMEOUT))
+        .await
+        .map_err(|e| format!("dongle: {e}"))?
+        .map_err(|e| format!("dongle: {e}"))?;
     blocking
         .set_nonblocking(true)
         .map_err(|e| format!("dongle: {e}"))?;

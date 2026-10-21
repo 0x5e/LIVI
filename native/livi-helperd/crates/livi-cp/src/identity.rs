@@ -89,6 +89,52 @@ pub fn load_or_create(path: &Path) -> Identity {
     id
 }
 
+const PLACEHOLDERS: [&str; 3] = [
+    "00:00:00:00:00:00",
+    "02:00:00:00:00:00",
+    "AA:BB:CC:DD:EE:FF",
+];
+
+fn as_mac(text: &str) -> Option<String> {
+    let mac = text.trim().to_uppercase();
+    let parts: Vec<&str> = mac.split(':').collect();
+    let well_formed = parts.len() == 6
+        && parts
+            .iter()
+            .all(|p| p.len() == 2 && p.chars().all(|c| c.is_ascii_hexdigit()));
+    (well_formed && !PLACEHOLDERS.contains(&mac.as_str())).then_some(mac)
+}
+
+pub fn derived_accessory_id(pairing_id: &str) -> String {
+    use sha2::{Digest, Sha256};
+    let digest = Sha256::digest(pairing_id.as_bytes());
+    let mut mac = [0u8; 6];
+    mac.copy_from_slice(&digest[..6]);
+    mac[0] = (mac[0] & 0xfc) | 0x02;
+    mac.iter()
+        .map(|b| format!("{b:02X}"))
+        .collect::<Vec<_>>()
+        .join(":")
+}
+
+pub fn accessory_id(
+    path: &Path,
+    pairing_id: &str,
+    hardware: impl FnOnce() -> Option<String>,
+) -> String {
+    if let Some(id) = fs::read_to_string(path).ok().and_then(|s| as_mac(&s)) {
+        return id;
+    }
+    let id = hardware()
+        .and_then(|m| as_mac(&m))
+        .unwrap_or_else(|| derived_accessory_id(pairing_id));
+    match write_private(path, &format!("{id}\n")) {
+        Ok(()) => println!("[cp] the accessory is {id} from now on"),
+        Err(e) => eprintln!("[cp] could not keep the accessory id: {e}"),
+    }
+    id
+}
+
 #[cfg(test)]
 mod tests {
     use std::os::unix::fs::PermissionsExt;
@@ -145,5 +191,31 @@ mod tests {
         assert_eq!(unhex(&hex(&[0, 0xab, 0xff])), Some(vec![0, 0xab, 0xff]));
         assert_eq!(unhex("abc"), None);
         assert_eq!(unhex("zz"), None);
+    }
+
+    #[test]
+    fn the_accessory_keeps_the_first_address_it_was_given() {
+        let dir = TempDir::new();
+        let path = dir.0.join("cp/accessory-id");
+        let first = accessory_id(&path, "pi", || Some("88:00:33:77:8c:26".into()));
+        assert_eq!(first, "88:00:33:77:8C:26");
+        assert_eq!(
+            accessory_id(&path, "pi", || Some("11:22:33:44:55:66".into())),
+            first
+        );
+        assert_eq!(accessory_id(&path, "pi", || None), first);
+    }
+
+    #[test]
+    fn without_hardware_the_accessory_comes_from_the_pairing_id() {
+        let dir = TempDir::new();
+        let path = dir.0.join("accessory-id");
+        let id = accessory_id(&path, "pi", || Some("02:00:00:00:00:00".into()));
+        assert_eq!(id, derived_accessory_id("pi"));
+        assert_ne!(derived_accessory_id("pi"), derived_accessory_id("other"));
+        let first = u8::from_str_radix(&id[..2], 16).unwrap();
+        assert_eq!(first & 0x03, 0x02);
+        assert_eq!(as_mac(&id), Some(id.clone()));
+        assert_eq!(accessory_id(&path, "other", || None), id);
     }
 }

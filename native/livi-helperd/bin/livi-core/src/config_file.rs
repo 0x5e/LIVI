@@ -142,7 +142,7 @@ fn current_names(file: &Value) -> Value {
             Value::Object(screens.into_iter().collect()),
         );
     }
-    for per_screen in ["kiosk", "camera", "media", "custom"] {
+    for per_screen in ["kiosk", "camera", "media"] {
         if let Some(Value::Object(screens)) = top.get_mut(per_screen) {
             rename(screens, "dash", "cluster");
         }
@@ -241,6 +241,19 @@ fn same_type(a: &Value, b: &Value) -> bool {
     )
 }
 
+fn merge_into(fields: &mut Map<String, Value>, key: &str, v: &Value) {
+    match (fields.get_mut(key), v) {
+        (Some(Value::Object(now)), Value::Object(changed)) => {
+            for (k, inner) in changed {
+                merge_into(now, k, inner);
+            }
+        }
+        _ => {
+            fields.insert(key.to_string(), v.clone());
+        }
+    }
+}
+
 pub fn apply_patch(current: &Config, patch: &Value) -> Result<Config, String> {
     let Value::Object(patch) = patch else {
         return Err("the patch is no object".into());
@@ -250,18 +263,10 @@ pub fn apply_patch(current: &Config, patch: &Value) -> Result<Config, String> {
         return Err("config is no object".into());
     };
     for (key, v) in patch {
-        match (key.as_str(), v) {
-            (_, Value::Null) => {
-                fields.remove(key);
-            }
-            ("bindings", Value::Object(changed)) => {
-                if let Some(Value::Object(bindings)) = fields.get_mut("bindings") {
-                    bindings.extend(changed.clone());
-                }
-            }
-            _ => {
-                fields.insert(key.clone(), v.clone());
-            }
+        if v.is_null() {
+            fields.remove(key);
+        } else {
+            merge_into(fields, key, v);
         }
     }
     let next: Config = serde_json::from_value(value).map_err(|e| format!("rejected: {e}"))?;
@@ -517,6 +522,18 @@ pub mod tests {
         assert!(next.kiosk.main);
         assert_eq!(next.bindings.home, "KeyX");
         assert_eq!(next.bindings.play_pause, "KeyP");
+    }
+
+    #[test]
+    fn one_screen_of_a_per_screen_setting_changes_alone() {
+        let before = defaults();
+        let next = apply_patch(&before, &json!({ "camera": { "cluster": true } })).unwrap();
+        assert!(next.camera.cluster);
+        assert_eq!(next.camera.main, before.camera.main);
+        assert_eq!(next.camera.aux, before.camera.aux);
+        let off = apply_patch(&next, &json!({ "camera": { "main": false } })).unwrap();
+        assert!(!off.camera.main);
+        assert!(off.camera.cluster);
     }
 
     #[test]

@@ -8,6 +8,8 @@ mod link;
 mod linux_main;
 #[cfg(target_os = "macos")]
 mod mac_main;
+#[cfg(any(target_os = "linux", target_os = "macos"))]
+mod mfi_files;
 mod wired;
 
 const SWITCHES: &[&str] = &[

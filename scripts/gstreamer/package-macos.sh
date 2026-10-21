@@ -140,6 +140,8 @@ plugins=(
   libgstvideoconvertscale.dylib
   libgstopengl.dylib
   libgstosxvideo.dylib
+  libgstjpeg.dylib
+  libgstvideofilter.dylib
   # video LIVI fetches from a URL: playbin3, hlsdemux2, souphttpsrc, qtdemux, tsdemux
   libgstplayback.dylib
   libgstadaptivedemux2.dylib

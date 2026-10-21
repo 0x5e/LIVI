@@ -124,10 +124,16 @@ impl Services {
         mut asks: UiAsks,
         telemetry: mpsc::UnboundedSender<serde_json::Value>,
         settings: mpsc::UnboundedSender<serde_json::Value>,
+        resume_dab: bool,
     ) -> Self {
         let state = hub.watch();
         let cfg = state.borrow().config.clone();
         let identity = livi_cp::identity::load_or_create(&user_data.join("cp/identity.json"));
+        let accessory = livi_cp::identity::accessory_id(
+            &user_data.join("cp/accessory-id"),
+            &identity.pairing_id,
+            || crate::hwaddr::accessory_id(&cfg.wifi_interface),
+        );
         let airplay = carplay_listener();
         let airplay_port = airplay
             .as_ref()
@@ -135,11 +141,12 @@ impl Services {
         let helper_restart = Arc::new(Notify::new());
         let applied = hub.applied();
         let env_identity = identity.clone();
+        let env_accessory = accessory.clone();
         let helper = HelperSupervisor::start(Spec {
             bin: helper::resolve_bin(&res.helper, user_data),
             env: Box::new(move || {
                 let cfg = applied.borrow().clone();
-                helper::helper_env(&cfg, &env_identity, airplay_port)
+                helper::helper_env(&cfg, &env_identity, &env_accessory, airplay_port)
             }),
             restart: helper_restart.clone(),
             use_sudo: cfg!(target_os = "linux"),
@@ -169,6 +176,7 @@ impl Services {
         let plane = MainPlane::new(gst.clone(), ctrl.clone());
         let clusters = ClusterPlanes::new(gst.clone(), ctrl.clone());
 
+        let (host_ready, host_ready_rx) = watch::channel(compositor.is_none());
         let display = compositor.is_some().then(|| ctrl.ui());
         let ui = res
             .ui
@@ -184,6 +192,14 @@ impl Services {
             state.clone(),
         ));
         tokio::spawn(crate::blinker::run(hub.clone(), gst.clone()));
+        tokio::spawn(crate::camera::run(
+            hub.clone(),
+            gst.clone(),
+            livi_media::planes::CameraPlane::new(gst.clone(), ctrl.clone()),
+            asks.camera_found.clone(),
+            settings.clone(),
+            host_ready_rx,
+        ));
         tokio::spawn(follow_display_mode(hub.applied(), ctrl.clone()));
         tokio::spawn(forward_touches(
             ctrl.touches(),
@@ -195,6 +211,7 @@ impl Services {
                 gst.clone(),
                 dab_asks,
                 user_data.to_path_buf(),
+                resume_dab,
             ));
         }
 
@@ -202,6 +219,7 @@ impl Services {
             let carplay = CarPlay {
                 listener,
                 identity,
+                accessory,
                 user_data: user_data.to_path_buf(),
                 probe: host_launch(&res, user_data, None),
                 debug: helper::debug(&cfg),
@@ -217,6 +235,7 @@ impl Services {
             gst.clone(),
             res,
             user_data.to_path_buf(),
+            host_ready,
         ));
         tokio::spawn(follow_state(
             state.clone(),
@@ -265,6 +284,7 @@ fn carplay_listener() -> Option<TcpListener> {
 struct CarPlay {
     listener: TcpListener,
     identity: livi_cp::identity::Identity,
+    accessory: String,
     user_data: PathBuf,
     probe: Launch,
     debug: bool,
@@ -284,7 +304,8 @@ impl CarPlay {
         asks: UiAsks,
     ) {
         let state = hub.watch();
-        let (source, config, aa_config) = ConfigSource::new(state.clone(), ctrl.panels());
+        let (source, config, aa_config) =
+            ConfigSource::new(state.clone(), ctrl.panels(), self.accessory.clone());
         source.follow();
         let probing = source.clone();
         let probe = self.probe;
@@ -361,6 +382,7 @@ async fn follow_display(
     gst: GstHost,
     res: Resources,
     user_data: PathBuf,
+    host_ready: watch::Sender<bool>,
 ) {
     while ui.changed().await.is_ok() {
         let current = ui.borrow_and_update().clone();
@@ -371,6 +393,7 @@ async fn follow_display(
                 ui.render_node.as_deref().unwrap_or("-")
             );
             gst.set_launch(host_launch(&res, &user_data, Some(&ui)));
+            host_ready.send_replace(true);
         }
     }
 }

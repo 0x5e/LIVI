@@ -33,6 +33,8 @@ const OP_PLAY_URL: u8 = 22;
 const OP_PLAY_RATE: u8 = 23;
 const OP_PLAY_SEEK: u8 = 24;
 const OP_PLAY_MUTE: u8 = 25;
+const OP_CAMERA_OPEN: u8 = 26;
+const OP_CAMERAS_WATCH: u8 = 27;
 
 const REPLY_PORT: u8 = 1;
 const REPLY_CONFIG: u8 = 2;
@@ -43,6 +45,7 @@ const REPLY_VISUALIZER: u8 = 6;
 const REPLY_FEED: u8 = 7;
 const REPLY_URL_STATUS: u8 = 8;
 const REPLY_AUDIO_DELAY: u8 = 9;
+const REPLY_CAMERAS: u8 = 10;
 
 const ANSWER_TIMEOUT: Duration = Duration::from_secs(4);
 
@@ -89,6 +92,9 @@ pub enum HostEvent {
     UrlStatus {
         plane: u32,
         status: livi_host_proto::UrlStatus,
+    },
+    Cameras {
+        list: Vec<livi_host_proto::CameraSeen>,
     },
 }
 
@@ -160,6 +166,7 @@ struct State {
     feed_path: Option<String>,
     accept_task: Option<tokio::task::JoinHandle<()>>,
     tap: bool,
+    cameras: bool,
 }
 
 struct Inner {
@@ -318,6 +325,9 @@ impl GstHost {
                 if st.tap {
                     let _ = tx.send(frame(OP_VISUALIZER, 0, &[1]));
                 }
+                if st.cameras {
+                    let _ = tx.send(frame(OP_CAMERAS_WATCH, 0, &[]));
+                }
                 for queued in st.queue.drain(..) {
                     let _ = tx.send(queued);
                 }
@@ -431,6 +441,10 @@ impl GstHost {
                     stream: id,
                     ms: u32_at(0),
                 });
+            }
+            REPLY_CAMERAS => {
+                let list = livi_host_proto::parse_cameras_body(rest);
+                let _ = self.inner.events.send(HostEvent::Cameras { list });
             }
             REPLY_URL_STATUS => {
                 if let Some(status) = livi_host_proto::parse_url_status(rest) {
@@ -552,6 +566,27 @@ impl GstHost {
         } else if on {
             self.start();
         }
+    }
+
+    pub fn watch_cameras(&self) {
+        let connected = {
+            let mut st = self.state();
+            st.cameras = true;
+            st.out.is_some()
+        };
+        if connected {
+            self.send(frame(OP_CAMERAS_WATCH, 0, &[]));
+        } else {
+            self.start();
+        }
+    }
+
+    pub fn open_camera(&self, plane: u32, order: &livi_host_proto::CameraOrder) {
+        self.send(frame(
+            OP_CAMERA_OPEN,
+            plane,
+            &livi_host_proto::camera_body(order),
+        ));
     }
 
     pub fn set_audio_volume(&self, stream: u32, level: f64, ramp_ms: u32) {

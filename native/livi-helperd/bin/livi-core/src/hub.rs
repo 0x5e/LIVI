@@ -135,6 +135,8 @@ mod tests {
             update: Default::default(),
             cluster: Default::default(),
             dab: Default::default(),
+            cameras: Vec::new(),
+            mfi: Default::default(),
             config: defaults(),
         })
     }

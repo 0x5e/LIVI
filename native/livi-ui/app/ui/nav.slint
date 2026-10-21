@@ -1,0 +1,87 @@
+import { Theme, Ui } from "theme.slint";
+import { Focus } from "focus.slint";
+
+export enum Page { projection, telemetry, media, camera, settings }
+
+export enum PhoneState { none, connected, streaming }
+
+export struct TabData {
+    page: Page,
+    icon: image,
+}
+
+component Tab inherits Rectangle {
+    in property <Page> page;
+    in property <image> icon;
+    in property <bool> active;
+    in property <bool> focused;
+    in property <PhoneState> phone;
+    in property <bool> enabled: true;
+    callback clicked();
+
+    property <color> tint: page == Page.projection
+        ? (phone == PhoneState.streaming ? Theme.highlight : phone == PhoneState.connected ? Theme.text : Theme.text-disabled)
+        : Theme.text;
+
+    vertical-stretch: 1;
+    min-height: Ui.icon-size;
+    preferred-height: Ui.icon-size + (Ui.xs-icons ? 10px : 20px);
+
+    Image {
+        width: Ui.icon-size;
+        height: Ui.icon-size;
+        colorize: touch.has-hover || root.focused ? Theme.primary : root.tint;
+        opacity: root.active || touch.has-hover || root.focused || root.page == Page.projection ? 1 : 0.6;
+        source: root.icon;
+    }
+
+    touch := TouchArea {
+        enabled: root.enabled;
+        clicked => { root.clicked(); }
+    }
+}
+
+export component Nav inherits Rectangle {
+    in property <[TabData]> tabs;
+    in property <Page> active;
+    in property <PhoneState> phone;
+    in property <string> clock;
+    in property <bool> right-hand;
+    in property <bool> asleep;
+    callback select(Page);
+
+    width: Ui.xs-icons ? Ui.nav-width : max(Ui.icon-size, Ui.show-clock ? clock-text.preferred-width : 0) + 2 * Ui.nav-pad + 1px;
+    background: Theme.background;
+    opacity: root.asleep ? 0 : 1;
+    animate opacity { duration: 220ms; easing: ease; }
+
+    VerticalLayout {
+        Rectangle {
+            visible: Ui.show-clock;
+            height: Ui.show-clock ? clock-text.preferred-height + 16px : 0;
+            clock-text := Text {
+                x: (parent.width - self.width) / 2;
+                y: 16px;
+                text: root.clock;
+                color: Theme.text;
+                font-size: Ui.xs-icons ? 16px : 24px;
+            }
+        }
+        for tab[i] in root.tabs: Tab {
+            page: tab.page;
+            icon: tab.icon;
+            focused: Focus.nav(i);
+            active: tab.page == root.active;
+            phone: root.phone;
+            enabled: !root.asleep;
+            clicked => { root.select(tab.page); }
+        }
+        if root.tabs.length == 0: Rectangle { vertical-stretch: 1; }
+    }
+
+    Rectangle {
+        x: root.right-hand ? 0 : parent.width - 1px;
+        width: 1px;
+        background: Theme.divider;
+    }
+}

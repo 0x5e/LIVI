@@ -3,7 +3,6 @@ use std::io::{BufRead, BufReader, Write};
 use std::mem::ManuallyDrop;
 use std::os::fd::{FromRawFd, RawFd};
 use std::path::{Path, PathBuf};
-use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::{Arc, Mutex, OnceLock};
 use std::thread::JoinHandle;
 use std::time::{Duration, Instant};
@@ -15,29 +14,6 @@ const DRAIN: Duration = Duration::from_millis(500);
 static TERMINAL: OnceLock<(RawFd, RawFd)> = OnceLock::new();
 static SINK: OnceLock<Arc<Mutex<Sink>>> = OnceLock::new();
 static READERS: Mutex<Vec<JoinHandle<()>>> = Mutex::new(Vec::new());
-static DEBUG: AtomicBool = AtomicBool::new(false);
-
-pub fn set_debug(on: bool) {
-    DEBUG.store(on, Ordering::Relaxed);
-}
-
-fn chromium_chatter(line: &str) -> bool {
-    let Some(rest) = line.strip_prefix('[') else {
-        return false;
-    };
-    let mut parts = rest.splitn(4, ':');
-    let (Some(pid), Some(when), Some(level)) = (parts.next(), parts.next(), parts.next()) else {
-        return false;
-    };
-    pid.bytes().all(|b| b.is_ascii_digit())
-        && !pid.is_empty()
-        && when.contains('/')
-        && when
-            .bytes()
-            .all(|b| b.is_ascii_digit() || b == b'/' || b == b'.')
-        && (matches!(level, "ERROR" | "WARNING" | "INFO") || level.starts_with("VERBOSE"))
-}
-
 fn name(i: usize) -> String {
     if i == 0 {
         "LIVI.log".into()
@@ -202,9 +178,6 @@ fn copy_lines(
             Ok(_) => {}
         }
         let text = String::from_utf8_lossy(&buf);
-        if !DEBUG.load(Ordering::Relaxed) && chromium_chatter(&text) {
-            continue;
-        }
         let text = text.trim_end_matches('\n');
         let line = if stamp_it {
             format!("[{}] {text}", stamp(&jiff::Zoned::now()))
@@ -289,17 +262,6 @@ mod tests {
             false,
         );
         assert_eq!(read(&dir.0, 0), "[07:08:09.012] [window] up\n");
-    }
-
-    #[test]
-    fn chromiums_own_messages_are_told_apart() {
-        let chatter = "[569267:1005/233805.530979:ERROR:components/viz/service/display/display.cc:271] Frame latency is negative: -0.051 ms";
-        assert!(chromium_chatter(chatter));
-        assert!(chromium_chatter("[12:1005/1.2:VERBOSE1:x.cc(3)] y"));
-        assert!(!chromium_chatter("[12:1005/1.2:FATAL:x.cc(3)] y"));
-        assert!(!chromium_chatter("[core] active session #1"));
-        assert!(!chromium_chatter("[23:38:05.376] [core] active session #1"));
-        assert!(!chromium_chatter("plain"));
     }
 
     #[test]

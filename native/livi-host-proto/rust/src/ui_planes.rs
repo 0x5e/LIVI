@@ -7,5 +7,6 @@ pub const PLAY_SEEK: u8 = 6;
 pub const PLAY_MUTE: u8 = 7;
 pub const STATUS: u8 = 8;
 pub const LOG: u8 = 9;
+pub const CAMERA: u8 = 10;
 
 pub const PATH_ENV: &str = "LIVI_UI_PLANES";

@@ -200,7 +200,7 @@ fn prefer_our_decoders() {
     }
 }
 
-fn video_sink(say: &Say) -> Option<gst::Element> {
+pub(crate) fn video_sink(say: &Say) -> Option<gst::Element> {
     if cfg!(target_os = "macos") {
         return gst::ElementFactory::make("glimagesink")
             .build()

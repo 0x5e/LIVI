@@ -25,7 +25,6 @@ jobs:
 
     env:
       TARGET_BRANCH: ${{ inputs.branch }}
-      HUSKY: 0
 
     steps:
       - name: Checkout target branch
@@ -34,21 +33,24 @@ jobs:
           fetch-depth: 0
           ref: ${{ env.TARGET_BRANCH }}
 
-      - name: Setup Node + pnpm
-        id: pnpm
-        uses: ./.github/actions/pnpm
-        with:
-          node-version: '24'
-          pnpm-major: '12'
-          pnpm-store-dir: '.pnpm-store'
+      - name: Setup Rust
+        shell: bash
+        run: |
+          set -euo pipefail
+          rustup toolchain install
+          rustc --version
+
+      - name: Install cargo-edit
+        run: cargo install cargo-edit --locked
 
       - name: Collect available updates report
         id: report
+        working-directory: native
         shell: bash
         run: |
           set -euo pipefail
 
-          REPORT="$(npx --yes npm-check-updates --format group || true)"
+          REPORT="$(cargo upgrade --dry-run --incompatible allow 2>&1 || true)"
 
           {
             echo 'report<<EOF'
@@ -58,27 +60,17 @@ jobs:
 
       - name: Update minor and patch only
         if: ${{ inputs.include_major == false }}
-        run: npx --yes npm-check-updates -u --target minor
+        working-directory: native
+        run: cargo upgrade
 
       - name: Update including majors
         if: ${{ inputs.include_major == true }}
-        run: npx --yes npm-check-updates -u
-
-      - name: Check whether package.json changed
-        id: manifest_changes
-        shell: bash
-        run: |
-          set -euo pipefail
-
-          if git diff --quiet -- package.json; then
-            echo "changed=false" >> "$GITHUB_OUTPUT"
-          else
-            echo "changed=true" >> "$GITHUB_OUTPUT"
-          fi
+        working-directory: native
+        run: cargo upgrade --incompatible allow
 
       - name: Refresh lockfile
-        if: steps.manifest_changes.outputs.changed == 'true'
-        run: pnpm install --lockfile-only --ignore-scripts
+        working-directory: native
+        run: cargo update
 
       - name: Check for dependency file changes
         id: changes
@@ -86,7 +78,7 @@ jobs:
         run: |
           set -euo pipefail
 
-          if git diff --quiet -- package.json pnpm-lock.yaml; then
+          if git diff --quiet -- 'native/Cargo.lock' 'native/**/Cargo.toml' 'native/Cargo.toml'; then
             echo "changed=false" >> "$GITHUB_OUTPUT"
           else
             echo "changed=true" >> "$GITHUB_OUTPUT"
@@ -124,7 +116,8 @@ jobs:
             echo '```'
           } > "${BODY_FILE}"
 
-          git add package.json pnpm-lock.yaml
+          git add native/Cargo.lock native/Cargo.toml
+          git ls-files -m -- 'native/**/Cargo.toml' | xargs -r git add
           git commit -F "${BODY_FILE}"
           git pull --rebase origin "${TARGET_BRANCH}"
           git push origin "${TARGET_BRANCH}"

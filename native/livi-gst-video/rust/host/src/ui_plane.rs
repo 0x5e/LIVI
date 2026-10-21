@@ -6,7 +6,8 @@ use std::sync::mpsc::{SyncSender, TrySendError, sync_channel};
 use std::sync::{Arc, Mutex};
 
 use livi_host_proto::{
-    Framer, UrlStatus, encode_reply, parse_url_status, plane_body, ui_planes, url_body,
+    CameraOrder, Framer, UrlStatus, camera_body, encode_reply, parse_url_status, plane_body,
+    ui_planes, url_body,
 };
 
 use crate::{Plane, UrlPlay};
@@ -148,6 +149,42 @@ impl UrlPlay for UiUrlPlayer {
 }
 
 impl Drop for UiUrlPlayer {
+    fn drop(&mut self) {
+        let _ = self.sock.shutdown(Shutdown::Both);
+    }
+}
+
+pub struct UiCamera {
+    _out: SyncSender<Vec<u8>>,
+    sock: UnixStream,
+}
+
+impl UiCamera {
+    pub fn open(path: &str, id: u32, order: &CameraOrder) -> Option<Self> {
+        let open = encode_reply(ui_planes::CAMERA, id, &camera_body(order));
+        let (out, sock) = connect(path, id, open)?;
+        let mut from_ui = sock.try_clone().ok()?;
+        std::thread::Builder::new()
+            .name(format!("ui-camera-{id:x}"))
+            .spawn(move || {
+                let mut framer = Framer::new();
+                let mut chunk = [0u8; 256];
+                while let Ok(n @ 1..) = from_ui.read(&mut chunk) {
+                    framer.push(&chunk[..n]);
+                    while let Some(m) = framer.next_message() {
+                        if m.op == ui_planes::LOG {
+                            let line = String::from_utf8_lossy(&m.rest);
+                            eprintln!("{}", livi_video_player::stamped(&line));
+                        }
+                    }
+                }
+            })
+            .ok()?;
+        Some(Self { _out: out, sock })
+    }
+}
+
+impl Drop for UiCamera {
     fn drop(&mut self) {
         let _ = self.sock.shutdown(Shutdown::Both);
     }

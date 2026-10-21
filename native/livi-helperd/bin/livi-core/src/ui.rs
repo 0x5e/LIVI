@@ -51,9 +51,6 @@ fn command(cmd: &UiCmd, core_socket: &Path, ui: Option<&Ui>) -> Command {
         UiCmd::Exec { bin, args } => {
             let mut c = Command::new(bin);
             c.args(args);
-            if ui.is_some() {
-                c.arg("--ozone-platform=wayland");
-            }
             c
         }
         UiCmd::Shell(line) => {
@@ -62,7 +59,7 @@ fn command(cmd: &UiCmd, core_socket: &Path, ui: Option<&Ui>) -> Command {
             c
         }
     };
-    c.env("LIVI_CORE_SOCKET", core_socket);
+    c.env(livi_core_proto::runtime::SOCKET_ENV, core_socket);
     if let Some(ui) = ui {
         c.env("WAYLAND_DISPLAY", &ui.wayland_display)
             .env("XDG_SESSION_TYPE", "wayland")
@@ -175,7 +172,7 @@ mod tests {
         };
         let c = command(&cmd, Path::new("/run/livi/core.sock"), Some(&ui));
         let args: Vec<&OsStr> = c.as_std().get_args().collect();
-        assert_eq!(args, ["--x", "--ozone-platform=wayland"]);
+        assert_eq!(args, ["--x"]);
         let env = env_of(&c);
         assert_eq!(get(&env, "WAYLAND_DISPLAY"), Some(Some("wayland-2".into())));
         assert_eq!(get(&env, "LIVI_COMPOSITOR"), Some(Some("1".into())));
@@ -189,10 +186,10 @@ mod tests {
 
     #[test]
     fn on_the_desktop_the_ui_keeps_the_session() {
-        let c = command(&UiCmd::Shell("pnpm dev".into()), Path::new("/s"), None);
+        let c = command(&UiCmd::Shell("./LIVI".into()), Path::new("/s"), None);
         assert_eq!(c.as_std().get_program(), "/bin/sh");
         let args: Vec<&OsStr> = c.as_std().get_args().collect();
-        assert_eq!(args, ["-c", "pnpm dev"]);
+        assert_eq!(args, ["-c", "./LIVI"]);
         let env = env_of(&c);
         assert_eq!(get(&env, "WAYLAND_DISPLAY"), None);
         assert_eq!(get(&env, "DISPLAY"), None);

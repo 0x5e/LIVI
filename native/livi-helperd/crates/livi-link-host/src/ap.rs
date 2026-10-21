@@ -11,7 +11,7 @@ const POLL: Duration = Duration::from_millis(500);
 const WATCH_SILENCE: Duration = Duration::from_secs(15);
 
 fn ask(command: &str) -> Option<HashMap<String, String>> {
-    let mut stream = livi_net::connect((link::LINK_NAME, livi_net::port::CONTROL), TIMEOUT).ok()?;
+    let mut stream = link::connect(livi_net::port::CONTROL, TIMEOUT).ok()?;
     stream.set_read_timeout(Some(TIMEOUT)).ok()?;
     stream.write_all(format!("{command}\n").as_bytes()).ok()?;
     Some(fields(BufReader::new(stream)))
@@ -31,8 +31,8 @@ fn fields(answer: impl BufRead) -> HashMap<String, String> {
 }
 
 pub(crate) fn order(command: &str) -> Result<(), String> {
-    let mut stream = livi_net::connect((link::LINK_NAME, livi_net::port::CONTROL), TIMEOUT)
-        .map_err(|e| format!("dongle: {e}"))?;
+    let mut stream =
+        link::connect(livi_net::port::CONTROL, TIMEOUT).map_err(|e| format!("dongle: {e}"))?;
     stream
         .set_read_timeout(Some(TIMEOUT))
         .map_err(|e| format!("dongle: {e}"))?;
@@ -60,8 +60,8 @@ pub fn rates() -> Option<HashMap<String, String>> {
 }
 
 pub fn talk(commands: &[String], within: Duration) -> Result<HashMap<String, String>, String> {
-    let stream = livi_net::connect((link::LINK_NAME, livi_net::port::CONTROL), TIMEOUT)
-        .map_err(|e| format!("dongle: {e}"))?;
+    let stream =
+        link::connect(livi_net::port::CONTROL, TIMEOUT).map_err(|e| format!("dongle: {e}"))?;
     stream
         .set_read_timeout(Some(within))
         .map_err(|e| format!("dongle: {e}"))?;
@@ -113,7 +113,7 @@ fn station(line: &str) -> Option<(bool, &str)> {
 }
 
 pub fn watch_stations(mut on: impl FnMut(bool, &str)) -> std::io::Result<()> {
-    let mut stream = livi_net::connect((link::LINK_NAME, livi_net::port::CONTROL), TIMEOUT)?;
+    let mut stream = link::connect(livi_net::port::CONTROL, TIMEOUT)?;
     stream.set_read_timeout(Some(WATCH_SILENCE))?;
     stream.write_all(b"watch\n")?;
     for line in BufReader::new(stream).lines() {

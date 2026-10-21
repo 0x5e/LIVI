@@ -458,6 +458,36 @@ fn arrange(state: &mut LiviState) {
         crate::ctrl::send_displays(state);
         crate::ctrl::send_panels(state);
     }
+    apply_calibration(state);
+}
+
+pub fn apply_calibration(state: &mut LiviState) {
+    let Some(drm) = state.drm.as_ref() else {
+        state.cal.in_lut = false;
+        return;
+    };
+    let mut all = !drm.outputs.is_empty();
+    for output in &drm.outputs {
+        let size = drm
+            .device
+            .get_crtc(output.crtc)
+            .map(|info| info.gamma_length() as usize)
+            .unwrap_or(0);
+        if size < 2 {
+            log::info!(
+                "{} has no gamma table, calibration runs in the shader",
+                output.connector
+            );
+            all = false;
+            continue;
+        }
+        let [r, g, b] = crate::cal::curves(&state.cal, size);
+        if let Err(e) = drm.device.set_gamma(output.crtc, &r, &g, &b) {
+            log::error!("{} refused the gamma table: {e}", output.connector);
+            all = false;
+        }
+    }
+    state.cal.in_lut = all;
 }
 
 fn light(

@@ -67,7 +67,7 @@ impl Resources {
             compositor: env_path("LIVI_COMPOSITOR_BIN").unwrap_or(layout.compositor),
             gstreamer: layout.gstreamer,
             templates: layout.templates,
-            ui: ui.map(|ui| with_launcher_args(ui, env_str("LIVI_UI_ARGS").as_deref())),
+            ui,
         }
     }
 
@@ -97,20 +97,10 @@ impl Resources {
                 .filter(|p| p.is_dir()),
             templates: root.join("assets/linux"),
             ui: Some(UiCmd::Exec {
-                bin: root.join("node_modules/electron/dist/electron"),
-                args: vec![root.display().to_string(), "--no-sandbox".into()],
+                bin: root.join("native/livi-helperd/build/Release/LIVI"),
+                args: Vec::new(),
             }),
         }
-    }
-}
-
-fn with_launcher_args(ui: UiCmd, extra: Option<&str>) -> UiCmd {
-    match (ui, extra) {
-        (UiCmd::Exec { bin, mut args }, Some(extra)) => {
-            args.extend(extra.split_whitespace().map(str::to_owned));
-            UiCmd::Exec { bin, args }
-        }
-        (ui, _) => ui,
     }
 }
 
@@ -157,8 +147,8 @@ mod tests {
         assert_eq!(
             repo.ui,
             Some(UiCmd::Exec {
-                bin: PathBuf::from("/src/LIVI/node_modules/electron/dist/electron"),
-                args: vec!["/src/LIVI".into(), "--no-sandbox".into()],
+                bin: PathBuf::from("/src/LIVI/native/livi-helperd/build/Release/LIVI"),
+                args: Vec::new(),
             })
         );
         let installed = Resources::installed(Path::new("/opt/LIVI/resources"));
@@ -188,27 +178,6 @@ mod tests {
         std::fs::write(dir.0.join("native/livi-helperd/Cargo.toml"), "").unwrap();
         assert_eq!(repo_around(&release.join("livi-core")), Some(dir.0.clone()));
         assert_eq!(repo_around(Path::new("/usr/bin/livi-core")), None);
-    }
-
-    #[test]
-    fn launcher_flags_reach_only_a_program() {
-        let exec = UiCmd::Exec {
-            bin: PathBuf::from("/a/livi-ui"),
-            args: Vec::new(),
-        };
-        assert_eq!(
-            with_launcher_args(exec.clone(), Some(" --no-sandbox  --x ")),
-            UiCmd::Exec {
-                bin: PathBuf::from("/a/livi-ui"),
-                args: vec!["--no-sandbox".into(), "--x".into()],
-            }
-        );
-        assert_eq!(with_launcher_args(exec.clone(), None), exec);
-        let shell = UiCmd::Shell("pnpm dev".into());
-        assert_eq!(
-            with_launcher_args(shell.clone(), Some("--no-sandbox")),
-            shell
-        );
     }
 
     #[test]

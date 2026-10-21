@@ -272,7 +272,7 @@ pub fn frame_parts(state: &mut LiviState, screen_idx: usize) -> FrameParts {
         }
     };
     let elements = collect_elements(state, screen_idx);
-    let cal = if state.cal.active {
+    let cal = if state.cal.active && !state.cal.in_lut {
         cal_program(state)
     } else {
         None

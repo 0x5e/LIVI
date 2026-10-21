@@ -26,6 +26,7 @@ pub enum MfiError {
     AuthFailed { error_code: Option<u8> },
     NoChip { probed: Vec<u16> },
     Io(String),
+    File(String),
 }
 
 impl core::fmt::Display for MfiError {
@@ -46,6 +47,7 @@ impl core::fmt::Display for MfiError {
                 write!(f, "no coprocessor answered at {}", addrs.join("/"))
             }
             MfiError::Io(e) => write!(f, "i2c io: {e}"),
+            MfiError::File(e) => write!(f, "mfi files: {e}"),
         }
     }
 }
@@ -87,3 +89,8 @@ pub mod ncm;
 pub use ncm::NcmCoprocessor;
 
 pub mod server;
+
+#[cfg(feature = "files")]
+pub mod file;
+#[cfg(feature = "files")]
+pub use file::FileCoprocessor;

@@ -8,3 +8,6 @@ rustflags = [
   "-C", "link-arg=-static",
   "-C", "link-arg=-no-pie",
 ]
+
+[alias]
+xtask = "run --quiet --package xtask --"

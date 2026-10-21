@@ -1,0 +1,29 @@
+export global Theme {
+    in property <bool> dark: true;
+    in property <color> primary-override: transparent;
+    in property <color> highlight-override: transparent;
+    in property <color> background-override: transparent;
+
+    out property <color> background: background-override.alpha > 0 ? background-override : (dark ? #000000 : #d4d4d4);
+    out property <color> paper: dark ? #121212 : #ffffff;
+    out property <color> text: dark ? #ffffff : #000000;
+    out property <color> text-secondary: dark ? #bbbbbb : #333333;
+    out property <color> text-disabled: dark ? #ffffff80 : #00000061;
+    out property <color> primary: primary-override.alpha > 0 ? primary-override : (dark ? #00adad : #008585);
+    out property <color> highlight: highlight-override.alpha > 0 ? highlight-override : (dark ? #009494 : #007575);
+    out property <color> divider: dark ? #444444 : #cccccc;
+    out property <color> surface: dark ? #ffffff0f : #0000000f;
+    out property <color> button: #ffffff29;
+    out property <color> button-active: #ffffff3d;
+    out property <color> track: #ffffff47;
+}
+
+export global Ui {
+    in property <length> width: 1280px;
+    in property <length> height: 720px;
+    out property <bool> xs-icons: height <= 320px;
+    out property <bool> show-clock: height > 220px;
+    out property <length> icon-size: xs-icons ? 24px : 32px;
+    out property <length> nav-width: 56px;
+    out property <length> nav-pad: 7px;
+}

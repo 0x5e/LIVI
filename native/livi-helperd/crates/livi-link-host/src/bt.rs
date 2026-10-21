@@ -49,8 +49,8 @@ impl std::fmt::Display for TunnelError {
 }
 
 pub fn tunnel(on_adapter: &(impl Fn(u16) + Sync)) -> Result<bool, TunnelError> {
-    let stream = livi_net::connect((link::LINK_NAME, livi_net::port::HCI), CONNECT_TIMEOUT)
-        .map_err(TunnelError::NoDongle)?;
+    let stream =
+        link::connect(livi_net::port::HCI, CONNECT_TIMEOUT).map_err(TunnelError::NoDongle)?;
     let failed = TunnelError::Failed;
     stream
         .set_nodelay(true)

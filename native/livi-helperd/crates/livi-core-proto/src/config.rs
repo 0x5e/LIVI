@@ -1,15 +1,13 @@
 use serde::{Deserialize, Serialize};
 use serde_repr::{Deserialize_repr, Serialize_repr};
-use ts_rs::TS;
 
 use crate::state::PerScreen;
 
 pub const WIFI_PASSWORD_MIN: usize = 8;
 pub const WIFI_PASSWORD_MAX: usize = 63;
 
-#[derive(Debug, Clone, PartialEq, Serialize, Deserialize, TS)]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
-#[ts(export_to = "contract.ts", optional_fields)]
 pub struct Config {
     pub debug_logging: bool,
 
@@ -28,7 +26,9 @@ pub struct Config {
     pub car_play_source_version: String,
     pub car_play_mfi_i2c_bus: u32,
     pub car_play_mfi_power_gpio: i32,
+    pub car_play_mfi_files: String,
     pub car_play_hls_video: bool,
+    pub car_play_vehicle_climate: bool,
     pub car_play_dock_position: DockPosition,
     pub car_play_cluster_content: ClusterContent,
     pub car_play_cluster_compass: bool,
@@ -96,7 +96,6 @@ pub struct Config {
     pub speed_unit: SpeedUnit,
     pub temperature_unit: TemperatureUnit,
 
-    #[ts(type = "0 | 1")]
     pub sampling_frequency: u8,
     pub disable_audio_output: bool,
     pub hu_volume: f64,
@@ -142,13 +141,10 @@ pub struct Config {
     pub camera_id: String,
     pub camera: PerScreen<bool>,
     pub camera_mirror: bool,
-    #[ts(type = "0 | 90 | 180 | 270")]
     pub camera_rotation: u16,
     pub media: PerScreen<bool>,
     pub dashboard: PerScreen<bool>,
     pub dashboard_layouts: std::collections::BTreeMap<String, crate::theme::LayoutSlot>,
-    pub custom: PerScreen<bool>,
-    pub custom_url: String,
 
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub main_screen_bounds: Option<WindowBounds>,
@@ -191,8 +187,7 @@ pub struct Config {
     pub bindings: KeyBindings,
 }
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, TS)]
-#[ts(export_to = "contract.ts")]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 pub enum WifiBand {
     #[serde(rename = "2.4ghz")]
     Ghz24,
@@ -202,62 +197,53 @@ pub enum WifiBand {
     Ghz6,
 }
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, TS)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
-#[ts(export_to = "contract.ts")]
 pub enum AppearanceMode {
     Auto,
     Night,
     Day,
 }
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, TS)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
-#[ts(export_to = "contract.ts")]
 pub enum SpeedUnit {
     Kmh,
     Mph,
 }
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, TS)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
-#[ts(export_to = "contract.ts")]
 pub enum DockPosition {
     Auto,
     Side,
     Bottom,
 }
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, TS)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
-#[ts(export_to = "contract.ts")]
 pub enum ClusterContent {
     Auto,
     Map,
     Maneuver,
 }
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, TS)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
-#[ts(export_to = "contract.ts")]
 pub enum TemperatureUnit {
     Celsius,
     Fahrenheit,
 }
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize_repr, Deserialize_repr, TS)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize_repr, Deserialize_repr)]
 #[repr(u8)]
-#[ts(export_to = "contract.ts", repr(enum))]
 pub enum HandDriveType {
-    #[ts(rename = "LHD")]
     Lhd = 0,
-    #[ts(rename = "RHD")]
     Rhd = 1,
 }
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize_repr, Deserialize_repr, TS)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize_repr, Deserialize_repr)]
 #[repr(u8)]
-#[ts(export_to = "contract.ts", repr(enum))]
 pub enum CarType {
     Unknown = 0,
     Gasoline = 1,
@@ -265,11 +251,8 @@ pub enum CarType {
     Diesel = 4,
     Biodiesel = 5,
     E85 = 6,
-    #[ts(rename = "LPG")]
     Lpg = 7,
-    #[ts(rename = "CNG")]
     Cng = 8,
-    #[ts(rename = "LNG")]
     Lng = 9,
     Electric = 10,
     Hydrogen = 11,
@@ -301,9 +284,8 @@ impl CarType {
     }
 }
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize_repr, Deserialize_repr, TS)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize_repr, Deserialize_repr)]
 #[repr(u8)]
-#[ts(export_to = "contract.ts", repr(enum))]
 pub enum EvConnectorType {
     Unknown = 0,
     J1772 = 1,
@@ -334,8 +316,7 @@ impl EvConnectorType {
     }
 }
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, TS)]
-#[ts(export_to = "contract.ts")]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 pub struct WindowBounds {
     pub x: i32,
     pub y: i32,
@@ -343,9 +324,8 @@ pub struct WindowBounds {
     pub height: u32,
 }
 
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, TS)]
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
-#[ts(export_to = "contract.ts")]
 pub struct KeyBindings {
     pub up: String,
     pub down: String,
@@ -423,7 +403,9 @@ pub fn defaults() -> Config {
         car_play_source_version: "950.7.1".into(),
         car_play_mfi_i2c_bus: 2,
         car_play_mfi_power_gpio: -1,
+        car_play_mfi_files: String::new(),
         car_play_hls_video: true,
+        car_play_vehicle_climate: true,
         car_play_dock_position: DockPosition::Bottom,
         car_play_cluster_content: ClusterContent::Map,
         car_play_cluster_compass: true,
@@ -518,8 +500,6 @@ pub fn defaults() -> Config {
         media: main_only,
         dashboard: main_only,
         dashboard_layouts: Default::default(),
-        custom: off,
-        custom_url: String::new(),
         main_screen_bounds: no_bounds,
         cluster_screen_bounds: no_bounds,
         aux_screen_bounds: no_bounds,

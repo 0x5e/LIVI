@@ -12,7 +12,7 @@ livi-runtime.workspace = true
 livi-wifi.workspace = true
 livi-net.workspace = true
 iap2-csm.workspace = true
-iap2-mfi.workspace = true
+iap2-mfi = { workspace = true, features = ["files"] }
 iap2-link.workspace = true
 livi-aa.workspace = true
 livi-link-host.workspace = true

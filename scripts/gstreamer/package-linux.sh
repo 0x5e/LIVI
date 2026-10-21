@@ -316,6 +316,8 @@ plugins=(
   # video parse + scale + GL sink (cross-platform)
   libgstvideoparsersbad.so
   libgstvideoconvertscale.so
+  libgstjpeg.so
+  libgstvideofilter.so
   libgstopengl.so
   libgstlibav.so
   # video LIVI fetches from a URL: playbin3, hlsdemux2, souphttpsrc, qtdemux, tsdemux

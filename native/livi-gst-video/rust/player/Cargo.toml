@@ -18,5 +18,4 @@ livi-video-codec.workspace = true
 gstreamer-video = { version = "0.25", features = ["v1_24"], optional = true }
 
 [features]
-# Needs gst_video_mac.mm, which only the addon compiles in.
 window-view = ["dep:gstreamer-video"]

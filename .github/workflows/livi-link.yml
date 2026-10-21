@@ -490,7 +490,7 @@ jobs:
       - name: Build
         working-directory: native
         run: |
-          LIVI_VERSION="$(node -p "require('../package.json').version")" \
+          LIVI_VERSION="$(sed -n '/^\[workspace.package\]/,/^\[/s/^version = "\(.*\)"/\1/p' Cargo.toml)" \
             cargo build --release --locked -p livi-link-provision-cli
 
       - name: Name the binary per platform

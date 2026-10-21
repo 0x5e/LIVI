@@ -1,10 +1,41 @@
-use std::net::ToSocketAddrs;
+use std::io;
+use std::net::{TcpStream, ToSocketAddrs};
+use std::sync::atomic::{AtomicBool, Ordering};
+use std::time::Duration;
 
 pub const LINK_NAME: &str = "livi-link.local";
 
 pub const CHOICE: &str = "livi-link";
 
+static WATCHED: AtomicBool = AtomicBool::new(false);
+static ON_BUS: AtomicBool = AtomicBool::new(false);
+
+pub(crate) fn watching() {
+    WATCHED.store(true, Ordering::SeqCst);
+}
+
+pub(crate) fn set_on_bus(on: bool) {
+    ON_BUS.store(on, Ordering::SeqCst);
+}
+
+pub fn absent() -> bool {
+    WATCHED.load(Ordering::SeqCst) && !ON_BUS.load(Ordering::SeqCst)
+}
+
+pub fn connect(port: u16, timeout: Duration) -> io::Result<TcpStream> {
+    if absent() {
+        return Err(io::Error::new(
+            io::ErrorKind::NotConnected,
+            "the LIVI Link is not on the bus",
+        ));
+    }
+    livi_net::connect((LINK_NAME, port), timeout)
+}
+
 pub fn resolves() -> bool {
+    if absent() {
+        return false;
+    }
     (LINK_NAME, 0u16)
         .to_socket_addrs()
         .map(|mut a| a.any(|a| a.is_ipv4()))
@@ -109,6 +140,19 @@ fn host_iface_in(net: &std::path::Path) -> Option<String> {
 mod tests {
     use super::*;
     use std::os::unix::fs::symlink;
+
+    #[test]
+    fn a_watched_bus_without_the_link_answers_at_once() {
+        watching();
+        set_on_bus(false);
+        let started = std::time::Instant::now();
+        let refused = connect(livi_net::port::CONTROL, Duration::from_secs(3));
+        assert_eq!(refused.unwrap_err().kind(), io::ErrorKind::NotConnected);
+        assert!(!resolves());
+        assert!(started.elapsed() < Duration::from_millis(100));
+        set_on_bus(true);
+        assert!(!absent());
+    }
 
     #[test]
     fn the_link_is_the_interface_on_the_gadget() {

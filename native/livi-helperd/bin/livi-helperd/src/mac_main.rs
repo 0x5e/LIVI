@@ -52,6 +52,7 @@ fn cp_config() -> (CpConfig, Identity) {
     let name = env_s("LIVI_CP_NAME", "LIVI");
     let pi = env_s("LIVI_CP_PI", "");
     let cp = CpConfig {
+        device_id: Some(env_s("LIVI_CP_DEVICE_ID", "")).filter(|s| !s.is_empty()),
         ap_mac: None,
         ap_on_air: None,
         wifi_iface: String::new(),
@@ -219,7 +220,12 @@ fn start_carplay_seam(
     arrivals: Option<UnboundedReceiver<Arrival>>,
 ) {
     let (cp, identity) = cp_config();
-    let auth = SharedCoprocessor::new(Box::new(NoCoprocessor));
+    let files = crate::mfi_files::open();
+    let own_files = files.is_some();
+    let auth = match files {
+        Some(files) => SharedCoprocessor::new(Box::new(files)),
+        None => SharedCoprocessor::new(Box::new(NoCoprocessor)),
+    };
     let bcast = Broadcaster::default();
 
     let over_dongle = over_dongle();
@@ -229,13 +235,17 @@ fn start_carplay_seam(
     let gone = dongle.clone();
     tokio::spawn(link.clone().resolve(
         move || {
-            up_auth.replace(Box::new(NcmCoprocessor::new(&livi_link_host::link::addr(
-                livi_net::port::MFI,
-            ))));
+            if !own_files {
+                up_auth.replace(Box::new(NcmCoprocessor::new(&livi_link_host::link::addr(
+                    livi_net::port::MFI,
+                ))));
+            }
             arrived.push_json("{\"type\":\"link\",\"up\":true}".into());
         },
         move || {
-            down_auth.replace(Box::new(NoCoprocessor));
+            if !own_files {
+                down_auth.replace(Box::new(NoCoprocessor));
+            }
             gone.end();
             println!("[helperd] the dongle went");
             left.push_json("{\"type\":\"link\",\"up\":false}".into());
@@ -285,7 +295,11 @@ fn start_carplay_seam(
         },
         bcast.clone(),
         state.clone(),
-        link.clone(),
+        if own_files {
+            LinkPresence::always()
+        } else {
+            link.clone()
+        },
     ));
     println!("[helperd] wired CarPlay watcher started (system usbmuxd), waiting for the LIVI Link");
     if dongle_ap {
@@ -310,8 +324,10 @@ fn start_carplay_seam(
     }
     let pk = env_s("LIVI_CP_PK", "");
     let pi = env_s("LIVI_CP_PI", "");
-    let [a, b, c, d, e, f] = accessory_mac(&pi);
-    let device_id = format!("{a:02x}:{b:02x}:{c:02x}:{d:02x}:{e:02x}:{f:02x}");
+    let device_id = cp.device_id.clone().unwrap_or_else(|| {
+        let [a, b, c, d, e, f] = accessory_mac(&pi);
+        format!("{a:02x}:{b:02x}:{c:02x}:{d:02x}:{e:02x}:{f:02x}")
+    });
     match Bonjour::start(
         device_id,
         cp.airplay_port as u16,

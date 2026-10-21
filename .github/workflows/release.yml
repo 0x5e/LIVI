@@ -62,7 +62,8 @@ jobs:
       - name: Read version
         id: ver
         run: |
-          VERSION=$(grep -oP '"version"\s*:\s*"\K[^"]+' package.json)
+          VERSION=$(sed -n '/^\[workspace.package\]/,/^\[/s/^version = "\(.*\)"/\1/p' native/Cargo.toml)
+          [[ -n "$VERSION" ]] || { echo "::error::No version in native/Cargo.toml"; exit 1; }
           echo "version=$VERSION" >> "$GITHUB_OUTPUT"
 
       - name: Get release date (Europe/Berlin)

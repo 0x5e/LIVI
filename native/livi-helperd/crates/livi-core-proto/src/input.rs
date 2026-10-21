@@ -1,18 +1,15 @@
 use serde::{Deserialize, Serialize};
-use ts_rs::TS;
 
 use crate::state::Screen;
 
-#[derive(Debug, Clone, PartialEq, Serialize, Deserialize, TS)]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 #[serde(tag = "kind", rename_all = "camelCase")]
-#[ts(export_to = "contract.ts")]
 pub enum Input {
     Pointer { screen: Screen, points: Vec<Point> },
     Key { code: String, down: bool },
 }
 
-#[derive(Debug, Clone, Copy, PartialEq, Serialize, Deserialize, TS)]
-#[ts(export_to = "contract.ts")]
+#[derive(Debug, Clone, Copy, PartialEq, Serialize, Deserialize)]
 pub struct Point {
     pub id: u32,
     pub x: f64,
@@ -20,9 +17,8 @@ pub struct Point {
     pub phase: Phase,
 }
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, TS)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
-#[ts(export_to = "contract.ts")]
 pub enum Phase {
     Down,
     Move,

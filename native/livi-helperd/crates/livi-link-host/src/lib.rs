@@ -55,6 +55,7 @@ pub async fn run(on_link: impl Fn(bool, &str) + Send + Sync + 'static) {
         }
         Err(e) => eprintln!("[dongle] list devices: {e}"),
     }
+    link::watching();
     println!("[dongle] watching for dongles");
     while let Some(ev) = watch.next().await {
         match ev {
@@ -66,6 +67,7 @@ pub async fn run(on_link: impl Fn(bool, &str) + Send + Sync + 'static) {
                 };
                 if gone {
                     println!("[dongle] LIVI Link left the bus");
+                    link::set_on_bus(false);
                     on_link(false, "");
                 }
             }
@@ -85,6 +87,7 @@ fn seen(link: &Mutex<Option<DeviceId>>, on_link: &Arc<OnLink>, info: DeviceInfo)
         }
         *l = Some(info.id());
     }
+    link::set_on_bus(true);
     let serial = info.serial_number().unwrap_or("").to_owned();
     println!("[dongle] LIVI Link {serial} on the bus");
     on_link(true, &serial);

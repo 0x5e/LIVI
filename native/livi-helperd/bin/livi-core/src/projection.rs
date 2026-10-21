@@ -337,9 +337,17 @@ fn reversing(telemetry: &Map<String, Value>) -> Option<bool> {
     }
 }
 
-pub fn first_wants(cfg: &Config) -> PerScreen<Front> {
+pub fn start_page(cfg: &Config, last: Option<&str>) -> String {
+    if cfg.start_page == "last" {
+        last.unwrap_or("/").to_string()
+    } else {
+        cfg.start_page.clone()
+    }
+}
+
+pub fn first_wants(start: &str) -> PerScreen<Front> {
     PerScreen {
-        main: if cfg.start_page == "/" {
+        main: if start == "/" {
             Front::Projection
         } else {
             Front::Livi
@@ -470,6 +478,7 @@ pub struct UiAsks {
     pub dab: Option<crate::dab::DabAsks>,
     pub dab_from_phone: mpsc::UnboundedSender<crate::dab::DabAsk>,
     pub input_from_compositor: mpsc::UnboundedSender<Input>,
+    pub camera_found: mpsc::UnboundedSender<UiCommand>,
 }
 
 pub struct UiSenders {
@@ -506,7 +515,7 @@ pub fn ui_channels(wants: PerScreen<Front>) -> (UiSenders, UiAsks, DongleAsks, U
     (
         UiSenders {
             wants: wants_tx,
-            commands: commands_tx,
+            commands: commands_tx.clone(),
             input: input_tx.clone(),
             dongle: dongle_tx,
             link_speed_viewers: viewers_tx,
@@ -526,6 +535,7 @@ pub fn ui_channels(wants: PerScreen<Front>) -> (UiSenders, UiAsks, DongleAsks, U
             dab: Some(dab_rx),
             dab_from_phone: dab_tx,
             input_from_compositor: input_tx,
+            camera_found: commands_tx,
         },
         DongleAsks {
             radios: dongle_rx,
@@ -2363,7 +2373,7 @@ mod tests {
     fn the_projection_start_page_shows_a_phone_before_the_ui_reports() {
         let mut cfg = defaults();
         assert_eq!(
-            first_wants(&cfg),
+            first_wants(&cfg.start_page),
             PerScreen {
                 main: Front::Projection,
                 ..livi()
@@ -2371,10 +2381,20 @@ mod tests {
         );
         cfg.start_page = "/media".into();
         assert_eq!(
-            first_wants(&cfg),
+            first_wants(&cfg.start_page),
             livi(),
             "another start page waits for the UI"
         );
+    }
+
+    #[test]
+    fn the_last_start_page_comes_from_the_saved_status() {
+        let mut cfg = defaults();
+        cfg.start_page = "last".into();
+        assert_eq!(start_page(&cfg, Some("/media/dabplus")), "/media/dabplus");
+        assert_eq!(start_page(&cfg, None), "/");
+        cfg.start_page = "/settings".into();
+        assert_eq!(start_page(&cfg, Some("/media")), "/settings");
     }
 
     impl Rig {
@@ -2391,6 +2411,8 @@ mod tests {
                 update: Default::default(),
                 cluster: Default::default(),
                 dab: Default::default(),
+                cameras: Vec::new(),
+                mfi: Default::default(),
                 config: defaults(),
             }));
             let (tx, cmds) = mpsc::unbounded_channel();

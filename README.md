@@ -13,7 +13,7 @@ It is a standalone cross-platform head unit with a native, zero-copy GStreamer v
 
 ![Release](https://img.shields.io/github/v/release/f-io/LIVI?label=release)
 ![Main Version](https://img.shields.io/endpoint?url=https://raw.githubusercontent.com/f-io/LIVI/version/.github/badges/main-version.json)
-![TS Main](https://img.shields.io/github/actions/workflow/status/f-io/LIVI/typecheck.yml?branch=main&label=TS%20main)
+![Checks Main](https://img.shields.io/github/actions/workflow/status/f-io/LIVI/checks.yml?branch=main&label=checks%20main)
 ![Build Main](https://img.shields.io/github/actions/workflow/status/f-io/LIVI/build.yml?branch=main&label=build%20main)
 <a href="https://discord.gg/cv6Gd8wDKB"><img alt="Discord" src="https://img.shields.io/badge/Discord-join-5865F2?logo=discord&logoColor=white" /></a>
 
@@ -325,25 +325,18 @@ After this, the app will launch normally and future updates will work without ad
 
 ## Build Environment
 
-![Node](https://img.shields.io/endpoint?url=https://raw.githubusercontent.com/f-io/LIVI/version/.github/badges/main-node.json)
-![pnpm](https://img.shields.io/endpoint?url=https://raw.githubusercontent.com/f-io/LIVI/version/.github/badges/main-pnpm.json)
-![Coverage Main](https://img.shields.io/endpoint?url=https://raw.githubusercontent.com/f-io/LIVI/version/.github/badges/main-coverage-main.json)
-![Coverage Renderer](https://img.shields.io/endpoint?url=https://raw.githubusercontent.com/f-io/LIVI/version/.github/badges/main-coverage-renderer.json)
-![electron](https://img.shields.io/endpoint?url=https://raw.githubusercontent.com/f-io/LIVI/version/.github/badges/main-electron.json)
-![chrome](https://img.shields.io/endpoint?url=https://raw.githubusercontent.com/f-io/LIVI/version/.github/badges/main-electron-date.json)
-![release](https://img.shields.io/endpoint?url=https://raw.githubusercontent.com/f-io/LIVI/version/.github/badges/main-electron-chromium.json)
 ![gstreamer](https://img.shields.io/endpoint?url=https://raw.githubusercontent.com/f-io/LIVI/version/.github/badges/main-gstreamer.json)
 
 ### System Requirements (build)
 
 Make sure the following packages and tools are installed on your system before building. The lists below cover both building and running, including everything native CarPlay needs:
 
-- **Node.js 24.x** (with `corepack` for `pnpm`)
-- **Rust** (via [rustup](https://rustup.rs), which installs the version pinned in `rust-toolchain.toml`): builds everything native, that is `livi-helperd`, `livi-compositor` and `livi-gst-host`.
+- **Rust** (via [rustup](https://rustup.rs), which installs the version pinned in `rust-toolchain.toml`): builds everything, the UI included.
 - **build-essential** (Linux: includes `gcc`, `g++`, `make`, etc.)
 - **libgstreamer1.0-dev** + **libgstreamer-plugins-base1.0-dev** (required to build the `livi-gst-host` binary)
 - **libssl-dev** (Linux only: native CarPlay links OpenSSL)
 - **pkg-config**, **cmake** (AWS-LC build), **libwayland-dev** + **libxkbcommon-dev** (Linux only: the embedded Wayland compositor links both)
+- **libfontconfig1-dev** (Linux only: the UI looks up fonts through fontconfig)
 - **libudev-dev**, **libinput-dev**, **libseat-dev**, **libgbm-dev** (Linux only: the compositor drives the display directly)
 - runtime packages for native CarPlay and wireless Android Auto: **bluez**, **libspa-0.2-bluetooth**, **hostapd**, **dnsmasq-base**, **iw**, **rfkill**, **avahi-daemon**, **avahi-utils**, **pulseaudio-utils**
 
@@ -354,13 +347,10 @@ sudo apt-get update
 sudo apt-get install -y git build-essential \
   pkg-config cmake libssl-dev \
   libgstreamer1.0-dev libgstreamer-plugins-base1.0-dev \
-  libwayland-dev libxkbcommon-dev \
+  libwayland-dev libxkbcommon-dev libfontconfig1-dev \
   libudev-dev libinput-dev libseat-dev libgbm-dev \
   fuse3 bluez libspa-0.2-bluetooth hostapd dnsmasq-base iw rfkill avahi-daemon avahi-utils \
   pulseaudio-utils
-curl -fsSL https://deb.nodesource.com/setup_24.x | sudo -E bash -
-sudo apt-get install -y nodejs
-sudo corepack enable
 curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs | sh -s -- -y
 ```
 
@@ -373,19 +363,16 @@ On Fedora, install everything with:
 sudo dnf install -y git gcc gcc-c++ make \
   pkgconf-pkg-config systemd-devel cmake openssl-devel \
   gstreamer1-devel gstreamer1-plugins-base-devel \
-  wayland-devel libxkbcommon-devel \
+  wayland-devel libxkbcommon-devel fontconfig-devel \
   libinput-devel libseat-devel mesa-libgbm-devel \
   fuse3 fuse3-libs \
   bluez hostapd dnsmasq iw avahi avahi-tools pulseaudio-utils
-curl -fsSL https://rpm.nodesource.com/setup_24.x | sudo bash -
-sudo dnf install -y nodejs
-sudo corepack enable
 curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs | sh -s -- -y
 ```
 
 Fedora has no `rfkill` package, the command comes with `util-linux`. `libspa-0.2-bluetooth` is a Debian name too: it holds PipeWire's Bluetooth plugin, which Fedora ships inside `pipewire-libs`. Wireless Android Auto needs that plugin because the phone will only start a session over an HFP connection, and PipeWire is what puts HFP into the adapter's service record. LIVI's package check probes for the plugin's directory rather than a package name, so it reports the gap on any distro. Everything else, including wireless CarPlay, works the same.
 
-On macOS, building needs only Node.js, pnpm and Rust.
+On macOS, building needs Rust and the GStreamer framework (runtime and devel pkg from gstreamer.freedesktop.org).
 
 ### Clone & Build
 
@@ -394,19 +381,20 @@ On macOS, building needs only Node.js, pnpm and Rust.
 git clone --branch main --single-branch https://github.com/f-io/LIVI.git \
   && cd LIVI
 
-# Install dependencies from lockfile
-pnpm run install:ci
+cd native
 
-# --- Build targets ---
+# Linux (dist/LIVI-<version>-linux-<arch>.AppImage, for the machine it runs on)
+cargo xtask package-linux
 
-# Linux (AppImage)
-pnpm run build:linux:arm64         # ARM
-pnpm run build:linux:x64           # X86_64
+# macOS (dist/LIVI.app and dmg)
+cargo xtask package-mac               # Apple Silicon
+cargo xtask package-mac --arch x64    # Intel
 
-# macOS (dmg)
-pnpm run build:mac:arm64           # Apple Silicon
-pnpm run build:mac:x64             # Intel
+# Native binaries only
+cargo xtask build-native
 ```
+
+`package-linux` needs [appimagetool](https://github.com/AppImage/appimagetool) on the `PATH`, or its path in `APPIMAGETOOL`, and `desktop-file-validate` (package `desktop-file-utils`).
 
 
 ## Debugging

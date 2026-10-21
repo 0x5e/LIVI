@@ -38,65 +38,21 @@ jobs:
         run: |
           set -euo pipefail
 
-          node <<'NODE'
-          const fs = require('fs');
-
-          const isTrue = (v) => String(v).toLowerCase() === 'true';
-
-          const inputs = {
-            macos_arm64: isTrue(process.env.IN_MACOS_ARM64),
-            linux_x64: isTrue(process.env.IN_LINUX_X64),
-            linux_arm64: isTrue(process.env.IN_LINUX_ARM64),
-          };
-
-          const include = [];
-          const add = (os, runner, arch, dir_name, artifact_name, archive_name) => {
-            include.push({ os, runner, arch, dir_name, artifact_name, archive_name });
-          };
-
-          if (inputs.macos_arm64) {
-            add(
-              'macos',
-              'macos-latest',
-              'arm64',
-              'macos-arm64',
-              'gstreamer-macos-arm64',
-              'gstreamer-macos-arm64.tar.gz'
-            );
+          entries=()
+          add() {
+            entries+=("{\"os\":\"$1\",\"runner\":\"$2\",\"arch\":\"$3\",\"dir_name\":\"$4\",\"artifact_name\":\"gstreamer-$4\",\"archive_name\":\"gstreamer-$4.tar.gz\"}")
           }
+          if [[ "${IN_MACOS_ARM64,,}" == true ]]; then add macos macos-latest arm64 macos-arm64; fi
+          if [[ "${IN_LINUX_X64,,}" == true ]]; then add linux ubuntu-24.04 x64 linux-x64; fi
+          if [[ "${IN_LINUX_ARM64,,}" == true ]]; then add linux ubuntu-24.04-arm arm64 linux-arm64; fi
 
-          if (inputs.linux_x64) {
-            add(
-              'linux',
-              'ubuntu-24.04',
-              'x64',
-              'linux-x64',
-              'gstreamer-linux-x64',
-              'gstreamer-linux-x64.tar.gz'
-            );
-          }
+          matrix="{\"include\":[$(IFS=,; echo "${entries[*]-}")]}"
+          is_empty=$([[ ${#entries[@]} -eq 0 ]] && echo true || echo false)
 
-          if (inputs.linux_arm64) {
-            add(
-              'linux',
-              'ubuntu-24.04-arm',
-              'arm64',
-              'linux-arm64',
-              'gstreamer-linux-arm64',
-              'gstreamer-linux-arm64.tar.gz'
-            );
-          }
-
-          const matrixObj = { include };
-          const matrix = JSON.stringify(matrixObj);
-          const isEmpty = include.length === 0 ? 'true' : 'false';
-
-          fs.appendFileSync(process.env.GITHUB_OUTPUT, `matrix=${matrix}\n`);
-          fs.appendFileSync(process.env.GITHUB_OUTPUT, `is_empty=${isEmpty}\n`);
-
-          console.log('Planned matrix:', matrix);
-          console.log('Empty:', isEmpty);
-          NODE
+          echo "matrix=$matrix" >> "$GITHUB_OUTPUT"
+          echo "is_empty=$is_empty" >> "$GITHUB_OUTPUT"
+          echo "Planned matrix: $matrix"
+          echo "Empty: $is_empty"
 
   build:
     name: Build assets (${{ matrix.os }}-${{ matrix.arch }})

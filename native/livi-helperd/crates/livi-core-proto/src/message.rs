@@ -1,14 +1,12 @@
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
-use ts_rs::TS;
 
 use crate::input::Input;
 use crate::patch::PatchOp;
 use crate::state::{Front, Screen, State};
 
-#[derive(Debug, Clone, PartialEq, Serialize, Deserialize, TS)]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 #[serde(tag = "type", rename_all = "camelCase")]
-#[ts(export_to = "contract.ts")]
 pub enum ToCore {
     Hello { protocol: u32, client: String },
     Resync,
@@ -17,12 +15,10 @@ pub enum ToCore {
     Path { path: String },
     Spectrum { on: bool },
     LinkSpeed { on: bool },
-    Camera { found: bool },
 }
 
-#[derive(Debug, Clone, PartialEq, Serialize, Deserialize, TS)]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 #[serde(tag = "type", rename_all = "camelCase")]
-#[ts(export_to = "contract.ts")]
 pub enum FromCore {
     Welcome {
         protocol: u32,
@@ -40,7 +36,6 @@ pub enum FromCore {
     Reply {
         id: u32,
         #[serde(default, skip_serializing_if = "Option::is_none")]
-        #[ts(optional)]
         error: Option<String>,
     },
     Spectrum {
@@ -51,12 +46,10 @@ pub enum FromCore {
     },
 }
 
-#[derive(Debug, Clone, PartialEq, Serialize, Deserialize, TS)]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 #[serde(tag = "kind", rename_all = "camelCase")]
-#[ts(export_to = "contract.ts")]
 pub enum Action {
     SetConfig {
-        #[ts(type = "Partial<Config>")]
         patch: Value,
     },
     Show {
@@ -93,6 +86,13 @@ pub enum Action {
     ShowClusterLayout {
         layout: String,
         on: bool,
+    },
+    ImportMfi {
+        file: MfiFile,
+        path: String,
+    },
+    RemoveMfi {
+        file: MfiFile,
     },
     ApplySettings,
     CheckUpdate,
@@ -131,9 +131,15 @@ pub enum Action {
     Restart,
 }
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, TS)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
-#[ts(export_to = "contract.ts")]
+pub enum MfiFile {
+    Certificate,
+    Identity,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
 pub enum MediaControl {
     PlayPause,
     Play,
@@ -142,9 +148,8 @@ pub enum MediaControl {
     Prev,
 }
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, TS)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
-#[ts(export_to = "contract.ts")]
 pub enum Radio {
     Wifi,
     Bt,
@@ -207,6 +212,25 @@ mod tests {
         let wire = json!({ "type": "spectrum", "bands": [0.5, 1.0] });
         assert_eq!(serde_json::to_value(&frame).unwrap(), wire);
         assert_eq!(serde_json::from_value::<FromCore>(wire).unwrap(), frame);
+    }
+
+    #[test]
+    fn mfi_files_travel_by_name() {
+        let import = Action::ImportMfi {
+            file: MfiFile::Identity,
+            path: "/media/usb/identity.pk8".into(),
+        };
+        let wire =
+            json!({ "kind": "importMfi", "file": "identity", "path": "/media/usb/identity.pk8" });
+        assert_eq!(serde_json::to_value(&import).unwrap(), wire);
+        assert_eq!(serde_json::from_value::<Action>(wire).unwrap(), import);
+        assert_eq!(
+            serde_json::to_value(Action::RemoveMfi {
+                file: MfiFile::Certificate
+            })
+            .unwrap(),
+            json!({ "kind": "removeMfi", "file": "certificate" })
+        );
     }
 
     #[test]

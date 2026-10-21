@@ -89,7 +89,6 @@ impl LinkPresence {
         })
     }
 
-    #[cfg(target_os = "linux")]
     pub fn always() -> Arc<Self> {
         let link = Self::new();
         link.present.store(true, Ordering::SeqCst);

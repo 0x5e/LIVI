@@ -190,6 +190,7 @@ fn main_ui_surface(state: &LiviState) -> Option<WlSurface> {
 
 fn video_rank(tag: &str) -> u8 {
     match tag {
+        "camera" => 3,
         "video" => 2,
         "main" => 1,
         _ => 0,
@@ -511,6 +512,7 @@ mod tests {
 
     #[test]
     fn video_lies_above_the_projection_and_the_clusters_below() {
+        assert!(video_rank("camera") > video_rank("video"));
         assert!(video_rank("video") > video_rank("main"));
         assert!(video_rank("main") > video_rank("cluster-main"));
         assert_eq!(video_rank(""), video_rank("cluster-cluster"));

@@ -2,14 +2,12 @@ use std::collections::BTreeMap;
 
 use serde::{Deserialize, Serialize};
 use serde_json::{Map, Value};
-use ts_rs::TS;
 
 use crate::config::{Config, WifiBand};
 use crate::theme::Cluster;
 
-#[derive(Debug, Clone, PartialEq, Serialize, Deserialize, TS)]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
-#[ts(export_to = "contract.ts")]
 pub struct State {
     pub front: PerScreen<Front>,
     pub sessions: Sessions,
@@ -17,7 +15,8 @@ pub struct State {
     pub navigation: Navigation,
     pub system: System,
     pub devices: Vec<DeviceView>,
-    #[ts(type = "TelemetrySnapshot & Record<string, unknown>")]
+    pub cameras: Vec<CameraView>,
+    pub mfi: Mfi,
     pub telemetry: Map<String, Value>,
     pub update: Update,
     pub cluster: Cluster,
@@ -25,9 +24,8 @@ pub struct State {
     pub config: Config,
 }
 
-#[derive(Debug, Clone, PartialEq, Default, Serialize, Deserialize, TS)]
+#[derive(Debug, Clone, PartialEq, Default, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
-#[ts(export_to = "contract.ts")]
 pub struct Dab {
     pub receiver: Option<String>,
     pub stations: Vec<DabStation>,
@@ -42,9 +40,8 @@ pub struct Dab {
     pub gains_db: Vec<f64>,
 }
 
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, TS)]
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
-#[ts(export_to = "contract.ts")]
 pub struct DabStation {
     pub service_id: u32,
     pub label: String,
@@ -57,13 +54,11 @@ pub struct DabStation {
     #[serde(default)]
     pub hidden: bool,
     #[serde(default, skip_serializing_if = "Option::is_none")]
-    #[ts(optional)]
     pub logo: Option<String>,
 }
 
-#[derive(Debug, Clone, PartialEq, Default, Serialize, Deserialize, TS)]
+#[derive(Debug, Clone, PartialEq, Default, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
-#[ts(export_to = "contract.ts")]
 pub struct DabScan {
     pub channel: String,
     pub done: u32,
@@ -71,17 +66,15 @@ pub struct DabScan {
     pub found: u32,
 }
 
-#[derive(Debug, Clone, Copy, PartialEq, Default, Serialize, Deserialize, TS)]
+#[derive(Debug, Clone, Copy, PartialEq, Default, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
-#[ts(export_to = "contract.ts")]
 pub struct DabSignal {
     pub locked: bool,
     pub quality: u32,
 }
 
-#[derive(Debug, Clone, PartialEq, Default, Serialize, Deserialize, TS)]
+#[derive(Debug, Clone, PartialEq, Default, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
-#[ts(export_to = "contract.ts")]
 pub struct Update {
     pub latest: Option<Release>,
     pub checking: bool,
@@ -92,9 +85,8 @@ pub struct Update {
     pub error: Option<String>,
 }
 
-#[derive(Debug, Clone, PartialEq, Default, Serialize, Deserialize, TS)]
+#[derive(Debug, Clone, PartialEq, Default, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
-#[ts(export_to = "contract.ts")]
 pub struct Release {
     pub version: String,
     pub commit: String,
@@ -102,9 +94,8 @@ pub struct Release {
     pub url: Option<String>,
 }
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Default, Serialize, Deserialize, TS)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default, Serialize, Deserialize)]
 #[serde(rename_all = "lowercase")]
-#[ts(export_to = "contract.ts")]
 pub enum UpdatePhase {
     #[default]
     Idle,
@@ -115,44 +106,49 @@ pub enum UpdatePhase {
     Error,
 }
 
-#[derive(Debug, Clone, PartialEq, Default, Serialize, Deserialize, TS)]
+#[derive(Debug, Clone, PartialEq, Eq, Default, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
-#[ts(export_to = "contract.ts")]
+pub struct CameraView {
+    pub id: String,
+    pub name: String,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Default, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct Mfi {
+    pub certificate: bool,
+    pub identity: bool,
+    pub generation: Option<u8>,
+    pub error: Option<String>,
+}
+
+#[derive(Debug, Clone, PartialEq, Default, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
 pub struct DeviceView {
     pub id: String,
     #[serde(default, skip_serializing_if = "Option::is_none")]
-    #[ts(optional)]
     pub name: Option<String>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
-    #[ts(optional)]
     pub model: Option<String>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
-    #[ts(optional)]
     pub protocol: Option<Protocol>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
-    #[ts(optional)]
     pub last_transport: Option<String>,
     pub status: DeviceStatus,
     #[serde(default, skip_serializing_if = "Option::is_none")]
-    #[ts(optional)]
     pub battery_level: Option<f64>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
-    #[ts(optional)]
     pub battery_charging: Option<bool>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
-    #[ts(optional)]
     pub signal_strength: Option<f64>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
-    #[ts(optional)]
     pub carrier_name: Option<String>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
-    #[ts(optional)]
     pub session: Option<u32>,
 }
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Default, Serialize, Deserialize, TS)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default, Serialize, Deserialize)]
 #[serde(rename_all = "lowercase")]
-#[ts(export_to = "contract.ts")]
 pub enum DeviceStatus {
     Active,
     Available,
@@ -160,9 +156,8 @@ pub enum DeviceStatus {
     Offline,
 }
 
-#[derive(Debug, Clone, PartialEq, Default, Serialize, Deserialize, TS)]
+#[derive(Debug, Clone, PartialEq, Default, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
-#[ts(export_to = "contract.ts")]
 pub struct System {
     pub wifi_interfaces: Vec<String>,
     pub bt_adapters: Vec<String>,
@@ -176,11 +171,11 @@ pub struct System {
     pub displays_settable: bool,
     pub audio_sinks: Vec<AudioDevice>,
     pub audio_sources: Vec<AudioDevice>,
+    pub start_page: String,
 }
 
-#[derive(Debug, Clone, PartialEq, Eq, Default, Serialize, Deserialize, TS)]
+#[derive(Debug, Clone, PartialEq, Eq, Default, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
-#[ts(export_to = "contract.ts")]
 pub struct AudioDevice {
     pub id: String,
     pub name: String,
@@ -188,16 +183,14 @@ pub struct AudioDevice {
     pub offline: bool,
 }
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, TS)]
-#[ts(export_to = "contract.ts")]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 pub struct DongleRadios {
     pub wifi: bool,
     pub bt: bool,
 }
 
-#[derive(Debug, Clone, Copy, PartialEq, Serialize, Deserialize, TS)]
+#[derive(Debug, Clone, Copy, PartialEq, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
-#[ts(export_to = "contract.ts")]
 pub struct LinkSpeed {
     pub down_mbps: f64,
     pub up_mbps: f64,
@@ -205,9 +198,8 @@ pub struct LinkSpeed {
     pub up_rate: f64,
 }
 
-#[derive(Debug, Clone, PartialEq, Default, Serialize, Deserialize, TS)]
+#[derive(Debug, Clone, PartialEq, Default, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
-#[ts(export_to = "contract.ts")]
 pub struct Navigation {
     pub active: Option<bool>,
     pub order_type: Option<u32>,
@@ -231,9 +223,8 @@ pub struct Navigation {
     pub time_left_text: Option<String>,
 }
 
-#[derive(Debug, Clone, PartialEq, Default, Serialize, Deserialize, TS)]
+#[derive(Debug, Clone, PartialEq, Default, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
-#[ts(export_to = "contract.ts")]
 pub struct NowPlaying {
     pub title: Option<String>,
     pub artist: Option<String>,
@@ -245,35 +236,31 @@ pub struct NowPlaying {
     pub artwork: Option<String>,
 }
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Default, Serialize, Deserialize, TS)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
-#[ts(export_to = "contract.ts")]
 pub struct Sessions {
     pub active: Option<Protocol>,
     pub position: u32,
     pub total: u32,
 }
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, TS)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "lowercase")]
-#[ts(export_to = "contract.ts")]
 pub enum Protocol {
     Carplay,
     Androidauto,
 }
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, TS)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
-#[ts(export_to = "contract.ts")]
 pub enum Screen {
     Main,
     Cluster,
     Aux,
 }
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, TS)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
-#[ts(export_to = "contract.ts")]
 pub enum Front {
     Livi,
     Projection,
@@ -281,9 +268,8 @@ pub enum Front {
     Camera,
 }
 
-#[derive(Debug, Clone, PartialEq, Eq, Default, Serialize, Deserialize, TS)]
+#[derive(Debug, Clone, PartialEq, Eq, Default, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
-#[ts(export_to = "contract.ts")]
 pub struct Display {
     pub connector: String,
     pub panel: String,
@@ -292,8 +278,7 @@ pub struct Display {
     pub modes: Vec<String>,
 }
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Default, Serialize, Deserialize, TS)]
-#[ts(export_to = "contract.ts")]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default, Serialize, Deserialize)]
 pub struct PerScreen<T> {
     pub main: T,
     pub cluster: T,

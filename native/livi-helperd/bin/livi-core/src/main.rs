@@ -16,6 +16,7 @@ mod aa_telemetry;
 mod android_auto;
 mod audio_devices;
 mod blinker;
+mod camera;
 mod car_bridge;
 mod carplay;
 mod child;
@@ -36,6 +37,7 @@ mod hub;
 mod hwaddr;
 mod kiosk_unit;
 mod log_file;
+mod mfi;
 mod nav_text;
 mod nmea;
 mod paths;
@@ -151,7 +153,15 @@ async fn run() -> Result<Exit, String> {
     };
     let config_file = ConfigFile::new(paths.config.clone(), paths.config_backup.clone());
     let config = config_file.load(&host);
-    let wants = projection::first_wants(&config);
+    let user_data = paths
+        .config
+        .parent()
+        .map(Path::to_path_buf)
+        .unwrap_or_default();
+    let saved = state_files::saved(&user_data);
+    let resume_dab = saved.dab;
+    let start = projection::start_page(&config, saved.ui_path.as_deref());
+    let wants = projection::first_wants(&start);
     let livi = PerScreen {
         main: Front::Livi,
         cluster: Front::Livi,
@@ -171,15 +181,25 @@ async fn run() -> Result<Exit, String> {
         now_playing: Default::default(),
         telemetry: Default::default(),
         navigation: Default::default(),
-        system: Default::default(),
+        system: livi_core_proto::state::System {
+            start_page: start,
+            ..Default::default()
+        },
         devices: Default::default(),
         update: Default::default(),
         cluster: Default::default(),
         dab: Default::default(),
+        cameras: Vec::new(),
+        mfi: Default::default(),
         config,
     });
     let (asks_tx, asks, dongle_asks, update_asks) = projection::ui_channels(wants);
-    let core = Arc::new(Core::new(hub, config_file, uid, quit.clone(), asks_tx));
+    let core = Arc::new(
+        Core::new(hub, config_file, uid, quit.clone(), asks_tx).with_mfi(user_data.join("mfi")),
+    );
+    if let Err(e) = core.refresh_mfi().await {
+        eprintln!("[core] mfi files: {e}");
+    }
 
     let socket = paths.socket();
     let _ = fs::remove_file(&socket);
@@ -187,15 +207,9 @@ async fn run() -> Result<Exit, String> {
         .map_err(|e| format!("cannot listen on {}: {e}", socket.display()))?;
     println!("[core] listening on {}", socket.display());
 
-    let user_data = paths
-        .config
-        .parent()
-        .map(Path::to_path_buf)
-        .unwrap_or_default();
     tokio::spawn(dongle::run(core.hub.clone(), dongle_asks));
     tokio::spawn(wifi_options::follow(core.clone()));
     let (inside, inside_rx) = tokio::sync::mpsc::unbounded_channel();
-    let saved = state_files::saved(&user_data);
     tokio::spawn(telemetry::run(core.clone(), inside_rx, saved));
     tokio::spawn(gnss::run(core.clone(), inside.clone()));
     tokio::spawn(car_bridge::run(core.clone(), inside.clone()));
@@ -242,6 +256,7 @@ async fn run() -> Result<Exit, String> {
         asks,
         inside,
         settings,
+        resume_dab,
     );
 
     tokio::select! {

@@ -9,5 +9,13 @@ rustflags = [
   "-C", "link-arg=-no-pie",
 ]
 
+[target.mipsel-unknown-linux-musl]
+linker = "mipsel-buildroot-linux-musl-gcc"
+rustflags = [
+  "-C", "target-feature=+crt-static,-soft-float",
+  "-C", "link-arg=-static",
+  "-C", "link-self-contained=no",
+]
+
 [alias]
 xtask = "run --quiet --package xtask --"

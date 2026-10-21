@@ -48,7 +48,7 @@
 +		cfg.tmode = DW_SPI_CTRLR0_TMOD_TO;
 +		dws->rx_len = 0;
 +		dw_spi_enable_chip(dws, 0);
-+		dw_spi_update_config(dws, spi, &cfg);
++		dw_spi_update_config(dws, spi, &cfg, NULL);
 +		transfer->effective_speed_hz = dws->current_freq;
 +		dw_spi_mask_intr(dws, 0xff);
 +		dw_spi_enable_chip(dws, 1);
@@ -56,8 +56,8 @@
 +	}
 +
  	dw_spi_enable_chip(dws, 0);
- 
- 	dw_spi_update_config(dws, spi, &cfg);
+
+ 	dw_spi_update_config(dws, spi, &cfg, NULL);
 @@ -876,6 +920,17 @@
  		dw_writel(dws, DW_SPI_TXFTLR, 0);
  

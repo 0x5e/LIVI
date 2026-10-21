@@ -392,6 +392,9 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     }
 
     let ui = AppWindow::new()?;
+    slint::set_xdg_app_id(
+        std::env::var("LIVI_OUTPUT_APP_ID").unwrap_or_else(|_| "dev.f-io.livi".into()),
+    )?;
     ui.set_bands(ModelRc::from(Rc::new(VecModel::from(vec![0.0f32; BANDS]))));
     ui.set_clock(clock::now_text().into());
     ui.global::<DashState>().set_clock(clock::now_text().into());

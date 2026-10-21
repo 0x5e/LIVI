@@ -27,6 +27,9 @@ lite|libinput10|file:/usr/lib/*/libinput.so.10|Touch, keyboard and mouse input w
 lite|libgbm1|file:/usr/lib/*/libgbm.so.1|Display buffers without a desktop|mesa-libgbm
 lite|libegl1|file:/usr/lib/*/libEGL.so.1|EGL for rendering without a desktop|mesa-libEGL
 lite|libgles2|file:/usr/lib/*/libGLESv2.so.2|OpenGL ES for rendering without a desktop|mesa-libGLES
+lite|libwayland-client0|file:/usr/lib/*/libwayland-client.so.0|Wayland client for the UI under the compositor|libwayland-client
+lite|libwayland-cursor0|file:/usr/lib/*/libwayland-cursor.so.0|Wayland cursor for the UI under the compositor|libwayland-cursor
+lite|libwayland-egl1|file:/usr/lib/*/libwayland-egl.so.1|Wayland EGL surfaces for the UI under the compositor|libwayland-egl
 lite|seatd|cmd:seatd|Seat and session management|seatd
 lite|pipewire|cmd:pipewire|Audio|pipewire
 lite|pipewire-pulse|cmd:pipewire-pulse|Audio|pipewire-pulseaudio

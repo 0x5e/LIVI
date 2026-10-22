@@ -100,6 +100,7 @@ fn ts_config(v: &Json) -> AaConfig {
         right: n(&format!("{prefix}Right")),
     };
     AaConfig {
+        summary: String::new(),
         hu_name: s("huName"),
         video_width: opt_u(v, "videoWidth"),
         video_height: opt_u(v, "videoHeight"),

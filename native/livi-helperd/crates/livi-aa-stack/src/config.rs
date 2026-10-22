@@ -5,6 +5,7 @@ use crate::wire::round_half_up;
 
 #[derive(Debug, Clone, Default, PartialEq)]
 pub struct AaConfig {
+    pub summary: String,
     pub hu_name: Option<String>,
     pub video_width: Option<u32>,
     pub video_height: Option<u32>,
@@ -182,8 +183,8 @@ pub fn from_livi(
         cfg.car_name.clone()
     };
     let cluster = cluster_displayed(cfg);
-    println!(
-        "[AaSession] display {}x{} -> AA tier {tier_w}x{tier_h} @{dpi}dpi, cluster {}",
+    let summary = format!(
+        "display {}x{} -> AA tier {tier_w}x{tier_h} @{dpi}dpi, cluster {}",
         cfg.projection_width,
         cfg.projection_height,
         if cluster {
@@ -197,6 +198,7 @@ pub fn from_livi(
     );
     let on_air = addresses.access_point.as_ref();
     AaConfig {
+        summary,
         hu_name: Some(name.clone()),
         video_width: Some(tier_w),
         video_height: Some(tier_h),

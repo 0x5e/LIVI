@@ -723,6 +723,9 @@ impl Session {
                     );
                 }
                 let cfg = self.config.borrow().clone();
+                if !cfg.summary.is_empty() {
+                    println!("[AaSession] {}", cfg.summary);
+                }
                 let sdr = discovery::build(&cfg);
                 self.advertised = Some(cfg);
                 self.video_codecs = sdr.video_codecs;

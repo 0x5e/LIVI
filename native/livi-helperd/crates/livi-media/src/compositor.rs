@@ -487,9 +487,13 @@ impl Actor {
                         width_px: *w_px,
                         height_px: *h_px,
                     };
-                    println!("[core] panel '{role}': {w_mm}x{h_mm} mm over {w_px}x{h_px} px");
-                    self.panels.send_modify(|m| {
+                    self.panels.send_if_modified(|m| {
+                        if m.get(*role) == Some(&panel) {
+                            return false;
+                        }
+                        println!("[core] panel '{role}': {w_mm}x{h_mm} mm over {w_px}x{h_px} px");
                         m.insert(role.to_string(), panel);
+                        true
                     });
                 }
             }

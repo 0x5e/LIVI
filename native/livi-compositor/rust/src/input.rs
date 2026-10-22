@@ -146,15 +146,7 @@ pub fn pointer_button(state: &mut LiviState, time: u32, button: u32, pressed: bo
     if let Some(screen_idx) = deco_screen {
         if pressed {
             match hit {
-                DecoHit::Close => {
-                    if let Some(ui) = state
-                        .toplevels
-                        .iter()
-                        .find(|t| t.kind == Kind::Ui && t.screen_idx == screen_idx)
-                    {
-                        ui.toplevel.send_close();
-                    }
-                }
+                DecoHit::Close => crate::host::close_screen(state, screen_idx),
                 DecoHit::Min => crate::host::minimize(state, screen_idx),
                 DecoHit::Fs => crate::layout::toggle_fullscreen(state, screen_idx),
                 DecoHit::Move => crate::host::begin_move(state, screen_idx),

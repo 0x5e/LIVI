@@ -291,7 +291,8 @@ async fn run_wired_session<S>(
     ctx.state.carkit_started(ident.clone());
     let restart = Arc::new(Notify::new());
     let (asked, again) = (Arc::new(Notify::new()), Arc::new(Notify::new()));
-    ctx.state
+    let reset = ctx
+        .state
         .wired_started(&serial, restart.clone(), asked.clone());
     cp.start_again = Some(again.clone());
     let forward = tokio::spawn(forward_starts(
@@ -309,15 +310,28 @@ async fn run_wired_session<S>(
         ident.clone(),
     ));
     tokio::spawn(pump_artwork(art_rx, ctx.bcast, ident.clone()));
+    let mut usb_reset = false;
     tokio::select! {
         _ = run_accessory(ch, ctx.auth, identity, cp, tx, ctx.state.vehicle_feed()) => {}
         _ = cancel.notified() => println!("[wired] {}: session cancelled on unplug", short(&serial)),
         _ = restart.notified() => println!("[wired] {}: session ended for a fresh start", short(&serial)),
+        _ = reset.notified() => {
+            println!("[wired] {}: no CarPlay session came up, resetting the phone's USB", short(&serial));
+            usb_reset = true;
+        }
     }
     forward.abort();
     ctx.state.wired_ended(&serial);
     ctx.state.carkit_ended(&ident);
     drop(ncm);
+    if usb_reset {
+        let target = serial.clone();
+        match tokio::task::spawn_blocking(move || iap2_usbmux::reset(&target)).await {
+            Ok(Ok(())) => {}
+            Ok(Err(e)) => eprintln!("[wired] {}: {e}", short(&serial)),
+            Err(e) => eprintln!("[wired] {}: usb reset task: {e}", short(&serial)),
+        }
+    }
 }
 
 async fn forward_starts(

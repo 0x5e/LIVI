@@ -106,6 +106,7 @@ fn apply_look(ui: &AppWindow, look: Look) {
         choose(ui, Page::Media);
     }
     ui.set_tabs(ModelRc::from(Rc::new(VecModel::from(tabs))));
+    ui.set_projection_icon(tab(Tab::Projection).icon);
     settings_ui::set_language(&look.language);
     secondary::theme(ui);
     media_ui::set_texts(ui, settings_ui::tr);

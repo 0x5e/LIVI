@@ -184,6 +184,7 @@ struct Entry {
     transport: Transport,
     device: Ids,
     active: bool,
+    video: bool,
     duck_level: f64,
     duck_ramp_ms: u32,
     now_playing: NowPlaying,
@@ -938,7 +939,11 @@ impl Projection {
                     let _ = dab.send(ask);
                 }
             }
-            CpEvent::VideoCodec { .. } => {}
+            CpEvent::VideoCodec { id, cluster, .. } => {
+                if !cluster {
+                    self.video_up(Link::Cp(id));
+                }
+            }
             CpEvent::PhoneUtcOffset { minutes } => {
                 tokio::spawn(crate::gnss::timezone::apply_phone_offset(minutes));
             }
@@ -1049,6 +1054,7 @@ impl Projection {
                     transport,
                     device: Ids::default(),
                     active: false,
+                    video: false,
                     duck_level: 1.0,
                     duck_ramp_ms: RAMP_UP_MS,
                     now_playing: NowPlaying::default(),
@@ -1147,6 +1153,19 @@ impl Projection {
             },
             _ => return,
         }
+        if self.is_active(link) {
+            self.publish();
+        }
+    }
+
+    fn video_up(&mut self, link: Link) {
+        let Some(entry) = self.by_link(link) else {
+            return;
+        };
+        if entry.video {
+            return;
+        }
+        entry.video = true;
         if self.is_active(link) {
             self.publish();
         }
@@ -1344,7 +1363,7 @@ impl Projection {
             self.wants.main
         };
         match wants {
-            Front::Projection if self.active().is_some() => Front::Projection,
+            Front::Projection if self.active().is_some_and(|s| s.video) => Front::Projection,
             Front::Projection => Front::Livi,
             other => other,
         }
@@ -2045,6 +2064,11 @@ impl Projection {
                     self.host_ui();
                 }
             }
+            AaEvent::VideoCodec { id, cluster, .. } => {
+                if !cluster {
+                    self.video_up(Link::Aa(id));
+                }
+            }
             AaEvent::NowPlaying { id, now_playing } => self.aa_now_playing(id, now_playing),
             AaEvent::Navigation { id, navigation } => self.aa_navigation(id, navigation),
             AaEvent::NavigationImage { id, image } => {
@@ -2497,6 +2521,11 @@ mod tests {
                 wired,
                 controller_id: None,
             });
+            self.p.on_event(CpEvent::VideoCodec {
+                id,
+                cluster: false,
+                codec: livi_cp::stack::ScreenCodec::H264,
+            });
         }
 
         fn device(&mut self, id: SessionId, wired: bool, bt: &str, wifi: &str) {
@@ -2590,6 +2619,31 @@ mod tests {
             code: code.into(),
             down: true,
         }
+    }
+
+    #[tokio::test]
+    async fn a_session_without_video_keeps_the_ui_in_front() {
+        let mut rig = Rig::new();
+        rig.want(Front::Projection);
+        rig.p.on_event(CpEvent::Connected {
+            id: 1,
+            wired: true,
+            controller_id: None,
+        });
+        assert_eq!(rig.sessions(), (Some(Protocol::Carplay), 1, 1));
+        assert_eq!(rig.front(), Front::Livi);
+        rig.p.on_event(CpEvent::VideoCodec {
+            id: 1,
+            cluster: true,
+            codec: livi_cp::stack::ScreenCodec::H264,
+        });
+        assert_eq!(rig.front(), Front::Livi);
+        rig.p.on_event(CpEvent::VideoCodec {
+            id: 1,
+            cluster: false,
+            codec: livi_cp::stack::ScreenCodec::H264,
+        });
+        assert_eq!(rig.front(), Front::Projection);
     }
 
     #[tokio::test]
@@ -3674,6 +3728,11 @@ mod tests {
                 peer: String::new(),
             });
             self.p.on_aa(AaEvent::Connected { id });
+            self.p.on_aa(AaEvent::VideoCodec {
+                id,
+                cluster: false,
+                codec: livi_aa_stack::discovery::VideoCodec::H264,
+            });
         }
     }
 

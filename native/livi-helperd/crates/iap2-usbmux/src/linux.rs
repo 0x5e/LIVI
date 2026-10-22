@@ -118,6 +118,14 @@ pub fn restore_default_config(serial: &str) {
     }
 }
 
+pub fn reset(serial: &str) -> Result<(), String> {
+    let dev = find_by_serial(serial).ok_or_else(|| format!("{serial} is not on the bus"))?;
+    open_by_address(dev.bus, dev.address)?
+        .reset()
+        .wait()
+        .map_err(|e| format!("usb reset: {e}"))
+}
+
 fn request_carplay_configs(dev: &IPhoneDev) -> Result<(), String> {
     let device = open_by_address(dev.bus, dev.address)?;
     device

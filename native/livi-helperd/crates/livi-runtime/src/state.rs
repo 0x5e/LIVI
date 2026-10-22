@@ -18,6 +18,7 @@ pub struct HelperState {
 struct Wired {
     restart: Arc<Notify>,
     again: Arc<Notify>,
+    reset: Arc<Notify>,
 }
 
 impl HelperState {
@@ -29,11 +30,30 @@ impl HelperState {
         self.vehicle.feed()
     }
 
-    pub fn wired_started(&self, serial: &str, restart: Arc<Notify>, again: Arc<Notify>) {
-        self.wired
-            .lock()
-            .unwrap()
-            .insert(serial.to_string(), Wired { restart, again });
+    pub fn wired_started(
+        &self,
+        serial: &str,
+        restart: Arc<Notify>,
+        again: Arc<Notify>,
+    ) -> Arc<Notify> {
+        let reset = Arc::new(Notify::new());
+        self.wired.lock().unwrap().insert(
+            serial.to_string(),
+            Wired {
+                restart,
+                again,
+                reset: reset.clone(),
+            },
+        );
+        reset
+    }
+
+    pub fn reset_wired(&self, serial: &str) -> bool {
+        let wired = self.wired.lock().unwrap();
+        wired
+            .get(serial)
+            .inspect(|w| w.reset.notify_one())
+            .is_some()
     }
 
     pub fn wired_ended(&self, serial: &str) {
@@ -182,6 +202,20 @@ mod tests {
 
         state.wired_ended("00008120");
         assert!(!state.start_wired_again("00008120"));
+    }
+
+    #[tokio::test]
+    async fn a_stuck_wired_session_is_asked_for_a_usb_reset() {
+        let state = HelperState::default();
+        let reset =
+            state.wired_started("00008120", Arc::new(Notify::new()), Arc::new(Notify::new()));
+
+        assert!(!state.reset_wired("00008030"));
+        assert!(state.reset_wired("00008120"));
+        reset.notified().await;
+
+        state.wired_ended("00008120");
+        assert!(!state.reset_wired("00008120"));
     }
 
     #[test]

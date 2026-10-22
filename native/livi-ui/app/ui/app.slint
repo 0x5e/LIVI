@@ -17,6 +17,7 @@ export { Theme, Focus, FocusZone, Page, PhoneState, TabData, TouchPhase, Setting
 export component AppWindow inherits Window {
     in-out property <Page> page: Page.media;
     in property <[TabData]> tabs;
+    in property <image> projection-icon;
     in property <PhoneState> phone;
     in property <string> clock;
     in property <bool> right-hand;
@@ -115,6 +116,7 @@ export component AppWindow inherits Window {
                 width: parent.width;
                 height: parent.height;
                 streaming: root.phone == PhoneState.streaming;
+                idle-icon: root.projection-icon;
                 stream-width: root.stream-width;
                 stream-height: root.stream-height;
                 mask: root.main-mask;

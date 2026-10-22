@@ -8,6 +8,7 @@ export component ProjectionPage inherits Rectangle {
     in property <int> stream-height: 720;
     in property <bool> streaming;
     in property <MaskData> mask;
+    in property <image> idle-icon;
     callback touch(TouchPhase, float, float);
 
     background: root.streaming ? transparent : Theme.background;
@@ -41,9 +42,10 @@ export component ProjectionPage inherits Rectangle {
         mask: root.mask;
     }
 
-    if !root.streaming: Text {
-        text: "Connect your phone";
-        color: Theme.text-secondary;
-        font-size: 20px;
+    if !root.streaming: Image {
+        source: root.idle-icon;
+        width: min(root.width, root.height) * 0.15;
+        height: self.width;
+        colorize: Theme.text-secondary;
     }
 }

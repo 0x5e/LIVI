@@ -17,6 +17,7 @@ use crate::vehicle_state::{Climate, Gauges, Radio, RadioCommand};
 const RESTART_FIRST: Duration = Duration::from_millis(500);
 const RESTART_EVERY: Duration = Duration::from_millis(1000);
 const RESTART_TRIES: u32 = 10;
+const STUCK_AFTER: Duration = Duration::from_secs(8);
 const KEEPALIVE_IDLE: Duration = Duration::from_secs(3);
 const PENDING_MAX: usize = 8;
 const HISTORY_KEPT: usize = 10;
@@ -240,6 +241,7 @@ struct Manager<M: Media> {
     events: mpsc::UnboundedSender<CpEvent>,
     stack_events: mpsc::UnboundedSender<(SessionId, StackEvent)>,
     ticks: mpsc::UnboundedSender<(String, u32)>,
+    stuck: mpsc::UnboundedSender<String>,
     next_id: SessionId,
     sessions: HashMap<SessionId, Session>,
     live: Option<SessionId>,
@@ -249,6 +251,8 @@ struct Manager<M: Media> {
     cabled: HashSet<SessionId>,
     cable_addrs: HashMap<String, String>,
     to_cable: HashMap<String, JoinHandle<()>>,
+    awaiting: HashMap<String, JoinHandle<()>>,
+    reset_once: HashSet<String>,
     initial_night_mode: Option<bool>,
     notices: Notices,
     cluster_stream_active: bool,
@@ -275,11 +279,13 @@ async fn run<M: Media>(
     let mut feed = ctx.helper.subscribe();
     let (stack_events, mut stack_rx) = mpsc::unbounded_channel();
     let (ticks, mut tick_rx) = mpsc::unbounded_channel();
+    let (stuck, mut stuck_rx) = mpsc::unbounded_channel();
     let mut m = Manager {
         ctx,
         events,
         stack_events,
         ticks,
+        stuck,
         next_id: 1,
         sessions: HashMap::new(),
         live: None,
@@ -289,6 +295,8 @@ async fn run<M: Media>(
         cabled: HashSet::new(),
         cable_addrs: HashMap::new(),
         to_cable: HashMap::new(),
+        awaiting: HashMap::new(),
+        reset_once: HashSet::new(),
         initial_night_mode: None,
         notices: Notices::default(),
         cluster_stream_active: true,
@@ -309,6 +317,7 @@ async fn run<M: Media>(
             },
             Some((id, ev)) = stack_rx.recv() => m.on_stack_event(id, ev),
             Some((udid, attempt)) = tick_rx.recv() => m.start_tick(&udid, attempt),
+            Some(udid) = stuck_rx.recv() => m.stuck_tick(&udid),
             cmd = cmds.recv() => match cmd {
                 Some(cmd) => m.on_cmd(cmd),
                 None => break,
@@ -318,7 +327,7 @@ async fn run<M: Media>(
     for id in m.sessions.keys().copied().collect::<Vec<_>>() {
         m.close(id);
     }
-    for (_, timer) in m.to_cable.drain() {
+    for (_, timer) in m.to_cable.drain().chain(m.awaiting.drain()) {
         timer.abort();
     }
 }
@@ -578,7 +587,42 @@ impl<M: Media> Manager<M> {
         }
     }
 
+    fn await_session(&mut self, udid: &str) {
+        if let Some(old) = self.awaiting.remove(udid) {
+            old.abort();
+        }
+        if self.reset_once.contains(udid) {
+            return;
+        }
+        let stuck = self.stuck.clone();
+        let key = udid.to_string();
+        let timer = tokio::spawn(async move {
+            tokio::time::sleep(STUCK_AFTER).await;
+            let _ = stuck.send(key);
+        });
+        self.awaiting.insert(udid.to_string(), timer);
+    }
+
+    fn stuck_tick(&mut self, udid: &str) {
+        if self.awaiting.remove(udid).is_none() {
+            return;
+        }
+        self.reset_once.insert(udid.to_string());
+        println!("[CpManager] {udid} never opened CarPlay after the start, resetting its USB");
+        let helper = self.ctx.helper.clone();
+        let target = udid.to_string();
+        tokio::spawn(async move {
+            if let Err(e) = helper.reset_wired(&target).await {
+                eprintln!("[CpManager] {target}: usb reset not done: {e}");
+            }
+        });
+    }
+
     fn came_over(&mut self, udid: &str) {
+        if let Some(timer) = self.awaiting.remove(udid) {
+            timer.abort();
+        }
+        self.reset_once.remove(udid);
         if let Some(timer) = self.to_cable.remove(udid) {
             timer.abort();
         }
@@ -769,6 +813,7 @@ impl<M: Media> Manager<M> {
                     return;
                 }
                 self.cable_addrs.insert(udid.clone(), ip);
+                self.await_session(&udid);
                 let ids = DeviceIds {
                     usb_udid: Some(udid.clone()),
                     bt_mac: opt(str_of(ev, "phoneId")),

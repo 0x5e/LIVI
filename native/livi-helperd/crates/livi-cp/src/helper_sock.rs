@@ -133,6 +133,12 @@ impl HelperSock {
             .map(drop)
     }
 
+    pub async fn reset_wired(&self, usb_udid: &str) -> Result<(), String> {
+        self.request_ok(&format!("reset-wired {usb_udid}"))
+            .await
+            .map(drop)
+    }
+
     pub async fn send_location(&self, nmea: &str) -> Result<(), String> {
         self.request(&format!("location {}", STANDARD.encode(nmea)))
             .await

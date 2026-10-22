@@ -1,6 +1,6 @@
 use crate::pipe::{MuxPipes, PhoneInfo};
 
-pub use local::{ensure_carplay_config, find_iphones, open_pipes, restore_default_config};
+pub use local::{ensure_carplay_config, find_iphones, open_pipes, reset, restore_default_config};
 
 #[cfg(target_os = "linux")]
 mod local {
@@ -29,6 +29,10 @@ mod local {
         crate::linux::restore_default_config(serial)
     }
 
+    pub fn reset(serial: &str) -> Result<(), String> {
+        crate::linux::reset(serial)
+    }
+
     pub fn open_pipes(serial: &str) -> Result<MuxPipes, String> {
         crate::usb_pipe::open_pipes(serial)
     }
@@ -49,6 +53,10 @@ mod local {
     }
 
     pub fn restore_default_config(_serial: &str) {}
+
+    pub fn reset(_serial: &str) -> Result<(), String> {
+        Err(NO_LOCAL.into())
+    }
 
     pub fn open_pipes(_serial: &str) -> Result<MuxPipes, String> {
         Err(NO_LOCAL.into())

@@ -283,6 +283,15 @@ where
             };
             reply(&mut stream, &json).await
         }
+        "reset-wired" => {
+            let json = if state.reset_wired(arg) {
+                println!("[cp-sock] reset-wired: {arg} gets a USB reset");
+                "{\"ok\":true}".to_string()
+            } else {
+                err_json(&format!("no wired session for {arg:?}"))
+            };
+            reply(&mut stream, &json).await
+        }
         other => reply(&mut stream, &err_json(&format!("unknown command: {other}"))).await,
     }
 }

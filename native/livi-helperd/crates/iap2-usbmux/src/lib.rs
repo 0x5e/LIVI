@@ -7,7 +7,7 @@ mod pipe;
 pub use pipe::{MuxReader, MuxWriter, PhoneInfo};
 
 mod backend;
-pub use backend::{ensure_carplay_config, find_iphones, open_pipes, restore_default_config};
+pub use backend::{ensure_carplay_config, find_iphones, open_pipes, reset, restore_default_config};
 
 pub const EP_OUT: u8 = 0x04;
 pub const EP_IN: u8 = 0x85;

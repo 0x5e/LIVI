@@ -148,6 +148,13 @@ copy_plugin_optional_and_deps() {
   done < <(scan_deps "$src")
 }
 
+lib_dest() {
+  case "$1" in
+    libva.so.*|libva-*.so.*) printf '%s\n' "$OUT/lib/libva-compat" ;;
+    *)                       printf '%s\n' "$OUT/lib" ;;
+  esac
+}
+
 copy_all_pending_libs() {
   local idx=0
 
@@ -155,17 +162,18 @@ copy_all_pending_libs() {
     local lib="${PENDING_LIBS[$idx]}"
     idx=$((idx + 1))
 
-    local link_name real_name real_base
+    local link_name real_name real_base dest
     link_name="$(basename "$lib")"
     real_name="$(real_path "$lib")"
     real_base="$(basename "$real_name")"
+    dest="$(lib_dest "$real_base")"
 
-    if [[ ! -e "$OUT/lib/$real_base" ]]; then
-      copy_required "$real_name" "$OUT/lib/$real_base"
+    if [[ ! -e "$dest/$real_base" ]]; then
+      copy_required "$real_name" "$dest/$real_base"
     fi
 
-    if [[ "$link_name" != "$real_base" && ! -e "$OUT/lib/$link_name" ]]; then
-      ln -s "$real_base" "$OUT/lib/$link_name"
+    if [[ "$link_name" != "$real_base" && ! -e "$dest/$link_name" ]]; then
+      ln -s "$real_base" "$dest/$link_name"
     fi
 
     while read -r dep; do
@@ -271,6 +279,7 @@ rm -rf "$OUT"
 mkdir -p \
   "$OUT/bin" \
   "$OUT/lib" \
+  "$OUT/lib/libva-compat" \
   "$OUT/lib/gstreamer-1.0" \
   "$OUT/libexec/gstreamer-1.0"
 
@@ -363,7 +372,7 @@ if ! command -v patchelf >/dev/null 2>&1; then
   exit 1
 fi
 echo "Patching RPATHs to \$ORIGIN (relocatable bundle)"
-for f in "$OUT"/lib/*.so*;               do [ -f "$f" ] && patchelf --set-rpath '$ORIGIN' "$f" 2>/dev/null || true; done
+for f in "$OUT"/lib/*.so* "$OUT"/lib/libva-compat/*.so*; do [ -f "$f" ] && patchelf --set-rpath '$ORIGIN' "$f" 2>/dev/null || true; done
 for f in "$OUT"/lib/gstreamer-1.0/*.so;  do [ -f "$f" ] && patchelf --set-rpath '$ORIGIN/..' "$f" 2>/dev/null || true; done
 for f in "$OUT"/bin/*;                   do [ -f "$f" ] && patchelf --set-rpath '$ORIGIN/../lib' "$f" 2>/dev/null || true; done
 for f in "$OUT"/libexec/gstreamer-1.0/*; do [ -f "$f" ] && patchelf --set-rpath '$ORIGIN/../../lib' "$f" 2>/dev/null || true; done

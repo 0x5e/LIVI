@@ -13,6 +13,8 @@ fi
 # shellcheck source=../common.sh
 . "$LIVI_LIB"
 
+livi_require_sudo
+
 USER_HOME="$HOME"
 APPIMAGE_PATH="$USER_HOME/LIVI/LIVI.AppImage"
 APPIMAGE_DIR="$(dirname "$APPIMAGE_PATH")"

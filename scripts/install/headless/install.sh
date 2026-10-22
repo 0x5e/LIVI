@@ -27,9 +27,10 @@ fi
 . "$LIVI_LIB"
 
 livi_require_regular_user
+livi_require_sudo
 
 if [ -z "$(livi_pm)" ]; then
-  echo "Error: this installer needs apt or dnf. Install the packages from" >&2
+  echo "Error: this installer needs apt, dnf or pacman. Install the packages from" >&2
   echo "scripts/install/packages.txt by hand, then run the remaining steps." >&2
   exit 1
 fi
@@ -151,12 +152,7 @@ if grep -q "$KIOSK_MARKER" "$USER_HOME/.bash_profile" 2>/dev/null; then
   ' "$USER_HOME/.bash_profile.livi-bak" > "$USER_HOME/.bash_profile"
 fi
 
-echo "→ Writing $KIOSK_PAM"
-sudo tee "$KIOSK_PAM" >/dev/null <<'EOF'
-auth      required  pam_permit.so
-@include  common-account
-@include  common-session
-EOF
+livi_write_kiosk_pam "$KIOSK_PAM"
 
 echo "→ Writing $KIOSK_UNIT"
 SYSTEMCTL_BIN="$(command -v systemctl || echo /usr/bin/systemctl)"

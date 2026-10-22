@@ -104,7 +104,41 @@ impl Resources {
     }
 }
 
+const LIBVA_MIN_MINOR: u32 = 21;
+const LIBVA_DIRS: [&str; 4] = [
+    "/usr/lib/x86_64-linux-gnu",
+    "/usr/lib/aarch64-linux-gnu",
+    "/usr/lib64",
+    "/usr/lib",
+];
+
+fn libva_minor(file: &str) -> Option<u32> {
+    let v: u32 = file
+        .strip_prefix("libva.so.2.")?
+        .split('.')
+        .next()?
+        .parse()
+        .ok()?;
+    Some(v / 100)
+}
+
+fn host_libva_ok() -> bool {
+    LIBVA_DIRS.iter().map(Path::new).any(|dir| {
+        ["libva-drm.so.2", "libva-x11.so.2"]
+            .iter()
+            .all(|l| dir.join(l).exists())
+            && std::fs::canonicalize(dir.join("libva.so.2"))
+                .ok()
+                .and_then(|p| libva_minor(p.file_name()?.to_str()?))
+                .is_some_and(|m| m >= LIBVA_MIN_MINOR)
+    })
+}
+
 pub fn gst_env(root: &Path) -> Vec<(String, String)> {
+    gst_env_with(root, cfg!(target_os = "linux") && !host_libva_ok())
+}
+
+fn gst_env_with(root: &Path, libva_compat: bool) -> Vec<(String, String)> {
     let utf8 = if cfg!(target_os = "macos") {
         "en_US.UTF-8"
     } else {
@@ -116,6 +150,12 @@ pub fn gst_env(root: &Path) -> Vec<(String, String)> {
         "LD_LIBRARY_PATH"
     };
     let p = |rel: &str| root.join(rel).display().to_string();
+    let compat = root.join("lib/libva-compat");
+    let libs = if libva_compat && compat.is_dir() {
+        format!("{}:{}", compat.display(), p("lib"))
+    } else {
+        p("lib")
+    };
     vec![
         ("LANG".into(), utf8.into()),
         ("LC_ALL".into(), utf8.into()),
@@ -125,7 +165,7 @@ pub fn gst_env(root: &Path) -> Vec<(String, String)> {
             "GST_PLUGIN_SCANNER".into(),
             p("libexec/gstreamer-1.0/gst-plugin-scanner"),
         ),
-        (lib_var.into(), p("lib")),
+        (lib_var.into(), libs),
     ]
 }
 
@@ -186,5 +226,32 @@ mod tests {
         let get = |k: &str| env.iter().find(|(n, _)| n == k).map(|(_, v)| v.as_str());
         assert_eq!(get("GST_PLUGIN_PATH"), Some("/b/lib/gstreamer-1.0"));
         assert_eq!(get("GST_PLUGIN_SYSTEM_PATH"), Some(""));
+    }
+
+    #[test]
+    fn libva_minor_comes_from_the_real_file_name() {
+        assert_eq!(libva_minor("libva.so.2.2000.0"), Some(20));
+        assert_eq!(libva_minor("libva.so.2.2400.0"), Some(24));
+        assert_eq!(libva_minor("libva.so.2"), None);
+        assert_eq!(libva_minor("libva-drm.so.2.2400.0"), None);
+    }
+
+    #[test]
+    fn the_bundled_libva_only_goes_first_when_asked_for() {
+        let dir = crate::config_file::tests::TempDir::new();
+        std::fs::create_dir_all(dir.0.join("lib/libva-compat")).unwrap();
+        let libs = |compat| {
+            gst_env_with(&dir.0, compat)
+                .into_iter()
+                .find(|(n, _)| n == "LD_LIBRARY_PATH" || n == "DYLD_LIBRARY_PATH")
+                .map(|(_, v)| v)
+                .unwrap()
+        };
+        let lib = dir.0.join("lib").display().to_string();
+        assert_eq!(libs(false), lib);
+        assert_eq!(
+            libs(true),
+            format!("{}:{lib}", dir.0.join("lib/libva-compat").display())
+        );
     }
 }

@@ -41,7 +41,7 @@ livi_require_regular_user() {
 
 livi_asset_arch() {
   case "$(uname -m)" in
-    x86_64|amd64)  printf 'x86_64\n' ;;
+    x86_64|amd64)  printf 'x64\n' ;;
     aarch64|arm64) printf 'arm64\n' ;;
     *)
       echo "Error: unsupported architecture $(uname -m). LIVI ships x86_64 and arm64." >&2
@@ -53,19 +53,27 @@ livi_asset_arch() {
 livi_pm() {
   if command -v apt-get >/dev/null 2>&1; then echo apt
   elif command -v dnf >/dev/null 2>&1; then echo dnf
+  elif command -v pacman >/dev/null 2>&1; then echo pacman
   fi
 }
 
 livi_pm_install() {
   [ "$#" -gt 0 ] || return 0
   case "$(livi_pm)" in
-    apt) sudo apt-get update && sudo apt-get install -y "$@" ;;
-    dnf) sudo dnf install -y "$@" ;;
-    *)   echo "Error: no supported package manager (apt/dnf) found" >&2; return 1 ;;
+    apt)    sudo apt-get update && sudo apt-get install -y "$@" ;;
+    dnf)    sudo dnf install -y "$@" ;;
+    pacman) sudo pacman -Sy --needed --noconfirm "$@" ;;
+    *)      echo "Error: no supported package manager (apt/dnf/pacman) found" >&2; return 1 ;;
   esac
 }
 
-# Package names for the given sections (col 2 apt, col 5 dnf), deduped.
+livi_require_sudo() {
+  command -v sudo >/dev/null 2>&1 && return 0
+  echo "Error: sudo is required but not installed (pacman -S sudo). doas is not supported." >&2
+  return 1
+}
+
+# Package names for the given sections (col 2 apt, col 5 dnf, col 6 pacman), deduped.
 livi_packages() {
   local manifest tmp section field
   manifest="$LIVI_LIB_DIR/packages.txt"
@@ -75,7 +83,8 @@ livi_packages() {
       || { echo "Error: cannot obtain packages.txt" >&2; return 1; }
     manifest="$tmp"
   fi
-  field=2; [ "$(livi_pm)" = dnf ] && field=5
+  field=2
+  case "$(livi_pm)" in dnf) field=5 ;; pacman) field=6 ;; esac
   for section in "$@"; do
     grep -E "^${section}\|" "$manifest" | cut -d '|' -f"$field"
   done | awk 'NF && !seen[$0]++'
@@ -135,7 +144,7 @@ livi_fetch_appimage() {
     echo "→ Fetching the latest $LIVI_CHANNEL build for $arch"
     url="$(curl -s "$LIVI_RELEASE_API" \
       | grep browser_download_url \
-      | grep "${arch}.AppImage" \
+      | grep "linux-${arch}.AppImage" \
       | cut -d '"' -f 4)"
     if [ -z "$url" ]; then
       echo "Error: no ${arch} AppImage in the latest $LIVI_CHANNEL build" >&2
@@ -443,6 +452,33 @@ livi_set_wifi_pmf_optional() {
   if command -v nmcli >/dev/null 2>&1; then
     sudo nmcli general reload conf 2>/dev/null || true
   fi
+}
+
+livi_write_kiosk_pam() {
+  local file="$1" stack
+  echo "→ Writing $file"
+  sudo mkdir -p "$(dirname "$file")"
+  if [ -f /etc/pam.d/common-session ]; then
+    sudo tee "$file" >/dev/null <<'EOF'
+auth      required  pam_permit.so
+@include  common-account
+@include  common-session
+EOF
+    return 0
+  fi
+  for stack in system-login system-auth; do
+    [ -f "/etc/pam.d/$stack" ] || continue
+    sudo tee "$file" >/dev/null <<EOF
+auth      required  pam_permit.so
+account   include   $stack
+session   include   $stack
+EOF
+    [ "$stack" = system-auth ] && [ -f /etc/pam.d/postlogin ] \
+      && printf 'session   include   postlogin\n' | sudo tee -a "$file" >/dev/null
+    return 0
+  done
+  echo "Error: no usable PAM stack (common-session / system-login / system-auth) found" >&2
+  return 1
 }
 
 livi_write_udev_rule() {

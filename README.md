@@ -8,7 +8,6 @@ LIVI is an open-source **Apple CarPlay and Android Auto head unit**.
 
 It is a standalone cross-platform head unit with a native, zero-copy GStreamer video pipeline and hardware-accelerated decoding on Linux (including the Raspberry Pi 4 and 5) and macOS, low-latency audio, multitouch + D-Pad navigation, and support for very small embedded/OEM displays.
 
-
 ## Project Status
 
 ![Release](https://img.shields.io/github/v/release/f-io/LIVI?label=release)
@@ -16,7 +15,6 @@ It is a standalone cross-platform head unit with a native, zero-copy GStreamer v
 ![Checks Main](https://img.shields.io/github/actions/workflow/status/f-io/LIVI/checks.yml?branch=main&label=checks%20main)
 ![Build Main](https://img.shields.io/github/actions/workflow/status/f-io/LIVI/build.yml?branch=main&label=build%20main)
 <a href="https://discord.gg/cv6Gd8wDKB"><img alt="Discord" src="https://img.shields.io/badge/Discord-join-5865F2?logo=discord&logoColor=white" /></a>
-
 
 ## Native Connectivity
 
@@ -45,9 +43,7 @@ LIVI implements the CarPlay accessory side natively, wired and wireless, on Linu
 
 \* CarPlay Ultra only
 
-
 Wireless CarPlay requires a Bluetooth and a Wi-Fi interface. Both can come from a [LIVI Link](LIVI-LINK.md), which brings its own radios. Wired CarPlay works on any USB port.
-
 
 ## MFi Authentication
 
@@ -69,7 +65,6 @@ For a chip on the board, configuration (`config.json`):
 
 Without one of these, native CarPlay is unavailable. All Android Auto paths work regardless.
 
-
 ## Wireless
 
 Wireless sessions do not need a router. LIVI brings up its own Wi-Fi access point and the phone joins that. Bluetooth carries the pairing and the handover, the session itself then runs over Wi-Fi.
@@ -87,7 +82,6 @@ Configure under Settings → General → Connections.
   &emsp;
   <img src="docs/media/wifi.png" alt="Wi-Fi access point settings" width="42%" align="top" />
 </p>
-
 
 ## Multi-Session
 
@@ -107,7 +101,6 @@ Manage under Settings → Devices.
   <img src="docs/media/devices.png" alt="Connected devices" width="70%" />
 </p>
 
-
 ## Display Calibration
 
 Car displays are rarely colour accurate. Cheap panels wash out blacks, run cold or warm, or crush the shadows once the sun hits them. LIVI can correct this in software.
@@ -123,7 +116,6 @@ Configure under Settings → Appearance → Contrast / Gamma and Settings → Ap
   &emsp;
   <img src="docs/media/color.png" alt="Colour channel calibration" width="42%" align="top" />
 </p>
-
 
 ## Dashboard
 
@@ -165,7 +157,6 @@ curl -d '{"gear":"R"}' http://livi.local:4000/telemetry
   <img src="docs/media/telemetry.png" alt="Telemetry Dashboard" width="70%" />
 </p>
 
-
 ## Climate
 
 LIVI describes the car's climate to CarPlay, and the phone draws the controls itself: both front
@@ -184,13 +175,11 @@ livi-core telemetry set climate.driverTargetC=22 climate.fanLevel=3
 livi-core telemetry set climate.driverSeatHeating=2
 ```
 
-
 <p align="center">
   <img src="docs/media/climate/climate_01.png" alt="Climate controls in the CarPlay dock" width="42%" align="top" />
   &emsp;
   <img src="docs/media/climate/climate_02.png" alt="Climate app" width="42%" align="top" />
 </p>
-
 
 ## GPS
 
@@ -201,11 +190,11 @@ Any receiver speaking **NMEA-0183** works. On **u-blox** modules LIVI additional
 UBX for the module identity and the RF front end. Development and testing were done with
 a **NEO-M9N**. Configuration (`config.json`):
 
-| Key           | Default        | Description                                |
-| ------------- | -------------- | ------------------------------------------ |
-| `gpsEnabled`  | `false`        | Read the receiver                          |
-| `gpsDevice`   | `/dev/ttyAMA0` | Serial device                              |
-| `gpsBaudRate` | `38400`        | NEO-M9N default; older modules use `9600`  |
+| Key           | Default        | Description                                    |
+| ------------- | -------------- | ---------------------------------------------- |
+| `gpsEnabled`  | `false`        | Read the receiver                              |
+| `gpsDevice`   | `/dev/ttyAMA0` | Serial device                                  |
+| `gpsBaudRate` | `38400`        | NEO-M9N default; older modules use `9600`      |
 | `timezone`    | `""`           | Last zone derived from a fix, applied at start |
 
 The receiver also serves as a **time source**. Its satellite clock sets the system time, ahead of the time a phone offers at CarPlay session start, and the fix position selects the system timezone, so daylight saving follows the tz database instead of a manual switch.
@@ -221,7 +210,6 @@ On a Raspberry Pi 5, `/dev/ttyAMA0` on GPIO 14/15 (PIN 8/10) does not exist unti
   <img src="docs/media/gps/gps_info.png" alt="GPS data info" width="42%" align="top" />
 </p>
 
-
 ## DAB+
 
 DAB+ radio via USB RTL-SDR (RTL2832U with R820T2).
@@ -229,7 +217,6 @@ DAB+ radio via USB RTL-SDR (RTL2832U with R820T2).
 - station scan, station list with logos, favourites and hidden stations
 - radio text and station logos in LIVI's media player
 - station order and hidden stations in Settings → DAB+
-
 
 ## Multi-Display
 
@@ -249,23 +236,25 @@ Settings → General → Tab Settings.
   <img src="docs/media/multi-display/main.png" alt="Main Screen" width="34%" align="top" />
 </p>
 
-
 ## View and Safe Area
 
 Stream resolution, view area insets, and safe area can be configured independently for the main and cluster streams. This is supported for Android Auto as well as CarPlay.
 
 ### Main Stream
+
 Video: 1280x720 - View Area: 0/0/100/0 (T/B/L/R) - Safe Area: 100/100/100/100 (T/B/L/R) - Draw Outside: true
+
 <p align="center">
   <img src="docs/media/area/main_safe_area_view_area_aa.png" alt="Safe area main stream Android Auto" width="70%" />
 </p>
 
 ### Cluster Stream
+
 Video: 1920x1080 - View Area: 0/0/0/0 (T/B/L/R) - Safe Area: 120/20/500/500 (T/B/L/R)
+
 <p align="center">
   <img src="docs/media/area/dash_safe_area_aa.png" alt="Safe area cluster stream Android Auto" width="70%" />
 </p>
-
 
 ## Images
 
@@ -281,10 +270,9 @@ Video: 1920x1080 - View Area: 0/0/0/0 (T/B/L/R) - Safe Area: 120/20/500/500 (T/B
   <img src="docs/media/settings.png" alt="Settings" width="42%" align="top" />
 </p>
 
-
 ## Installation
 
-One script installs LIVI on both desktop and headless hosts, auto-detecting which (override with `--desktop` / `--headless`). It uses apt or dnf, so beyond Raspberry Pi OS it also runs on Debian/Ubuntu, Fedora and likely other distros, on arm64 and x86_64.
+One script installs LIVI on both desktop and headless hosts, auto-detecting which (override with `--desktop` / `--headless`). It uses apt, dnf or pacman, it runs on Debian/Ubuntu, Fedora, Arch and likely other distros, on arm64 and x86_64.
 
 ```bash
 curl -fL -o install.sh https://raw.githubusercontent.com/f-io/LIVI/main/scripts/install/install.sh
@@ -302,11 +290,10 @@ _Tested on Raspberry Pi OS, Ubuntu 26.04 and Fedora 44._
 This AppImage has been tested on Debian Trixie (13) with Wayland, Fedora 44 (GNOME) and Ubuntu 26.04.
 
 ```bash
-chmod +x LIVI-*-x86_64.AppImage
+chmod +x LIVI-*-linux-x64.AppImage
 ```
 
 > **Hardware video decode (optional):** LIVI uses the system VA-API driver for GPU video decode (it is not bundled, since it must match your GPU and kernel). Most desktops ship it, a minimal install may not. Without it LIVI still works via software decode. For HW decode install the driver for your GPU and verify with `vainfo`: `i965-va-driver` (older Intel, e.g. Broadwell), `intel-media-va-driver` (Gen9+ Intel), `mesa-va-drivers` (AMD).
-
 
 ## Mac (arm64)
 
@@ -321,7 +308,6 @@ In that case:
 4. Confirm the dialog
 
 After this, the app will launch normally and future updates will work without additional steps.
-
 
 ## Build Environment
 
@@ -383,12 +369,12 @@ git clone --branch main --single-branch https://github.com/f-io/LIVI.git \
 
 cd native
 
-# Linux (dist/LIVI-<version>-linux-<arch>.AppImage, for the machine it runs on)
+# Linux
 cargo xtask package-linux
 
-# macOS (dist/LIVI.app and dmg)
-cargo xtask package-mac               # Apple Silicon
-cargo xtask package-mac --arch x64    # Intel
+# macOS
+cargo xtask package-mac
+cargo xtask package-mac --arch x64    # Intel on Apple Silicon
 
 # Native binaries only
 cargo xtask build-native
@@ -396,21 +382,17 @@ cargo xtask build-native
 
 `package-linux` needs [appimagetool](https://github.com/AppImage/appimagetool) on the `PATH`, or its path in `APPIMAGETOOL`, and `desktop-file-validate` (package `desktop-file-utils`).
 
-
 ## Debugging
 
 Diagnostic environment flags and where to find the logs are documented in [DEBUGGING.md](DEBUGGING.md).
-
 
 ## Credits
 
 See [CREDITS](CREDITS.md) for acknowledgements and prior art.
 
-
 ## Disclaimer
 
 _Apple and CarPlay are trademarks of Apple Inc. Android and Android Auto are trademarks of Google LLC. This project is not affiliated with or endorsed by Apple or Google. All product names, logos, and brands are the property of their respective owners._
-
 
 ## License
 

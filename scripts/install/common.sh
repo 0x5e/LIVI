@@ -16,10 +16,10 @@ LIVI_KIOSK_TEMPLATE="livi-kiosk.service.template"
 LIVI_BOOT_CONFIG="${LIVI_BOOT_CONFIG:-/boot/firmware/config.txt}"
 
 # I2C for the Apple MFi coprocessor, matching carPlayMfiI2cBus in config.json
-LIVI_MFI_I2C_BUS="2"
+LIVI_MFI_I2C_BUS=""
 LIVI_MFI_POWER_GPIO="21"
 LIVI_APP_CONFIG="${LIVI_APP_CONFIG:-$HOME/.config/LIVI/config.json}"
-LIVI_MFI_OVERLAY="dtoverlay=i2c-gpio,bus=${LIVI_MFI_I2C_BUS},i2c_gpio_sda=19,i2c_gpio_scl=26,i2c_gpio_delay_us=5"
+LIVI_MFI_OVERLAY_MATCH='^dtoverlay=i2c-gpio,.*i2c_gpio_sda=19'
 LIVI_MODULES_LOAD="${LIVI_MODULES_LOAD:-/etc/modules-load.d/livi-i2c.conf}"
 LIVI_NM_POWERSAVE_FILE="/etc/NetworkManager/conf.d/99-LIVI-wifi-powersave.conf"
 LIVI_NM_PMF_FILE="/etc/NetworkManager/conf.d/99-LIVI-wifi-pmf.conf"
@@ -608,7 +608,7 @@ livi_seed_mfi_config() {
   livi_require_jq || return 1
   mkdir -p "$(dirname "$LIVI_APP_CONFIG")"
   cfg="$(livi_app_config_jq '
-    (if has("carPlayMfiI2cBus") then . else .carPlayMfiI2cBus = $bus end)
+    .carPlayMfiI2cBus = $bus
     | if .carPlayMfiPowerGpio == null or .carPlayMfiPowerGpio == "" or .carPlayMfiPowerGpio == -1
       then .carPlayMfiPowerGpio = $gpio else . end' \
     --argjson bus "$LIVI_MFI_I2C_BUS" --argjson gpio "$LIVI_MFI_POWER_GPIO")" || return 1
@@ -616,20 +616,45 @@ livi_seed_mfi_config() {
   printf '%s\n' "$cfg" > "$LIVI_APP_CONFIG"
 }
 
+livi_i2c_free_or_gpio() {
+  local adapter="/sys/class/i2c-adapter/i2c-$1" driver
+  [ -e "$adapter" ] || return 0
+  driver="$(readlink -f "$adapter/device/driver" 2>/dev/null)"
+  [ "${driver##*/}" = i2c-gpio ]
+}
+
+livi_pick_mfi_bus() {
+  local n
+  n="$(grep -E "$LIVI_MFI_OVERLAY_MATCH" "$LIVI_BOOT_CONFIG" 2>/dev/null | head -1 \
+    | sed -n 's/.*bus=\([0-9][0-9]*\).*/\1/p')"
+  if [ -n "$n" ] && livi_i2c_free_or_gpio "$n"; then
+    LIVI_MFI_I2C_BUS="$n"
+    return 0
+  fi
+  n=2
+  while [ -e "/sys/class/i2c-adapter/i2c-$n" ]; do
+    n=$((n + 1))
+  done
+  LIVI_MFI_I2C_BUS="$n"
+}
+
 livi_apply_mfi() {
   [ "${LIVI_MFI:-no}" = "yes" ] || return 0
+  livi_pick_mfi_bus
   local dev="/dev/i2c-${LIVI_MFI_I2C_BUS}"
+  local overlay="dtoverlay=i2c-gpio,bus=${LIVI_MFI_I2C_BUS},i2c_gpio_sda=19,i2c_gpio_scl=26,i2c_gpio_delay_us=5"
 
   echo "→ Setting MFi i2c bus ${LIVI_MFI_I2C_BUS} and power pin ${LIVI_MFI_POWER_GPIO} in the app config"
   livi_seed_mfi_config
 
   echo "→ Enabling I2C for the MFi coprocessor"
   if [ -f "$LIVI_BOOT_CONFIG" ]; then
-    if grep -qF "$LIVI_MFI_OVERLAY" "$LIVI_BOOT_CONFIG"; then
+    if grep -qxF "$overlay" "$LIVI_BOOT_CONFIG"; then
       echo "   overlay already in $LIVI_BOOT_CONFIG"
     else
-      printf '%s\n' "$LIVI_MFI_OVERLAY" | sudo tee -a "$LIVI_BOOT_CONFIG" >/dev/null
-      echo "   overlay added to $LIVI_BOOT_CONFIG"
+      sudo sed -i "/$LIVI_MFI_OVERLAY_MATCH/d" "$LIVI_BOOT_CONFIG"
+      printf '%s\n' "$overlay" | sudo tee -a "$LIVI_BOOT_CONFIG" >/dev/null
+      echo "   overlay on bus ${LIVI_MFI_I2C_BUS} written to $LIVI_BOOT_CONFIG"
     fi
   else
     echo "   no $LIVI_BOOT_CONFIG on this host, skipping the overlay"

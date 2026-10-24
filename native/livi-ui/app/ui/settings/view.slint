@@ -298,12 +298,15 @@ export component SettingsView inherits Rectangle {
                             font-size: 15px;
                             vertical-alignment: center;
                             overflow: elide;
+                            horizontal-stretch: 1;
                         }
                         if r.value != "": Text {
                             text: r.value;
                             color: Theme.text-secondary;
                             font-size: 14px;
                             vertical-alignment: center;
+                            horizontal-alignment: right;
+                            horizontal-stretch: 0;
                         }
                     }
                 }

@@ -395,6 +395,28 @@ livi_apply_hdmi_pr() {
   return 0
 }
 
+LIVI_SKIPPED=()
+
+# Runs a step LIVI can do without. A failure is reported and the install goes on.
+livi_optional() {
+  local rc
+  set +e
+  ( set -e; "$@" )
+  rc=$?
+  set -e
+  if [ "$rc" -ne 0 ]; then
+    echo "   ⚠ $1 failed (exit $rc), continuing without it" >&2
+    LIVI_SKIPPED+=("$1")
+  fi
+}
+
+livi_report_skipped() {
+  [ ${#LIVI_SKIPPED[@]} -gt 0 ] || return 0
+  echo ""
+  echo "⚠ Not completed: ${LIVI_SKIPPED[*]}"
+  echo "  LIVI runs without them, run the installer again once the cause above is fixed."
+}
+
 # Grants real-time scheduling to the CarPlay audio receive thread. Kiosk and
 # desktop sessions run through PAM, so pam_limits applies this on login.
 livi_grant_rtprio() {
@@ -529,6 +551,12 @@ livi_drop_obsolete_sudoers() {
 livi_ask_mfi() {
   local reply
   LIVI_MFI="$(livi_lower "${LIVI_MFI:-}")"
+
+  if [ ! -f "$LIVI_BOOT_CONFIG" ]; then
+    LIVI_MFI="no"
+    return 0
+  fi
+
   if [ -z "$LIVI_MFI" ]; then
     if [ -t 0 ]; then
       echo ""
@@ -557,6 +585,12 @@ livi_ask_mfi() {
 livi_ask_splash() {
   local reply
   LIVI_SPLASH="$(livi_lower "${LIVI_SPLASH:-}")"
+
+  if [ ! -f "$LIVI_BOOT_CONFIG" ] || [ ! -f "$(dirname "$LIVI_BOOT_CONFIG")/cmdline.txt" ]; then
+    LIVI_SPLASH="no"
+    return 0
+  fi
+
   if [ -z "$LIVI_SPLASH" ]; then
     if [ -t 0 ]; then
       echo ""
@@ -626,7 +660,7 @@ livi_i2c_free_or_gpio() {
 livi_pick_mfi_bus() {
   local n
   n="$(grep -E "$LIVI_MFI_OVERLAY_MATCH" "$LIVI_BOOT_CONFIG" 2>/dev/null | head -1 \
-    | sed -n 's/.*bus=\([0-9][0-9]*\).*/\1/p')"
+    | sed -n 's/.*bus=\([0-9][0-9]*\).*/\1/p')" || true
   if [ -n "$n" ] && livi_i2c_free_or_gpio "$n"; then
     LIVI_MFI_I2C_BUS="$n"
     return 0

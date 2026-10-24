@@ -93,21 +93,21 @@ TOUCH_FILTER="$(livi_fetch_template "$APPIMAGE_PATH" "$LIVI_TOUCH_FILTER_TEMPLAT
 }
 
 # --- shared ---
-livi_install_touch_filter "$TOUCH_FILTER"
 livi_write_udev_rule "$UDEV_TEMPLATE"
 livi_write_sudoers "$SUDOERS_TEMPLATE"
-livi_write_regdom
-livi_install_time_helper
-livi_disable_wifi_powersave
-livi_set_wifi_pmf_optional
-livi_grant_rtprio
-livi_apply_mfi
-livi_apply_splash
-livi_apply_hdmi_pr "$APPIMAGE_PATH"
+livi_optional livi_install_touch_filter "$TOUCH_FILTER"
+livi_optional livi_write_regdom
+livi_optional livi_install_time_helper
+livi_optional livi_disable_wifi_powersave
+livi_optional livi_set_wifi_pmf_optional
+livi_optional livi_grant_rtprio
+livi_optional livi_apply_mfi
+livi_optional livi_apply_splash
+livi_optional livi_apply_hdmi_pr "$APPIMAGE_PATH"
 
 # --- headless only ---
-livi_install_video_mode_helper
-livi_install_power_helper
+livi_optional livi_install_video_mode_helper
+livi_optional livi_install_power_helper
 
 echo "→ Enabling seatd"
 sudo systemctl enable --now seatd
@@ -167,6 +167,7 @@ sudo systemctl enable livi-kiosk.service
 
 echo ""
 echo "✅ LIVI headless installation complete."
+livi_report_skipped
 echo ""
 echo "Reboot to launch LIVI in kiosk mode on tty1:"
 echo "    sudo reboot"

@@ -84,17 +84,17 @@ TOUCH_FILTER="$(livi_fetch_template "$APPIMAGE_PATH" "$LIVI_TOUCH_FILTER_TEMPLAT
   exit 1
 }
 
-livi_install_touch_filter "$TOUCH_FILTER"
 livi_write_udev_rule "$UDEV_TEMPLATE"
 livi_write_sudoers "$SUDOERS_TEMPLATE"
-livi_write_regdom
-livi_install_time_helper
-livi_disable_wifi_powersave
-livi_set_wifi_pmf_optional
-livi_grant_rtprio
-livi_apply_mfi
-livi_apply_splash
-livi_apply_hdmi_pr "$APPIMAGE_PATH"
+livi_optional livi_install_touch_filter "$TOUCH_FILTER"
+livi_optional livi_write_regdom
+livi_optional livi_install_time_helper
+livi_optional livi_disable_wifi_powersave
+livi_optional livi_set_wifi_pmf_optional
+livi_optional livi_grant_rtprio
+livi_optional livi_apply_mfi
+livi_optional livi_apply_splash
+livi_optional livi_apply_hdmi_pr "$APPIMAGE_PATH"
 
 echo "→ Creating autostart entry"
 AUTOSTART_DIR="$USER_HOME/.config/autostart"
@@ -157,3 +157,4 @@ update-desktop-database "$APPLICATIONS_DIR" 2>/dev/null || true
 echo "Application entry at $APPLICATIONS_DIR/dev.f-io.livi.desktop"
 
 echo "✅ Installation complete!"
+livi_report_skipped

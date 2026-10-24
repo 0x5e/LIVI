@@ -3,7 +3,7 @@ use std::sync::Arc;
 use std::time::Duration;
 
 use livi_core_proto::config::Config;
-use livi_core_proto::state::{Front, State};
+use livi_core_proto::state::{Front, Screen, State};
 use livi_cp::helper_sock::HelperSock;
 use livi_cp::pairings::Pairings;
 use livi_cp::stack::StackCtx;
@@ -204,6 +204,11 @@ impl Services {
         tokio::spawn(forward_touches(
             ctrl.touches(),
             asks.input_from_compositor.clone(),
+        ));
+        tokio::spawn(follow_fullscreen(
+            ctrl.fullscreen_changes(),
+            hub.clone(),
+            settings.clone(),
         ));
         if let Some(dab_asks) = asks.dab.take() {
             tokio::spawn(crate::dab::run(
@@ -462,6 +467,15 @@ async fn follow_state(
         for (role, on, size) in changed_screens(last.as_ref().map(|l| &l.config), &now.config) {
             ctrl.screen(role, on, size);
         }
+        if last
+            .as_ref()
+            .is_none_or(|l| l.config.kiosk != now.config.kiosk)
+        {
+            let k = &now.config.kiosk;
+            ctrl.fullscreen("main", k.main);
+            ctrl.fullscreen("cluster", k.cluster);
+            ctrl.fullscreen("aux", k.aux);
+        }
         let stream = |c: &Config| (c.projection_width, c.projection_height);
         if last
             .as_ref()
@@ -497,6 +511,36 @@ async fn forward_touches(
             Err(tokio::sync::broadcast::error::RecvError::Lagged(_)) => {}
             Err(tokio::sync::broadcast::error::RecvError::Closed) => return,
         }
+    }
+}
+
+async fn follow_fullscreen(
+    mut changes: tokio::sync::broadcast::Receiver<(Screen, bool)>,
+    hub: Arc<Hub>,
+    settings: mpsc::UnboundedSender<serde_json::Value>,
+) {
+    loop {
+        match changes.recv().await {
+            Ok((screen, on)) => {
+                if *hub.config().kiosk.get(screen) == on {
+                    continue;
+                }
+                let patch = serde_json::json!({ "kiosk": { name_of(screen): on } });
+                if settings.send(patch).is_err() {
+                    return;
+                }
+            }
+            Err(tokio::sync::broadcast::error::RecvError::Lagged(_)) => {}
+            Err(tokio::sync::broadcast::error::RecvError::Closed) => return,
+        }
+    }
+}
+
+fn name_of(screen: Screen) -> &'static str {
+    match screen {
+        Screen::Main => "main",
+        Screen::Cluster => "cluster",
+        Screen::Aux => "aux",
     }
 }
 

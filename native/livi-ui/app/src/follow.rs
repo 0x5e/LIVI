@@ -20,6 +20,7 @@ pub enum Update {
     Front(Front),
     Phone(PhoneState),
     Look(Look),
+    Kiosk(bool),
     Settings,
     Spectrum(Vec<f32>),
     Status(String),
@@ -36,6 +37,7 @@ pub struct Follow {
     front: Option<Front>,
     phone: Option<PhoneState>,
     look: Option<Look>,
+    kiosk: Option<bool>,
     dash: DashReader,
     others: Vec<(livi_core_proto::state::Screen, DashReader)>,
     secondary: Option<Vec<livi_ui_model::dashboard::screens::Secondary>>,
@@ -83,6 +85,11 @@ impl Follow {
             if self.look.as_ref() != Some(&next) {
                 self.look = Some(next.clone());
                 out.push(Update::Look(next));
+            }
+            let kiosk = state["config"]["kiosk"]["main"].as_bool().unwrap_or(false);
+            if self.kiosk != Some(kiosk) {
+                self.kiosk = Some(kiosk);
+                out.push(Update::Kiosk(kiosk));
             }
         }
         if hit("sessions") || hit("config") {

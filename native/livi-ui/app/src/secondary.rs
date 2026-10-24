@@ -6,20 +6,18 @@ use livi_ui_model::dashboard::screens::{Secondary, name};
 use slint::{ComponentHandle, LogicalPosition, LogicalSize};
 
 use crate::dashboard_ui::{DashView, fill};
+use crate::fullscreen::{Tracked, in_compositor};
 use crate::{AppWindow, DashState, SecondaryWindow, Theme};
 
 struct Open {
     spec: Secondary,
     window: SecondaryWindow,
     front: Option<Front>,
+    fullscreen: Option<Tracked>,
 }
 
 thread_local! {
     static OPEN: RefCell<Vec<Open>> = const { RefCell::new(Vec::new()) };
-}
-
-fn in_compositor() -> bool {
-    std::env::var("LIVI_COMPOSITOR").is_ok_and(|v| v == "1")
 }
 
 fn title(screen: Screen) -> String {
@@ -59,7 +57,7 @@ fn open(main: &AppWindow, client: &Client, spec: &Secondary) -> Option<Secondary
         }
         None => window.set_size(LogicalSize::new(spec.width as f32, spec.height as f32)),
     }
-    if spec.kiosk || in_compositor() {
+    if in_compositor() {
         window.set_fullscreen(true);
     }
     let weak = w.as_weak();
@@ -91,17 +89,20 @@ pub fn follow(main: &AppWindow, client: &Client, wanted: Vec<Secondary>) {
                 Some(o) if o.spec == spec => {}
                 Some(o) => {
                     o.window.set_has_dashboard(spec.dashboard);
-                    if o.spec.kiosk != spec.kiosk && !in_compositor() {
-                        o.window.window().set_fullscreen(spec.kiosk);
+                    if let Some(t) = o.fullscreen.as_mut() {
+                        t.apply(o.window.window(), spec.kiosk);
                     }
                     o.spec = spec;
                 }
                 None => {
                     if let Some(window) = open_window(main, client, &spec) {
+                        let fullscreen =
+                            (!in_compositor()).then(|| Tracked::new(window.window(), spec.kiosk));
                         open.push(Open {
                             spec,
                             window,
                             front: None,
+                            fullscreen,
                         });
                     }
                 }
@@ -145,4 +146,19 @@ pub fn tick_clock(text: &str) {
         open.iter()
             .for_each(|o| o.window.global::<DashState>().set_clock(text.into()))
     });
+}
+
+pub fn poll_fullscreen(client: &Client) {
+    let changed: Vec<(Screen, bool)> = OPEN.with_borrow_mut(|open| {
+        open.iter_mut()
+            .filter_map(|o| {
+                let on = o.fullscreen.as_mut()?.changed(o.window.window())?;
+                o.spec.kiosk = on;
+                Some((o.spec.screen, on))
+            })
+            .collect()
+    });
+    for (screen, on) in changed {
+        crate::fullscreen::save(client, screen, on);
+    }
 }

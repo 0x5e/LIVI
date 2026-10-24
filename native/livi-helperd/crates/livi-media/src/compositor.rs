@@ -195,6 +195,7 @@ pub struct CompositorControl {
     ui: watch::Receiver<Option<Ui>>,
     displays: watch::Receiver<Option<Vec<Display>>>,
     touches: broadcast::Sender<Input>,
+    fullscreen: broadcast::Sender<(Screen, bool)>,
 }
 
 impl CompositorControl {
@@ -204,13 +205,25 @@ impl CompositorControl {
         let (ui_tx, ui) = watch::channel(None);
         let (displays_tx, displays) = watch::channel(None);
         let (touches, _) = broadcast::channel(TOUCH_BACKLOG);
-        tokio::spawn(Actor::new(path, panels_tx, ui_tx, displays_tx, touches.clone()).run(rx));
+        let (fullscreen, _) = broadcast::channel(TOUCH_BACKLOG);
+        tokio::spawn(
+            Actor::new(
+                path,
+                panels_tx,
+                ui_tx,
+                displays_tx,
+                touches.clone(),
+                fullscreen.clone(),
+            )
+            .run(rx),
+        );
         Self {
             tx,
             panels,
             ui,
             displays,
             touches,
+            fullscreen,
         }
     }
 
@@ -220,6 +233,10 @@ impl CompositorControl {
 
     pub fn touches(&self) -> broadcast::Receiver<Input> {
         self.touches.subscribe()
+    }
+
+    pub fn fullscreen_changes(&self) -> broadcast::Receiver<(Screen, bool)> {
+        self.fullscreen.subscribe()
     }
 
     pub async fn claim(&self, tag: &str) {
@@ -270,6 +287,13 @@ impl CompositorControl {
         let _ = self.tx.send(Cmd::State(format!("screen:{role}"), line));
     }
 
+    pub fn fullscreen(&self, role: &str, on: bool) {
+        let _ = self.tx.send(Cmd::State(
+            format!("fullscreen:{role}"),
+            fullscreen_line(role, on),
+        ));
+    }
+
     pub fn aspect(&self, role: &str, size: Option<(u32, u32)>) {
         let (w, h) = size.filter(|(w, h)| *w > 0 && *h > 0).unwrap_or((0, 0));
         let _ = self.tx.send(Cmd::State(
@@ -308,6 +332,10 @@ impl CompositorControl {
     }
 }
 
+fn fullscreen_line(role: &str, on: bool) -> String {
+    format!("fullscreen {role} {}\n", u8::from(on))
+}
+
 fn rgb(hex: &str) -> (u8, u8, u8) {
     let h = hex.trim().trim_start_matches('#');
     if h.len() != 6 || !h.chars().all(|c| c.is_ascii_hexdigit()) {
@@ -343,6 +371,7 @@ struct Actor {
     displays: watch::Sender<Option<Vec<Display>>>,
     incoming: Option<(usize, Vec<Display>)>,
     touches: broadcast::Sender<Input>,
+    fullscreen: broadcast::Sender<(Screen, bool)>,
 }
 
 impl Actor {
@@ -352,6 +381,7 @@ impl Actor {
         ui: watch::Sender<Option<Ui>>,
         displays: watch::Sender<Option<Vec<Display>>>,
         touches: broadcast::Sender<Input>,
+        fullscreen: broadcast::Sender<(Screen, bool)>,
     ) -> Self {
         Self {
             path,
@@ -366,6 +396,7 @@ impl Actor {
             displays,
             incoming: None,
             touches,
+            fullscreen,
         }
     }
 
@@ -465,6 +496,22 @@ impl Actor {
                 if let Some(input) = touch_of(line) {
                     let _ = self.touches.send(input);
                 }
+            }
+            Some("fullscreen") => {
+                let (Some(role), Some(on)) = (words.next(), words.next()) else {
+                    return;
+                };
+                let (Some(screen), Ok(on)) = (screen_of(role), on.parse::<u8>()) else {
+                    return;
+                };
+                let on = on != 0;
+                let key = format!("fullscreen:{role}");
+                let line = fullscreen_line(role, on);
+                match self.state.iter_mut().find(|(k, _)| *k == key) {
+                    Some(slot) => slot.1 = line,
+                    None => self.state.push((key, line)),
+                }
+                let _ = self.fullscreen.send((screen, on));
             }
             Some("bound") => {
                 let tag = &line["bound ".len()..];

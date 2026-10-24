@@ -5,6 +5,7 @@ mod cursor_ui;
 mod dashboard_ui;
 mod files_ui;
 mod follow;
+mod fullscreen;
 mod icon_ui;
 mod icons;
 mod keys_ui;
@@ -145,6 +146,7 @@ fn apply(ui: &AppWindow, update: Update) {
         },
         Update::Phone(phone) => ui.set_phone(phone),
         Update::Look(look) => apply_look(ui, look),
+        Update::Kiosk(on) => fullscreen::follow_main(ui.window(), on),
         Update::Settings => {
             if ui.get_page() == Page::Settings {
                 CLIENT.with_borrow(|c| {
@@ -439,6 +441,18 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
                 ui.set_clock(clock::now_text().into());
                 ui.global::<DashState>().set_clock(clock::now_text().into());
                 secondary::tick_clock(&clock::now_text());
+            }
+        }
+    });
+
+    let fullscreen_timer = Timer::default();
+    fullscreen_timer.start(TimerMode::Repeated, Duration::from_millis(250), {
+        let weak = weak.clone();
+        let client = client.clone();
+        move || {
+            if let Some(ui) = weak.upgrade() {
+                fullscreen::poll_main(ui.window(), &client);
+                secondary::poll_fullscreen(&client);
             }
         }
     });

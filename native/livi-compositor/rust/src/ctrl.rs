@@ -229,6 +229,22 @@ fn handle_line(state: &mut LiviState, line: &str) {
                 crate::host::close_screen(state, idx);
             }
         }
+        Some("fullscreen") => {
+            let (Some(role), Some(on)) = (
+                parts.next(),
+                parts.next().and_then(|v| v.parse::<u8>().ok()),
+            ) else {
+                return;
+            };
+            let Some(idx) = state.screen_idx_by_role(role) else {
+                return;
+            };
+            let want = on != 0;
+            if state.drm.is_none() && state.screens[idx].fullscreen != want {
+                log::info!("ctrl < {line}");
+                crate::layout::set_fullscreen(state, idx, want);
+            }
+        }
         Some("claim") => {
             if let Some(tag) = parts.next() {
                 if crate::shell::bind_waiting_plane(state, tag) {

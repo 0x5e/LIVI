@@ -105,6 +105,10 @@ pub fn apply_ui_layout(state: &mut LiviState, screen_idx: usize) {
 
 pub fn toggle_fullscreen(state: &mut LiviState, screen_idx: usize) {
     let want = !state.screens[screen_idx].fullscreen;
+    set_fullscreen(state, screen_idx, want);
+}
+
+pub fn set_fullscreen(state: &mut LiviState, screen_idx: usize, want: bool) {
     state.screens[screen_idx].fullscreen = want;
     crate::host::set_fullscreen(state, screen_idx, want);
     if let Some(ui) = state

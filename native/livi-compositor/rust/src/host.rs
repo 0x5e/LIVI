@@ -63,6 +63,7 @@ pub struct HostWindow {
     pub configured: bool,
     pub host_output: Option<WlOutput>,
     pub floating: bool,
+    pub fullscreen_seen: bool,
 }
 
 pub struct HostState {
@@ -383,6 +384,7 @@ pub fn open_screen(state: &mut LiviState, screen_idx: usize) {
             configured: false,
             host_output: None,
             floating: true,
+            fullscreen_seen: false,
         },
     ));
     ensure_server_output(state, screen_idx);
@@ -805,13 +807,24 @@ impl WindowHandler for LiviState {
             || configure.is_maximized()
             || configure.state.intersects(WindowState::TILED));
 
-        {
+        let report = {
             let hw = &mut self.host.windows[pos].1;
+            let report = hw.configured && hw.fullscreen_seen != host_fullscreen;
             hw.configured = true;
             hw.floating = floating;
-        }
+            hw.fullscreen_seen = host_fullscreen;
+            report
+        };
         if self.screens[screen_idx].fullscreen != host_fullscreen {
             self.screens[screen_idx].fullscreen = host_fullscreen;
+        }
+        if report {
+            let line = format!(
+                "fullscreen {} {}\n",
+                self.screens[screen_idx].role,
+                u8::from(host_fullscreen)
+            );
+            crate::ctrl::send(self, &line);
         }
         let size = match self.screens[screen_idx].aspect {
             Some(aspect) if floating => fit_aspect((w, h), TITLEBAR_H, aspect),

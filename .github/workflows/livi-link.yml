@@ -486,6 +486,9 @@ jobs:
       (needs.build.result == 'success' || needs.build.result == 'skipped') &&
       (needs.bindshell.result == 'success' || needs.bindshell.result == 'skipped')
     runs-on: ${{ matrix.runner }}
+    env:
+      TARGET: ${{ matrix.target }}
+      TOOL_DIR: native/target/${{ matrix.target && format('{0}/', matrix.target) || '' }}release
 
     strategy:
       fail-fast: false
@@ -493,6 +496,9 @@ jobs:
         include:
           - name: macos-arm64
             runner: macos-latest
+          - name: macos-x64
+            runner: macos-latest
+            target: x86_64-apple-darwin
           - name: linux-x64
             runner: ubuntu-24.04
           - name: linux-arm64
@@ -550,6 +556,7 @@ jobs:
         run: |
           set -euo pipefail
           rustup toolchain install
+          if [[ -n "$TARGET" ]]; then rustup target add "$TARGET"; fi
           rustc --version
 
       - name: Cache cargo
@@ -567,10 +574,10 @@ jobs:
         working-directory: native
         run: |
           LIVI_VERSION="$(sed -n '/^\[workspace.package\]/,/^\[/s/^version = "\(.*\)"/\1/p' Cargo.toml)" \
-            cargo build --release --locked -p livi-link-provision-cli
+            cargo build --release --locked -p livi-link-provision-cli ${TARGET:+--target "$TARGET"}
 
       - name: Name the binary per platform
-        working-directory: native/target/release
+        working-directory: ${{ env.TOOL_DIR }}
         shell: bash
         run: mv livi-link-provision livi-link-provision-${{ matrix.name }}
 
@@ -578,5 +585,5 @@ jobs:
         uses: actions/upload-artifact@v6
         with:
           name: livi-link-provision-${{ matrix.name }}
-          path: native/target/release/livi-link-provision-${{ matrix.name }}
+          path: ${{ env.TOOL_DIR }}/livi-link-provision-${{ matrix.name }}
           retention-days: 30

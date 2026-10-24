@@ -48,12 +48,12 @@ work="$(mktemp -d)"
   tar -xf src.tar.xz
   cd "gst-plugins-bad-${GST_VERSION}"
   apply_series "$PATCHES/series-macos"
-  grep -q "parsed HEVC SPS max_num_reorder_pics" sys/applemedia/vtdec.c || {
-    echo "0007 did not apply: SPS reorder parsing absent in vtdec.c" >&2
+  grep -q "Using HEVC SPS max_num_reorder_pics" sys/applemedia/vtdec.c || {
+    echo "0008 did not apply: SPS reorder parsing absent in vtdec.c" >&2
     exit 1
   }
   grep -q "420YpCbCr8BiPlanarFullRange" sys/applemedia/vtdec.c || {
-    echo "0008 did not apply: full-range output absent in vtdec.c" >&2
+    echo "0009 did not apply: full-range output absent in vtdec.c" >&2
     exit 1
   }
   # The bundle is universal
@@ -119,7 +119,7 @@ codesign --force --sign - "$PLUGIN" >/dev/null 2>&1 || true
 
 # The patch is compiled in and the plugin loads and registers vtdec_hw. Read the whole
 # output before matching: grep -q closing the pipe early trips pipefail on the producer.
-strings -a "$PLUGIN" | grep "parsed HEVC SPS max_num_reorder_pics" >/dev/null || {
+strings -a "$PLUGIN" | grep "Using HEVC SPS max_num_reorder_pics" >/dev/null || {
   echo "built plugin lacks the SPS reorder parsing" >&2
   exit 1
 }

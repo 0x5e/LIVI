@@ -7,6 +7,7 @@ fn main() {
         "../../../../assets/livi-link/imx6ul_iw416/livi-link-imx6ull.lfwb",
         "../../../../assets/livi-link/imx6ul_rtl8822cs/livi-link-imx6ull-rtl8822cs.lfwb",
         "../../../../assets/livi-link/imx6ul_rtl8822bs/livi-link-imx6ull-rtl8822bs.lfwb",
+        "../../../../assets/livi-link/imx6ul_bcm4354/livi-link-imx6ull-bcm4354.lfwb",
         "assets/bindshell/armv7",
         "assets/bindshell/riscv32",
         "assets/bindshell/mipsel",

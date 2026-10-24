@@ -33,7 +33,7 @@ fn wifi_standards(target: &str) -> livi_wifid::server::Standards {
             vht: true,
             he: true,
         },
-        "imx6ul_rtl8822cs" | "imx6ul_rtl8822bs" => Standards {
+        "imx6ul_rtl8822cs" | "imx6ul_rtl8822bs" | "imx6ul_bcm4354" => Standards {
             vht: true,
             he: false,
         },
@@ -171,6 +171,13 @@ mod tests {
         );
         assert_eq!(
             wifi_standards("imx6ul_rtl8822bs"),
+            Standards {
+                vht: true,
+                he: false
+            }
+        );
+        assert_eq!(
+            wifi_standards("imx6ul_bcm4354"),
             Standards {
                 vht: true,
                 he: false

@@ -4,10 +4,11 @@ use std::process::Command;
 const OCOTP: &str = "/sys/bus/nvmem/devices/imx-ocotp0/nvmem";
 const SDIO: &str = "/sys/bus/sdio/devices";
 
-const MODULES: [(&str, &str, &str); 3] = [
+const MODULES: [(&str, &str, &str); 4] = [
     ("0x9159", "i.MX6ULL + IW416", "imx6ul_iw416"),
     ("0xc822", "i.MX6ULL + RTL8822CS", "imx6ul_rtl8822cs"),
     ("0xb822", "i.MX6ULL + RTL8822BS", "imx6ul_rtl8822bs"),
+    ("0x4354", "i.MX6ULL + BCM4354", "imx6ul_bcm4354"),
 ];
 
 pub fn module() -> (&'static str, &'static str) {
@@ -90,12 +91,16 @@ mod tests {
             module_of(&ids(&["0xb822"])),
             ("i.MX6ULL + RTL8822BS", "imx6ul_rtl8822bs")
         );
+        assert_eq!(
+            module_of(&ids(&["0x4354"])),
+            ("i.MX6ULL + BCM4354", "imx6ul_bcm4354")
+        );
     }
 
     #[test]
     fn an_unknown_module_stays_on_the_iw416_build() {
         assert_eq!(
-            module_of(&ids(&["0x4354"])),
+            module_of(&ids(&["0x4330"])),
             ("i.MX6ULL + unknown Wi-Fi module", "imx6ul_iw416")
         );
         assert_eq!(module_of(&[]).1, "imx6ul_iw416");

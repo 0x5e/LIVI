@@ -29,6 +29,7 @@ pub fn bundle(target: &str) -> Option<&'static [u8]> {
         "imx6ul_iw416" => super::arm::imx6ul::IMX6UL_LFWB,
         "imx6ul_rtl8822cs" => super::arm::imx6ul::IMX6UL_RTL8822CS_LFWB,
         "imx6ul_rtl8822bs" => super::arm::imx6ul::IMX6UL_RTL8822BS_LFWB,
+        "imx6ul_bcm4354" => super::arm::imx6ul::IMX6UL_BCM4354_LFWB,
         _ => return None,
     };
     (!bytes.is_empty()).then_some(bytes)

@@ -19,11 +19,15 @@ pub(crate) const IMX6UL_RTL8822CS_LFWB: &[u8] = include_bytes!(
 pub(crate) const IMX6UL_RTL8822BS_LFWB: &[u8] = include_bytes!(
     "../../../../../../../../assets/livi-link/imx6ul_rtl8822bs/livi-link-imx6ull-rtl8822bs.lfwb"
 );
+pub(crate) const IMX6UL_BCM4354_LFWB: &[u8] = include_bytes!(
+    "../../../../../../../../assets/livi-link/imx6ul_bcm4354/livi-link-imx6ull-bcm4354.lfwb"
+);
 
-const MODULES: [(&str, &str); 3] = [
+const MODULES: [(&str, &str); 4] = [
     ("0x9159", "imx6ul_iw416"),
     ("0xc822", "imx6ul_rtl8822cs"),
     ("0xb822", "imx6ul_rtl8822bs"),
+    ("0x4354", "imx6ul_bcm4354"),
 ];
 
 pub fn module_target(sh: &Shell) -> Result<Option<&'static str>, String> {
@@ -194,7 +198,8 @@ mod tests {
         assert_eq!(target_of("0x9159\n"), Some("imx6ul_iw416"));
         assert_eq!(target_of("0xc822\r\n"), Some("imx6ul_rtl8822cs"));
         assert_eq!(target_of("0xb822\n"), Some("imx6ul_rtl8822bs"));
-        assert_eq!(target_of("0x4354\n"), None);
+        assert_eq!(target_of("0x4354\n"), Some("imx6ul_bcm4354"));
+        assert_eq!(target_of("0x4330\n"), None);
         assert_eq!(target_of(""), None);
     }
 }

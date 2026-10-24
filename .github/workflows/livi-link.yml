@@ -24,6 +24,10 @@ on:
         description: 'Build imx6ul_rtl8822bs (armv7, static-musl, mainline kernel)'
         type: boolean
         default: true
+      imx6ul_bcm4354:
+        description: 'Build imx6ul_bcm4354 (armv7, static-musl, mainline kernel)'
+        type: boolean
+        default: true
       x1600_aic8800d80:
         description: 'Build x1600_aic8800d80 (mipsel, musl, mainline kernel)'
         type: boolean
@@ -108,6 +112,7 @@ jobs:
           IMX6UL: ${{ inputs.imx6ul_iw416 }}
           IMX6UL_RTL8822CS: ${{ inputs.imx6ul_rtl8822cs }}
           IMX6UL_RTL8822BS: ${{ inputs.imx6ul_rtl8822bs }}
+          IMX6UL_BCM4354: ${{ inputs.imx6ul_bcm4354 }}
           X1600: ${{ inputs.x1600_aic8800d80 }}
         run: |
           set -euo pipefail
@@ -117,6 +122,7 @@ jobs:
           [[ "$IMX6UL" == "true" ]] && arr+=('"imx6ul_iw416"')
           [[ "$IMX6UL_RTL8822CS" == "true" ]] && arr+=('"imx6ul_rtl8822cs"')
           [[ "$IMX6UL_RTL8822BS" == "true" ]] && arr+=('"imx6ul_rtl8822bs"')
+          [[ "$IMX6UL_BCM4354" == "true" ]] && arr+=('"imx6ul_bcm4354"')
           [[ "$X1600" == "true" ]] && arr+=('"x1600_aic8800d80"')
           {
             printf 'matrix={"target":[%s]}\n' "$(IFS=,; echo "${arr[*]}")"
@@ -433,6 +439,13 @@ jobs:
           name: imx6ul_rtl8822bs
           path: assets/livi-link/imx6ul_rtl8822bs
 
+      - name: Download imx6ul_bcm4354 artifact
+        if: contains(needs.targets.outputs.any, 'imx6ul_bcm4354')
+        uses: actions/download-artifact@v8
+        with:
+          name: imx6ul_bcm4354
+          path: assets/livi-link/imx6ul_bcm4354
+
       - name: Download x1600_aic8800d80 artifact
         if: contains(needs.targets.outputs.any, 'x1600_aic8800d80')
         uses: actions/download-artifact@v8
@@ -541,6 +554,13 @@ jobs:
         with:
           name: imx6ul_rtl8822bs
           path: assets/livi-link/imx6ul_rtl8822bs
+
+      - name: Take the imx6ul_bcm4354 firmware bundle from this run
+        if: contains(needs.targets.outputs.any, 'imx6ul_bcm4354')
+        uses: actions/download-artifact@v8
+        with:
+          name: imx6ul_bcm4354
+          path: assets/livi-link/imx6ul_bcm4354
 
       # Without a rebuild the committed bind-shells in the checkout are embedded.
       - name: Take the bind-shells from this run

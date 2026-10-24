@@ -44,6 +44,15 @@ pub fn partitions(sh: &Shell) -> Result<Vec<Partition>, String> {
 }
 
 pub fn pull(sh: &Shell, part: &Partition, progress: &dyn Fn(&str)) -> Result<Vec<u8>, String> {
+    pull_checked(sh, part, progress, true)
+}
+
+fn pull_checked(
+    sh: &Shell,
+    part: &Partition,
+    progress: &dyn Fn(&str),
+    strict: bool,
+) -> Result<Vec<u8>, String> {
     let port = PUSH_PORT;
     sh.sh(&format!(
         "pkill -f 'nc -l -p {port}' 2>/dev/null; \
@@ -91,9 +100,12 @@ pub fn pull(sh: &Shell, part: &Partition, progress: &dyn Fn(&str)) -> Result<Vec
     let there = sh.run(&format!("sha256sum {}", part.device), HASH_TIMEOUT)?;
     let there = there.split_whitespace().next().unwrap_or("");
     if there != here {
-        return Err(format!(
-            "{}: dongle says {there}, we read {here}",
-            part.name
+        let mismatch = format!("{}: dongle says {there}, we read {here}", part.name);
+        if strict {
+            return Err(mismatch);
+        }
+        progress(&format!(
+            "WARNING {mismatch}, kept anyway: the vendor system writes to its mounted jffs2 while it is read"
         ));
     }
     Ok(image)
@@ -119,7 +131,9 @@ pub fn backup(sh: &Shell, root: &Path, progress: &dyn Fn(&str)) -> Result<PathBu
         firmware
     };
 
-    let state = match super::running(sh) {
+    let running = super::running(sh);
+    let live_rootfs = matches!(running, Ok(super::Running::Vendor));
+    let state = match running {
         Ok(super::Running::Vendor) | Err(_) => "stock",
         Ok(_) => "livi-link",
     };
@@ -129,7 +143,8 @@ pub fn backup(sh: &Shell, root: &Path, progress: &dyn Fn(&str)) -> Result<PathBu
     let mut entries = Vec::new();
     for part in partitions(sh)? {
         progress(&format!("reading {} ({} bytes)", part.name, part.bytes));
-        let image = pull(sh, &part, progress)?;
+        let strict = !(live_rootfs && part.name == "rootfs");
+        let image = pull_checked(sh, &part, progress, strict)?;
         let file = dir.join(format!("{}.img", part.name));
         std::fs::write(&file, &image).map_err(|e| format!("{}: {e}", crate::tilde(&file)))?;
         entries.push(format!(

@@ -1,12 +1,10 @@
-# i.MX6ULL with the Wi-Fi/Bluetooth module RADIO names: what this board's build scripts and the
-# shared rootfs and bundle scripts (common/) take from it. The same board comes with different
-# modules, each gets its own build (imx6ul_iw416, imx6ul_rtl8822cs, imx6ul_rtl8822bs).
+# i.MX6ULL with the Wi-Fi/Bluetooth module RADIO names.
 HERE=$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)
 BOARD=imx6ul
 RADIO=${RADIO:-iw416}
 case $RADIO in
-  iw416 | rtl8822cs | rtl8822bs) ;;
-  *) echo "RADIO=$RADIO: this board has builds for iw416, rtl8822cs and rtl8822bs" >&2; exit 2 ;;
+  iw416 | rtl8822cs | rtl8822bs | bcm4354) ;;
+  *) echo "RADIO=$RADIO: this board has builds for iw416, rtl8822cs, rtl8822bs and bcm4354" >&2; exit 2 ;;
 esac
 : "${TOP:=$HOME/LocalDev/imx6ul-$RADIO-kernel}"
 source "$HERE/../common.sh"
@@ -45,10 +43,11 @@ ROOTFS_SIZE=$((0xc60000))  # "rootfs" partition in imx6ull.dts
 BUNDLE=$OUT/$NAME.lfwb
 BUNDLE_IMAGES=("2:$KERNEL_IMG" "3:$ROOTFS_IMG")
 
-# Firmware from linux-firmware as "<path under /lib/firmware> <sha256> [<tag>]". The Wi-Fi driver is
-# built into the kernel and loads its part from the initramfs, the Bluetooth modules theirs from the
-# rootfs.
+# Firmware as "<path in linux-firmware or URL> <sha256> [<tag> [<path under /lib/firmware>]]", tag "-"
+# for none. The Wi-Fi driver is built into the kernel and loads its part from the initramfs, the
+# Bluetooth modules theirs from the rootfs.
 LINUX_FIRMWARE=https://git.kernel.org/pub/scm/linux/kernel/git/firmware/linux-firmware.git/plain
+ARMBIAN_FIRMWARE=https://raw.githubusercontent.com/armbian/firmware/2e568bc338825be5b36eb888aacf473bb8ffd472
 case $RADIO in
   iw416)
     # One combo firmware runs both halves: mwifiex loads it, btnxpuart only attaches. It is in no
@@ -68,6 +67,16 @@ case $RADIO in
     # btrtl knows the 8822B over USB only, its Bluetooth half over UART stays off for now.
     BT_FW=()
     ;;
+  bcm4354)
+    # brcmfmac asks for the brcm/ names, linux-firmware has the files under cypress/ and links them.
+    # The board's NVRAM is the AP6354 one, the module these dongles carry.
+    WIFI_FW=(
+      "cypress/cyfmac4354-sdio.bin f6b4164c50c4406573f3671d50c2d19b370ed079035a7d76a38535e244ae41d8 20260916 brcm/brcmfmac4354-sdio.bin"
+      "cypress/cyfmac4354-sdio.clm_blob a72cbbaea17415d99be5c747d719cb22e6787471d047cf72fd66f9e07ab12dbd 20260916 brcm/brcmfmac4354-sdio.clm_blob"
+      "$ARMBIAN_FIRMWARE/rkwifi/nvram_ap6354.txt 4a30289f4733db12fdc88c7c885dfb1dc3a695c5361aa7c79f91d731a5f32804 - brcm/brcmfmac4354-sdio.txt"
+    )
+    BT_FW=()
+    ;;
 esac
 FIRMWARE=$TOP/firmware
 # cfg80211 allows no access point on 5 GHz without a regulatory database.
@@ -76,14 +85,20 @@ REGDB_SHA=b22e0901227b820cd1c280abe681a15b773a5103a5e10dc442e94ebb34cbf58d
 REGDB=$TOP/wireless-regdb-$REGDB_VER/regulatory.db
 
 fetch_firmware() {
-  local entry path sha tag
+  local entry path sha tag as url
   for entry in "${WIFI_FW[@]}" "${BT_FW[@]}"; do
-    read -r path sha tag <<< "$entry"
-    echo "$sha  $FIRMWARE/$path" | sha256sum -c --status 2>/dev/null && continue
-    log "fetch $path"
-    mkdir -p "$(dirname "$FIRMWARE/$path")"
-    curl -sSfL "$LINUX_FIRMWARE/$path${tag:+?h=$tag}" -o "$FIRMWARE/$path"
-    echo "$sha  $FIRMWARE/$path" | sha256sum -c - || { log "$path changed upstream, check it and update its hash"; exit 3; }
+    read -r path sha tag as <<< "$entry"
+    [[ $tag == - ]] && tag=
+    as=${as:-$path}
+    echo "$sha  $FIRMWARE/$as" | sha256sum -c --status 2>/dev/null && continue
+    case $path in
+      https://*) url=$path ;;
+      *) url=$LINUX_FIRMWARE/$path${tag:+?h=$tag} ;;
+    esac
+    log "fetch $as"
+    mkdir -p "$(dirname "$FIRMWARE/$as")"
+    curl -sSfL "$url" -o "$FIRMWARE/$as"
+    echo "$sha  $FIRMWARE/$as" | sha256sum -c - || { log "$as changed upstream, check it and update its hash"; exit 3; }
   done
   if [[ ! -f $REGDB ]]; then
     log "fetch wireless-regdb $REGDB_VER"
@@ -96,9 +111,10 @@ fetch_firmware() {
 
 # gen_init_cpio lines for the Wi-Fi firmware and the directories it sits in.
 wifi_firmware_initramfs() {
-  local entry path sha sub part dir made=" "
+  local entry path sha tag as sub part dir made=" "
   for entry in "${WIFI_FW[@]}"; do
-    read -r path sha _ <<< "$entry"
+    read -r path sha tag as <<< "$entry"
+    path=${as:-$path}
     sub=$(dirname "$path")
     dir=/lib/firmware
     if [[ $sub != . ]]; then
@@ -112,12 +128,13 @@ wifi_firmware_initramfs() {
 }
 
 rootfs_payload() {
-  local work=$1 entry path sha
+  local work=$1 entry path sha tag as
   need "$OUT/modules/load" "run build.sh first"
   fetch_firmware
   log "$RADIO firmware + regulatory.db"
   for entry in "${WIFI_FW[@]}" "${BT_FW[@]}"; do
-    read -r path sha _ <<< "$entry"
+    read -r path sha tag as <<< "$entry"
+    path=${as:-$path}
     mkdir -p "$(dirname "$work/lib/firmware/$path")"
     cp "$FIRMWARE/$path" "$work/lib/firmware/$path"
   done

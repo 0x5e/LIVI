@@ -3,7 +3,8 @@ use std::thread::sleep;
 use std::time::{Duration, Instant};
 
 use imx6ul_uboot::{
-    ENV_BLOCK, ERASE, Fuses, KERNEL, Layout, UPDATE_BLOCK, kernel_partition, layout, read_env_auto,
+    ENV_BLOCK, ERASE, Fuses, KERNEL, Layout, UPDATE_BLOCK, flashing_block, kernel_partition,
+    layout, read_env_auto, refit_env,
 };
 
 use super::Running;
@@ -24,6 +25,7 @@ pub struct Install {
     pub unchanged: bool,
     pub backup: PathBuf,
     uboot_image: Vec<u8>,
+    boot_block: Option<Vec<u8>>,
 }
 
 const TMP_IMAGE: &str = "/tmp/livi-kernel.img";
@@ -161,8 +163,29 @@ pub fn prepare(
         crate::tilde(&backup)
     ));
 
-    let (key, update) = read_env_auto(fuses, &uboot_image[UPDATE_BLOCK..UPDATE_BLOCK + ERASE])?;
-    let layout = layout(&update, kernel_image.len())?;
+    let update_block = &uboot_image[UPDATE_BLOCK..UPDATE_BLOCK + ERASE];
+    let (key, update) = read_env_auto(fuses, update_block)?;
+    let mut layout = layout(&update, kernel_image.len())?;
+    let mut boot_block = None;
+    if zimage.len() > layout.kernel_len {
+        let window = layout.kernel_len;
+        let word = u32::from_le_bytes(update_block[ERASE - 4..].try_into().unwrap()) as usize;
+        let legacy = !(word != 0 && word <= ERASE && word.is_multiple_of(16));
+        if !legacy || !matches!(env, EnvAt::Uboot) {
+            return Err(format!(
+                "zImage is {} bytes, this dongle's U-Boot reads {}",
+                zimage.len(),
+                layout.kernel_len
+            ));
+        }
+        let refit = refit_env(&update, zimage.len(), kernel_image.len())?;
+        layout = imx6ul_uboot::layout(&refit, kernel_image.len())?;
+        boot_block = Some(flashing_block(&refit)?);
+        progress(&format!(
+            "kernel needs {:#x}, enlarging this dongle's {window:#x} boot window",
+            zimage.len()
+        ));
+    }
     let partition = kernel_partition(&kernel_image, zimage, &layout, &key)?;
     let unchanged = partition == kernel_image;
     Ok(Install {
@@ -174,6 +197,7 @@ pub fn prepare(
         unchanged,
         backup,
         uboot_image,
+        boot_block,
     })
 }
 
@@ -218,29 +242,57 @@ pub fn install(sh: &Shell, plan: &Install, progress: &dyn Fn(&str)) -> Result<()
         progress(&format!("wrote and verified {dev}"));
     }
 
-    let erase = match &plan.env {
-        EnvAt::Uboot if has("flash_erase") => {
-            format!("flash_erase {} {ENV_BLOCK} 1 >/dev/null", plan.uboot.device)
+    if let Some(block) = &plan.boot_block {
+        if !has("flash_erase") {
+            return Err("no flash_erase to rewrite the boot block".into());
         }
-        EnvAt::Uboot => {
-            return Err("no flash_erase to erase one block of the uboot partition".into());
+        sh.push(block, TMP_IMAGE, PUSH_PORT, &md5_hex(block))?;
+        let dev = &plan.uboot.device;
+        let seek = ENV_BLOCK / ERASE;
+        sh.run(
+            &format!(
+                "flash_erase {dev} {ENV_BLOCK} 1 >/dev/null && \
+                 dd if={TMP_IMAGE} of={dev} bs={ERASE} seek={seek} conv=notrunc 2>/dev/null && sync"
+            ),
+            Duration::from_secs(120),
+        )?;
+        sh.sh(&format!("rm -f {TMP_IMAGE}"))?;
+        let after = mtd::pull(sh, &plan.uboot, progress)?;
+        if after[..ENV_BLOCK] != plan.uboot_image[..ENV_BLOCK] {
+            return Err(
+                "U-Boot changed although only the boot block was written, do not reboot".into(),
+            );
         }
-        EnvAt::Own(p) => erase_all(&p.device)?,
-    };
-    sh.run(&format!("{erase} && sync"), Duration::from_secs(60))?;
-    let after = mtd::pull(sh, &plan.uboot, progress)?;
-    if after[..UPDATE_BLOCK + ERASE] != plan.uboot_image[..UPDATE_BLOCK + ERASE] {
-        return Err(
-            "U-Boot changed although only the environment block was erased, do not reboot".into(),
-        );
+        if &after[ENV_BLOCK..] != block.as_slice() {
+            return Err("the boot block did not read back as written, do not reboot".into());
+        }
+        progress("boot block written with the enlarged kernel window, U-Boot itself unchanged");
+    } else {
+        let erase = match &plan.env {
+            EnvAt::Uboot if has("flash_erase") => {
+                format!("flash_erase {} {ENV_BLOCK} 1 >/dev/null", plan.uboot.device)
+            }
+            EnvAt::Uboot => {
+                return Err("no flash_erase to erase one block of the uboot partition".into());
+            }
+            EnvAt::Own(p) => erase_all(&p.device)?,
+        };
+        sh.run(&format!("{erase} && sync"), Duration::from_secs(60))?;
+        let after = mtd::pull(sh, &plan.uboot, progress)?;
+        if after[..UPDATE_BLOCK + ERASE] != plan.uboot_image[..UPDATE_BLOCK + ERASE] {
+            return Err(
+                "U-Boot changed although only the environment block was erased, do not reboot"
+                    .into(),
+            );
+        }
+        if env_block(sh, &plan.uboot, &plan.env, progress)?
+            .iter()
+            .any(|&b| b != 0xff)
+        {
+            return Err("the environment block did not erase".into());
+        }
+        progress("environment block erased, U-Boot itself unchanged");
     }
-    if env_block(sh, &plan.uboot, &plan.env, progress)?
-        .iter()
-        .any(|&b| b != 0xff)
-    {
-        return Err("the environment block did not erase".into());
-    }
-    progress("environment block erased, U-Boot itself unchanged");
 
     progress("rebooting, U-Boot converts the staging blocks and resets once more");
     sh.sh("(sleep 1; sync; reboot; sleep 5; reboot -f) >/dev/null 2>&1 &")?;

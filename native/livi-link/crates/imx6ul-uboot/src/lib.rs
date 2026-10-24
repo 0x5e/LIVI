@@ -15,6 +15,7 @@ const ENV_VARS_END: usize = 0x800;
 const ENV_PAYLOAD: usize = 0x3000;
 const ZIMAGE_MAGIC: u32 = 0x016f_2818;
 const LOAD: u32 = 0x8080_0000;
+const MARKER: &[u8; 4] = b"sgub";
 
 #[derive(Clone, Copy, Debug)]
 pub struct Fuses {
@@ -108,7 +109,8 @@ pub fn read_env(block: &[u8], key: &UpgKey) -> Result<Vec<u8>, String> {
     let mut payload = block[ERASE - len..].to_vec();
     key.decrypt(&mut payload);
 
-    let fail = |e: String| format!("update environment does not unpack with this dongle's key: {e}");
+    let fail =
+        |e: String| format!("update environment does not unpack with this dongle's key: {e}");
     let mut env = Vec::with_capacity(ENV_SIZE);
     if newer {
         GzDecoder::new(&payload[..])
@@ -119,7 +121,8 @@ pub fn read_env(block: &[u8], key: &UpgKey) -> Result<Vec<u8>, String> {
         let stream = payload
             .get(4..)
             .ok_or_else(|| fail("payload too short".into()))?;
-        env = lzokay_native::decompress_all(stream, Some(ENV_SIZE)).map_err(|e| fail(e.to_string()))?;
+        env = lzokay_native::decompress_all(stream, Some(ENV_SIZE))
+            .map_err(|e| fail(e.to_string()))?;
     }
     if env.len() != ENV_SIZE {
         return Err(format!(
@@ -265,6 +268,71 @@ pub fn stage(zimage: &[u8], kernel: &[u8], uboot: &[u8], fuses: Fuses) -> Result
         .ok_or("the uboot partition ends before the update block")?;
     let (key, env) = read_env_auto(fuses, block)?;
     kernel_partition(kernel, zimage, &layout(&env, kernel.len())?, &key)
+}
+
+pub fn refit_env(env: &[u8], zimage_len: usize, kernel_part: usize) -> Result<Vec<u8>, String> {
+    if env.len() != ENV_SIZE {
+        return Err(format!(
+            "environment is {:#x} bytes, not {ENV_SIZE:#x}",
+            env.len()
+        ));
+    }
+    let old = layout(env, kernel_part)?;
+    let new = Layout {
+        kernel_len: zimage_len,
+        staging: KERNEL + zimage_len,
+    };
+    if new.kernel_len <= HEAD || new.staging + HEAD > KERNEL + kernel_part {
+        return Err(format!(
+            "a kernel of {zimage_len:#x} does not fit the kernel partition"
+        ));
+    }
+    let mut out = env.to_vec();
+    let vars = &mut out[4..ENV_VARS_END];
+    replace_hex(vars, old.kernel_len, new.kernel_len)?;
+    for i in 0..3 {
+        replace_hex(vars, old.staging + i * ERASE, new.staging + i * ERASE)?;
+    }
+    let mut crc = flate2::Crc::new();
+    crc.update(&out[4..ENV_VARS_END]);
+    out[..4].copy_from_slice(&crc.sum().to_le_bytes());
+    Ok(out)
+}
+
+fn replace_hex(vars: &mut [u8], old: usize, new: usize) -> Result<(), String> {
+    let (from, to) = (format!("{old:#x}"), format!("{new:#x}"));
+    if from.len() != to.len() {
+        return Err(format!("{from} and {to} are not the same width"));
+    }
+    let (from, to) = (from.as_bytes(), to.as_bytes());
+    let mut at = 0;
+    let mut hits = 0;
+    while let Some(i) = vars[at..].windows(from.len()).position(|w| w == from) {
+        let i = at + i;
+        vars[i..i + to.len()].copy_from_slice(to);
+        at = i + to.len();
+        hits += 1;
+    }
+    if hits == 0 {
+        return Err(format!(
+            "{} not found in the environment",
+            String::from_utf8_lossy(from)
+        ));
+    }
+    Ok(())
+}
+
+pub fn flashing_block(env: &[u8]) -> Result<Vec<u8>, String> {
+    if env.len() != ENV_SIZE {
+        return Err(format!(
+            "environment is {:#x} bytes, not {ENV_SIZE:#x}",
+            env.len()
+        ));
+    }
+    let mut block = env.to_vec();
+    UpgKey::vendor_static().encrypt(&mut block);
+    block[ENV_SIZE - 4..].copy_from_slice(MARKER);
+    Ok(block)
 }
 
 fn commands(script: &str) -> Vec<Vec<&str>> {
@@ -454,6 +522,35 @@ mod tests {
                 .1,
             env
         );
+    }
+
+    #[test]
+    fn refit_moves_the_window_and_the_flashing_block_round_trips() {
+        let env = vendor_env(0x267f38);
+        let refit = refit_env(&env, 0x2e86d9, 0x340000).unwrap();
+        assert_eq!(
+            layout(&refit, 0x340000).unwrap(),
+            Layout {
+                kernel_len: 0x2e86d9,
+                staging: KERNEL + 0x2e86d9,
+            }
+        );
+
+        let block = flashing_block(&refit).unwrap();
+        assert_eq!(&block[ERASE - 4..], MARKER);
+        let mut dec = block.clone();
+        UpgKey::vendor_static().decrypt(&mut dec);
+        let mut crc = flate2::Crc::new();
+        crc.update(&dec[4..ENV_VARS_END]);
+        assert_eq!(crc.sum(), u32::from_le_bytes(dec[..4].try_into().unwrap()));
+        assert!(env_var(&dec, "norboot").unwrap().contains("0x2e86d9"));
+        assert!(
+            env_var(&dec, "heweiencrypt")
+                .unwrap()
+                .contains(&format!("{:#x}", KERNEL + 0x2e86d9))
+        );
+
+        assert!(refit_env(&env, 0x340000, 0x340000).is_err());
     }
 
     #[test]

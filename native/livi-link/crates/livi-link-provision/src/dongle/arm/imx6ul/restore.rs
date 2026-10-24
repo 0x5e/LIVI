@@ -1,7 +1,7 @@
 use std::path::{Path, PathBuf};
 use std::time::Duration;
 
-use imx6ul_uboot::{ENV_BLOCK, ERASE, UPDATE_BLOCK, UpgKey, read_env};
+use imx6ul_uboot::{ENV_BLOCK, ERASE, Fuses, UPDATE_BLOCK, read_env_auto};
 
 use super::Running;
 use super::boot::read_fuses;
@@ -68,10 +68,10 @@ impl Stock {
         Ok(stock)
     }
 
-    fn belongs_to(&self, uboot: &[u8], key: &UpgKey) -> bool {
+    fn belongs_to(&self, uboot: &[u8], fuses: Fuses) -> bool {
         uboot.len() >= ENV_BLOCK
             && self.uboot[..ENV_BLOCK] == uboot[..ENV_BLOCK]
-            && read_env(&self.uboot[UPDATE_BLOCK..UPDATE_BLOCK + ERASE], key).is_ok()
+            && read_env_auto(fuses, &self.uboot[UPDATE_BLOCK..UPDATE_BLOCK + ERASE]).is_ok()
     }
 }
 
@@ -108,11 +108,11 @@ pub fn find(
         .find(|p| p.name == "uboot")
         .ok_or("no uboot partition in /proc/mtd")?;
     let uboot = mtd::pull(sh, &part, progress)?;
-    let key = UpgKey::new(read_fuses(sh)?);
+    let fuses = read_fuses(sh)?;
 
     if let Some(dir) = dir {
         let stock = Stock::load(dir)?;
-        return if stock.belongs_to(&uboot, &key) {
+        return if stock.belongs_to(&uboot, fuses) {
             Ok(stock)
         } else {
             Err(format!("{} is the backup of another dongle", tilde(dir)))
@@ -121,7 +121,7 @@ pub fn find(
     stock_dirs(root)
         .into_iter()
         .filter_map(|dir| Stock::load(&dir).ok())
-        .find(|stock| stock.belongs_to(&uboot, &key))
+        .find(|stock| stock.belongs_to(&uboot, fuses))
         .ok_or_else(|| {
             format!(
                 "no backup of this dongle's vendor firmware under {}",

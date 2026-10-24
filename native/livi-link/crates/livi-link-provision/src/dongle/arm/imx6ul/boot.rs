@@ -3,8 +3,7 @@ use std::thread::sleep;
 use std::time::{Duration, Instant};
 
 use imx6ul_uboot::{
-    ENV_BLOCK, ERASE, Fuses, KERNEL, Layout, UPDATE_BLOCK, UpgKey, kernel_partition, layout,
-    read_env,
+    ENV_BLOCK, ERASE, Fuses, KERNEL, Layout, UPDATE_BLOCK, kernel_partition, layout, read_env_auto,
 };
 
 use super::Running;
@@ -147,7 +146,7 @@ pub fn prepare(
     if erase.trim() != ERASE.to_string() {
         return Err(format!("erase size is {}, not {ERASE}", erase.trim()));
     }
-    let key = UpgKey::new(read_fuses(sh)?);
+    let fuses = read_fuses(sh)?;
 
     let uboot_image = mtd::pull(sh, &uboot, progress)?;
     let kernel_image = mtd::pull(sh, &kernel, progress)?;
@@ -162,7 +161,7 @@ pub fn prepare(
         crate::tilde(&backup)
     ));
 
-    let update = read_env(&uboot_image[UPDATE_BLOCK..UPDATE_BLOCK + ERASE], &key)?;
+    let (key, update) = read_env_auto(fuses, &uboot_image[UPDATE_BLOCK..UPDATE_BLOCK + ERASE])?;
     let layout = layout(&update, kernel_image.len())?;
     let partition = kernel_partition(&kernel_image, zimage, &layout, &key)?;
     let unchanged = partition == kernel_image;

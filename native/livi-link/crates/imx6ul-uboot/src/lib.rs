@@ -12,6 +12,7 @@ pub const HEAD: usize = 3 * ERASE;
 
 const ENV_SIZE: usize = 0x10000;
 const ENV_VARS_END: usize = 0x800;
+const ENV_PAYLOAD: usize = 0x3000;
 const ZIMAGE_MAGIC: u32 = 0x016f_2818;
 const LOAD: u32 = 0x8080_0000;
 
@@ -48,6 +49,16 @@ impl UpgKey {
     pub fn new(f: Fuses) -> Self {
         let text = format!("{:08x}{:08x}{:08x}{:08x}", f.cfg0, f.cfg1, f.mac0, f.mac1);
         let (key, iv) = text.as_bytes().split_at(16);
+        Self {
+            key: key.try_into().unwrap(),
+            iv: iv.try_into().unwrap(),
+        }
+    }
+
+    /// The fixed key firmware before the per-unit fuse scheme used for its
+    /// update environment.
+    pub fn vendor_static() -> Self {
+        let (key, iv) = b"https://apple.com/kb/HT208050   ".split_at(16);
         Self {
             key: key.try_into().unwrap(),
             iv: iv.try_into().unwrap(),
@@ -91,20 +102,25 @@ pub fn read_env(block: &[u8], key: &UpgKey) -> Result<Vec<u8>, String> {
             block.len()
         ));
     }
-    let len = u32::from_le_bytes(block[ERASE - 4..].try_into().unwrap()) as usize;
-    if len == 0 || len > ERASE || !len.is_multiple_of(16) {
-        return Err(format!(
-            "update block holds no environment (length word {len:#x})"
-        ));
-    }
+    let word = u32::from_le_bytes(block[ERASE - 4..].try_into().unwrap()) as usize;
+    let newer = word != 0 && word <= ERASE && word.is_multiple_of(16);
+    let len = if newer { word } else { ENV_PAYLOAD };
     let mut payload = block[ERASE - len..].to_vec();
     key.decrypt(&mut payload);
 
+    let fail = |e: String| format!("update environment does not unpack with this dongle's key: {e}");
     let mut env = Vec::with_capacity(ENV_SIZE);
-    GzDecoder::new(&payload[..])
-        .take(ENV_SIZE as u64 + 1)
-        .read_to_end(&mut env)
-        .map_err(|e| format!("update environment does not unpack with this dongle's key: {e}"))?;
+    if newer {
+        GzDecoder::new(&payload[..])
+            .take(ENV_SIZE as u64 + 1)
+            .read_to_end(&mut env)
+            .map_err(|e| fail(e.to_string()))?;
+    } else {
+        let stream = payload
+            .get(4..)
+            .ok_or_else(|| fail("payload too short".into()))?;
+        env = lzokay_native::decompress_all(stream, Some(ENV_SIZE)).map_err(|e| fail(e.to_string()))?;
+    }
     if env.len() != ENV_SIZE {
         return Err(format!(
             "update environment is {:#x} bytes, not {ENV_SIZE:#x}",
@@ -117,6 +133,20 @@ pub fn read_env(block: &[u8], key: &UpgKey) -> Result<Vec<u8>, String> {
         return Err("update environment fails its CRC".into());
     }
     Ok(env)
+}
+
+pub fn read_env_auto(fuses: Fuses, block: &[u8]) -> Result<(UpgKey, Vec<u8>), String> {
+    let newer = block.len() == ERASE && {
+        let word = u32::from_le_bytes(block[ERASE - 4..].try_into().unwrap()) as usize;
+        word != 0 && word <= ERASE && word.is_multiple_of(16)
+    };
+    let key = if newer {
+        UpgKey::new(fuses)
+    } else {
+        UpgKey::vendor_static()
+    };
+    let env = read_env(block, &key)?;
+    Ok((key, env))
 }
 
 pub fn env_var<'a>(env: &'a [u8], name: &str) -> Option<&'a str> {
@@ -230,11 +260,10 @@ pub fn kernel_partition(
 }
 
 pub fn stage(zimage: &[u8], kernel: &[u8], uboot: &[u8], fuses: Fuses) -> Result<Vec<u8>, String> {
-    let key = UpgKey::new(fuses);
     let block = uboot
         .get(UPDATE_BLOCK..UPDATE_BLOCK + ERASE)
         .ok_or("the uboot partition ends before the update block")?;
-    let env = read_env(block, &key)?;
+    let (key, env) = read_env_auto(fuses, block)?;
     kernel_partition(kernel, zimage, &layout(&env, kernel.len())?, &key)
 }
 
@@ -283,6 +312,19 @@ mod tests {
         let mut block = vec![0x5a; ERASE];
         block[ERASE - payload.len()..].copy_from_slice(&payload);
         block[ERASE - 4..].copy_from_slice(&(payload.len() as u32).to_le_bytes());
+        block
+    }
+
+    fn old_block(env: &[u8]) -> Vec<u8> {
+        let comp = lzokay_native::compress(env).unwrap();
+        let mut payload = Vec::with_capacity(ENV_PAYLOAD);
+        payload.extend_from_slice(&(comp.len() as u32).to_le_bytes());
+        payload.extend_from_slice(&comp);
+        payload.resize(payload.len().div_ceil(16) * 16, 0);
+        UpgKey::vendor_static().encrypt(&mut payload);
+        let mut block = vec![0xff; ERASE];
+        let start = ERASE - ENV_PAYLOAD;
+        block[start..start + payload.len()].copy_from_slice(&payload);
         block
     }
 
@@ -398,6 +440,20 @@ mod tests {
 
         let other = UpgKey::new(Fuses { mac1: 2, ..FUSES });
         assert!(read_env(&update_block(&env, &key), &other).is_err());
+    }
+
+    #[test]
+    fn the_old_firmware_environment_unpacks_with_the_static_key() {
+        let env = vendor_env(0x302fd8);
+        let block = old_block(&env);
+        assert_eq!(read_env(&block, &UpgKey::vendor_static()).unwrap(), env);
+        assert_eq!(read_env_auto(FUSES, &block).unwrap().1, env);
+        assert_eq!(
+            read_env_auto(FUSES, &update_block(&env, &UpgKey::new(FUSES)))
+                .unwrap()
+                .1,
+            env
+        );
     }
 
     #[test]

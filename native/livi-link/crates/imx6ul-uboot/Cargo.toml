@@ -6,3 +6,4 @@ edition.workspace = true
 [dependencies]
 aes.workspace = true
 flate2.workspace = true
+lzokay-native.workspace = true

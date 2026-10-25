@@ -207,6 +207,12 @@ pub enum Event {
 pub struct LinkConfig {
     pub max_outgoing: u8,
     pub max_outgoing_delta: u16,
+    /// The largest packet we tell the peer we will receive. The peer splits a
+    /// file into one packet per this value, so a slow link wants it small: one
+    /// packet has to arrive inside `retransmission_timeout`, and a link that
+    /// cannot manage that loses the session to a retransmission it cannot
+    /// answer.
+    pub max_len: u16,
     pub ack_timeout_ms: u16,
     pub zero_ack: bool,
     pub control_version: u8,
@@ -217,6 +223,9 @@ impl Default for LinkConfig {
         Self {
             max_outgoing: 30,
             max_outgoing_delta: 0,
+            // The field's own ceiling, which is what every link was given before
+            // one of them turned out to be too slow for it.
+            max_len: u16::MAX,
             ack_timeout_ms: 500,
             zero_ack: false,
             control_version: 1,
@@ -280,11 +289,7 @@ impl LinkEngine {
             state: LinkState::Idle,
             lsp: LinkSynchronizationPayload {
                 max_outgoing: cfg.max_outgoing,
-                // 4096 rather than the 16-bit maximum. The peer splits a file
-                // into one packet per value advertised here, and a 64 KB
-                // packet keeps its sending path busy for seconds, during which
-                // it acknowledges nothing.
-                max_len: 4096,
+                max_len: cfg.max_len,
                 retransmission_timeout: if z { 0 } else { 4000 },
                 ack_timeout: if z { 0 } else { cfg.ack_timeout_ms },
                 max_retransmissions: if z { 0 } else { 4 },

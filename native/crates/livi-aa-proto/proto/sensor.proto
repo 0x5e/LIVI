@@ -251,7 +251,7 @@ message SensorBatchNotification {
   repeated RotationRate rotation_rates = 20;
   repeated GpsSatellites gps_satellites = 21;
   repeated TollCard toll_cards = 22;
-  repeated VehicleEnergyModel vehicle_energy_models = 23;
+  repeated VehicleEnergyModel vehicle_energy_model_data = 23;
   repeated TrailerStatus trailer_statuses = 24;
   repeated RawVehicleEnergyModel raw_vehicle_energy_models = 25;
   repeated RawEvTripSettings raw_ev_trip_settings = 26;

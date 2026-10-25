@@ -1,11 +1,12 @@
 use livi_aa_proto::{
-    CarLocation, CurrentGear, DrivingStatus, EngineRpm, EnvironmentConditions, FuelLevel,
-    LightStates, NightModeData, Odometer, ParkingBrake, SensorBatchNotification, TirePressures,
-    VehicleSpeed,
+    BatteryConfig, CarLocation, ChargingPrefs, CurrentGear, DrivingStatus, EnergyConsumption,
+    EnergyRate, EnergyValue, EngineRpm, EnvironmentConditions, FuelLevel, LightStates,
+    NightModeData, Odometer, ParkingBrake, SensorBatchNotification, TirePressures,
+    VehicleEnergyModel, VehicleSpeed,
 };
 use prost::Message;
 
-use crate::wire::{field_float, field_len_delim, field_varint, round_half_up};
+use crate::wire::round_half_up;
 
 #[derive(Debug, Clone, Copy, PartialEq)]
 pub struct GpsFix {
@@ -78,38 +79,35 @@ fn vehicle_energy_model(
     max_charge_power_w: Option<i64>,
     max_discharge_power_w: Option<i64>,
     auxiliary_wh_per_km: Option<f64>,
-) -> Option<Vec<u8>> {
+) -> Option<VehicleEnergyModel> {
     if capacity_wh <= 0 || current_wh <= 0 || range_m <= 0 {
         return None;
     }
-    let energy = |wh: i64| field_varint(1, wh);
+    let energy = |wh: i64| EnergyValue {
+        watt_hours: Some(wh),
+    };
+    let rate = |v: f64| EnergyRate {
+        rate: Some(v as f32),
+    };
     let reserve = round_half_up(capacity_wh as f64 * 0.05) as i64;
-    let battery = [
-        field_varint(1, 1),
-        field_len_delim(3, &energy(current_wh)),
-        field_len_delim(4, &energy(capacity_wh)),
-        field_len_delim(8, &energy(reserve)),
-        field_varint(9, max_charge_power_w.unwrap_or(150_000)),
-        field_varint(10, max_discharge_power_w.unwrap_or(150_000)),
-        field_varint(11, 1),
-    ]
-    .concat();
     let wh_per_km = (current_wh as f64 / range_m as f64) * 1000.0;
-    let aux = auxiliary_wh_per_km.unwrap_or(2.0);
-    let consumption = [
-        field_len_delim(1, &field_float(1, wh_per_km)),
-        field_len_delim(2, &field_float(1, aux)),
-        field_len_delim(3, &field_float(1, 0.36)),
-    ]
-    .concat();
-    let charging_prefs = field_varint(3, 1);
-    let model = [
-        field_len_delim(1, &battery),
-        field_len_delim(2, &consumption),
-        field_len_delim(12, &charging_prefs),
-    ]
-    .concat();
-    Some(field_len_delim(23, &model))
+    Some(VehicleEnergyModel {
+        battery: Some(BatteryConfig {
+            config_id: Some(1),
+            min_usable_capacity: Some(energy(current_wh)),
+            max_capacity: Some(energy(capacity_wh)),
+            reserve_energy: Some(energy(reserve)),
+            max_charge_power_w: Some(max_charge_power_w.unwrap_or(150_000)),
+            max_discharge_power_w: Some(max_discharge_power_w.unwrap_or(150_000)),
+            regen_braking_capable: Some(true),
+        }),
+        consumption: Some(EnergyConsumption {
+            driving: Some(rate(wh_per_km)),
+            auxiliary: Some(rate(auxiliary_wh_per_km.unwrap_or(2.0))),
+            aerodynamic: Some(rate(0.36)),
+        }),
+        charging_prefs: Some(ChargingPrefs { mode: Some(1) }),
+    })
 }
 
 pub fn batch(sensor: &Sensor) -> Option<Vec<u8>> {
@@ -186,16 +184,14 @@ pub fn batch(sensor: &Sensor) -> Option<Vec<u8>> {
             max_charge_power_w,
             max_discharge_power_w,
             auxiliary_wh_per_km,
-        } => {
-            return vehicle_energy_model(
-                capacity_wh,
-                current_wh,
-                range_m,
-                max_charge_power_w,
-                max_discharge_power_w,
-                auxiliary_wh_per_km,
-            );
-        }
+        } => b.vehicle_energy_model_data.push(vehicle_energy_model(
+            capacity_wh,
+            current_wh,
+            range_m,
+            max_charge_power_w,
+            max_discharge_power_w,
+            auxiliary_wh_per_km,
+        )?),
     }
     Some(b.encode_to_vec())
 }

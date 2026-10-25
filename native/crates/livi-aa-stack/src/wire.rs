@@ -3,10 +3,12 @@ pub const WIRE_FIXED64: u8 = 1;
 pub const WIRE_LEN: u8 = 2;
 pub const WIRE_FIXED32: u8 = 5;
 
+#[cfg(test)]
 pub fn encode_varint(value: i64) -> Vec<u8> {
     encode_uvarint(value as u64)
 }
 
+#[cfg(test)]
 pub fn encode_uvarint(mut v: u64) -> Vec<u8> {
     let mut out = Vec::with_capacity(10);
     while v > 0x7f {
@@ -17,14 +19,17 @@ pub fn encode_uvarint(mut v: u64) -> Vec<u8> {
     out
 }
 
+#[cfg(test)]
 pub fn tag(field: u32, wire: u8) -> Vec<u8> {
     encode_uvarint((u64::from(field) << 3) | u64::from(wire))
 }
 
+#[cfg(test)]
 pub fn field_varint(field: u32, value: i64) -> Vec<u8> {
     [tag(field, WIRE_VARINT), encode_varint(value)].concat()
 }
 
+#[cfg(test)]
 pub fn field_len_delim(field: u32, data: &[u8]) -> Vec<u8> {
     [
         tag(field, WIRE_LEN),
@@ -34,6 +39,7 @@ pub fn field_len_delim(field: u32, data: &[u8]) -> Vec<u8> {
     .concat()
 }
 
+#[cfg(test)]
 pub fn field_float(field: u32, value: f64) -> Vec<u8> {
     [
         tag(field, WIRE_FIXED32),

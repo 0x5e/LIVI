@@ -170,6 +170,7 @@ pub enum StackCmd {
     Climate(Climate),
     Gauges(Gauges),
     Radio(Box<Radio>),
+    RequestUi(String),
     Stop,
 }
 
@@ -2303,6 +2304,18 @@ impl<M: Media> Conn<M> {
                     ]))
                     .await;
                 }
+            }
+            StackCmd::RequestUi(url) => {
+                if self.event.is_none() {
+                    println!("[cpStack] requestUI: no active event connection, ignoring");
+                    return;
+                }
+                println!("[cpStack] requestUI({url})");
+                self.send_event_command(&dict([
+                    ("type", Value::String("requestUI".into())),
+                    ("params", dict([("url", Value::String(url))])),
+                ]))
+                .await;
             }
             StackCmd::NightMode(night) => {
                 self.night_mode = Some(night);

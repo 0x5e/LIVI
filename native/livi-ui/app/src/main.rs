@@ -184,7 +184,7 @@ pub fn report_page(ui: &AppWindow) {
 fn open_path(ui: &AppWindow, path: &str) {
     let parts: Vec<&str> = path.split('/').filter(|p| !p.is_empty()).collect();
     let page = match parts.first().copied() {
-        None => Page::Projection,
+        None | Some("projection") => Page::Projection,
         Some("telemetry") => Page::Telemetry,
         Some("media") => Page::Media,
         Some("camera") => Page::Camera,

@@ -48,6 +48,10 @@ pub enum Command {
     RequestClusterStreamFocus = 508,
     VoiceAssistantUiActive = 600,
     VoiceAssistantUiIdle = 601,
+    OpenMedia = 700,
+    OpenNavigation = 701,
+    OpenRadio = 702,
+    OpenPhone = 703,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
@@ -139,6 +143,10 @@ pub fn command_action(cmd: Command) -> Action {
         C::PlayPause => Action::Click(Keycode::MediaPlayPause as u32),
         C::Next => Action::Click(Keycode::MediaNext as u32),
         C::Prev => Action::Click(Keycode::MediaPrevious as u32),
+        C::OpenMedia => Action::Click(Keycode::Media as u32),
+        C::OpenNavigation => Action::Click(Keycode::Navigation as u32),
+        C::OpenRadio => Action::Click(Keycode::Radio as u32),
+        C::OpenPhone => Action::Click(Keycode::Tel as u32),
         C::Frame | C::RequestVideoFocus => Action::VideoFocus,
         C::RequestClusterStreamFocus => Action::ClusterFocus,
         C::ReleaseVideoFocus

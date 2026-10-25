@@ -92,6 +92,15 @@ fn valid(lat: f64, lng: f64) -> bool {
         && !(lat == 0.0 && lng == 0.0)
 }
 
+fn projection_app(path: &str) -> Option<&str> {
+    let rest = path.trim_start_matches('/').strip_prefix("projection")?;
+    if rest.is_empty() {
+        Some(rest)
+    } else {
+        rest.strip_prefix('/')
+    }
+}
+
 fn last_fix(gps: &Map<String, Value>) -> Option<Value> {
     let num = |k: &str| gps.get(k).and_then(Value::as_f64).filter(|v| v.is_finite());
     let (lat, lng) = (num("lat")?, num("lng")?);
@@ -167,6 +176,14 @@ impl Telemetry {
     }
 
     async fn push(&mut self, patch: &Value) {
+        if let Some(page) = patch.get("path").and_then(Value::as_str)
+            && let Some(app) = projection_app(page)
+        {
+            let _ = self.core.open_page.send(page.to_string());
+            if !app.is_empty() {
+                self.core.open_app(app.to_string());
+            }
+        }
         let path = self.snap.get("path").cloned();
         let Some(changed) = merge(&mut self.snap, patch) else {
             return;
@@ -174,6 +191,7 @@ impl Telemetry {
         self.publish().await;
         if let Some(page) = self.snap.get("path").filter(|p| Some(*p) != path.as_ref())
             && let Some(page) = page.as_str()
+            && projection_app(page).is_none()
         {
             let _ = self.core.open_page.send(page.to_string());
         }
@@ -560,6 +578,38 @@ mod tests {
         assert_eq!(pages.try_recv(), Ok("/media".into()));
         assert_eq!(pages.try_recv(), Ok("/settings".into()));
         assert!(pages.try_recv().is_err());
+    }
+
+    #[tokio::test]
+    async fn a_projection_path_brings_the_projection_up_every_time() {
+        let dir = TempDir::new();
+        let core = core(&dir, defaults());
+        let mut pages = core.open_page.subscribe();
+        let (_, io, _) = socket(core.hub.watch());
+        let mut t = Telemetry::new(core.clone(), io, &Saved::default());
+        t.push(&json!({ "path": "/projection/maps" })).await;
+        t.push(&json!({ "path": "/projection/maps" })).await;
+        t.push(&json!({ "path": "/projection" })).await;
+        assert_eq!(pages.try_recv(), Ok("/projection/maps".into()));
+        assert_eq!(pages.try_recv(), Ok("/projection/maps".into()));
+        assert_eq!(pages.try_recv(), Ok("/projection".into()));
+        assert!(pages.try_recv().is_err());
+    }
+
+    #[test]
+    fn the_app_follows_projection_in_the_path() {
+        assert_eq!(projection_app("/projection/maps"), Some("maps"));
+        assert_eq!(
+            projection_app("projection/mobilephone"),
+            Some("mobilephone")
+        );
+        assert_eq!(projection_app("/projection"), Some(""));
+        assert_eq!(
+            projection_app("/projection/comgooglemaps://?daddr=Hamburg"),
+            Some("comgooglemaps://?daddr=Hamburg")
+        );
+        assert_eq!(projection_app("/projections"), None);
+        assert_eq!(projection_app("/media"), None);
     }
 
     #[test]

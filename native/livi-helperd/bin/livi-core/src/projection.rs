@@ -392,6 +392,16 @@ fn knob(state: KnobState) -> StackCmd {
     }
 }
 
+fn aa_open(target: &str) -> Option<Command> {
+    Some(match target.split([':', '/']).next().unwrap_or_default() {
+        "maps" | "comgooglemaps" | "waze" => Command::OpenNavigation,
+        "nowplaying" | "music" | "podcasts" | "audiobooks" => Command::OpenMedia,
+        "mobilephone" | "tel" => Command::OpenPhone,
+        "radio" => Command::OpenRadio,
+        _ => return None,
+    })
+}
+
 pub struct Drivers {
     pub cp: CpHandle,
     pub aa: AaHandle,
@@ -458,6 +468,7 @@ pub enum UiCommand {
     SelectDevice(String),
     ForgetDevice(String),
     CameraFound(bool),
+    OpenApp(String),
 }
 
 fn kept_cluster(cfg: &Config, theme: Theme) -> Cluster {
@@ -676,6 +687,7 @@ impl Projection {
                     UiCommand::SelectDevice(id) => self.select_device(&id),
                     UiCommand::ForgetDevice(id) => self.forget_device(&id),
                     UiCommand::CameraFound(found) => self.camera_found(found),
+                    UiCommand::OpenApp(target) => self.open_app(&target),
                 },
                 Some(input) = asks.input.recv() => self.input(input),
                 Some(done) = asks.goodbye.recv() => self.goodbye(done),
@@ -1864,6 +1876,27 @@ impl Projection {
             Some(Link::Cp(id)) if down => self.cp_key(id, key),
             Some(Link::Aa(id)) => self.aa_key(id, key, down),
             _ => {}
+        }
+    }
+
+    fn open_app(&self, target: &str) {
+        let Some(link) = self.active().map(|e| e.link) else {
+            return;
+        };
+        match link {
+            Link::Cp(id) => {
+                let url = if target.contains(':') {
+                    target.to_string()
+                } else {
+                    format!("{target}:")
+                };
+                self.cp.stack(id, StackCmd::RequestUi(url));
+            }
+            Link::Aa(id) => {
+                if let Some(cmd) = aa_open(target) {
+                    self.aa.session(id, SessionCmd::Command(cmd));
+                }
+            }
         }
     }
 

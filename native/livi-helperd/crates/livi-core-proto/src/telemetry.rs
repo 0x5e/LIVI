@@ -159,7 +159,11 @@ pub struct TelemetrySnapshot {
     /// setting shows up here.
     pub dark_mode: Option<bool>,
     /// A page such as `/media` or `/settings/devices`, LIVI's main screen opens it once each time
-    /// it changes. A path that names no page is ignored.
+    /// it changes. A path that names no page is ignored. `/projection` brings the projection to the
+    /// front on every push, and what follows asks the running CarPlay or Android Auto session to
+    /// show that app: for CarPlay it is a `requestUI` URL (`/projection/maps`,
+    /// `/projection/mobilephone`, `/projection/comgooglemaps://?daddr=…`), for Android Auto the
+    /// known categories (maps, nowplaying, radio, mobilephone) map to its hard keys.
     pub path: Option<String>,
     /// The head unit's level, 0 to 1. It sets `huVolume`, which drives the amplifier and, while
     /// linked, the system mixer.

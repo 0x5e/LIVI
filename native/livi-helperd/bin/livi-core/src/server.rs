@@ -66,6 +66,10 @@ impl Core {
         self
     }
 
+    pub fn open_app(&self, target: String) {
+        let _ = self.asks.commands.send(UiCommand::OpenApp(target));
+    }
+
     pub async fn refresh_mfi(&self) -> Result<(), String> {
         let view = crate::mfi::read(&self.mfi_dir);
         let files = crate::mfi::digest(&self.mfi_dir);

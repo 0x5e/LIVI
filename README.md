@@ -129,7 +129,7 @@ The dashboard is a WIP. While the IPC/socket telemetry payload already supports 
 LIVI's core binary pushes test data into a running LIVI. On macOS it sits in
 `LIVI.app/Contents/Resources/core/livi-core`, on Linux the AppImage hands it over:
 `./LIVI-<version>.AppImage telemetry set gear=R`. Every field and where it goes is listed in
-`native/livi-helperd/crates/livi-core-proto/src/telemetry.rs`.
+`native/crates/livi-core-proto/src/telemetry.rs`.
 
 ```bash
 # Plausible values for every field at once

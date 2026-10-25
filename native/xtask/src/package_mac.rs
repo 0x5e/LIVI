@@ -98,23 +98,11 @@ pub fn run(arch: Arch) -> Result<(), String> {
     let _ = fs::remove_dir_all(&app);
     fs::create_dir_all(contents.join("MacOS")).map_err(|e| e.to_string())?;
 
-    let built = |rel: &str| root.join("native").join(rel);
-    copy_exe(
-        &built("livi-helperd/build/Release/LIVI"),
-        &contents.join("MacOS/LIVI"),
-    )?;
-    copy_exe(
-        &built("livi-helperd/build/Release/livi-core"),
-        &res.join("core/livi-core"),
-    )?;
-    copy_exe(
-        &built("livi-helperd/build/Release/livi-helperd"),
-        &res.join("driver/livi-helperd"),
-    )?;
-    copy_exe(
-        &built("livi-gst-video/build/Release/livi-gst-host"),
-        &res.join("gst-host/livi-gst-host"),
-    )?;
+    let built = |name: &str| root.join("out/bin").join(name);
+    copy_exe(&built("LIVI"), &contents.join("MacOS/LIVI"))?;
+    copy_exe(&built("livi-core"), &res.join("core/livi-core"))?;
+    copy_exe(&built("livi-helperd"), &res.join("driver/livi-helperd"))?;
+    copy_exe(&built("livi-gst-host"), &res.join("gst-host/livi-gst-host"))?;
 
     let gst_src = root.join("assets").join(GST);
     let skip = |p: &Path| {

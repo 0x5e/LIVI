@@ -1,57 +1,6 @@
 [workspace]
 resolver = "3"
-members = [
-    "livi-helperd/bin/livi-core",
-    "livi-helperd/bin/livi-helperd",
-    "livi-helperd/bin/usb-probe",
-    "livi-helperd/crates/iap2-csm",
-    "livi-helperd/crates/iap2-link",
-    "livi-helperd/crates/iap2-mfi",
-    "livi-helperd/crates/iap2-usbmux",
-    "livi-helperd/crates/iap2-wired",
-    "livi-helperd/crates/livi-aa",
-    "livi-helperd/crates/livi-aa-proto",
-    "livi-helperd/crates/livi-aa-stack",
-    "livi-helperd/crates/livi-bt-host",
-    "livi-helperd/crates/livi-core-proto",
-    "livi-helperd/crates/livi-dab",
-    "livi-helperd/crates/livi-cp",
-    "livi-helperd/crates/livi-hfp",
-    "livi-helperd/crates/livi-link-host",
-    "livi-helperd/crates/livi-media",
-    "livi-helperd/crates/livi-net",
-    "livi-helperd/crates/livi-rtlsdr",
-    "livi-helperd/crates/livi-runtime",
-    "livi-helperd/crates/livi-session-io",
-    "livi-helperd/crates/livi-wifi",
-    "livi-ui/app",
-    "livi-ui/client",
-    "livi-ui/model",
-    "xtask",
-    "livi-host-proto/rust",
-    "livi-crypto/rust",
-    "livi-gst-video/rust/view",
-    "livi-gst-video/rust/audio",
-    "livi-gst-video/rust/audioplayer",
-    "livi-gst-video/rust/codec",
-    "livi-gst-video/rust/fanout",
-    "livi-gst-video/rust/host",
-    "livi-gst-video/rust/mic",
-    "livi-gst-video/rust/nal",
-    "livi-gst-video/rust/player",
-    "livi-gst-video/rust/screen",
-    "livi-compositor/rust",
-    "livi-link/bin/livi-link-provision",
-    "livi-link/bin/livid",
-    "livi-link/bin/mkbootimg-v821b",
-    "livi-link/crates/imx6ul-uboot",
-    "livi-link/crates/livi-btd",
-    "livi-link/crates/livi-accessoryd",
-    "livi-link/crates/livi-link-provision",
-    "livi-link/crates/livi-mdns",
-    "livi-link/crates/livi-web",
-    "livi-link/crates/livi-wifid",
-]
+members = ["crates/*", "xtask"]
 exclude = ["vendor"]
 
 [patch.crates-io]
@@ -87,43 +36,46 @@ tokio = "1.53.3"
 uuid = "1.28.0"
 zbus = { version = "5.19.0", default-features = false }
 
-iap2-csm = { path = "livi-helperd/crates/iap2-csm" }
-iap2-link = { path = "livi-helperd/crates/iap2-link" }
-iap2-mfi = { path = "livi-helperd/crates/iap2-mfi" }
-iap2-usbmux = { path = "livi-helperd/crates/iap2-usbmux" }
-iap2-wired = { path = "livi-helperd/crates/iap2-wired" }
-livi-aa = { path = "livi-helperd/crates/livi-aa" }
-livi-aa-proto = { path = "livi-helperd/crates/livi-aa-proto" }
-livi-aa-stack = { path = "livi-helperd/crates/livi-aa-stack" }
-livi-bt-host = { path = "livi-helperd/crates/livi-bt-host" }
-livi-core-proto = { path = "livi-helperd/crates/livi-core-proto" }
-livi-dab = { path = "livi-helperd/crates/livi-dab" }
-livi-cp = { path = "livi-helperd/crates/livi-cp" }
-livi-hfp = { path = "livi-helperd/crates/livi-hfp" }
-livi-link-host = { path = "livi-helperd/crates/livi-link-host" }
-livi-media = { path = "livi-helperd/crates/livi-media" }
-livi-net = { path = "livi-helperd/crates/livi-net" }
-livi-rtlsdr = { path = "livi-helperd/crates/livi-rtlsdr" }
-livi-runtime = { path = "livi-helperd/crates/livi-runtime" }
-livi-session-io = { path = "livi-helperd/crates/livi-session-io" }
-livi-wifi = { path = "livi-helperd/crates/livi-wifi" }
-livi-host-proto = { path = "livi-host-proto/rust" }
-livi-crypto-node = { path = "livi-crypto/rust" }
-livi-audio-player = { path = "livi-gst-video/rust/audioplayer" }
-livi-audio-stream = { path = "livi-gst-video/rust/audio" }
-livi-audio-uplink = { path = "livi-gst-video/rust/mic" }
-livi-screen-stream = { path = "livi-gst-video/rust/screen" }
-livi-video-codec = { path = "livi-gst-video/rust/codec" }
-livi-video-fanout = { path = "livi-gst-video/rust/fanout" }
-livi-video-nal = { path = "livi-gst-video/rust/nal" }
-livi-video-player = { path = "livi-gst-video/rust/player" }
-imx6ul-uboot = { path = "livi-link/crates/imx6ul-uboot" }
-livi-btd = { path = "livi-link/crates/livi-btd" }
-livi-accessoryd = { path = "livi-link/crates/livi-accessoryd" }
-livi-link-provision = { path = "livi-link/crates/livi-link-provision" }
-livi-mdns = { path = "livi-link/crates/livi-mdns" }
-livi-web = { path = "livi-link/crates/livi-web" }
-livi-wifid = { path = "livi-link/crates/livi-wifid" }
+iap2-csm = { path = "crates/iap2-csm" }
+iap2-link = { path = "crates/iap2-link" }
+iap2-mfi = { path = "crates/iap2-mfi" }
+iap2-usbmux = { path = "crates/iap2-usbmux" }
+iap2-wired = { path = "crates/iap2-wired" }
+imx6ul-uboot = { path = "crates/imx6ul-uboot" }
+livi-aa = { path = "crates/livi-aa" }
+livi-aa-proto = { path = "crates/livi-aa-proto" }
+livi-aa-stack = { path = "crates/livi-aa-stack" }
+livi-accessoryd = { path = "crates/livi-accessoryd" }
+livi-audio-player = { path = "crates/livi-audio-player" }
+livi-audio-stream = { path = "crates/livi-audio-stream" }
+livi-audio-uplink = { path = "crates/livi-audio-uplink" }
+livi-bt-host = { path = "crates/livi-bt-host" }
+livi-btd = { path = "crates/livi-btd" }
+livi-core-client = { path = "crates/livi-core-client" }
+livi-core-proto = { path = "crates/livi-core-proto" }
+livi-cp = { path = "crates/livi-cp" }
+livi-crypto = { path = "crates/livi-crypto" }
+livi-dab = { path = "crates/livi-dab" }
+livi-hfp = { path = "crates/livi-hfp" }
+livi-host-proto = { path = "crates/livi-host-proto" }
+livi-link-host = { path = "crates/livi-link-host" }
+livi-link-provision = { path = "crates/livi-link-provision" }
+livi-mdns = { path = "crates/livi-mdns" }
+livi-media = { path = "crates/livi-media" }
+livi-net = { path = "crates/livi-net" }
+livi-rtlsdr = { path = "crates/livi-rtlsdr" }
+livi-runtime = { path = "crates/livi-runtime" }
+livi-screen-stream = { path = "crates/livi-screen-stream" }
+livi-session-io = { path = "crates/livi-session-io" }
+livi-ui-model = { path = "crates/livi-ui-model" }
+livi-video-codec = { path = "crates/livi-video-codec" }
+livi-video-fanout = { path = "crates/livi-video-fanout" }
+livi-video-nal = { path = "crates/livi-video-nal" }
+livi-video-player = { path = "crates/livi-video-player" }
+livi-video-view = { path = "crates/livi-video-view" }
+livi-web = { path = "crates/livi-web" }
+livi-wifi = { path = "crates/livi-wifi" }
+livi-wifid = { path = "crates/livi-wifid" }
 
 # The DAB+ receiver demodulates in real time, also in debug builds.
 [profile.dev.package.livi-dab]

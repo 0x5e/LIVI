@@ -64,25 +64,13 @@ pub fn run(arch: Arch) -> Result<(), String> {
     let _ = fs::remove_dir_all(&app);
     fs::create_dir_all(&res).map_err(|e| e.to_string())?;
 
-    let built = |rel: &str| root.join("native").join(rel);
+    let built = |name: &str| root.join("out/bin").join(name);
+    copy_exe(&built("LIVI"), &app.join("livi-ui"))?;
+    copy_exe(&built("livi-core"), &res.join("core/livi-core"))?;
+    copy_exe(&built("livi-helperd"), &res.join("driver/livi-helperd"))?;
+    copy_exe(&built("livi-gst-host"), &res.join("gst-host/livi-gst-host"))?;
     copy_exe(
-        &built("livi-helperd/build/Release/LIVI"),
-        &app.join("livi-ui"),
-    )?;
-    copy_exe(
-        &built("livi-helperd/build/Release/livi-core"),
-        &res.join("core/livi-core"),
-    )?;
-    copy_exe(
-        &built("livi-helperd/build/Release/livi-helperd"),
-        &res.join("driver/livi-helperd"),
-    )?;
-    copy_exe(
-        &built("livi-gst-video/build/Release/livi-gst-host"),
-        &res.join("gst-host/livi-gst-host"),
-    )?;
-    copy_exe(
-        &root.join("out/compositor/livi-compositor"),
+        &built("livi-compositor"),
         &res.join("compositor/livi-compositor"),
     )?;
 

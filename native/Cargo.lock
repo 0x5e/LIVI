@@ -2375,24 +2375,6 @@ dependencies = [
 ]
 
 [[package]]
-name = "gst-video-host"
-version = "0.1.0"
-dependencies = [
- "glib",
- "glib-unix",
- "libc 1.0.0-alpha.5",
- "livi-audio-player",
- "livi-audio-stream",
- "livi-audio-uplink",
- "livi-host-proto",
- "livi-screen-stream",
- "livi-video-fanout",
- "livi-video-nal",
- "livi-video-player",
- "realfft",
-]
-
-[[package]]
 name = "gstreamer"
 version = "0.25.4"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -3882,7 +3864,7 @@ name = "livi-audio-stream"
 version = "0.1.0"
 dependencies = [
  "libc 1.0.0-alpha.5",
- "livi-crypto-node",
+ "livi-crypto",
  "socket2",
 ]
 
@@ -3890,7 +3872,7 @@ dependencies = [
 name = "livi-audio-uplink"
 version = "0.1.0"
 dependencies = [
- "livi-crypto-node",
+ "livi-crypto",
 ]
 
 [[package]]
@@ -3999,7 +3981,7 @@ dependencies = [
 ]
 
 [[package]]
-name = "livi-crypto-node"
+name = "livi-crypto"
 version = "0.1.0"
 dependencies = [
  "aws-lc-rs",
@@ -4010,6 +3992,24 @@ name = "livi-dab"
 version = "0.1.0"
 dependencies = [
  "rustfft",
+]
+
+[[package]]
+name = "livi-gst-host"
+version = "0.1.0"
+dependencies = [
+ "glib",
+ "glib-unix",
+ "libc 1.0.0-alpha.5",
+ "livi-audio-player",
+ "livi-audio-stream",
+ "livi-audio-uplink",
+ "livi-host-proto",
+ "livi-screen-stream",
+ "livi-video-fanout",
+ "livi-video-nal",
+ "livi-video-player",
+ "realfft",
 ]
 
 [[package]]
@@ -4133,7 +4133,7 @@ version = "0.1.0"
 dependencies = [
  "glib",
  "glib-unix",
- "livi-crypto-node",
+ "livi-crypto",
  "livi-video-nal",
  "socket2",
 ]

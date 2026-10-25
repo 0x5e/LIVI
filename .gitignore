@@ -58,4 +58,4 @@ Thumbs.db
 assets/livi-link/*/*.gz
 assets/livi-link/*/*.lfwb
 assets/livi-link/*/MANIFEST.md5
-native/livi-link/crates/livi-link-provision/assets/bindshell/*
+native/crates/livi-link-provision/assets/bindshell/*

@@ -1,4 +1,6 @@
 pub mod frame_flags {
+    pub const FIRST: u8 = 0x01;
+    pub const LAST: u8 = 0x02;
     pub const PLAINTEXT: u8 = 0x03;
     pub const ENC_SIGNAL: u8 = 0x0b;
     pub const ENC_CONTROL: u8 = 0x0f;
@@ -8,7 +10,7 @@ pub mod frame_flags {
 }
 
 pub mod ctrl_msg {
-    use livi_aa_proto::ControlMessageId as Id;
+    use crate::ControlMessageId as Id;
 
     pub const VERSION_REQUEST: u16 = Id::VersionRequest as u16;
     pub const VERSION_RESPONSE: u16 = Id::VersionResponse as u16;
@@ -32,7 +34,7 @@ pub mod ctrl_msg {
 }
 
 pub mod media_msg {
-    use livi_aa_proto::MediaMessageId as Id;
+    use crate::MediaMessageId as Id;
 
     pub const DATA: u16 = Id::Data as u16;
     pub const CODEC_CONFIG: u16 = Id::CodecConfig as u16;
@@ -48,7 +50,7 @@ pub mod media_msg {
 }
 
 pub mod sensor_msg {
-    use livi_aa_proto::SensorMessageId as Id;
+    use crate::SensorMessageId as Id;
 
     pub const REQUEST: u16 = Id::Request as u16;
     pub const RESPONSE: u16 = Id::Response as u16;
@@ -56,7 +58,7 @@ pub mod sensor_msg {
 }
 
 pub mod input_msg {
-    use livi_aa_proto::InputSourceMessageId as Id;
+    use crate::InputSourceMessageId as Id;
 
     pub const INPUT_REPORT: u16 = Id::InputReport as u16;
     pub const KEY_BINDING_REQUEST: u16 = Id::KeyBindingRequest as u16;
@@ -65,7 +67,7 @@ pub mod input_msg {
 }
 
 pub mod nav_msg {
-    use livi_aa_proto::NavigationStatusMessageId as Id;
+    use crate::NavigationStatusMessageId as Id;
 
     pub const START: u16 = Id::Start as u16;
     pub const STOP: u16 = Id::Stop as u16;
@@ -77,7 +79,7 @@ pub mod nav_msg {
 }
 
 pub mod playback_msg {
-    use livi_aa_proto::MediaPlaybackStatusMessageId as Id;
+    use crate::MediaPlaybackStatusMessageId as Id;
 
     pub const STATUS: u16 = Id::Status as u16;
     pub const INPUT: u16 = Id::Input as u16;
@@ -85,20 +87,20 @@ pub mod playback_msg {
 }
 
 pub mod phone_msg {
-    use livi_aa_proto::PhoneStatusMessageId as Id;
+    use crate::PhoneStatusMessageId as Id;
 
     pub const STATUS: u16 = Id::Status as u16;
 }
 
 pub mod bluetooth_msg {
-    use livi_aa_proto::BluetoothMessageId as Id;
+    use crate::BluetoothMessageId as Id;
 
     pub const PAIRING_REQUEST: u16 = Id::PairingRequest as u16;
     pub const PAIRING_RESPONSE: u16 = Id::PairingResponse as u16;
 }
 
 pub mod wifi_msg {
-    use livi_aa_proto::WifiProjectionMessageId as Id;
+    use crate::WifiProjectionMessageId as Id;
 
     pub const CREDENTIALS_REQUEST: u16 = Id::CredentialsRequest as u16;
     pub const CREDENTIALS_RESPONSE: u16 = Id::CredentialsResponse as u16;

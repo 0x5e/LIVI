@@ -24,14 +24,14 @@ use crate::channels::video::{VideoChannel, VideoChannelEvent};
 use crate::channels::{Emit, Frame};
 use crate::codec::{check_nested, decode, encode};
 use crate::config::{AaConfig, Geometry};
-use crate::consts::{
-    bluetooth_msg, ch, ctrl_msg, frame_flags, input_msg, media_msg, phone_msg, sensor_msg, wifi_msg,
-};
 use crate::control::{ControlChannel, ControlEvent, ControlOut};
 use crate::discovery::{self, VideoCodec};
 use crate::log::{debug, detail, trace};
 use crate::sensors::{self, Sensor};
 use crate::wire::decode_start;
+use livi_aa_proto::consts::{
+    bluetooth_msg, ch, ctrl_msg, frame_flags, input_msg, media_msg, phone_msg, sensor_msg, wifi_msg,
+};
 
 const PING_INTERVAL: Duration = Duration::from_millis(1500);
 const PING_TIMEOUT: Duration = Duration::from_millis(5000);

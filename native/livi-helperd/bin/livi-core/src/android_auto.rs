@@ -542,17 +542,15 @@ mod tests {
     use tokio::io::{AsyncReadExt, AsyncWriteExt};
     use tokio::net::UnixStream;
 
+    use livi_host_proto::ops::{
+        OP_AUDIO_ACTIVE, OP_AUDIO_OPEN, OP_AUDIO_STOP, OP_AUDIO_VOLUME, OP_CREATE, OP_FEED_CLOSE,
+        OP_FEED_OPEN, OP_FEED_ROUTE, OP_SET_ACTIVE, OP_TAP_OPEN, OP_TAP_STOP, REPLY_AUDIO_PORTS,
+        REPLY_FEED,
+    };
+
     use super::*;
     use crate::config_file::defaults;
     use crate::config_file::tests::TempDir;
-
-    const OP_SET_ACTIVE: u8 = 7;
-    const OP_AUDIO_OPEN: u8 = 8;
-    const OP_AUDIO_VOLUME: u8 = 9;
-    const OP_AUDIO_ACTIVE: u8 = 13;
-    const OP_FEED_ROUTE: u8 = 18;
-    const OP_FEED_CLOSE: u8 = 19;
-    const REPLY_AUDIO_PORTS: u8 = 4;
 
     fn route(kind: u8, target: u32, active: bool) -> Vec<u8> {
         let mut v = vec![kind];
@@ -779,7 +777,6 @@ mod tests {
 
     #[tokio::test]
     async fn a_session_in_the_background_leaves_the_plane_to_the_front() {
-        const OP_CREATE: u8 = 1;
         let dir = TempDir::new();
         let sock = dir.0.join("gst.sock");
         let gst = GstHost::new(sock.clone());
@@ -823,12 +820,6 @@ mod tests {
 
     #[tokio::test]
     async fn a_call_gets_a_stream_the_helper_feeds_and_a_microphone_tap() {
-        const OP_AUDIO_STOP: u8 = 10;
-        const OP_FEED_OPEN: u8 = 16;
-        const OP_TAP_OPEN: u8 = 20;
-        const OP_TAP_STOP: u8 = 21;
-        const REPLY_FEED: u8 = 7;
-
         let dir = TempDir::new();
         let sock = dir.0.join("gst.sock");
         let gst = GstHost::new(sock.clone());

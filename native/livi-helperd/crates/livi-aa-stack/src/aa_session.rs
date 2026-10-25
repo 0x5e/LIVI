@@ -11,7 +11,6 @@ use crate::commands::{
     single_touch_action, touch_point,
 };
 use crate::config::AaConfig;
-use crate::consts::ch;
 use crate::discovery::VideoCodec;
 use crate::link::{Link, LinkItem, LinkReader};
 use crate::log::detail;
@@ -19,6 +18,7 @@ use crate::manager::{AaEvent, SessionId};
 use crate::media::{AaMedia, AudioKind, AudioOutput};
 use crate::sensors::Sensor;
 use crate::session::{BYEBYE_USER_SELECTION, Out, Session, SessionEvent, Timer};
+use livi_aa_proto::consts::ch;
 
 #[derive(Debug, Clone, PartialEq)]
 pub enum SessionCmd {

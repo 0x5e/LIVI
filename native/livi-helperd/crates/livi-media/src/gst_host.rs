@@ -5,47 +5,11 @@ use std::sync::atomic::{AtomicU32, AtomicU64, Ordering};
 use std::sync::{Arc, Mutex, MutexGuard};
 use std::time::Duration;
 
+use livi_host_proto::ops::*;
 use livi_host_proto::{Framer, encode_reply as frame};
 use tokio::io::{AsyncReadExt, AsyncWriteExt};
 use tokio::net::UnixListener;
 use tokio::sync::{broadcast, mpsc, oneshot};
-
-const OP_CREATE: u8 = 1;
-const OP_STOP: u8 = 3;
-const OP_LISTEN: u8 = 5;
-const OP_TEARDOWN: u8 = 6;
-const OP_SET_ACTIVE: u8 = 7;
-const OP_AUDIO_OPEN: u8 = 8;
-const OP_AUDIO_VOLUME: u8 = 9;
-const OP_AUDIO_STOP: u8 = 10;
-const OP_MIC_OPEN: u8 = 11;
-const OP_MIC_STOP: u8 = 12;
-const OP_AUDIO_ACTIVE: u8 = 13;
-const OP_AUDIO_DATA: u8 = 14;
-const OP_VISUALIZER: u8 = 15;
-const OP_FEED_OPEN: u8 = 16;
-const OP_AUDIO_OUTPUT: u8 = 17;
-const OP_FEED_ROUTE: u8 = 18;
-const OP_FEED_CLOSE: u8 = 19;
-const OP_TAP_OPEN: u8 = 20;
-const OP_TAP_STOP: u8 = 21;
-const OP_PLAY_URL: u8 = 22;
-const OP_PLAY_RATE: u8 = 23;
-const OP_PLAY_SEEK: u8 = 24;
-const OP_PLAY_MUTE: u8 = 25;
-const OP_CAMERA_OPEN: u8 = 26;
-const OP_CAMERAS_WATCH: u8 = 27;
-
-const REPLY_PORT: u8 = 1;
-const REPLY_CONFIG: u8 = 2;
-const REPLY_STARTED: u8 = 3;
-const REPLY_AUDIO_PORTS: u8 = 4;
-const REPLY_AUDIO_STARTED: u8 = 5;
-const REPLY_VISUALIZER: u8 = 6;
-const REPLY_FEED: u8 = 7;
-const REPLY_URL_STATUS: u8 = 8;
-const REPLY_AUDIO_DELAY: u8 = 9;
-const REPLY_CAMERAS: u8 = 10;
 
 const ANSWER_TIMEOUT: Duration = Duration::from_secs(4);
 

@@ -1,6 +1,6 @@
 use std::collections::HashMap;
 
-use crate::consts::{FLAG_FIRST, FLAG_LAST};
+use livi_aa_proto::consts::frame_flags;
 
 const HEADER_SHORT: usize = 4;
 const HEADER_EXTENDED: usize = 8;
@@ -52,9 +52,9 @@ pub fn encode_records(ch: u8, flags: u8, tls: &[u8]) -> Vec<u8> {
     let last_index = records.len() - 1;
     for (i, rec) in records.iter().enumerate() {
         let f = match i {
-            0 => (flags & !FLAG_LAST) | FLAG_FIRST,
-            n if n == last_index => (flags & !FLAG_FIRST) | FLAG_LAST,
-            _ => flags & !(FLAG_FIRST | FLAG_LAST),
+            0 => (flags & !frame_flags::LAST) | frame_flags::FIRST,
+            n if n == last_index => (flags & !frame_flags::FIRST) | frame_flags::LAST,
+            _ => flags & !(frame_flags::FIRST | frame_flags::LAST),
         };
         out.push(ch);
         out.push(f);
@@ -98,7 +98,7 @@ fn parse_header(buf: &[u8]) -> Option<Header> {
         return None;
     }
     let flags = buf[1];
-    let extended = flags & FLAG_FIRST != 0 && flags & FLAG_LAST == 0;
+    let extended = flags & frame_flags::FIRST != 0 && flags & frame_flags::LAST == 0;
     let header_len = if extended {
         HEADER_EXTENDED
     } else {
@@ -169,8 +169,8 @@ impl FrameParser {
                 .map(|h| h.total)
                 .unwrap_or(0);
             let f = self.splitter.next_frame()?;
-            let first = f.flags & FLAG_FIRST != 0;
-            let last = f.flags & FLAG_LAST != 0;
+            let first = f.flags & frame_flags::FIRST != 0;
+            let last = f.flags & frame_flags::LAST != 0;
             if first && last {
                 return Some(f);
             }
@@ -205,11 +205,10 @@ impl FrameParser {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::consts::{FLAGS_ENC_SIGNAL, FLAGS_PLAINTEXT};
 
     #[test]
     fn a_message_round_trips() {
-        let wire = encode(0, FLAGS_PLAINTEXT, 0x0001, &[0, 1, 0, 7]);
+        let wire = encode(0, frame_flags::PLAINTEXT, 0x0001, &[0, 1, 0, 7]);
         assert_eq!(&wire[..4], &[0, 3, 0, 6]);
         let mut p = FrameParser::default();
         p.push(&wire);
@@ -220,7 +219,7 @@ mod tests {
 
     #[test]
     fn a_frame_split_across_reads_waits() {
-        let wire = encode(3, FLAGS_ENC_SIGNAL, 0x8004, &[8, 1, 16, 1]);
+        let wire = encode(3, frame_flags::ENC_SIGNAL, 0x8004, &[8, 1, 16, 1]);
         let mut s = FrameSplitter::default();
         s.push(&wire[..3]);
         assert_eq!(s.next_frame(), None);
@@ -266,8 +265,8 @@ mod tests {
     #[test]
     fn one_record_is_one_frame() {
         let rec = record(&[1, 2, 3]);
-        let wire = encode_records(3, FLAGS_ENC_SIGNAL, &rec);
-        assert_eq!(wire, encode_raw(3, FLAGS_ENC_SIGNAL, &rec));
+        let wire = encode_records(3, frame_flags::ENC_SIGNAL, &rec);
+        assert_eq!(wire, encode_raw(3, frame_flags::ENC_SIGNAL, &rec));
     }
 
     #[test]
@@ -275,7 +274,7 @@ mod tests {
         let mut tls = record(&[1, 2]);
         tls.extend(record(&[3]));
         tls.extend(record(&[4, 5, 6]));
-        let wire = encode_records(3, FLAGS_ENC_SIGNAL, &tls);
+        let wire = encode_records(3, frame_flags::ENC_SIGNAL, &tls);
 
         let mut s = FrameSplitter::default();
         s.push(&wire);
@@ -294,7 +293,7 @@ mod tests {
 
     #[test]
     fn unparsable_records_stay_one_frame() {
-        let wire = encode_records(3, FLAGS_ENC_SIGNAL, &[0x17, 0x03]);
-        assert_eq!(wire, encode_raw(3, FLAGS_ENC_SIGNAL, &[0x17, 0x03]));
+        let wire = encode_records(3, frame_flags::ENC_SIGNAL, &[0x17, 0x03]);
+        assert_eq!(wire, encode_raw(3, frame_flags::ENC_SIGNAL, &[0x17, 0x03]));
     }
 }

@@ -1,7 +1,7 @@
 use crate::channels::text;
-use crate::consts::nav_msg;
 use crate::log::detail;
 use crate::wire::{WIRE_LEN, WIRE_VARINT, decode_fields, decode_varint_value};
+use livi_aa_proto::consts::nav_msg;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum NavigationState {

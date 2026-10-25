@@ -4,8 +4,10 @@ use std::time::Duration;
 
 use base64::Engine;
 use base64::engine::general_purpose::STANDARD;
+pub use livi_session_io::line::Feed;
+use livi_session_io::line::LineSock;
 use serde_json::Value;
-use tokio::io::{AsyncBufReadExt, AsyncWriteExt, BufReader};
+use tokio::io::AsyncWriteExt;
 use tokio::net::UnixStream;
 use tokio::sync::mpsc;
 
@@ -15,15 +17,9 @@ pub const SOCK_PATH: &str = "/tmp/cp-bt.sock";
 const TIMEOUT: Duration = Duration::from_secs(8);
 const RESUBSCRIBE: Duration = Duration::from_secs(1);
 
-#[derive(Debug, Clone, PartialEq)]
-pub enum Feed {
-    Connected,
-    Event(Value),
-}
-
 #[derive(Clone)]
 pub struct HelperSock {
-    path: PathBuf,
+    sock: LineSock,
     protocol_major: Arc<Mutex<Option<u8>>>,
     targets: Arc<tokio::sync::Mutex<()>>,
 }
@@ -43,33 +39,14 @@ fn data_of(res: &Value) -> Result<Vec<u8>, String> {
 impl HelperSock {
     pub fn new(path: impl Into<PathBuf>) -> Self {
         Self {
-            path: path.into(),
+            sock: LineSock::new(path, "cp-bt sock"),
             protocol_major: Arc::new(Mutex::new(None)),
             targets: Arc::new(tokio::sync::Mutex::new(())),
         }
     }
 
     async fn request(&self, line: &str) -> Result<Value, String> {
-        let exchange = async {
-            let mut sock = UnixStream::connect(&self.path)
-                .await
-                .map_err(|e| format!("cp-bt sock error: {e}"))?;
-            sock.write_all(format!("{line}\n").as_bytes())
-                .await
-                .map_err(|e| format!("cp-bt sock error: {e}"))?;
-            let mut answer = String::new();
-            BufReader::new(sock)
-                .read_line(&mut answer)
-                .await
-                .map_err(|e| format!("cp-bt sock error: {e}"))?;
-            if !answer.ends_with('\n') {
-                return Err("cp-bt sock closed without response".to_string());
-            }
-            serde_json::from_str(answer.trim_end()).map_err(|e| format!("cp-bt sock bad json: {e}"))
-        };
-        tokio::time::timeout(TIMEOUT, exchange)
-            .await
-            .map_err(|_| format!("cp-bt sock timeout after {}ms", TIMEOUT.as_millis()))?
+        self.sock.request(line, TIMEOUT).await
     }
 
     async fn request_ok(&self, line: &str) -> Result<Value, String> {
@@ -174,7 +151,7 @@ impl HelperSock {
     }
 
     pub async fn open_tunnel(&self, cid: &str, bt_mac: &str) -> std::io::Result<UnixStream> {
-        let mut sock = UnixStream::connect(&self.path).await?;
+        let mut sock = UnixStream::connect(self.sock.path()).await?;
         let header = format!("tunnel {cid} {bt_mac}");
         sock.write_all(format!("{}\n", header.trim_end()).as_bytes())
             .await?;
@@ -182,33 +159,7 @@ impl HelperSock {
     }
 
     pub fn subscribe(&self) -> mpsc::UnboundedReceiver<Feed> {
-        let (tx, rx) = mpsc::unbounded_channel();
-        let path = self.path.clone();
-        tokio::spawn(async move {
-            while !tx.is_closed() {
-                if let Ok(mut sock) = UnixStream::connect(&path).await
-                    && sock.write_all(b"subscribe\n").await.is_ok()
-                {
-                    let _ = tx.send(Feed::Connected);
-                    let mut lines = BufReader::new(sock).lines();
-                    loop {
-                        let line = tokio::select! {
-                            line = lines.next_line() => line,
-                            () = tx.closed() => return,
-                        };
-                        let Ok(Some(line)) = line else { break };
-                        if let Ok(event @ Value::Object(_)) = serde_json::from_str(line.trim()) {
-                            let _ = tx.send(Feed::Event(event));
-                        }
-                    }
-                }
-                tokio::select! {
-                    () = tokio::time::sleep(RESUBSCRIBE) => {}
-                    () = tx.closed() => return,
-                }
-            }
-        });
-        rx
+        self.sock.subscribe(RESUBSCRIBE, |_| true)
     }
 }
 
@@ -231,6 +182,7 @@ impl MfiSigner for HelperSock {
 pub(crate) mod tests {
     use std::path::Path;
 
+    use tokio::io::{AsyncBufReadExt, BufReader};
     use tokio::net::UnixListener;
 
     use super::*;

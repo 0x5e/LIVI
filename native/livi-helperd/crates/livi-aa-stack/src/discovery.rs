@@ -9,8 +9,8 @@ use livi_aa_proto::{
 
 use crate::codec::encode;
 use crate::config::{AaConfig, Geometry, Insets};
-use crate::consts::ch;
 use crate::log::{debug, hex};
+use livi_aa_proto::consts::ch;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub enum VideoCodec {

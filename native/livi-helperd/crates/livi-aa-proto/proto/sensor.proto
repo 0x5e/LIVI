@@ -193,8 +193,8 @@ message LightStates {
   optional bool hazard_lights_on = 3;
 }
 
-message NightMode {
-  optional bool night_mode_active = 1;
+message NightModeData {
+  optional bool night_mode = 1;
 }
 
 message ObdDiagnosticCodes {
@@ -238,7 +238,7 @@ message SensorBatchNotification {
   repeated ParkingBrake parking_brakes = 7;
   repeated CurrentGear gears = 8;
   repeated ObdDiagnosticCodes obd_diagnostic_codes = 9;
-  repeated NightMode night_modes = 10;
+  repeated NightModeData night_mode_data = 10;
   repeated EnvironmentConditions environment_conditions = 11;
   repeated HvacTemperatures hvac_temperatures = 12;
   repeated DrivingStatus driving_statuses = 13;

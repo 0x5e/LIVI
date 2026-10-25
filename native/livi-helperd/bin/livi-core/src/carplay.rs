@@ -5,9 +5,7 @@ use std::sync::{Arc, Mutex};
 use base64::Engine;
 use base64::engine::general_purpose::STANDARD;
 use livi_aa_stack::config::{AaConfig, Addresses as AaAddresses, Codecs};
-use livi_core_proto::config::{
-    AppearanceMode, CarType, ClusterContent, Config, DockPosition, HandDriveType,
-};
+use livi_core_proto::config::{CarType, ClusterContent, Config, DockPosition, HandDriveType};
 use livi_core_proto::icon::{
     DEFAULT_120 as ICON_120, DEFAULT_180 as ICON_180, DEFAULT_256 as ICON_256,
 };
@@ -518,15 +516,7 @@ fn aa_config(cfg: &Config, codecs: Codecs, addresses: &Addresses) -> AaConfig {
         wifi_bssid: known(&addresses.wifi_bssid),
         access_point: addresses.access_point.clone(),
     };
-    livi_aa_stack::config::from_livi(cfg, codecs, night_mode(cfg.appearance_mode), &addresses)
-}
-
-pub fn night_mode(mode: AppearanceMode) -> Option<bool> {
-    match mode {
-        AppearanceMode::Night => Some(true),
-        AppearanceMode::Day => Some(false),
-        AppearanceMode::Auto => None,
-    }
+    livi_aa_stack::config::from_livi(cfg, codecs, cfg.appearance_mode.night_mode(), &addresses)
 }
 
 pub struct ConfigSource {

@@ -1,7 +1,7 @@
 use crate::channels::text;
-use crate::consts::playback_msg;
 use crate::log::{detail, hex};
 use crate::wire::{decode_fields, decode_varint_value};
+use livi_aa_proto::consts::playback_msg;
 
 #[derive(Debug, Clone, Default, PartialEq, Eq)]
 pub struct MediaPlaybackMetadata {

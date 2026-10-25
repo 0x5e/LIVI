@@ -76,14 +76,6 @@ fn with_source(key: &str, incoming: &Value) -> Value {
     }
 }
 
-fn night_of(mode: AppearanceMode) -> Option<bool> {
-    match mode {
-        AppearanceMode::Night => Some(true),
-        AppearanceMode::Day => Some(false),
-        AppearanceMode::Auto => None,
-    }
-}
-
 fn valid(lat: f64, lng: f64) -> bool {
     lat.is_finite()
         && lng.is_finite()
@@ -142,7 +134,7 @@ impl Telemetry {
 
     fn seed(&mut self, cfg: &Config, saved: &Saved) {
         let mut patch = Snapshot::new();
-        if let Some(night) = night_of(cfg.appearance_mode) {
+        if let Some(night) = cfg.appearance_mode.night_mode() {
             patch.insert("nightMode".into(), night.into());
         }
         if let Some(fix) = saved.gps.as_ref().and_then(last_fix) {
@@ -227,7 +219,7 @@ impl Telemetry {
             return;
         }
         self.appearance = mode;
-        if let Some(night) = night_of(mode) {
+        if let Some(night) = mode.night_mode() {
             self.push(&json!({ "nightMode": night, "clusterNightMode": null }))
                 .await;
         }

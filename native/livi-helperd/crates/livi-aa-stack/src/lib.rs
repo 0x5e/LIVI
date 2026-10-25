@@ -4,7 +4,6 @@ pub mod channels;
 pub mod codec;
 pub mod commands;
 pub mod config;
-pub mod consts;
 pub mod control;
 pub mod discovery;
 pub mod helper_sock;

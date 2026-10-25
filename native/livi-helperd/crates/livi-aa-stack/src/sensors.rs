@@ -1,6 +1,6 @@
 use livi_aa_proto::{
     CarLocation, CurrentGear, DrivingStatus, EngineRpm, EnvironmentConditions, FuelLevel,
-    LightStates, NightMode, Odometer, ParkingBrake, SensorBatchNotification, TirePressures,
+    LightStates, NightModeData, Odometer, ParkingBrake, SensorBatchNotification, TirePressures,
     VehicleSpeed,
 };
 use prost::Message;
@@ -132,8 +132,8 @@ pub fn batch(sensor: &Sensor) -> Option<Vec<u8>> {
         }
         Sensor::Rpm(rpm_e3) => b.engine_rpms.push(EngineRpm { rpm_e3 }),
         Sensor::Gear(gear) => b.gears.push(CurrentGear { gear }),
-        Sensor::NightMode(night) => b.night_modes.push(NightMode {
-            night_mode_active: Some(night),
+        Sensor::NightMode(night) => b.night_mode_data.push(NightModeData {
+            night_mode: Some(night),
         }),
         Sensor::ParkingBrake(engaged) => b.parking_brakes.push(ParkingBrake { engaged }),
         Sensor::Light {

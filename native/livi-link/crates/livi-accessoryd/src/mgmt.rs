@@ -1,7 +1,5 @@
 use std::io::{Read, Write};
 use std::os::fd::{AsRawFd, FromRawFd, OwnedFd};
-
-const AF_BLUETOOTH: libc::c_int = 31;
 const BTPROTO_HCI: libc::c_int = 1;
 const HCI_CHANNEL_CONTROL: u16 = 3;
 const HCI_DEV_NONE: u16 = 0xffff;
@@ -66,7 +64,7 @@ impl Mgmt {
     pub fn open() -> Result<Self, String> {
         let raw = unsafe {
             libc::socket(
-                AF_BLUETOOTH,
+                libc::AF_BLUETOOTH,
                 libc::SOCK_RAW | libc::SOCK_CLOEXEC,
                 BTPROTO_HCI,
             )
@@ -76,7 +74,7 @@ impl Mgmt {
         }
         let fd = unsafe { OwnedFd::from_raw_fd(raw) };
         let addr = SockaddrHci {
-            family: AF_BLUETOOTH as libc::sa_family_t,
+            family: libc::AF_BLUETOOTH as libc::sa_family_t,
             dev: HCI_DEV_NONE,
             channel: HCI_CHANNEL_CONTROL,
         };

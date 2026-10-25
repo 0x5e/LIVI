@@ -1,24 +1,17 @@
 use std::path::PathBuf;
 use std::time::Duration;
 
+pub use livi_session_io::line::Feed;
+use livi_session_io::line::LineSock;
 use serde_json::Value;
-use tokio::io::{AsyncBufReadExt, AsyncWriteExt, BufReader};
-use tokio::net::UnixStream;
 use tokio::sync::mpsc;
 
 pub const SOCK_PATH: &str = "/tmp/aa-bt.sock";
-const LABEL: &str = "aa sock";
 const TIMEOUT: Duration = Duration::from_secs(5);
-
-#[derive(Debug, Clone, PartialEq)]
-pub enum Feed {
-    Connected,
-    Event(Value),
-}
 
 #[derive(Debug, Clone)]
 pub struct AaHelperSock {
-    path: PathBuf,
+    sock: LineSock,
 }
 
 impl Default for AaHelperSock {
@@ -29,31 +22,13 @@ impl Default for AaHelperSock {
 
 impl AaHelperSock {
     pub fn new(path: impl Into<PathBuf>) -> Self {
-        Self { path: path.into() }
+        Self {
+            sock: LineSock::new(path, "aa sock"),
+        }
     }
 
     pub async fn request(&self, line: &str) -> Result<Value, String> {
-        let exchange = async {
-            let mut sock = UnixStream::connect(&self.path)
-                .await
-                .map_err(|e| format!("{LABEL} error: {e}"))?;
-            sock.write_all(format!("{line}\n").as_bytes())
-                .await
-                .map_err(|e| format!("{LABEL} error: {e}"))?;
-            let mut answer = String::new();
-            BufReader::new(sock)
-                .read_line(&mut answer)
-                .await
-                .map_err(|e| format!("{LABEL} error: {e}"))?;
-            if !answer.ends_with('\n') {
-                return Err(format!("{LABEL} closed without response"));
-            }
-            let json = answer.trim_end_matches('\n');
-            serde_json::from_str(json).map_err(|e| format!("{LABEL} bad json: {json} ({e})"))
-        };
-        tokio::time::timeout(TIMEOUT, exchange)
-            .await
-            .map_err(|_| format!("{LABEL} timeout after {}ms", TIMEOUT.as_millis()))?
+        self.sock.request(line, TIMEOUT).await
     }
 
     pub async fn set_wired_phones(&self, ids: &[String]) -> Result<Value, String> {
@@ -75,35 +50,8 @@ impl AaHelperSock {
     }
 
     pub fn subscribe(&self, retry: Duration) -> mpsc::UnboundedReceiver<Feed> {
-        let (tx, rx) = mpsc::unbounded_channel();
-        let path = self.path.clone();
-        tokio::spawn(async move {
-            while !tx.is_closed() {
-                if let Ok(mut sock) = UnixStream::connect(&path).await
-                    && sock.write_all(b"subscribe\n").await.is_ok()
-                {
-                    let _ = tx.send(Feed::Connected);
-                    let mut lines = BufReader::new(sock).lines();
-                    loop {
-                        let line = tokio::select! {
-                            line = lines.next_line() => line,
-                            () = tx.closed() => return,
-                        };
-                        let Ok(Some(line)) = line else { break };
-                        if let Ok(event @ Value::Object(_)) = serde_json::from_str::<Value>(&line)
-                            && event.get("event").is_some()
-                        {
-                            let _ = tx.send(Feed::Event(event));
-                        }
-                    }
-                }
-                tokio::select! {
-                    () = tokio::time::sleep(retry) => {}
-                    () = tx.closed() => return,
-                }
-            }
-        });
-        rx
+        self.sock
+            .subscribe(retry, |event| event.get("event").is_some())
     }
 }
 
@@ -112,6 +60,7 @@ pub(crate) mod tests {
     use std::path::Path;
     use std::sync::{Arc, Mutex};
 
+    use tokio::io::{AsyncBufReadExt, AsyncWriteExt, BufReader};
     use tokio::net::UnixListener;
 
     use super::*;
@@ -211,7 +160,7 @@ pub(crate) mod tests {
                 .unwrap_err()
                 .starts_with("aa sock error")
         );
-        assert_eq!(AaHelperSock::default().path, PathBuf::from(SOCK_PATH));
+        assert_eq!(AaHelperSock::default().sock.path(), Path::new(SOCK_PATH));
     }
 
     #[tokio::test]

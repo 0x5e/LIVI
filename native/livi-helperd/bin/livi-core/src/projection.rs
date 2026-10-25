@@ -29,7 +29,6 @@ use tokio::sync::{Notify, broadcast, mpsc, oneshot, watch};
 
 use crate::aa_telemetry::{self, AaTelemetry};
 use crate::android_auto;
-use crate::carplay::night_mode;
 use crate::cp_telemetry::{CpTelemetry, FROM_CARPLAY};
 use crate::devices::{self, Devices, Seen};
 use crate::hands_free::{self, Back, HandsFree, Io};
@@ -587,7 +586,7 @@ impl Projection {
             themes,
         } = drivers;
         let cfg = hub.config();
-        cp.send(CpCmd::InitialNightMode(night_mode(cfg.appearance_mode)));
+        cp.send(CpCmd::InitialNightMode(cfg.appearance_mode.night_mode()));
         let cluster_on = shows_cluster(&wants);
         cp.send(CpCmd::ClusterActive(cluster_on));
         aa.send(AaCmd::ClusterActive(cluster_on));

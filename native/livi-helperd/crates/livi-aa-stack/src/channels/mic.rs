@@ -2,8 +2,8 @@ use livi_aa_proto::{MediaStartNotification, MessageStatus, MicrophoneRequest, Mi
 
 use crate::channels::{Emit, Frame};
 use crate::codec::{decode, encode};
-use crate::consts::{frame_flags, media_msg};
 use crate::log::{debug, detail};
+use livi_aa_proto::consts::{frame_flags, media_msg};
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum MicEvent {
@@ -113,7 +113,7 @@ impl MicChannel {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::consts::ch;
+    use livi_aa_proto::consts::ch;
 
     #[test]
     fn opening_announces_the_stream_once() {

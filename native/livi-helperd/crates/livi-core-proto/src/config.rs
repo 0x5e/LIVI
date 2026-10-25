@@ -205,6 +205,16 @@ pub enum AppearanceMode {
     Day,
 }
 
+impl AppearanceMode {
+    pub fn night_mode(self) -> Option<bool> {
+        match self {
+            AppearanceMode::Night => Some(true),
+            AppearanceMode::Day => Some(false),
+            AppearanceMode::Auto => None,
+        }
+    }
+}
+
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub enum SpeedUnit {

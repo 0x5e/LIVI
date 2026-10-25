@@ -25,8 +25,6 @@ fn keys_path() -> String {
 fn wifid_ap_name() -> Option<String> {
     NAME_SOURCE.get().and_then(|f| f())
 }
-
-const AF_BLUETOOTH: libc::c_int = 31;
 const BTPROTO_RFCOMM: libc::c_int = 3;
 const KEY_LEN: usize = 25;
 
@@ -216,7 +214,7 @@ fn attend(host: &Mutex<Option<TcpStream>>) {
 fn rfcomm(channel: u8) -> Result<OwnedFd, String> {
     let raw = unsafe {
         libc::socket(
-            AF_BLUETOOTH,
+            libc::AF_BLUETOOTH,
             libc::SOCK_STREAM | libc::SOCK_CLOEXEC,
             BTPROTO_RFCOMM,
         )
@@ -229,7 +227,7 @@ fn rfcomm(channel: u8) -> Result<OwnedFd, String> {
     }
     let fd = unsafe { OwnedFd::from_raw_fd(raw) };
     let addr = SockaddrRc {
-        family: AF_BLUETOOTH as libc::sa_family_t,
+        family: libc::AF_BLUETOOTH as libc::sa_family_t,
         bdaddr: [0; 6],
         channel,
     };

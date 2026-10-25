@@ -5,7 +5,7 @@ use livi_aa_proto::{
 
 use crate::channels::Frame;
 use crate::codec::encode;
-use crate::consts::{ch, frame_flags, input_msg};
+use livi_aa_proto::consts::{ch, frame_flags, input_msg};
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct TouchPointer {

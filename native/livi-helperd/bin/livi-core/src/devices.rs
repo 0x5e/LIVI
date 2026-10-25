@@ -3,10 +3,9 @@ use std::time::{Duration, SystemTime, UNIX_EPOCH};
 
 use livi_core_proto::state::{DeviceStatus, DeviceView, Protocol};
 use livi_cp::helper_sock::HelperSock;
+use livi_session_io::line::LineSock;
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
-use tokio::io::{AsyncBufReadExt, AsyncWriteExt, BufReader};
-use tokio::net::UnixStream;
 
 const SHARED_SOCK: &str = "/tmp/livi-shared.sock";
 const IAP_PROFILE_UUID: &str = "00000000-deca-fade-deca-deafdecacafe";
@@ -595,23 +594,9 @@ impl Devices {
 }
 
 pub async fn shared(line: String, within: Duration) -> Result<Value, String> {
-    let exchange = async {
-        let mut sock = UnixStream::connect(SHARED_SOCK)
-            .await
-            .map_err(|e| e.to_string())?;
-        sock.write_all(format!("{line}\n").as_bytes())
-            .await
-            .map_err(|e| e.to_string())?;
-        let mut answer = String::new();
-        BufReader::new(sock)
-            .read_line(&mut answer)
-            .await
-            .map_err(|e| e.to_string())?;
-        serde_json::from_str::<Value>(answer.trim_end()).map_err(|e| e.to_string())
-    };
-    tokio::time::timeout(within, exchange)
+    LineSock::new(SHARED_SOCK, "shared sock")
+        .request(&line, within)
         .await
-        .map_err(|_| "timed out".to_string())?
 }
 
 pub async fn wake(mac: String, protocol: Option<Protocol>) {

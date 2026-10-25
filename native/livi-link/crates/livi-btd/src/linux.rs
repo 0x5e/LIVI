@@ -8,8 +8,6 @@ use std::sync::Arc;
 use std::sync::atomic::{AtomicBool, Ordering};
 
 use livi_net::port::{ACCESSORY, HCI};
-
-const AF_BLUETOOTH: libc::c_int = 31;
 const BTPROTO_HCI: libc::c_int = 1;
 const HCI_CHANNEL_USER: u16 = 1;
 const DEV: u16 = 0;
@@ -141,7 +139,7 @@ fn await_controller() -> bool {
 fn claim() -> Result<OwnedFd, String> {
     let raw = unsafe {
         libc::socket(
-            AF_BLUETOOTH,
+            libc::AF_BLUETOOTH,
             libc::SOCK_RAW | libc::SOCK_CLOEXEC,
             BTPROTO_HCI,
         )
@@ -151,7 +149,7 @@ fn claim() -> Result<OwnedFd, String> {
     }
     let fd = unsafe { OwnedFd::from_raw_fd(raw) };
     let addr = SockaddrHci {
-        family: AF_BLUETOOTH as libc::sa_family_t,
+        family: libc::AF_BLUETOOTH as libc::sa_family_t,
         dev: DEV,
         channel: HCI_CHANNEL_USER,
     };

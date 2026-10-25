@@ -6,8 +6,8 @@ use livi_aa_proto::{
 
 use crate::channels::{Emit, Frame};
 use crate::codec::{decode, encode};
-use crate::consts::{ch, ctrl_msg, frame_flags, media_msg};
 use crate::log::{debug, detail, hex};
+use livi_aa_proto::consts::{ch, ctrl_msg, frame_flags, media_msg};
 
 const OK: i32 = MessageStatus::Success as i32;
 

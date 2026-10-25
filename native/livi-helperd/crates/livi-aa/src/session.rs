@@ -15,6 +15,7 @@ use crate::av;
 use crate::consts::*;
 use crate::frame::{self, FrameParser, FrameSplitter, RawFrame};
 use crate::tls::{Message, TlsEngine};
+use livi_aa_proto::consts::{ch, ctrl_msg, frame_flags, media_msg};
 use livi_session_io::feed::FeedWriter;
 use livi_session_io::link;
 
@@ -367,9 +368,9 @@ impl<W: AsyncWrite + Unpin + Send> Session<W> {
         let mut data = VERSION_MAJOR.to_be_bytes().to_vec();
         data.extend_from_slice(&VERSION_MINOR.to_be_bytes());
         self.write(&frame::encode(
-            CH_CONTROL,
-            FLAGS_PLAINTEXT,
-            CTRL_VERSION_REQUEST,
+            ch::CONTROL,
+            frame_flags::PLAINTEXT,
+            ctrl_msg::VERSION_REQUEST,
             &data,
         ))
         .await
@@ -432,14 +433,14 @@ impl<W: AsyncWrite + Unpin + Send> Session<W> {
     }
 
     async fn on_setup_frame(&mut self, f: RawFrame) -> Result<(), String> {
-        if f.flags & FLAG_ENCRYPTED != 0 {
+        if f.flags & frame_flags::ENCRYPTED != 0 {
             return self.on_encrypted(f).await;
         }
         let Some((msg_id, body)) = f.message() else {
             return Ok(());
         };
         match (msg_id, &self.phase) {
-            (CTRL_VERSION_RESPONSE, Phase::Version) => {
+            (ctrl_msg::VERSION_RESPONSE, Phase::Version) => {
                 if body.len() < 6 {
                     return Err("version response too short".into());
                 }
@@ -458,14 +459,14 @@ impl<W: AsyncWrite + Unpin + Send> Session<W> {
                 self.tls = Some(tls);
                 self.phase = Phase::Handshake;
                 self.write(&frame::encode(
-                    CH_CONTROL,
-                    FLAGS_PLAINTEXT,
-                    CTRL_ENCAPSULATED_SSL,
+                    ch::CONTROL,
+                    frame_flags::PLAINTEXT,
+                    ctrl_msg::ENCAPSULATED_SSL,
                     &hello,
                 ))
                 .await
             }
-            (CTRL_ENCAPSULATED_SSL, Phase::Handshake) => {
+            (ctrl_msg::ENCAPSULATED_SSL, Phase::Handshake) => {
                 let body = body.to_vec();
                 let tls = self.tls.as_mut().ok_or("no tls")?;
                 tls.inject_handshake(&body).map_err(|e| e.to_string())?;
@@ -473,9 +474,9 @@ impl<W: AsyncWrite + Unpin + Send> Session<W> {
                 let done = !tls.is_handshaking();
                 if !out.is_empty() {
                     self.write(&frame::encode(
-                        CH_CONTROL,
-                        FLAGS_PLAINTEXT,
-                        CTRL_ENCAPSULATED_SSL,
+                        ch::CONTROL,
+                        frame_flags::PLAINTEXT,
+                        ctrl_msg::ENCAPSULATED_SSL,
                         &out,
                     ))
                     .await?;
@@ -518,7 +519,7 @@ impl<W: AsyncWrite + Unpin + Send> Session<W> {
     }
 
     async fn on_frame(&mut self, f: RawFrame) -> Result<(), String> {
-        if f.flags & FLAG_ENCRYPTED == 0 {
+        if f.flags & frame_flags::ENCRYPTED == 0 {
             if let Some((msg_id, body)) = f.message() {
                 let body = body.to_vec();
                 self.forward(f.ch, f.flags, msg_id, &body).await?;
@@ -544,7 +545,7 @@ impl<W: AsyncWrite + Unpin + Send> Session<W> {
             if is_media_message(m.msg_id) {
                 return self.media(m).await;
             }
-            if m.msg_id == MEDIA_START {
+            if m.msg_id == media_msg::START {
                 self.session_ids
                     .insert(m.ch, av::start_session_id(&m.payload).unwrap_or(0));
             }
@@ -559,7 +560,12 @@ impl<W: AsyncWrite + Unpin + Send> Session<W> {
                 .tls
                 .as_mut()
                 .ok_or("no tls")?
-                .encrypt(m.ch, FLAGS_ENC_SIGNAL, MEDIA_ACK, &av::ack(session_id))
+                .encrypt(
+                    m.ch,
+                    frame_flags::ENC_SIGNAL,
+                    media_msg::ACK,
+                    &av::ack(session_id),
+                )
                 .map_err(|e| e.to_string())?;
             self.write(&ack).await?;
         }
@@ -592,7 +598,12 @@ impl<W: AsyncWrite + Unpin + Send> Session<W> {
             .tls
             .as_mut()
             .ok_or("no tls")?
-            .encrypt(CH_MIC_INPUT, FLAGS_ENC_SIGNAL, MEDIA_DATA, &payload)
+            .encrypt(
+                ch::MIC_INPUT,
+                frame_flags::ENC_SIGNAL,
+                media_msg::DATA,
+                &payload,
+            )
             .map_err(|e| e.to_string())?;
         self.write(&wire).await
     }
@@ -604,7 +615,7 @@ impl<W: AsyncWrite + Unpin + Send> Session<W> {
         msg_id: u16,
         payload: &[u8],
     ) -> Result<(), String> {
-        let wire = if flags & FLAG_ENCRYPTED != 0 {
+        let wire = if flags & frame_flags::ENCRYPTED != 0 {
             let Some(tls) = self.tls.as_mut() else {
                 eprintln!(
                     "[aa-session] {}: encrypted message before tls, dropped",

@@ -126,12 +126,11 @@ mod tests {
     use tokio::io::{AsyncReadExt, AsyncWriteExt};
     use tokio::net::UnixStream;
 
+    use livi_host_proto::ops::{OP_VISUALIZER, REPLY_VISUALIZER};
+
     use super::*;
     use crate::config_file::defaults;
     use crate::config_file::tests::TempDir;
-
-    const OP_VISUALIZER: u8 = 15;
-    const REPLY_VISUALIZER: u8 = 6;
 
     struct FakeHost {
         stream: UnixStream,

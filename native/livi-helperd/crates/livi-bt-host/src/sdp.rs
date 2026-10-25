@@ -431,6 +431,25 @@ mod tests {
     }
 
     #[test]
+    fn the_browse_root_finds_every_record() {
+        for r in every() {
+            assert!(wanted(&uuid16(UUID_BROWSE_ROOT), r));
+        }
+        assert!(!wanted(&uuid16(HANDS_FREE), &IAP));
+        assert!(wanted(&uuid128(&CARPLAY_UUID), &CARPLAY));
+        assert!(!wanted(&uuid128(&CARPLAY_UUID), &IAP));
+    }
+
+    #[test]
+    fn a_range_covers_every_attribute() {
+        assert!(asked(&ALL, 0x0000));
+        assert!(asked(&ALL, 0x0100));
+        let one = uint16(0x0004);
+        assert!(asked(&one, 0x0004));
+        assert!(!asked(&one, 0x0005));
+    }
+
+    #[test]
     fn only_records_on_offer_are_found() {
         let search = |offered: &[&Record], pattern: &[u8]| {
             let req = packet(REQ_SERVICE_SEARCH, 1, &[seq(pattern), vec![0, 10]].concat());

@@ -436,7 +436,7 @@ async fn levels_follow_the_config_and_the_ducking() {
         active: false,
     });
     assert!(rig.drain().is_empty());
-    assert_eq!(night_mode(AppearanceMode::Day), Some(false));
+    assert_eq!(AppearanceMode::Day.night_mode(), Some(false));
 }
 
 #[tokio::test]

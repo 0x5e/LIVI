@@ -1,10 +1,12 @@
 use livi_aa_proto::{MediaAckNotification, MediaStartNotification};
 use prost::Message;
 
-use crate::consts::{MEDIA_DATA, is_video_channel};
+use livi_aa_proto::consts::media_msg;
+
+use crate::consts::is_video_channel;
 
 pub fn media(msg_id: u16, payload: &[u8]) -> (Option<u64>, &[u8]) {
-    if msg_id == MEDIA_DATA && payload.len() >= 8 {
+    if msg_id == media_msg::DATA && payload.len() >= 8 {
         let ts = u64::from_be_bytes(payload[..8].try_into().unwrap());
         return (Some(ts), &payload[8..]);
     }
@@ -32,19 +34,20 @@ pub fn wants_ack(protocol: (u16, u16), ch: u8) -> bool {
 
 #[cfg(test)]
 mod tests {
+    use livi_aa_proto::consts::ch;
+
     use super::*;
-    use crate::consts::MEDIA_CODEC_CONFIG;
 
     #[test]
     fn timestamped_media_is_split() {
         let mut payload = 12345u64.to_be_bytes().to_vec();
         payload.extend_from_slice(b"nal");
-        assert_eq!(media(MEDIA_DATA, &payload), (Some(12345), &b"nal"[..]));
+        assert_eq!(media(media_msg::DATA, &payload), (Some(12345), &b"nal"[..]));
     }
 
     #[test]
     fn plain_media_has_no_timestamp() {
-        assert_eq!(media(MEDIA_CODEC_CONFIG, b"sps"), (None, &b"sps"[..]));
+        assert_eq!(media(media_msg::CODEC_CONFIG, b"sps"), (None, &b"sps"[..]));
     }
 
     #[test]
@@ -63,12 +66,11 @@ mod tests {
 
     #[test]
     fn acks_end_with_the_protocol() {
-        use crate::consts::{CH_CLUSTER_VIDEO, CH_MEDIA_AUDIO, CH_VIDEO};
-        assert!(wants_ack((1, 7), CH_VIDEO));
-        assert!(wants_ack((5, 1), CH_CLUSTER_VIDEO));
-        assert!(!wants_ack((6, 0), CH_VIDEO));
-        assert!(wants_ack((4, 9), CH_MEDIA_AUDIO));
-        assert!(!wants_ack((5, 0), CH_MEDIA_AUDIO));
-        assert!(!wants_ack((6, 1), CH_MEDIA_AUDIO));
+        assert!(wants_ack((1, 7), ch::VIDEO));
+        assert!(wants_ack((5, 1), ch::CLUSTER_VIDEO));
+        assert!(!wants_ack((6, 0), ch::VIDEO));
+        assert!(wants_ack((4, 9), ch::MEDIA_AUDIO));
+        assert!(!wants_ack((5, 0), ch::MEDIA_AUDIO));
+        assert!(!wants_ack((6, 1), ch::MEDIA_AUDIO));
     }
 }

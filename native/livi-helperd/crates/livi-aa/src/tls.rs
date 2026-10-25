@@ -12,8 +12,8 @@ use rustls::sign::CertifiedKey;
 use rustls::{ClientConfig, ClientConnection, DigitallySignedStruct, SignatureScheme};
 
 use crate::cert::{HU_CERT_PEM, HU_KEY_PEM};
-use crate::consts::{FLAG_FIRST, FLAG_LAST};
 use crate::frame;
+use livi_aa_proto::consts::frame_flags;
 
 #[derive(Debug, PartialEq, Eq)]
 pub struct Message {
@@ -174,8 +174,8 @@ impl TlsEngine {
         if plain.is_empty() {
             return Ok(out);
         }
-        let first = flags & FLAG_FIRST != 0;
-        let last = flags & FLAG_LAST != 0;
+        let first = flags & frame_flags::FIRST != 0;
+        let last = flags & frame_flags::LAST != 0;
         if first && last {
             out.extend(message(ch, flags, plain));
             return Ok(out);
@@ -244,7 +244,6 @@ fn message(ch: u8, flags: u8, buf: Vec<u8>) -> Option<Message> {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::consts::FLAGS_ENC_SIGNAL;
     use crate::frame::FrameSplitter;
     use rustls::server::{ClientHello, ResolvesServerCert};
     use rustls::{ServerConfig, ServerConnection};
@@ -309,7 +308,7 @@ mod tests {
         let (mut hu, mut phone) = handshake();
         phone.writer().write_all(&[0x80, 0x01, 0x08, 0x07]).unwrap();
         let records = pump(&mut phone, &[]);
-        let wire = frame::encode_records(3, FLAGS_ENC_SIGNAL, &records);
+        let wire = frame::encode_records(3, frame_flags::ENC_SIGNAL, &records);
 
         let mut s = FrameSplitter::default();
         s.push(&wire);
@@ -319,7 +318,7 @@ mod tests {
             msgs,
             vec![Message {
                 ch: 3,
-                flags: FLAGS_ENC_SIGNAL,
+                flags: frame_flags::ENC_SIGNAL,
                 msg_id: 0x8001,
                 payload: vec![8, 7]
             }]
@@ -330,12 +329,12 @@ mod tests {
     fn a_message_to_the_phone_arrives_in_clear() {
         let (mut hu, mut phone) = handshake();
         let wire = hu
-            .encrypt(4, FLAGS_ENC_SIGNAL, 0x8004, &[8, 1, 16, 1])
+            .encrypt(4, frame_flags::ENC_SIGNAL, 0x8004, &[8, 1, 16, 1])
             .unwrap();
         let mut s = FrameSplitter::default();
         s.push(&wire);
         let f = s.next_frame().unwrap();
-        assert_eq!((f.ch, f.flags), (4, FLAGS_ENC_SIGNAL));
+        assert_eq!((f.ch, f.flags), (4, frame_flags::ENC_SIGNAL));
         pump(&mut phone, &f.payload);
         let mut clear = Vec::new();
         phone.reader().read_to_end(&mut clear).ok();

@@ -1,6 +1,6 @@
-use crate::consts::{ch, media_msg};
 use crate::log::{debug, detail};
 use crate::wire::decode_start;
+use livi_aa_proto::consts::{ch, media_msg};
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub enum AudioChannelType {

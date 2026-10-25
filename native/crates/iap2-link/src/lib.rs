@@ -152,6 +152,7 @@ pub enum Event {
 pub struct LinkConfig {
     pub max_outgoing: u8,
     pub max_outgoing_delta: u16,
+    pub max_len: u16,
     pub ack_timeout_ms: u16,
     pub zero_ack: bool,
     pub control_version: u8,
@@ -162,6 +163,7 @@ impl Default for LinkConfig {
         Self {
             max_outgoing: 30,
             max_outgoing_delta: 0,
+            max_len: 65535,
             ack_timeout_ms: 500,
             zero_ack: false,
             control_version: 1,
@@ -221,7 +223,7 @@ impl LinkEngine {
             state: LinkState::Idle,
             lsp: LinkSynchronizationPayload {
                 max_outgoing: cfg.max_outgoing,
-                max_len: 65535,
+                max_len: cfg.max_len,
                 retransmission_timeout: if z { 0 } else { 4000 },
                 ack_timeout: if z { 0 } else { cfg.ack_timeout_ms },
                 max_retransmissions: if z { 0 } else { 4 },

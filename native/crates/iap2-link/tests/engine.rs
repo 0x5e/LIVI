@@ -71,6 +71,16 @@ fn lsp_pack_matches_reference() {
 }
 
 #[test]
+fn lsp_takes_the_packet_ceiling_from_the_config() {
+    let slow = LinkEngine::new(LinkConfig {
+        max_len: 4096,
+        ..LinkConfig::default()
+    });
+    assert_eq!(slow.lsp.max_len, 4096);
+    assert_eq!(LinkEngine::new(LinkConfig::default()).lsp.max_len, 65535);
+}
+
+#[test]
 fn initiator_start_emits_marker_and_syn() {
     let mut e = LinkEngine::new(LinkConfig::default());
     e.start(true, 0);

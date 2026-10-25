@@ -365,9 +365,20 @@ build_vc4() {
     fi
   fi
 
-  echo "→ Building the vc4 module only (clean rebuild)"
+  local jobs mem_kb
+  if [[ -n "${JOBS:-}" ]]; then
+    jobs="$JOBS"
+  else
+    jobs="$(nproc)"
+    mem_kb="$(awk '/^MemTotal:/{print $2}' /proc/meminfo 2>/dev/null || echo 0)"
+    if [[ "$mem_kb" -gt 0 && "$mem_kb" -lt 768000 && "$jobs" -gt 2 ]]; then
+      jobs=2
+    fi
+  fi
+
+  echo "→ Building the vc4 module only (clean rebuild, -j${jobs})"
   make -C "$KSRC" LOCALVERSION="$lv" M=drivers/gpu/drm/vc4 clean >/dev/null 2>&1 || true
-  make -C "$KSRC" LOCALVERSION="$lv" -j"$(nproc)" M=drivers/gpu/drm/vc4 modules
+  make -C "$KSRC" LOCALVERSION="$lv" -j"$jobs" M=drivers/gpu/drm/vc4 modules
 
   built="${KSRC}/drivers/gpu/drm/vc4/vc4.ko"
   [[ -f "$built" ]] || { echo "build produced no vc4.ko" >&2; exit 1; }

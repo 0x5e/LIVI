@@ -52,6 +52,32 @@ mod kernel {
     const BT_DEFER_SETUP: libc::c_int = 7;
     const BT_VOICE: libc::c_int = 11;
     const VOICE_CVSD_16BIT: u16 = 0x0060;
+    const CONNECT_WAIT_MS: libc::c_int = 5000;
+
+    fn connected(fd: &OwnedFd) -> std::io::Result<()> {
+        let mut pfd = libc::pollfd {
+            fd: fd.as_raw_fd(),
+            events: libc::POLLOUT,
+            revents: 0,
+        };
+        loop {
+            let rc = unsafe { libc::poll(&raw mut pfd, 1, CONNECT_WAIT_MS) };
+            if rc < 0 {
+                let e = std::io::Error::last_os_error();
+                if e.kind() == std::io::ErrorKind::Interrupted {
+                    continue;
+                }
+                return Err(e);
+            }
+            if rc == 0 {
+                return Err(std::io::ErrorKind::TimedOut.into());
+            }
+            if pfd.revents & (libc::POLLERR | libc::POLLHUP | libc::POLLNVAL) != 0 {
+                return Err(std::io::ErrorKind::NotConnected.into());
+            }
+            return Ok(());
+        }
+    }
 
     fn set<T>(
         fd: &OwnedFd,
@@ -142,6 +168,7 @@ mod kernel {
         if unsafe { libc::read(fd.as_raw_fd(), first.as_mut_ptr().cast(), 1) } < 0 {
             return Err(std::io::Error::last_os_error());
         }
+        connected(&fd)?;
         let mut opts = ScoOptions { mtu: 48 };
         let mut len = std::mem::size_of::<ScoOptions>() as libc::socklen_t;
         unsafe {

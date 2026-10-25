@@ -3,8 +3,6 @@ use std::path::Path;
 use crate::dongle::shell::BindShell;
 use crate::dongle::{Remote, lfwb};
 
-pub const PROJECT: &str = "ly6238";
-
 pub const MTD1_SIZE: u64 = 0x0031_0000;
 pub const MTD3_SIZE: u64 = 0x0048_0000;
 

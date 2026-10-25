@@ -8,14 +8,7 @@ pub fn ly_project(appver: &str) -> Option<String> {
     appver.split('.').nth(1).map(|v| format!("ly{v}"))
 }
 
-pub fn check_project(actual: &str, expected: Option<&str>) -> Result<(), String> {
-    match expected {
-        Some(want) if want != actual => Err(format!("this dongle is project {actual}, not {want}")),
-        _ => Ok(()),
-    }
-}
-
-pub fn install_bindshell(expected: Option<&str>, cache: &Path) -> Result<(), String> {
+pub fn install_bindshell(cache: &Path) -> Result<(), String> {
     if shell::is_up() {
         println!("bind-shell already listening on 2323 — skipping OTA upload");
         return Ok(());
@@ -33,7 +26,6 @@ pub fn install_bindshell(expected: Option<&str>, cache: &Path) -> Result<(), Str
             info.sys.appver
         )
     })?;
-    check_project(&project, expected)?;
     println!(
         "dongle: {} appver={} project={project}",
         info.name, info.sys.appver
@@ -50,8 +42,6 @@ pub fn install_bindshell(expected: Option<&str>, cache: &Path) -> Result<(), Str
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::dongle::arm::ax520;
-    use crate::dongle::riscv::v821b;
 
     #[test]
     fn ly_project_reads_the_second_dotted_field() {
@@ -62,13 +52,5 @@ mod tests {
     #[test]
     fn ly_project_gives_up_on_something_that_is_not_dotted() {
         assert_eq!(ly_project("nope"), None);
-    }
-
-    #[test]
-    fn a_dongle_of_another_family_is_refused_before_anything_is_uploaded() {
-        assert!(check_project(ax520::PROJECT, Some(v821b::PROJECT)).is_err());
-        assert!(check_project(v821b::PROJECT, Some(ax520::PROJECT)).is_err());
-        assert!(check_project(ax520::PROJECT, Some(ax520::PROJECT)).is_ok());
-        assert!(check_project(ax520::PROJECT, None).is_ok());
     }
 }

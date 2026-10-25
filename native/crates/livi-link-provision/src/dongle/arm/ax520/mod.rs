@@ -3,8 +3,6 @@ use std::path::Path;
 use crate::dongle::shell::BindShell;
 use crate::dongle::{Remote, lfwb, mtd_is};
 
-pub const PROJECT: &str = "ly7129";
-
 pub const BOOT_MTD: u8 = 3;
 pub const CUSTOMER_MTD: u8 = 5;
 pub const ROOTFS_MTD: u8 = 6;

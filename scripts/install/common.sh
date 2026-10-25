@@ -20,6 +20,8 @@ LIVI_MFI_I2C_BUS=""
 LIVI_MFI_POWER_GPIO="21"
 LIVI_APP_CONFIG="${LIVI_APP_CONFIG:-$HOME/.config/LIVI/config.json}"
 LIVI_MFI_OVERLAY_MATCH='^dtoverlay=i2c-gpio,.*i2c_gpio_sda=19'
+LIVI_I2C_DEVICES="${LIVI_I2C_DEVICES:-/sys/bus/i2c/devices}"
+LIVI_DEVICE_TREE="${LIVI_DEVICE_TREE:-/proc/device-tree}"
 LIVI_MODULES_LOAD="${LIVI_MODULES_LOAD:-/etc/modules-load.d/livi-i2c.conf}"
 LIVI_NM_POWERSAVE_FILE="/etc/NetworkManager/conf.d/99-LIVI-wifi-powersave.conf"
 LIVI_NM_PMF_FILE="/etc/NetworkManager/conf.d/99-LIVI-wifi-pmf.conf"
@@ -650,10 +652,28 @@ livi_seed_mfi_config() {
   printf '%s\n' "$cfg" > "$LIVI_APP_CONFIG"
 }
 
+livi_i2c_dt_claimed() {
+  local alias="$LIVI_DEVICE_TREE/aliases/i2c$1" node status=okay
+  [ -r "$alias" ] || return 1
+  node="$(tr -d '\0' < "$alias")"
+  [ -n "$node" ] && [ -d "$LIVI_DEVICE_TREE$node" ] || return 1
+  if [ -r "$LIVI_DEVICE_TREE$node/status" ]; then
+    status="$(tr -d '\0' < "$LIVI_DEVICE_TREE$node/status")"
+  fi
+  [ "$status" = okay ] || [ "$status" = ok ]
+}
+
+livi_i2c_free() {
+  [ ! -e "$LIVI_I2C_DEVICES/i2c-$1" ] && ! livi_i2c_dt_claimed "$1"
+}
+
 livi_i2c_free_or_gpio() {
-  local adapter="/sys/class/i2c-adapter/i2c-$1" driver
-  [ -e "$adapter" ] || return 0
-  driver="$(readlink -f "$adapter/device/driver" 2>/dev/null)"
+  local adapter="$LIVI_I2C_DEVICES/i2c-$1" driver
+  if [ ! -e "$adapter" ]; then
+    ! livi_i2c_dt_claimed "$1"
+    return
+  fi
+  driver="$(readlink -f "$(dirname "$(readlink -f "$adapter")")/driver" 2>/dev/null)"
   [ "${driver##*/}" = i2c-gpio ]
 }
 
@@ -666,7 +686,7 @@ livi_pick_mfi_bus() {
     return 0
   fi
   n=2
-  while [ -e "/sys/class/i2c-adapter/i2c-$n" ]; do
+  while ! livi_i2c_free "$n"; do
     n=$((n + 1))
   done
   LIVI_MFI_I2C_BUS="$n"

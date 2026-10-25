@@ -321,14 +321,14 @@ impl Player {
             eprintln!(
                 "[gst_video] no decoder registered for {codec}. Install the GStreamer plugin \
                  providing it, software decoding needs gstreamer1.0-libav ({}).",
-                livi_video_codec::sw_decoder_for(codec)
+                livi_video::codec::sw_decoder_for(codec)
                     .to_str()
                     .unwrap_or("")
             );
             return None;
         };
 
-        let with_cal = !livi_video_codec::calibration().is_empty();
+        let with_cal = !livi_video::codec::calibration().is_empty();
         let pipeline = Self::parse(codec, decoder, with_cal, handle)?;
 
         let appsrc = pipeline
@@ -381,11 +381,11 @@ impl Player {
 
     fn parse(codec: &str, decoder: &str, with_cal: bool, handle: usize) -> Option<gst::Pipeline> {
         let describe = |cal: bool| {
-            livi_video_codec::pipeline_desc(
+            livi_video::codec::pipeline_desc(
                 codec,
                 decoder,
                 if cal {
-                    livi_video_codec::calibration()
+                    livi_video::codec::calibration()
                 } else {
                     ""
                 },
@@ -396,7 +396,7 @@ impl Player {
         let desc = describe(with_cal);
         eprintln!(
             "[gst_video] window={handle:#x} codec={codec} decoder={decoder} ({}) | {desc}",
-            if livi_video_codec::is_hw_decoder(decoder) {
+            if livi_video::codec::is_hw_decoder(decoder) {
                 "hw"
             } else {
                 "sw"
@@ -502,7 +502,7 @@ pub fn version() -> String {
     gst::version_string().to_string()
 }
 
-fn render_gpu() -> Option<livi_video_codec::RenderGpu> {
+fn render_gpu() -> Option<livi_video::codec::RenderGpu> {
     let node = std::env::var("LIVI_RENDER_NODE").ok()?;
     let name = std::path::Path::new(&node)
         .file_name()?
@@ -514,16 +514,16 @@ fn render_gpu() -> Option<livi_video_codec::RenderGpu> {
         .and_then(|d| d.file_name())
         .is_some_and(|d| d == "nvidia");
     Some(if nvidia {
-        livi_video_codec::RenderGpu::Nvidia
+        livi_video::codec::RenderGpu::Nvidia
     } else {
-        livi_video_codec::RenderGpu::Node(name)
+        livi_video::codec::RenderGpu::Node(name)
     })
 }
 
 fn candidates(codec: &str, sw_only: bool) -> Vec<String> {
     match render_gpu() {
-        Some(gpu) => livi_video_codec::decoder_candidates_on(codec, sw_only, &gpu),
-        None => livi_video_codec::decoder_candidates(codec, sw_only)
+        Some(gpu) => livi_video::codec::decoder_candidates_on(codec, sw_only, &gpu),
+        None => livi_video::codec::decoder_candidates(codec, sw_only)
             .iter()
             .filter_map(|name| name.to_str().ok())
             .map(str::to_owned)
@@ -556,9 +556,11 @@ pub fn probe(codec: &str) -> (bool, bool) {
         .into_iter()
         .find(|name| usable(name));
 
-    let hw = best.as_deref().is_some_and(livi_video_codec::is_hw_decoder);
+    let hw = best
+        .as_deref()
+        .is_some_and(livi_video::codec::is_hw_decoder);
     let sw = exists(
-        livi_video_codec::sw_decoder_for(codec)
+        livi_video::codec::sw_decoder_for(codec)
             .to_str()
             .unwrap_or(""),
     );

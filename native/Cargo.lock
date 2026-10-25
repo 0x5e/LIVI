@@ -3847,32 +3847,17 @@ dependencies = [
 ]
 
 [[package]]
-name = "livi-audio-player"
+name = "livi-audio"
 version = "0.1.0"
 dependencies = [
  "gstreamer",
  "gstreamer-app",
  "gstreamer-audio",
  "gstreamer-controller",
- "livi-audio-stream",
- "livi-audio-uplink",
- "livi-host-proto",
-]
-
-[[package]]
-name = "livi-audio-stream"
-version = "0.1.0"
-dependencies = [
  "libc 1.0.0-alpha.5",
  "livi-crypto",
+ "livi-host-proto",
  "socket2",
-]
-
-[[package]]
-name = "livi-audio-uplink"
-version = "0.1.0"
-dependencies = [
- "livi-crypto",
 ]
 
 [[package]]
@@ -4001,13 +3986,10 @@ dependencies = [
  "glib",
  "glib-unix",
  "libc 1.0.0-alpha.5",
- "livi-audio-player",
- "livi-audio-stream",
- "livi-audio-uplink",
+ "livi-audio",
  "livi-host-proto",
  "livi-screen-stream",
- "livi-video-fanout",
- "livi-video-nal",
+ "livi-video",
  "livi-video-player",
  "realfft",
 ]
@@ -4134,7 +4116,7 @@ dependencies = [
  "glib",
  "glib-unix",
  "livi-crypto",
- "livi-video-nal",
+ "livi-video",
  "socket2",
 ]
 
@@ -4173,18 +4155,7 @@ dependencies = [
 ]
 
 [[package]]
-name = "livi-video-codec"
-version = "0.1.0"
-
-[[package]]
-name = "livi-video-fanout"
-version = "0.1.0"
-dependencies = [
- "livi-video-nal",
-]
-
-[[package]]
-name = "livi-video-nal"
+name = "livi-video"
 version = "0.1.0"
 
 [[package]]
@@ -4196,7 +4167,7 @@ dependencies = [
  "gstreamer-base",
  "gstreamer-video",
  "livi-host-proto",
- "livi-video-codec",
+ "livi-video",
 ]
 
 [[package]]
@@ -7875,13 +7846,6 @@ dependencies = [
  "idna",
  "percent-encoding",
  "serde",
-]
-
-[[package]]
-name = "usb-probe"
-version = "0.1.0"
-dependencies = [
- "nusb",
 ]
 
 [[package]]

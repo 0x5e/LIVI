@@ -1,17 +1,14 @@
 [package]
-name = "livi-audio-player"
+name = "livi-audio"
 version = "0.1.0"
 edition.workspace = true
 
-# One CarPlay audio stream from its RTP packets to the sink.
-[lib]
-crate-type = ["rlib"]
-
 [dependencies]
-livi-host-proto.workspace = true
-livi-audio-stream.workspace = true
-livi-audio-uplink.workspace = true
 gstreamer = { workspace = true, features = ["v1_24"] }
 gstreamer-app = { workspace = true, features = ["v1_24"] }
 gstreamer-audio = { version = "0.25", features = ["v1_24"] }
 gstreamer-controller = "0.25"
+libc.workspace = true
+livi-crypto.workspace = true
+livi-host-proto.workspace = true
+socket2.workspace = true

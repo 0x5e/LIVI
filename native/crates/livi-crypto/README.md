@@ -1,7 +1,7 @@
 # livi-crypto
 
-ChaCha20-Poly1305 for the CarPlay media receivers in `livi-audio-stream`,
-`livi-audio-uplink` and `livi-screen-stream`, used there as a cargo dependency.
+ChaCha20-Poly1305 for the CarPlay media receivers in `livi-audio` (stream,
+uplink) and `livi-screen-stream`, used there as a cargo dependency.
 
 The crate takes the AEAD from aws-lc-rs (assembly ChaCha20/Poly1305, NEON on
 aarch64) and needs cmake for the AWS-LC build.

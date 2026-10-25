@@ -1,3 +1,5 @@
+//! Codec detection and NAL classification for the CarPlay screen stream.
+
 #[derive(Clone, Copy, PartialEq, Eq, Debug)]
 pub enum CpCodec {
     H264 = 0,

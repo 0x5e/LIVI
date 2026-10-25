@@ -4,8 +4,8 @@ use std::rc::Rc;
 use std::sync::Arc;
 use std::sync::atomic::{AtomicBool, Ordering};
 
-use livi_audio_stream::{AudioSink, Codec as AudioCodec};
-use livi_audio_uplink::UplinkCodec;
+use livi_audio::stream::{AudioSink, Codec as AudioCodec};
+use livi_audio::uplink::UplinkCodec;
 pub use livi_host_proto::UrlStatus;
 use livi_host_proto::{
     CLUSTER_PLANE_MAX, CLUSTER_PLANE_MIN, CLUSTER_RECV_ID, Framer, cameras_body, feed as feedproto,
@@ -13,8 +13,8 @@ use livi_host_proto::{
 };
 pub use livi_host_proto::{CameraOrder, CameraSeen};
 use livi_screen_stream::ScreenSink;
-use livi_video_fanout::Fanout;
-use livi_video_nal::CpCodec;
+use livi_video::fanout::Fanout;
+use livi_video::nal::CpCodec;
 
 mod audio;
 pub mod feed;

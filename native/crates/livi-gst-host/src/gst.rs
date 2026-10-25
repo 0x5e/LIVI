@@ -1,6 +1,6 @@
-use livi_audio_player::uplink::{SocketTap, Uplink, UplinkConfig as UplinkPipeline};
-use livi_audio_player::{Config as AudioPipeline, Player as AudioPipelinePlayer};
-use livi_audio_stream::AudioSink;
+use livi_audio::player::uplink::{SocketTap, Uplink, UplinkConfig as UplinkPipeline};
+use livi_audio::player::{Config as AudioPipeline, Player as AudioPipelinePlayer};
+use livi_audio::stream::AudioSink;
 use livi_screen_stream::ScreenSink;
 #[cfg(not(target_os = "macos"))]
 use livi_video_player::{Player, UrlPlayer};
@@ -57,7 +57,7 @@ impl UrlPlay for UrlPlayer {
 
 pub struct Ears(#[allow(dead_code)] livi_screen_stream::receiver::ScreenReceiver);
 
-pub struct AudioEars(#[allow(dead_code)] livi_audio_stream::receiver::AudioReceiver);
+pub struct AudioEars(#[allow(dead_code)] livi_audio::stream::receiver::AudioReceiver);
 
 pub struct FeedEars(#[allow(dead_code)] crate::feed::FeedListener);
 
@@ -214,8 +214,8 @@ impl Outside for Gst {
         key: [u8; 32],
         sink: Box<dyn AudioSink + Send>,
     ) -> Option<(AudioEars, u16, u16)> {
-        let stream = livi_audio_stream::AudioStream::new(key, sink);
-        match livi_audio_stream::receiver::AudioReceiver::new(stream) {
+        let stream = livi_audio::stream::AudioStream::new(key, sink);
+        match livi_audio::stream::receiver::AudioReceiver::new(stream) {
             Ok((r, data, control)) => Some((AudioEars(r), data, control)),
             Err(e) => {
                 eprintln!("[cp_audio] cannot listen: {e}");

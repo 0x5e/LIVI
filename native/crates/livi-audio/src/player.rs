@@ -1,3 +1,5 @@
+//! One CarPlay audio stream from its RTP packets to the sink.
+
 pub mod uplink;
 
 use gstreamer as gst;
@@ -6,7 +8,7 @@ use gstreamer_audio as gst_audio;
 use gstreamer_controller as gst_controller;
 use gstreamer_controller::prelude::*;
 
-use livi_audio_stream::{Codec, RTP_HEADER_LEN, aac_raw_caps, reframe_aac, rtp_caps};
+use crate::stream::{Codec, RTP_HEADER_LEN, aac_raw_caps, reframe_aac, rtp_caps};
 use std::str::FromStr;
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::{Arc, Mutex, Once};

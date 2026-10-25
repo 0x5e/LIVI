@@ -46,9 +46,7 @@ livi-aa = { path = "crates/livi-aa" }
 livi-aa-proto = { path = "crates/livi-aa-proto" }
 livi-aa-stack = { path = "crates/livi-aa-stack" }
 livi-accessoryd = { path = "crates/livi-accessoryd" }
-livi-audio-player = { path = "crates/livi-audio-player" }
-livi-audio-stream = { path = "crates/livi-audio-stream" }
-livi-audio-uplink = { path = "crates/livi-audio-uplink" }
+livi-audio = { path = "crates/livi-audio" }
 livi-bt-host = { path = "crates/livi-bt-host" }
 livi-btd = { path = "crates/livi-btd" }
 livi-core-client = { path = "crates/livi-core-client" }
@@ -68,9 +66,7 @@ livi-runtime = { path = "crates/livi-runtime" }
 livi-screen-stream = { path = "crates/livi-screen-stream" }
 livi-session-io = { path = "crates/livi-session-io" }
 livi-ui-model = { path = "crates/livi-ui-model" }
-livi-video-codec = { path = "crates/livi-video-codec" }
-livi-video-fanout = { path = "crates/livi-video-fanout" }
-livi-video-nal = { path = "crates/livi-video-nal" }
+livi-video = { path = "crates/livi-video" }
 livi-video-player = { path = "crates/livi-video-player" }
 livi-video-view = { path = "crates/livi-video-view" }
 livi-web = { path = "crates/livi-web" }

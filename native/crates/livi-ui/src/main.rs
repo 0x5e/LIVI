@@ -144,7 +144,10 @@ fn apply(ui: &AppWindow, update: Update) {
             (_, Page::Projection) => choose(ui, Page::Media),
             _ => {}
         },
-        Update::Phone(phone) => ui.set_phone(phone),
+        Update::Phone(phone) => {
+            ui.set_phone(phone);
+            settle_projection_focus(ui);
+        }
         Update::Look(look) => apply_look(ui, look),
         Update::Kiosk(on) => fullscreen::follow_main(ui.window(), on),
         Update::Settings => {
@@ -233,6 +236,13 @@ fn reported(ui: &AppWindow, client: &Client, page: Page) {
     media_ui::follow(ui);
     if page != Page::Settings {
         settings_ui::leave(client);
+    }
+    settle_projection_focus(ui);
+}
+
+fn settle_projection_focus(ui: &AppWindow) {
+    if ui.get_page() == Page::Projection && ui.get_phone() == PhoneState::Streaming {
+        ui.global::<Focus>().set_zone(FocusZone::None);
     }
 }
 

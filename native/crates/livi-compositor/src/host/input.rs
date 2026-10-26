@@ -151,7 +151,7 @@ impl TouchHandler for LiviState {
         let screen_idx = self.host.screen_for_surface(&surface).unwrap_or(0);
         let s = &self.screens[screen_idx];
         let (lx, ly) = (s.x as f64 + position.0, position.1);
-        crate::input::touch_down(self, time, id, lx, ly, screen_idx);
+        crate::input::touch_down(self, time, id.cast_unsigned(), lx, ly, screen_idx);
     }
 
     fn up(
@@ -163,7 +163,7 @@ impl TouchHandler for LiviState {
         time: u32,
         id: i32,
     ) {
-        crate::input::touch_up(self, time, id);
+        crate::input::touch_up(self, time, id.cast_unsigned());
     }
 
     fn motion(
@@ -175,7 +175,7 @@ impl TouchHandler for LiviState {
         id: i32,
         position: (f64, f64),
     ) {
-        crate::input::touch_motion(self, time, id, position.0, position.1);
+        crate::input::touch_motion(self, time, id.cast_unsigned(), position.0, position.1);
     }
 
     fn shape(

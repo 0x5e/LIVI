@@ -11,7 +11,7 @@ use smithay::backend::drm::{DrmDevice, DrmDeviceFd, DrmDeviceNotifier, DrmEvent,
 use smithay::backend::egl::{EGLContext, EGLDisplay};
 use smithay::backend::input::{
     AbsolutePositionEvent, Axis, ButtonState, Event, InputEvent, KeyState, KeyboardKeyEvent,
-    PointerAxisEvent, PointerButtonEvent, PointerMotionEvent, TouchEvent,
+    PointerAxisEvent, PointerButtonEvent, PointerMotionEvent,
 };
 use smithay::backend::libinput::{LibinputInputBackend, LibinputSessionInterface};
 use smithay::backend::renderer::element::Kind as ElementKind;

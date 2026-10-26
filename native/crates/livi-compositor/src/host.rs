@@ -93,7 +93,7 @@ pub struct HostState {
     pub has_touch_cap: bool,
     pub last_pointer_serial: u32,
     pub host_seat: Option<CWlSeat>,
-    pub touch_positions: Vec<(i32, f64, f64)>,
+    pub touch_positions: Vec<(u32, f64, f64)>,
     pub alt_held: bool,
     pub deco: std::collections::HashMap<usize, crate::deco::DecoSet>,
 }

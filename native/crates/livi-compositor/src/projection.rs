@@ -36,7 +36,7 @@ impl Rect {
 
 #[derive(Default)]
 pub struct Fingers {
-    held: BTreeMap<i32, (f64, f64)>,
+    held: BTreeMap<u32, (f64, f64)>,
     rect: Option<Rect>,
     moved: bool,
     sent: Option<Instant>,
@@ -187,7 +187,7 @@ pub fn ui_clear(surface: &WlSurface) -> bool {
     .unwrap_or(false)
 }
 
-fn frame(held: &BTreeMap<i32, (f64, f64)>, changed: Option<(i32, &str)>) -> String {
+fn frame(held: &BTreeMap<u32, (f64, f64)>, changed: Option<(u32, &str)>) -> String {
     let mut line = String::from("touch main");
     for (id, (x, y)) in held {
         let phase = match changed {
@@ -200,14 +200,14 @@ fn frame(held: &BTreeMap<i32, (f64, f64)>, changed: Option<(i32, &str)>) -> Stri
     line
 }
 
-fn send(state: &mut LiviState, changed: Option<(i32, &str)>) {
+fn send(state: &mut LiviState, changed: Option<(u32, &str)>) {
     let line = frame(&state.fingers.held, changed);
     state.fingers.moved = false;
     state.fingers.sent = Some(Instant::now());
     crate::ctrl::send(state, &line);
 }
 
-pub fn claim(state: &mut LiviState, id: i32, x: f64, y: f64) -> bool {
+pub fn claim(state: &mut LiviState, id: u32, x: f64, y: f64) -> bool {
     let Some(rect) = stream_rect(state) else {
         return false;
     };
@@ -220,7 +220,7 @@ pub fn claim(state: &mut LiviState, id: i32, x: f64, y: f64) -> bool {
     true
 }
 
-pub fn moved(state: &mut LiviState, id: i32, x: f64, y: f64) -> bool {
+pub fn moved(state: &mut LiviState, id: u32, x: f64, y: f64) -> bool {
     let Some(rect) = state.fingers.rect else {
         return false;
     };
@@ -233,7 +233,7 @@ pub fn moved(state: &mut LiviState, id: i32, x: f64, y: f64) -> bool {
     true
 }
 
-pub fn lifted(state: &mut LiviState, id: i32) -> bool {
+pub fn lifted(state: &mut LiviState, id: u32) -> bool {
     if !state.fingers.held.contains_key(&id) {
         return false;
     }

@@ -224,7 +224,7 @@ pub fn pointer_axis(state: &mut LiviState, time: u32, horizontal: f64, vertical:
     }
 }
 
-pub fn touch_down(state: &mut LiviState, time: u32, id: i32, lx: f64, ly: f64, _screen_idx: usize) {
+pub fn touch_down(state: &mut LiviState, time: u32, id: u32, lx: f64, ly: f64, _screen_idx: usize) {
     if crate::projection::claim(state, id, lx, ly) {
         state.host.touch_positions.push((id, lx, ly));
         return;
@@ -246,7 +246,7 @@ pub fn touch_down(state: &mut LiviState, time: u32, id: i32, lx: f64, ly: f64, _
             state,
             Some((surface, origin)),
             &DownEvent {
-                slot: Some(id as u32).into(),
+                slot: Some(id).into(),
                 location: Point::from((lx, ly)),
                 serial: SERIAL_COUNTER.next_serial(),
                 time,
@@ -257,7 +257,7 @@ pub fn touch_down(state: &mut LiviState, time: u32, id: i32, lx: f64, ly: f64, _
     state.host.touch_positions.push((id, lx, ly));
 }
 
-pub fn touch_motion(state: &mut LiviState, time: u32, id: i32, wx: f64, wy: f64) {
+pub fn touch_motion(state: &mut LiviState, time: u32, id: u32, wx: f64, wy: f64) {
     let screen_x = state
         .host
         .touch_positions
@@ -293,7 +293,7 @@ pub fn touch_motion(state: &mut LiviState, time: u32, id: i32, wx: f64, wy: f64)
             state,
             under,
             &TouchMotionEvent {
-                slot: Some(id as u32).into(),
+                slot: Some(id).into(),
                 location: Point::from((lx, ly)),
                 time,
             },
@@ -302,7 +302,7 @@ pub fn touch_motion(state: &mut LiviState, time: u32, id: i32, wx: f64, wy: f64)
     }
 }
 
-pub fn touch_up(state: &mut LiviState, time: u32, id: i32) {
+pub fn touch_up(state: &mut LiviState, time: u32, id: u32) {
     log::debug!("touch up   id={id}");
     state.host.touch_positions.retain(|(tid, _, _)| *tid != id);
     if crate::projection::lifted(state, id) {
@@ -312,7 +312,7 @@ pub fn touch_up(state: &mut LiviState, time: u32, id: i32) {
         touch.up(
             state,
             &UpEvent {
-                slot: Some(id as u32).into(),
+                slot: Some(id).into(),
                 serial: SERIAL_COUNTER.next_serial(),
                 time,
             },
